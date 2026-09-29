@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Saving the planning settings now shows clear feedback ("Saving…", then "Saved – plan updated") and scrolls to the updated plan
+
 ## 0.1.0
 
 First planning version. **Advice only: nothing is controlled.**

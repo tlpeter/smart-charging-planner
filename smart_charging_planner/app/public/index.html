@@ -697,14 +697,22 @@
       e.preventDefault();
       const f = e.target;
       const errBox = f.querySelector('.form-error');
+      const btn = f.querySelector('button[type=submit]');
       errBox.hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
       try {
         await api('POST', 'api/planning', Object.fromEntries(new FormData(f)));
         document.activeElement.blur();
-        loadOverview();
+        await loadOverview();
+        btn.textContent = 'Saved ✓ – plan updated';
+        $('overview-body').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2500);
       } catch (err) {
         errBox.textContent = err.message;
         errBox.hidden = false;
+        btn.textContent = 'Save';
+        btn.disabled = false;
       }
     });
     window.addEventListener('resize', () => { if (lastPlan) drawChart(lastPlan); });
