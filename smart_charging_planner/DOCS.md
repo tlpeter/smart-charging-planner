@@ -42,6 +42,10 @@ No integration for your car at all? Use **No car integration?** on the Vehicle t
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
 
+## Charging power
+
+The plan uses the charger maximum (phases × 230 V × maximum current), unless the car really charges slower. With a charging power sensor on the Charger tab, the app learns from the last 10 days at what power the car typically charges at full speed (at least 30 minutes of charging is needed), and uses the lower of the two. The Overview shows which power the plan uses and why.
+
 ## House load
 
 When the Grid tab is set up, the plan uses the last 14 days of your grid meter to estimate, per hour of the day, how much current is left for the charger under your main fuse. The charger's own power is subtracted when a charging power sensor is chosen on the Charger tab. Your grid meter needs long-term statistics (most P1 power sensors have them). This is an estimate; a load balancer such as the Easee Equalizer still does the real-time protection.

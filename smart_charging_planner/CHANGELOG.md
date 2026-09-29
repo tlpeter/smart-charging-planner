@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2
+
+- The plan now uses the **real charging power**: the app learns from the charger power sensor (last 10 days) at what power the car really charges, and uses that when it is lower than the charger maximum. A load balancer, the car's own on-board charger or a lower voltage no longer make the plan too optimistic
+- The Overview shows again what the charger is doing now ("charging now at 9.2 kW", measured), and on a separate line which power the plan uses and why
+- Without a charging power sensor or enough measured charging, the plan uses the charger maximum as before, and says so
+
 ## 0.9.1
 
 - Removed "charging at … kW" from the Overview. It showed the power the plan calculates with, not what the charger really does, which was confusing

@@ -851,6 +851,24 @@
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
       else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
 
+      const pw = d.power || null;
+      let nowText = '';
+      if (pw && pw.now_w != null) nowText = pw.now_w > 500 ? `charging now at ${(pw.now_w / 1000).toFixed(1)} kW` : 'not charging now';
+      let planText = '';
+      if (pw) {
+        const limit = `${pw.phases} × ${tidy(pw.amps)} A = ${pw.theoretical_kw.toFixed(1)} kW${d.assumed_current ? ', assumed' : pw.max_source === 'manual' ? ', set manually' : pw.max_name ? `, max from ${pw.max_name}` : ''}`;
+        if (pw.learned && pw.learned.available) {
+          planText = pw.learned.kw < pw.theoretical_kw - 0.05
+            ? `Plan uses ${pw.planned_kw.toFixed(1)} kW: what the car really charged at in the last ${pw.learned.days} days (the charger allows ${limit})`
+            : `Plan uses ${pw.planned_kw.toFixed(1)} kW: the charger maximum (${limit}); measured in the last ${pw.learned.days} days: ${pw.learned.kw.toFixed(1)} kW`;
+        } else {
+          const why = pw.learned && pw.learned.reason === 'no_power_sensor' ? 'choose a charging power sensor on the Charger tab to use the real charging power'
+            : pw.learned && pw.learned.reason === 'error' ? 'the real charging power could not be read'
+            : 'not enough charging measured yet to learn the real charging power';
+          planText = `Plan uses ${pw.planned_kw.toFixed(1)} kW (${limit}); ${why}`;
+        }
+        if (d.house_load.available && p.blocks.length && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += '; less in some blocks because of house load';
+      }
       const socText = v.soc != null ? `${v.soc}%${v.mode === 'manual_soc' ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
@@ -859,7 +877,8 @@
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
+          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</p>
+          ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
           ${p.cost != null ? `
           <div class="stats">
             <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div>

@@ -19,6 +19,7 @@ const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
 const { checkControl } = require('./control');
 const controller = require('./controller');
 const session = require('./session');
+const { learnedPower } = require('./chargepower');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -444,7 +445,11 @@ const routes = {
     const maxInfo = charger ? effectiveMaxCurrent(charger, states) : null;
     const maxCurrent = maxInfo && maxInfo.amps ? maxInfo.amps : null;
     const phases = charger ? charger.phases : 3;
-    const powerKw = chargePowerKw(phases, maxCurrent);
+    const theoreticalKw = chargePowerKw(phases, maxCurrent);
+    // What the car really charges at, learned from the charger power sensor.
+    const learned = charger && charger.power_entity ? await learnedPower(charger.power_entity, now) : { available: false, reason: 'no_power_sensor' };
+    const learnedKw = learned.available ? learned.kw : null;
+    const powerKw = learnedKw ? Math.min(theoreticalKw, learnedKw) : theoreticalKw;
 
     // House load: less room for the charger when the house uses more.
     const grid = s.grid[0] || null;
@@ -455,7 +460,7 @@ const routes = {
         const opts = { profile: houseLoad.profile, mainFuse: grid.main_fuse, phases, chargerMax: maxCurrent || 16 };
         prices = prices.map((p) => {
           const a = availableForBlock(p.start, tz, opts);
-          return { ...p, power_kw: a.power_kw, amps: a.amps };
+          return { ...p, power_kw: learnedKw ? Math.min(a.power_kw, learnedKw) : a.power_kw, amps: a.amps };
         });
       }
     }
@@ -502,6 +507,17 @@ const routes = {
       } : null,
       charger: charger ? { name: charger.name, phases: charger.phases, max_current: maxCurrent, max_source: maxInfo && maxInfo.source } : null,
       assumed_current: maxCurrent ? null : 16,
+      power: {
+        planned_kw: powerKw,
+        theoretical_kw: theoreticalKw,
+        amps: maxCurrent || 16,
+        phases,
+        max_source: maxInfo ? maxInfo.source : null,
+        max_name: maxInfo ? maxInfo.name || null : null,
+        learned,
+        now_w: actualNow.power_w,
+        charging_now: actualNow.charging,
+      },
       prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps })),
       house_load: houseLoad.available ? {
         available: true,
