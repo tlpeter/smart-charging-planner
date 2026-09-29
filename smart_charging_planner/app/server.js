@@ -505,7 +505,7 @@ const routes = {
       }
       if (kwh != null && kwh <= 0.01) {
         const prev = boost.stop('goal reached');
-        endBoost(prev, 'Charge now reached its goal').catch((err) => ha.warn('Stopping after Charge now failed:', err.message));
+        if (prev) ha.log('Charge now reached its goal; the plan takes over');
       }
       else {
         boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
@@ -892,6 +892,8 @@ async function manualControl(on, reason) {
     try {
       await ha.sendControl(command, controller.allowedFor(m));
       entry.sent = true;
+      // Remember it, so the live control knows the last command sent.
+      lastLiveSend = { key: JSON.stringify([command.service, command.data, command.target]), at: entry.time };
     } catch (err) {
       entry.error = err.message;
     }
@@ -899,12 +901,6 @@ async function manualControl(on, reason) {
   controller.logSent(entry);
   if (entry.error) ha.log(`${reason}: not sent (${entry.error})`);
   return { sent: entry.sent, error: entry.error || null, command: entry.commands[0] || null, at: entry.time };
-}
-
-// Charge now ended: stop the charger again if Charge now started it.
-async function endBoost(prev, reason) {
-  if (!prev || !prev.send || !prev.send.sent || prev.was_charging) return null;
-  return manualControl(false, reason);
 }
 
 routes['POST /api/boost'] = async (req) => {
@@ -931,11 +927,13 @@ routes['POST /api/boost'] = async (req) => {
 };
 
 routes['DELETE /api/boost'] = async () => {
-  const prev = boost.stop('stopped by you');
-  const send = await endBoost(prev, 'Charge now stopped by you');
+  boost.stop('stopped by you');
   planCache = null;
   await refreshPlan('charge now stopped');
-  return { ok: true, send };
+  const n = lastDryRun;
+  const c = n && n.commands[0];
+  const send = n && (n.sent || n.error) && c ? { sent: !!n.sent, error: n.error || null, command: c, at: n.sent_at || Date.now() } : null;
+  return { ok: true, send, next: n ? { want: n.want, reason: n.reason } : null };
 };
 
 // Manual test on the Control tab: start or stop once.
@@ -1019,9 +1017,40 @@ async function runDryRun(planResult) {
     deviceId: methods && methods.device_id,
     rules,
     controlAllowed: options.allow_control,
+    live: options.allow_control === true,
   });
-  ha.debug('Dry run:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
+  ha.debug('Control:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
+  if (options.allow_control === true) await sendLive(lastDryRun, chosenMethods(methods, rules));
   return lastDryRun;
+}
+
+// Live control: send the start/stop command the decision needs. The same
+// command is not repeated within 15 minutes, so a charger that does not
+// react is not flooded.
+const LIVE_RETRY_MS = 15 * 60000;
+let lastLiveSend = null; // { key, at }
+
+async function sendLive(entry, chosen) {
+  const c = entry.commands.find((x) => x.what === 'start charging' || x.what === 'pause charging');
+  if (!c) return;
+  const key = JSON.stringify([c.service, c.data, c.target]);
+  if (lastLiveSend && lastLiveSend.key === key && Date.now() - lastLiveSend.at < LIVE_RETRY_MS) {
+    entry.waiting = true;
+    return;
+  }
+  lastLiveSend = { key, at: Date.now() };
+  const line = { ...entry, time: Date.now(), live: true, commands: [c], sent: false };
+  try {
+    await ha.sendControl(c, controller.allowedFor(chosen && chosen.start_stop));
+    line.sent = true;
+    entry.sent = true;
+  } catch (err) {
+    line.error = err.message;
+    entry.error = err.message;
+    ha.warn('Could not', c.what, '-', err.message);
+  }
+  entry.sent_at = line.time;
+  controller.logSent(line);
 }
 
 // The methods the user chose, or the recommended ones.
@@ -1107,6 +1136,15 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshPlan('timer').catch(() => {});
   }, every);
+  // With control on, check the charger every minute between plan refreshes,
+  // so plugging in or the start of a planned period is followed quickly.
+  if (options.allow_control === true && every > 60000) {
+    setInterval(() => {
+      if (ha.state.connected && planCache && !planRunning) {
+        runDryRun(planCache.result).catch((err) => ha.warn('Control step failed:', err.message));
+      }
+    }, 60000);
+  }
 }
 
 // Maximum charging current: the lowest of the followed limit sensors and the

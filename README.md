@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.11.0). Charging plan, departures, savings and a dry run of charger control. With "Allow control" on, Charge now and a manual test really start and stop the charger; the plan itself does not control yet.
+> Status: early development (v0.12.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
 
 ## Installation
 
@@ -20,6 +20,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 - [x] House load per hour
 - [x] Savings overview
 - [x] Charge now and manual start/stop (only when "Allow control" is on)
-- [ ] Charger control by the plan (only when "Allow control" is on)
+- [x] Charger control by the plan (only when "Allow control" is on)
+- [ ] Charging current control
 - [ ] Home battery and solar forecast
 - [ ] Multiple vehicles

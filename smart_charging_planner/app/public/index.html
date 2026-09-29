@@ -874,7 +874,7 @@
       return `
         <div class="card">
           <div class="row" style="border:none;padding:0;align-items:center">
-            <span class="advice">${d.control_allowed ? 'PLAN IS ADVICE ONLY · CHARGE NOW CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
+            <span class="advice">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
@@ -937,7 +937,7 @@
             ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
           ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
           ${sendHtml(b.send, 'Start')}
-          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.${d.control_allowed ? ' When the goal is reached or you stop it, the app pauses the charger again (unless it was already charging before).' : ' Allow control is off: nothing is sent to the charger, the Control tab shows what would be sent.'}</p>
+          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.${d.control_allowed ? ' When the goal is reached or you stop it, the plan takes over again and starts or pauses the charger.' : ' Allow control is off: nothing is sent to the charger, the Control tab shows what would be sent.'}</p>
           <button class="secondary" id="boost-stop">Stop charge now</button>
         </div>`;
       }
@@ -995,7 +995,7 @@
         stop.disabled = true;
         stop.textContent = 'Stopping…';
         const r = await api('DELETE', 'api/boost');
-        boostMessage = `<p class="muted small">Charge now stopped.</p>${sendHtml(r.send, 'Stop')}`;
+        boostMessage = `<p class="muted small">Charge now stopped.${r.next ? ` The plan takes over: ${esc(wantText(r.next).toLowerCase())} (${esc(r.next.reason)}).` : ''}</p>${sendHtml(r.send, r.send && r.send.command && r.send.command.what === 'start charging' ? 'Start' : 'Pause')}`;
         await loadOverview();
         setTimeout(() => { boostMessage = ''; }, 60000);
       };
@@ -1389,7 +1389,7 @@
     function wantText(e) {
       if (!e) return 'No decision yet';
       switch (e.want) {
-        case 'charge': return e.manual ? 'Start charging' : `Charge at ${e.amps} A`;
+        case 'charge': return e.manual || e.live ? 'Charge' : `Charge at ${e.amps} A`;
         case 'pause': return 'Pause charging';
         case 'leave': return 'Leave the charger alone';
         default: return 'Nothing to do';
@@ -1477,17 +1477,17 @@
         }
         box.innerHTML = `
           <div class="card">
-            <span class="advice test">PLAN: DRY RUN · NOTHING IS SENT</span>
-            <div class="headline">Right now the app would: ${esc(wantText(n))}</div>
+            ${d.control_allowed ? '<span class="advice">LIVE · THE APP CONTROLS THE CHARGER</span>' : '<span class="advice test">DRY RUN · NOTHING IS SENT</span>'}
+            <div class="headline">Right now the app ${d.control_allowed ? 'wants to' : 'would'}: ${esc(wantText(n))}</div>
             <p class="muted small">${esc(n.reason)}${n.block_end ? ` until ${esc(t(n.block_end))}` : ''}${n.next_start ? ` · next planned start ${esc(t(n.next_start))}` : ''}${n.locked_until ? ` · period locked until ${esc(t(n.locked_until))}` : ''}</p>
             <div class="row"><span class="label">Charger now</span><span class="value">${esc(actualText(n))}</span></div>
             <div class="row"><span class="label">Same as the plan?</span><span class="value">${n.agrees ? '<span class="agree">Yes</span>' : '<span class="differ">No — the app would change this</span>'}</span></div>
-            <div class="row"><span class="label">Would send</span><span class="value">${n.commands.length ? n.commands.map(cmdText).join('<br>') : '<span class="muted">nothing</span>'}</span></div>
-            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. The plan never sends anything in this version; only Charge now (Overview) and the manual test below do, and only when "Allow control" is on.</p>
+            <div class="row"><span class="label">${d.control_allowed ? 'Sends' : 'Would send'}</span><span class="value">${n.commands.length ? n.commands.map(cmdText).join('<br>') : '<span class="muted">nothing</span>'}${n.waiting ? '<div class="src">Already sent less than 15 minutes ago; waiting for the charger before sending again.</div>' : ''}${n.error ? `<div class="src differ">${esc(n.error)}</div>` : ''}</span></div>
+            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. ${d.control_allowed ? 'Allow control is on: the app starts and pauses the charger by itself, following the plan, Charge now and the rules below. The charger is also checked every minute in between. Only start/stop is sent; the charging current is not changed. Turn off your own charging automation, or the two will fight.' : 'Allow control is off: nothing is sent. Turn it on in the app\'s Configuration tab to let the app control the charger.'}</p>
           </div>
           <div class="card">
             <h2>Manual test</h2>
-            <p class="muted small">Start or stop the charger once with the start/stop method chosen below${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. Turn off your own charging automation first, so it does not undo the test.</p>
+            <p class="muted small">Start or stop the charger once with the start/stop method chosen below${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. With Allow control on, the plan takes over again at the next check (within a minute); to charge now, use Charge now on the Overview.</p>
             ${d.control_allowed
               ? '<div style="display:flex;gap:8px"><button class="primary" id="manual-start">Start charging</button><button class="secondary" id="manual-stop">Stop charging</button></div>'
               : '<div class="note">Allow control is off in the app\'s Configuration tab, so these buttons are hidden and nothing can be sent.</div>'}
@@ -1495,12 +1495,12 @@
           </div>
           <div class="card">
             <h2>Log</h2>
-            <p class="muted small">What the plan would do (dry run), and every command that was really sent (SENT) or refused (Not sent).</p>
+            <p class="muted small">What the app wanted, and every command that was really sent (SENT) or could not be sent (Not sent).</p>
             ${d.log.length ? `<table class="periods">
-              <tr><th>Time</th><th>The app would</th><th>Charger was</th></tr>
+              <tr><th>Time</th><th>The app wanted</th><th>Charger was</th></tr>
               ${d.log.map((e) => `<tr>
                 <td>${esc(t(e.time))}</td>
-                <td>${e.manual ? `<strong>${e.sent ? 'SENT' : 'Not sent'}</strong> · ` : ''}${esc(wantText(e))}<div class="src">${esc(e.reason)}</div>${e.commands.map((c) => `<div class="src">${esc(c.what)}${e.manual ? `: ${esc(c.service)}` : ''}</div>`).join('')}${e.error ? `<div class="src differ">${esc(e.error)}</div>` : ''}</td>
+                <td>${e.manual || (e.live && (e.sent || e.error)) ? `<strong>${e.sent ? 'SENT' : 'Not sent'}</strong> · ` : ''}${esc(wantText(e))}<div class="src">${esc(e.reason)}</div>${e.commands.map((c) => `<div class="src">${esc(c.what)}${e.manual || e.sent ? `: ${esc(c.service)}` : ''}</div>`).join('')}${e.error ? `<div class="src differ">${esc(e.error)}</div>` : ''}</td>
                 <td>${esc(actualText(e))}<div class="small ${e.agrees ? 'agree' : 'differ'}">${e.agrees ? 'same' : 'different'}</div></td>
               </tr>`).join('')}
             </table>` : '<p class="muted">Nothing logged yet.</p>'}
@@ -1765,7 +1765,7 @@
         $('count').textContent = s.entity_count ?? '–';
         $('appver').textContent = s.app_version || '–';
         $('control').innerHTML = s.allow_control
-          ? '<span class="ok">Allowed</span> <span class="muted small">(Charge now and the manual test only; the plan is still a dry run)</span>'
+          ? '<span class="ok">On</span> <span class="muted small">(live: the app starts and pauses the charger)</span>'
           : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
         $('loglevel').textContent = s.log_level || '–';
         $('calwrite').innerHTML = s.allow_calendar_write ? '<span class="ok">Allowed</span>' : 'Off <span class="muted small">(test mode)</span>';

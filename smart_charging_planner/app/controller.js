@@ -1,8 +1,8 @@
 'use strict';
 
-// Control dry run: at every refresh, decide what the app WOULD do with the
-// charger and log it. The plan itself never sends anything from here; only
-// manual actions (Charge now, the manual test) send, through ha.sendControl().
+// Control: at every refresh, decide what the app wants the charger to do and
+// log it. Nothing is sent from here: when "Allow control" is on, the server
+// sends the start/stop command through ha.sendControl().
 //
 // Decision order (first match wins):
 //   1. car not plugged in                         -> nothing to do
@@ -244,7 +244,7 @@ function commandsFor(decision, actual, methods, deviceId) {
 }
 
 // One dry-run step. Logs only when something changes.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
@@ -259,7 +259,17 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     writeJson(STATE_FILE, st);
   }
 
-  const commands = commandsFor(decision, actual, methods, deviceId);
+  // Live: only start/stop, never the current. With a switch as start/stop
+  // method, its own on/off state tells whether a command is needed.
+  let cmdActual = actual;
+  const ss = methods && methods.start_stop;
+  if (ss && ss.type === 'switch') {
+    const sw = findState(states, ss.entity_id);
+    if (sw && (sw.state === 'on' || sw.state === 'off')) cmdActual = { ...actual, charging: sw.state === 'on' };
+  }
+  const commands = live
+    ? commandsFor(decision, cmdActual, methods ? { start_stop: ss, current: null } : null, deviceId)
+    : commandsFor(decision, actual, methods, deviceId);
   const agrees = decision.want === 'charge' ? actual.charging === true
     : decision.want === 'pause' ? actual.charging !== true
       : true;
@@ -278,7 +288,8 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     locked_until: lock ? lock.end : null,
     commands: commands.map((c) => ({ what: c.what, service: c.service, data: c.data, target: c.target })),
     agrees,
-    sent: false, // dry run: never sent
+    sent: false, // this line is the decision; a sent command gets its own log line
+    live: !!live,
     control_allowed: !!controlAllowed,
   };
   const entries = loadLog();

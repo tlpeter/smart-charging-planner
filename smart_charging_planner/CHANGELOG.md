@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.0
+
+**Live control.** With "Allow control" on, the app now starts and pauses the charger by itself. With it off (the default) nothing changes: everything is advice and a dry run.
+
+- The charger follows the plan, Charge now and the rules on the Control tab (minimum battery level, preconditioning, force window, locked period, hysteresis)
+- Only start/stop is sent, with the method chosen on the Control tab. The charging current is not changed; your load balancer keeps doing that
+- With a switch as start/stop method, its own on/off state decides whether a command is needed, so nothing is sent when it is already right
+- The same command is not repeated within 15 minutes, so the app does not keep fighting with something else that changes the charger
+- With control on, the charger is checked every minute between plan refreshes, so plugging in and the start of a planned period are followed quickly
+- Charge now: when it ends, the plan takes over directly (instead of always pausing)
+- Every command sent is shown as "SENT" in the Control log and as "SENDING to charger" in the app log
+- Automations, scripts, helpers and other settings are still never touched
+
+**Turn off your own charging automation** before turning on "Allow control", or the two will fight.
+
 ## 0.11.0
 
 **First version that can really control the charger**, only when you turn on "Allow control" in the Configuration tab. The charging plan itself is still a dry run.
