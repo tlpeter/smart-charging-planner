@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.0.2). Connection check and vehicle detection.
+> Status: early development (v0.0.3). Connection check, vehicle and charger detection.
 
 ## Installation
 

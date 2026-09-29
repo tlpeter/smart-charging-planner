@@ -7,6 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const settings = require('./settings');
 const { detectVehicles, percentSensors } = require('./vehicles');
+const { detectChargers, manualChargerOptions } = require('./chargers');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -148,7 +149,78 @@ const routes = {
     settings.save(s);
     return { ok: true };
   },
+
+  // Look for chargers in Home Assistant. Vehicles are excluded.
+  'GET /api/chargers/detect': async () => {
+    const { entities, devices, states } = await loadRegistries();
+    const vehicleIds = new Set(detectVehicles(entities, devices, states).map((v) => v.device_id));
+    return {
+      candidates: detectChargers(entities, devices, states, vehicleIds),
+      manual: manualChargerOptions(entities, states),
+    };
+  },
+
+  'GET /api/chargers': async () => {
+    const saved = settings.load().chargers;
+    const states = ha.state.connected ? await ha.call({ type: 'get_states' }) : [];
+    return {
+      chargers: saved.map((c) => ({
+        ...c,
+        live: {
+          status: valueOf(states, c.status_entity),
+          power: valueOf(states, c.power_entity),
+          current: valueOf(states, c.current_entity),
+          switch: valueOf(states, c.switch_entity),
+        },
+      })),
+    };
+  },
+
+  'POST /api/chargers': async (req) => {
+    const body = await readBody(req);
+    const pick = (key, domains) => {
+      const v = body[key];
+      if (!v) return null;
+      if (!domains.includes(String(v).split('.')[0])) throw badRequest(`Invalid entity for ${key}`);
+      return v;
+    };
+    const charger = {
+      name: String(body.name || 'My charger').slice(0, 60),
+      device_id: body.device_id || null,
+      integration: body.integration || null,
+      status_entity: pick('status_entity', ['sensor', 'binary_sensor']),
+      power_entity: pick('power_entity', ['sensor']),
+      current_entity: pick('current_entity', ['number']),
+      switch_entity: pick('switch_entity', ['switch']),
+      phases: Number(body.phases) === 1 ? 1 : 3,
+      max_current: body.max_current === '' || body.max_current == null ? null : Number(body.max_current),
+    };
+    if (!charger.status_entity && !charger.power_entity && !charger.current_entity && !charger.switch_entity) {
+      throw badRequest('Choose at least one entity');
+    }
+    if (charger.max_current !== null && !(charger.max_current >= 6 && charger.max_current <= 80)) {
+      throw badRequest('Maximum current must be between 6 and 80 A');
+    }
+    const s = settings.load();
+    s.chargers = [charger];
+    settings.save(s);
+    ha.log('Saved charger', charger.name);
+    return { ok: true, charger };
+  },
+
+  'DELETE /api/chargers': async () => {
+    const s = settings.load();
+    s.chargers = [];
+    settings.save(s);
+    return { ok: true };
+  },
 };
+
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
 
 // ---------------------------------------------------------------------------
 // Web server (served through Home Assistant ingress)

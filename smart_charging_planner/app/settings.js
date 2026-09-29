@@ -11,6 +11,7 @@ const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = {
   // A list from the start, so more vehicles can be added later.
   vehicles: [],
+  chargers: [],
 };
 
 function load() {
