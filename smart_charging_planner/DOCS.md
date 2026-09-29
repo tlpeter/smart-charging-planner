@@ -9,6 +9,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 - **Overview**: a price chart for today and tomorrow, and a charging plan that shows the cheapest blocks to reach your target battery level before your "ready by" time, with the expected cost compared with charging right away.
 - **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **Savings**: per charging session in the last 30 days, what you actually paid, what charging right away would have cost, and what the plan would have cost.
+- **Control**: a dry run of charger control. Shows what the app would do right now and which commands it would send, compared with what the charger is really doing, plus a log. Here you also choose how the charger is controlled and set the rules (minimum battery level, preconditioning, force window, hysteresis). Nothing is sent.
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
 - **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. **Control check** shows how the app could control it (which actions or entities), without sending anything.
 - **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
@@ -46,6 +47,10 @@ When the Grid tab is set up, the plan uses the last 14 days of your grid meter t
 ## Savings
 
 The Savings tab needs a charging power sensor on the Charger tab (for example a separate kWh meter) with long-term statistics. With a plugged-in sensor on the Vehicle tab, sessions are compared over the whole time the car was connected; without one, only over the hours it was charging. Everything is calculated per hour, so the amounts are estimates. Prices are stored from the moment the app fetches them; EnergyZero, easyEnergy, Tibber and Nord Pool can also look back.
+
+## Handing over from your own automation
+
+If you already control your charger with your own automation, keep it running during the dry run: the Control log then compares the app with your automation. When the app is allowed to control the charger in a later version, turn your own automation off (disable it), so the two do not fight.
 
 ## Configuration
 

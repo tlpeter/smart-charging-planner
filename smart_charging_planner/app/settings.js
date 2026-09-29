@@ -16,6 +16,7 @@ const DEFAULTS = {
   prices: null,
   planning: { target_soc: 80, ready_by: '07:00', loss_percent: 10, use_house_load: true, continuous: true, min_split_saving: 0.5 },
   departures: null, // filled by departures.js defaults on first use
+  control: null, // control rules and chosen methods (controller.js defaults)
 };
 
 function load() {

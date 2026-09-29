@@ -117,6 +117,9 @@
     .days label { display: flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 16px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
     .days input { width: auto; }
     .advice.test { color: var(--bad); border-color: var(--bad); }
+    .cmd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+    .agree { color: var(--good); }
+    .differ { color: var(--bad); }
     .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
     .check input, .sched input[type=checkbox] { width: auto; }
     .sched td { padding: 4px 8px 4px 0; }
@@ -136,6 +139,7 @@
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="departures">Departures</button>
       <button class="tab" data-tab="savings">Savings</button>
+      <button class="tab" data-tab="control">Control</button>
       <button class="tab" data-tab="vehicle">Vehicle</button>
       <button class="tab" data-tab="charger">Charger</button>
       <button class="tab" data-tab="grid">Grid</button>
@@ -224,6 +228,30 @@
       </form>
     </section>
     <section id="tab-savings" hidden><div id="savings-body"><div class="card muted">Loading…</div></div></section>
+    <section id="tab-control" hidden>
+      <div id="control-body"><div class="card muted">Loading…</div></div>
+      <form class="card" id="control-form">
+        <h2>How to control the charger</h2>
+        <p class="muted small">Found by the control check. Choose the method that works best with your charger, for example the one your own automation already uses.</p>
+        <div class="field"><label>Start / stop charging</label><select name="start_stop_id"></select></div>
+        <div class="field"><label>Charging current</label><select name="current_id"></select></div>
+        <h2 style="margin-top:20px">Rules</h2>
+        <label class="check"><input type="checkbox" name="min_soc_enabled"> Always charge when the battery is below a minimum</label>
+        <div class="two">
+          <div class="field"><label>Minimum battery level (%)</label><input name="min_soc" type="number" min="0" max="100" step="1"></div>
+          <div class="field"><label>…or take it from an entity</label><select name="min_soc_entity"></select></div>
+        </div>
+        <div class="field"><label>Only when the price is at most (per kWh, empty = any price)</label><input name="min_soc_max_price" type="number" step="0.01" min="-1" max="5"></div>
+        <div class="two">
+          <div class="field"><label>Charge while preconditioning (entity that is "on")</label><select name="preheat_entity"></select></div>
+          <div class="field"><label>Force charging this many minutes before departure (0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
+        </div>
+        <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
+        <p class="muted small">Once a planned period has started, it is finished even if a new calculation would move it. A charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
+        <div class="buttons"><button class="primary" type="submit">Save</button></div>
+        <div class="error form-error" hidden></div>
+      </form>
+    </section>
     <section id="tab-vehicle" hidden></section>
     <section id="tab-charger" hidden></section>
     <section id="tab-grid" hidden></section>
@@ -1124,6 +1152,122 @@
       }
     }
 
+    // ---------- Control (dry run) ----------
+    function wantText(e) {
+      if (!e) return 'No decision yet';
+      switch (e.want) {
+        case 'charge': return `Charge at ${e.amps} A`;
+        case 'pause': return 'Pause charging';
+        case 'leave': return 'Leave the charger alone';
+        default: return 'Nothing to do';
+      }
+    }
+    function actualText(e) {
+      if (e.plugged === false) return 'not plugged in';
+      if (e.charging === true) return `charging${e.power_w != null ? ` (${tidy(e.power_w / 1000)} kW)` : ''}`;
+      if (e.charging === false) return `plugged in, not charging${e.status ? ` (${e.status})` : ''}`;
+      return e.status || 'unknown';
+    }
+    function cmdText(c) {
+      const target = c.target ? ` → ${Object.values(c.target)[0]}` : '';
+      return `${esc(c.what)}: <span class="cmd">${esc(c.service)} ${esc(JSON.stringify(c.data))}${esc(target)}</span>`;
+    }
+
+    function methodLabel(m) {
+      switch (m.type) {
+        case 'action_choice': return `${m.domain}.${m.service}: ${m.start_value} / ${m.stop_value}`;
+        case 'action_pair': return `${m.domain}.${m.start_service} / ${m.stop_service}`;
+        case 'buttons': return `Buttons ${m.start_entity} / ${m.stop_entity}`;
+        case 'switch': return `Switch ${m.entity_id}${m.blunt ? ' (turns the charger on/off)' : ''}`;
+        case 'action_current': return `${m.domain}.${m.service} (${m.field})${m.ttl_field ? ', expires by itself' : ''}`;
+        case 'number': return `Entity ${m.entity_id}`;
+        default: return m.id;
+      }
+    }
+
+    function fillControlForm(d) {
+      const f = $('control-form');
+      if (document.activeElement.form === f) return;
+      const r = d.rules;
+      const m = d.methods;
+      const opts = (list, chosen, rec, noneLabel) => (noneLabel ? `<option value="none" ${chosen === 'none' ? 'selected' : ''}>${esc(noneLabel)}</option>` : '') +
+        list.map((x) => `<option value="${esc(x.id)}" ${(chosen || rec) === x.id ? 'selected' : ''}>${esc(methodLabel(x))}${x.id === rec ? ' (recommended)' : ''}</option>`).join('');
+      f.start_stop_id.innerHTML = m && m.start_stop.length ? opts(m.start_stop, r.start_stop_id, m.recommended.start_stop) : '<option value="">None found (run the control check on the Charger tab)</option>';
+      f.current_id.innerHTML = m ? opts(m.current, r.current_id, m.recommended.current, "Don't set the current") : '<option value="">None found</option>';
+      f.min_soc_enabled.checked = !!r.min_soc_enabled;
+      f.min_soc.value = r.min_soc;
+      f.min_soc_entity.innerHTML = entityOptions(d.options.min_soc, r.min_soc_entity, '— use the number above —');
+      f.min_soc_max_price.value = r.min_soc_max_price ?? '';
+      f.preheat_entity.innerHTML = entityOptions(d.options.preheat, r.preheat_entity, '— none —');
+      f.force_minutes.value = r.force_minutes;
+      f.hysteresis.value = r.hysteresis;
+    }
+
+    $('control-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const errBox = f.querySelector('.form-error');
+      const btn = f.querySelector('button[type=submit]');
+      errBox.hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        await api('POST', 'api/control/settings', {
+          start_stop_id: f.start_stop_id.value, current_id: f.current_id.value,
+          min_soc_enabled: f.min_soc_enabled.checked, min_soc: f.min_soc.value, min_soc_entity: f.min_soc_entity.value,
+          min_soc_max_price: f.min_soc_max_price.value, preheat_entity: f.preheat_entity.value,
+          force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
+        });
+        document.activeElement.blur();
+        await loadControl();
+        btn.textContent = 'Saved ✓';
+        $('control-body').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+        btn.textContent = 'Save';
+      } finally {
+        setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+      }
+    });
+
+    async function loadControl() {
+      const box = $('control-body');
+      try {
+        const d = await api('GET', 'api/control');
+        fillControlForm(d);
+        const t = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        const n = d.now;
+        if (!n) {
+          box.innerHTML = '<div class="card"><h2>Control</h2><p class="muted">Set up a charger and a plan first. The dry run starts with the next refresh.</p></div>';
+          return;
+        }
+        box.innerHTML = `
+          <div class="card">
+            <span class="advice test">DRY RUN · NOTHING IS SENT</span>
+            <div class="headline">Right now the app would: ${esc(wantText(n))}</div>
+            <p class="muted small">${esc(n.reason)}${n.block_end ? ` until ${esc(t(n.block_end))}` : ''}${n.next_start ? ` · next planned start ${esc(t(n.next_start))}` : ''}${n.locked_until ? ` · period locked until ${esc(t(n.locked_until))}` : ''}</p>
+            <div class="row"><span class="label">Charger now</span><span class="value">${esc(actualText(n))}</span></div>
+            <div class="row"><span class="label">Same as the plan?</span><span class="value">${n.agrees ? '<span class="agree">Yes</span>' : '<span class="differ">No — the app would change this</span>'}</span></div>
+            <div class="row"><span class="label">Would send</span><span class="value">${n.commands.length ? n.commands.map(cmdText).join('<br>') : '<span class="muted">nothing</span>'}</span></div>
+            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. Even with "Allow control" on, this version never sends anything.</p>
+          </div>
+          <div class="card">
+            <h2>Dry run log</h2>
+            ${d.log.length ? `<table class="periods">
+              <tr><th>Time</th><th>The app would</th><th>Charger was</th></tr>
+              ${d.log.map((e) => `<tr>
+                <td>${esc(t(e.time))}</td>
+                <td>${esc(wantText(e))}<div class="src">${esc(e.reason)}</div>${e.commands.map((c) => `<div class="src">${esc(c.what)}</div>`).join('')}</td>
+                <td>${esc(actualText(e))}<div class="small ${e.agrees ? 'agree' : 'differ'}">${e.agrees ? 'same' : 'different'}</div></td>
+              </tr>`).join('')}
+            </table>` : '<p class="muted">Nothing logged yet.</p>'}
+          </div>`;
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
     // ---------- Add trip ----------
     let tripWriteAllowed = false;
 
@@ -1390,6 +1534,7 @@
         if (btn.dataset.tab === 'overview') loadOverview();
         if (btn.dataset.tab === 'departures') loadDepartures();
         if (btn.dataset.tab === 'savings') loadSavings();
+        if (btn.dataset.tab === 'control') loadControl();
       });
     });
 

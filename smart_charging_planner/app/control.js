@@ -151,8 +151,9 @@ function checkControl({ charger, entities, states, services }) {
 
   const a = actionMethods(domains, services || {});
   const e = entityMethods(deviceEntities, states);
-  const startStop = [...a.startStop, ...e.startStop].sort((x, y) => y.score - x.score);
-  const current = [...a.current, ...e.current].sort((x, y) => y.score - x.score);
+  const withId = (m) => ({ ...m, id: `${m.type}:${m.service || m.start_service || m.entity_id || m.start_entity}${m.domain ? '@' + m.domain : ''}` });
+  const startStop = [...a.startStop, ...e.startStop].map(withId).sort((x, y) => y.score - x.score);
+  const current = [...a.current, ...e.current].map(withId).sort((x, y) => y.score - x.score);
 
   const warnings = [...e.warnings];
   if (!startStop.length) warnings.push({ code: 'no_start_stop' });

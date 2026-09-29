@@ -17,6 +17,7 @@ const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
 const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
 const { checkControl } = require('./control');
+const controller = require('./controller');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -683,6 +684,11 @@ function refreshPlan(reason) {
     try {
       const result = await computePlan();
       planCache = { at: Date.now(), result };
+      try {
+        await runDryRun(result);
+      } catch (err) {
+        ha.warn('Control dry run failed:', err.message);
+      }
       const p = result.plan;
       ha.debug(`Plan refreshed (${reason}):`, p.blocks.length ? `${p.planned_kwh.toFixed(1)} kWh in ${p.periods.length} period(s)` : 'nothing to charge', p.notes.join(',') || '');
       return result;
@@ -707,6 +713,114 @@ routes['GET /api/plan'] = async (req) => {
     next_refresh: planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,
   };
+};
+
+// Control dry run (phase A): decide what the app would do, log it, send nothing.
+let controlMethods = null; // { at, result }
+let lastDryRun = null;
+
+async function currentControlMethods(charger) {
+  if (controlMethods && Date.now() - controlMethods.at < 60 * 60000 && controlMethods.key === JSON.stringify(charger)) return controlMethods.result;
+  const [{ entities, states }, services] = await Promise.all([loadRegistries(), ha.call({ type: 'get_services' })]);
+  let c = charger;
+  if (c && !c.device_id) {
+    const ids = [c.status_entity, c.current_entity, c.switch_entity].filter(Boolean);
+    const reg = entities.find((e) => ids.includes(e.entity_id) && e.device_id);
+    if (reg) c = { ...c, device_id: reg.device_id, integration: c.integration || reg.platform };
+  }
+  const result = checkControl({ charger: c, entities, states, services });
+  controlMethods = { at: Date.now(), key: JSON.stringify(charger), result };
+  return result;
+}
+
+async function runDryRun(planResult) {
+  const s = settings.load();
+  const charger = s.chargers[0] || null;
+  if (!charger) return null;
+  const [states, methods] = await Promise.all([ha.call({ type: 'get_states' }), currentControlMethods(charger)]);
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  lastDryRun = controller.dryRun({
+    plan: planResult,
+    vehicle: s.vehicles[0] || null,
+    charger,
+    states,
+    methods: chosenMethods(methods, rules),
+    deviceId: methods && methods.device_id,
+    rules,
+    controlAllowed: options.allow_control,
+  });
+  ha.debug('Dry run:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
+  return lastDryRun;
+}
+
+// The methods the user chose, or the recommended ones.
+function chosenMethods(methods, rules) {
+  if (!methods || !methods.available) return null;
+  const pick = (list, id, fallback) => {
+    if (id === 'none') return null;
+    return (id && list.find((m) => m.id === id)) || fallback;
+  };
+  return {
+    start_stop: pick(methods.start_stop, rules.start_stop_id, methods.recommended.start_stop),
+    current: pick(methods.current, rules.current_id, methods.recommended.current),
+  };
+}
+
+routes['GET /api/control'] = async () => {
+  const s = settings.load();
+  if (!planCache) await refreshPlan('on request').catch(() => {});
+  else if (!lastDryRun) await runDryRun(planCache.result).catch(() => {});
+  const charger = s.chargers[0] || null;
+  const methods = charger ? await currentControlMethods(charger).catch(() => null) : null;
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const states = await ha.call({ type: 'get_states' });
+  const opt = (x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state });
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  return {
+    time_zone: ha.state.timeZone,
+    currency: ha.state.currency,
+    control_allowed: options.allow_control,
+    rules,
+    methods: methods && methods.available ? {
+      start_stop: methods.start_stop,
+      current: methods.current,
+      recommended: { start_stop: methods.recommended.start_stop && methods.recommended.start_stop.id, current: methods.recommended.current && methods.recommended.current.id },
+      warnings: methods.warnings,
+    } : null,
+    options: {
+      min_soc: states.filter((x) => /^(number|sensor|input_number)\./.test(x.entity_id) && x.attributes && x.attributes.unit_of_measurement === '%').map(opt).sort(byName),
+      preheat: states.filter((x) => /^(input_boolean|switch|binary_sensor)\./.test(x.entity_id) &&
+        (x.entity_id.startsWith('input_boolean.') || /preheat|precondition|climate|hvac|airco|voorverwarm|verwarm|condition/.test(x.entity_id))).map(opt).sort(byName),
+    },
+    now: lastDryRun,
+    log: controller.recentLog(150),
+  };
+};
+
+routes['POST /api/control/settings'] = async (req) => {
+  const b = await readBody(req);
+  const num = (v, name, min, max, allowEmpty = false) => {
+    if (allowEmpty && (v === '' || v == null)) return null;
+    const n = Number(v);
+    if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
+    return n;
+  };
+  const ent = (v, re) => (v && re.test(String(v)) ? String(v) : null);
+  const s = settings.load();
+  s.control = {
+    start_stop_id: b.start_stop_id ? String(b.start_stop_id).slice(0, 200) : null,
+    current_id: b.current_id ? String(b.current_id).slice(0, 200) : null,
+    min_soc_enabled: b.min_soc_enabled === true,
+    min_soc: num(b.min_soc, 'Minimum battery level', 0, 100),
+    min_soc_entity: ent(b.min_soc_entity, /^(number|sensor|input_number)\./),
+    min_soc_max_price: num(b.min_soc_max_price, 'Maximum price for the minimum', -1, 5, true),
+    preheat_entity: ent(b.preheat_entity, /^(input_boolean|switch|binary_sensor)\./),
+    force_minutes: num(b.force_minutes, 'Force window', 0, 600),
+    hysteresis: num(b.hysteresis, 'Hysteresis', 0, 1),
+  };
+  settings.save(s);
+  lastDryRun = null;
+  return { ok: true, control: s.control };
 };
 
 function startBackgroundRefresh() {

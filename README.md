@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.6.2). Setup checks, departure times, a charging plan with house load, savings overview and adding trips (test mode by default). Nothing is controlled.
+> Status: early development (v0.8.0). Charging plan, departures, savings, and a dry run of charger control. Nothing is sent to the charger yet.
 
 ## Installation
 

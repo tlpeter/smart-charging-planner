@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0
+
+Still a dry run: nothing is sent to the charger.
+
+- **Choose how the charger is controlled** on the Control tab: any start/stop and current method found by the control check (for example an action with pause/resume, or a switch your own automation already uses), or no current setting at all
+- New control **rules**, checked in this order:
+  - Charger status briefly invalid (restart, hiccup): keep things as they are for up to 2 minutes
+  - **Minimum battery level**: always charge below it, optionally only up to a maximum price; the level can come from an entity (such as the car's own minimum charge level)
+  - **Preconditioning**: charge while a chosen entity is on
+  - **Force window**: charge in the last X minutes before departure
+  - **Locked period**: once a planned period has started, it is finished even if a new calculation would move it
+  - **Hysteresis**: keep charging when the price is at most a set amount above the planned price, to avoid on-off-on
+- The dry run shows when a period is locked
+
+## 0.7.0
+
+- New **Control** tab with a **dry run** of charger control (phase A)
+  - At every refresh the app decides what it would do now: charge at a certain current, pause, or nothing (car not plugged in / data missing)
+  - Shows the exact commands it would send, using the methods found by the control check (for Easee: `easee.action_command` pause/resume and `easee.set_charger_dynamic_limit`)
+  - Compares with what the charger is really doing, and logs every change, so you can review a few nights
+- **Nothing is sent**, also not when "Allow control" is on. Sending comes in a later version, after you have reviewed the dry run
+
 ## 0.6.2
 
 - The maximum charging current is now read from the charger's own limit sensors, for any charger integration (for Easee: "Max charger limit" and "Max circuit limit")
