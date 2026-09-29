@@ -5,10 +5,12 @@ const fs = require('fs');
 const path = require('path');
 
 const ha = require('./ha');
+const { options } = require('./options');
 const settings = require('./settings');
 const { detectVehicles, percentSensors } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
+const { detectPriceSources, fetchPrices, summarise, ACTION_SOURCES } = require('./prices');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -82,6 +84,8 @@ const routes = {
       ha_version: ha.state.version,
       time_zone: ha.state.timeZone,
       entity_count: entityCount,
+      log_level: options.log_level,
+      allow_control: options.allow_control,
       error: ha.state.lastError,
     };
   },
@@ -296,12 +300,80 @@ const routes = {
     settings.save(s);
     return { ok: true };
   },
+
+  // Price sources.
+  'GET /api/prices/detect': async () => {
+    const { entities, devices, states } = await loadRegistries();
+    return { candidates: detectPriceSources(entities, devices, states) };
+  },
+
+  // Fetch prices with the given (unsaved) settings and summarise them.
+  'POST /api/prices/test': async (req) => {
+    const cfg = priceConfigFrom(await readBody(req));
+    const result = await fetchPrices(cfg.source, ha.state.timeZone);
+    return { summary: summarise(result, cfg), time_zone: ha.state.timeZone };
+  },
+
+  'GET /api/prices': async () => {
+    const cfg = settings.load().prices;
+    if (!cfg) return { prices: null };
+    try {
+      const result = await fetchPrices(cfg.source, ha.state.timeZone);
+      return { prices: cfg, summary: summarise(result, cfg), time_zone: ha.state.timeZone };
+    } catch (err) {
+      return { prices: cfg, error: err.message, time_zone: ha.state.timeZone };
+    }
+  },
+
+  'POST /api/prices': async (req) => {
+    const cfg = priceConfigFrom(await readBody(req));
+    const s = settings.load();
+    s.prices = cfg;
+    settings.save(s);
+    ha.log('Saved price source', cfg.source.id);
+    return { ok: true, prices: cfg };
+  },
+
+  'DELETE /api/prices': async () => {
+    const s = settings.load();
+    s.prices = null;
+    settings.save(s);
+    return { ok: true };
+  },
 };
 
 function badRequest(message) {
   const err = new Error(message);
   err.status = 400;
   return err;
+}
+
+// Validate price settings sent by the page.
+function priceConfigFrom(body) {
+  const src = body.source || {};
+  let source;
+  if (src.type === 'action') {
+    if (!ACTION_SOURCES[src.domain] || !src.config_entry) throw badRequest('Invalid price source');
+    source = { id: `action:${src.domain}:${src.config_entry}`, type: 'action', domain: src.domain, config_entry: String(src.config_entry), name: String(src.name || src.domain).slice(0, 80) };
+  } else if (src.type === 'attribute') {
+    if (!String(src.entity_id || '').startsWith('sensor.')) throw badRequest('Invalid price sensor');
+    source = { id: `attr:${src.entity_id}`, type: 'attribute', domain: src.domain || null, entity_id: src.entity_id, name: String(src.name || src.entity_id).slice(0, 80) };
+  } else {
+    throw badRequest('Choose a price source');
+  }
+  const types = ['market_excl_vat', 'market_incl_vat', 'all_in'];
+  const num = (v, name, min, max) => {
+    const n = v === '' || v == null ? 0 : Number(v);
+    if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
+    return n;
+  };
+  return {
+    source,
+    price_type: types.includes(body.price_type) ? body.price_type : 'market_excl_vat',
+    purchase_fee: num(body.purchase_fee, 'Purchase fee', -1, 1),
+    energy_tax: num(body.energy_tax, 'Energy tax', 0, 1),
+    vat_percent: num(body.vat_percent ?? 21, 'VAT', 0, 50),
+  };
 }
 
 // ---------------------------------------------------------------------------

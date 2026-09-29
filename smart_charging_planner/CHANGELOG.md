@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.6
+
+- Added the **Prices** tab: detects and tests your dynamic electricity price source
+  - Integration actions: EnergyZero, easyEnergy, Tibber and Nord Pool
+  - Any sensor that keeps a list of prices in its attributes, such as ENTSO-e, Nord Pool (custom), EPEX Spot, Frank Energie and Zonneplan
+  - Hourly and 15-minute prices; Nord Pool prices per MWh are converted to per kWh
+  - Costs on top of the price: purchase fee, energy tax and VAT, to show what you really pay
+  - **Test** shows the price now, lowest, highest and average today, and whether tomorrow's prices are published
+- New options in the app's **Configuration** tab:
+  - **Log level**: use debug when reporting a problem
+  - **Allow control**: master switch, off by default. While off, the app never changes anything
+- The **Status** tab shows whether control is allowed and the log level
+
 ## 0.0.5
 
 - Added the **Grid** tab: detects the meter that measures your grid connection

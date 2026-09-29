@@ -21,9 +21,19 @@ let nextId = 1;
 const pending = new Map();
 const connectListeners = [];
 
-function log(...args) {
-  console.log(new Date().toISOString(), ...args);
+const LEVELS = { debug: 10, info: 20, warning: 30, error: 40 };
+const { options } = require('./options');
+const threshold = LEVELS[options.log_level] || LEVELS.info;
+
+function logAt(level, args) {
+  if (LEVELS[level] < threshold) return;
+  const line = [new Date().toISOString(), level.toUpperCase(), ...args];
+  (level === 'error' || level === 'warning' ? console.error : console.log)(...line);
 }
+
+function log(...args) { logAt('info', args); }
+function debug(...args) { logAt('debug', args); }
+function warn(...args) { logAt('warning', args); }
 
 // Send a command to Home Assistant and wait for its result.
 function call(message, timeoutMs = 20000) {
@@ -118,4 +128,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, onConnect, connect, log };
+module.exports = { state, call, callAction, onConnect, connect, log, debug, warn };

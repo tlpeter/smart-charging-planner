@@ -1,0 +1,9 @@
+configuration:
+  log_level:
+    name: Log level
+    description: How much the app writes to its log. Use debug when reporting a problem.
+  allow_control:
+    name: Allow control
+    description: >-
+      Master switch. When off, the app only shows advice and never changes your
+      charger, vehicle or home battery.

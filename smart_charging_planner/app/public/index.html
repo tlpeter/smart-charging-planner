@@ -99,12 +99,54 @@
       <button class="tab active" data-tab="vehicle">Vehicle</button>
       <button class="tab" data-tab="charger">Charger</button>
       <button class="tab" data-tab="grid">Grid</button>
+      <button class="tab" data-tab="prices">Prices</button>
       <button class="tab" data-tab="status">Status</button>
     </nav>
 
     <section id="tab-vehicle"></section>
     <section id="tab-charger" hidden></section>
     <section id="tab-grid" hidden></section>
+
+    <section id="tab-prices" hidden>
+      <div id="prices-saved"></div>
+      <div class="card" id="prices-intro">
+        <h2>Find your price source</h2>
+        <p class="muted">The app looks for integrations that provide dynamic electricity prices for today and tomorrow.</p>
+        <div class="buttons"><button class="primary" id="prices-detect">Detect price sources</button></div>
+        <div id="prices-error" class="error" hidden></div>
+      </div>
+      <form id="prices-form" hidden>
+        <div class="card">
+          <h2>Price source</h2>
+          <div class="field"><label>Source</label><select name="source" id="prices-source"></select></div>
+          <p class="muted small" id="prices-source-detail"></p>
+        </div>
+        <div class="card">
+          <h2>Costs on top of the price</h2>
+          <p class="muted small">Used to calculate what you really pay per kWh. Check your energy contract for these amounts.</p>
+          <div class="field"><label>The source price is</label>
+            <select name="price_type">
+              <option value="market_excl_vat">Market price, excluding VAT</option>
+              <option value="market_incl_vat">Market price, including VAT</option>
+              <option value="all_in">All-in price (taxes and fees included)</option>
+            </select></div>
+          <div class="two">
+            <div class="field"><label>Purchase fee per kWh, excl. VAT</label>
+              <input name="purchase_fee" type="number" step="0.00001" min="-1" max="1" placeholder="0.02"></div>
+            <div class="field"><label>Energy tax per kWh, excl. VAT</label>
+              <input name="energy_tax" type="number" step="0.00001" min="0" max="1" placeholder="0.10"></div>
+          </div>
+          <div class="field"><label>VAT %</label>
+            <input name="vat_percent" type="number" step="0.1" min="0" max="50" value="21"></div>
+          <div class="buttons">
+            <button class="secondary" type="button" id="prices-test">Test</button>
+            <button class="primary" type="submit">Save</button>
+          </div>
+          <div class="error form-error" hidden></div>
+        </div>
+        <div id="prices-test-result"></div>
+      </form>
+    </section>
 
     <section id="tab-status" hidden>
       <div class="card">
@@ -113,6 +155,8 @@
         <div class="row"><span class="label">Time zone</span><span id="tz">–</span></div>
         <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
         <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
+        <div class="row"><span class="label">Control</span><span id="control">–</span></div>
+        <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
         <div id="status-error" class="error" hidden></div>
       </div>
     </section>
@@ -420,6 +464,153 @@
       }
     }
 
+    // ---------- Prices ----------
+    let priceSources = [];
+    let priceTz = 'UTC';
+
+    const fmtPrice = (v) => (v == null ? '–' : `${Number(v).toFixed(4)} /kWh`);
+    const fmtTime = (ms) => new Intl.DateTimeFormat('en-GB', {
+      timeZone: priceTz, weekday: 'short', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(ms));
+
+    function summaryHtml(s) {
+      const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
+      const at = (p) => (p ? `${fmtPrice(p.total)} <span class="muted small">at ${esc(fmtTime(p.start))}</span>` : '–');
+      return `
+        ${row('Price now (all-in)', s.current ? `<strong>${fmtPrice(s.current.total)}</strong> <span class="muted small">source: ${Number(s.current.price).toFixed(4)}</span>` : '<span class="fail">No price for now</span>')}
+        ${row('Interval', `${s.interval_minutes} minutes`)}
+        ${row('Prices today', String(s.count_today))}
+        ${row('Prices tomorrow', s.tomorrow_available ? `<span class="ok">${s.count_tomorrow}</span>` : '<span class="muted">Not yet published (usually around 13:00)</span>')}
+        ${row('Lowest today', at(s.lowest_today))}
+        ${row('Highest today', at(s.highest_today))}
+        ${row('Average today', fmtPrice(s.average_today))}
+        ${s.warnings.map((w) => `<div class="note">${esc(w)}</div>`).join('')}`;
+    }
+
+    function priceFormData() {
+      const form = $('prices-form');
+      const data = Object.fromEntries(new FormData(form));
+      const src = priceSources.find((c) => c.id === data.source);
+      delete data.source;
+      return { ...data, source: src };
+    }
+
+    function showSourceDetail() {
+      const src = priceSources.find((c) => c.id === $('prices-source').value);
+      if (!src) return;
+      $('prices-source-detail').textContent = src.type === 'action'
+        ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
+        : `Sensor attributes · ${src.detail}`;
+      $('prices-form').price_type.value = src.price_type;
+    }
+
+    async function detectPrices(preselect) {
+      const btn = $('prices-detect');
+      btn.disabled = true;
+      btn.textContent = 'Searching…';
+      $('prices-error').hidden = true;
+      try {
+        const { candidates } = await api('GET', 'api/prices/detect');
+        priceSources = candidates;
+        if (!candidates.length) {
+          $('prices-error').textContent = 'No price source found. Install a dynamic price integration, such as EnergyZero (no account needed), and try again.';
+          $('prices-error').hidden = false;
+          $('prices-form').hidden = true;
+          return;
+        }
+        $('prices-source').innerHTML = candidates.map((c) =>
+          `<option value="${esc(c.id)}">${esc(c.name)}${c.detail && c.type === 'action' && c.detail !== c.name ? ' – ' + esc(c.detail) : ''}${c.type === 'attribute' ? ' (sensor)' : ''}</option>`).join('');
+        $('prices-form').hidden = false;
+        if (preselect) {
+          $('prices-source').value = preselect.source.id;
+          const f = $('prices-form');
+          f.price_type.value = preselect.price_type;
+          f.purchase_fee.value = preselect.purchase_fee || '';
+          f.energy_tax.value = preselect.energy_tax || '';
+          f.vat_percent.value = preselect.vat_percent;
+          $('prices-source-detail').textContent = '';
+        } else {
+          showSourceDetail();
+        }
+        $('prices-test-result').innerHTML = '';
+      } catch (err) {
+        $('prices-error').textContent = err.message;
+        $('prices-error').hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Detect again';
+      }
+    }
+
+    async function testPrices() {
+      const box = $('prices-test-result');
+      const btn = $('prices-test');
+      btn.disabled = true;
+      btn.textContent = 'Fetching prices…';
+      try {
+        const r = await api('POST', 'api/prices/test', priceFormData());
+        priceTz = r.time_zone;
+        box.innerHTML = `<div class="card"><h2>Test result</h2>${summaryHtml(r.summary)}</div>`;
+      } catch (err) {
+        box.innerHTML = `<div class="card"><h2>Test result</h2><div class="error">${esc(err.message)}</div></div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
+      }
+    }
+
+    async function savePrices(e) {
+      e.preventDefault();
+      const errBox = $('prices-form').querySelector('.form-error');
+      try {
+        await api('POST', 'api/prices', priceFormData());
+        $('prices-form').hidden = true;
+        loadPrices();
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+      }
+    }
+
+    async function loadPrices() {
+      const box = $('prices-saved');
+      try {
+        const r = await api('GET', 'api/prices');
+        if (!r.prices) {
+          box.innerHTML = '';
+          $('prices-intro').hidden = false;
+          return;
+        }
+        priceTz = r.time_zone;
+        $('prices-intro').hidden = true;
+        const typeLabel = { market_excl_vat: 'Market price, excl. VAT', market_incl_vat: 'Market price, incl. VAT', all_in: 'All-in' }[r.prices.price_type];
+        box.innerHTML = `
+          <div class="card">
+            <h2>${esc(r.prices.source.name)}</h2>
+            <p class="muted small">${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%</p>
+            ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary)}
+            <div class="buttons">
+              <button class="secondary" data-act="change">Change</button>
+              <button class="secondary" data-act="remove">Remove</button>
+            </div>
+          </div>`;
+        box.querySelector('[data-act=change]').onclick = () => { $('prices-intro').hidden = false; detectPrices(r.prices); };
+        box.querySelector('[data-act=remove]').onclick = async () => {
+          if (!confirm('Remove this price source from the app?')) return;
+          await api('DELETE', 'api/prices');
+          $('prices-form').hidden = true;
+          loadPrices();
+        };
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
+    $('prices-detect').addEventListener('click', () => detectPrices());
+    $('prices-source').addEventListener('change', showSourceDetail);
+    $('prices-test').addEventListener('click', testPrices);
+    $('prices-form').addEventListener('submit', savePrices);
+
     // ---------- Status ----------
     async function loadStatus() {
       const conn = $('conn');
@@ -431,6 +622,10 @@
         $('tz').textContent = s.time_zone || '–';
         $('count').textContent = s.entity_count ?? '–';
         $('appver').textContent = s.app_version || '–';
+        $('control').innerHTML = s.allow_control
+          ? '<span class="ok">Allowed</span>'
+          : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
+        $('loglevel').textContent = s.log_level || '–';
         $('status-error').hidden = !s.error;
         $('status-error').textContent = s.error || '';
       } catch {
@@ -456,6 +651,7 @@
       loadSaved(kind);
     }
     loadStatus();
+    loadPrices();
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {
         if ($(`${kind}-saved`).innerHTML && !$(`${kind}-results`).innerHTML) loadSaved(kind);

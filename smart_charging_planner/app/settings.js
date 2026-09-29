@@ -13,6 +13,7 @@ const DEFAULTS = {
   vehicles: [],
   chargers: [],
   grid: [],
+  prices: null,
 };
 
 function load() {
