@@ -131,6 +131,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="overview">Overview</button>
       <button class="tab" data-tab="departures">Departures</button>
+      <button class="tab" data-tab="savings">Savings</button>
       <button class="tab" data-tab="vehicle">Vehicle</button>
       <button class="tab" data-tab="charger">Charger</button>
       <button class="tab" data-tab="grid">Grid</button>
@@ -186,6 +187,7 @@
         </div>
       </form>
     </section>
+    <section id="tab-savings" hidden><div id="savings-body"><div class="card muted">Loading…</div></div></section>
     <section id="tab-vehicle" hidden></section>
     <section id="tab-charger" hidden></section>
     <section id="tab-grid" hidden></section>
@@ -905,6 +907,62 @@
       }
     });
 
+    // ---------- Savings ----------
+    async function loadSavings() {
+      const box = $('savings-body');
+      box.innerHTML = '<div class="card muted">Collecting charging sessions and prices… this can take a moment the first time.</div>';
+      try {
+        const d = await api('GET', 'api/savings');
+        const cur = (v) => {
+          if (v == null) return '–';
+          try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: d.currency || 'EUR' }).format(v); } catch { return v.toFixed(2); }
+        };
+        const when = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        if (!d.available) {
+          const why = {
+            no_charger_power: 'Choose a charging power sensor on the <a href="#" data-goto="charger">Charger</a> tab, for example a separate kWh meter. The app uses its history to find charging sessions.',
+            no_prices: 'Set up a price source on the <a href="#" data-goto="prices">Prices</a> tab first.',
+          }[d.reason] || esc(d.reason);
+          box.innerHTML = `<div class="card"><h2>Savings</h2><p class="muted">${why}</p></div>`;
+          return;
+        }
+        const t = d.totals;
+        const saved = t.direct_cost - t.actual_cost;
+        const extra = t.actual_cost - t.plan_cost;
+        box.innerHTML = `
+          <div class="card">
+            <span class="advice">LAST ${d.days} DAYS · ESTIMATE PER HOUR</span>
+            ${t.sessions ? `
+            <div class="headline">${t.energy_kwh.toFixed(0)} kWh charged in ${t.sessions} session${t.sessions > 1 ? 's' : ''}</div>
+            <div class="stats">
+              <div class="stat"><div class="v">${cur(t.actual_cost)}</div><div class="l">Actually paid</div></div>
+              <div class="stat"><div class="v">${cur(t.direct_cost)}</div><div class="l">Charging right away</div></div>
+              <div class="stat"><div class="v">${cur(t.plan_cost)}</div><div class="l">With the plan</div></div>
+            </div>
+            <p class="muted small">Your current way of charging ${saved >= 0 ? `saved <strong>${cur(saved)}</strong> compared with` : `cost <strong>${cur(-saved)}</strong> more than`} charging right away.
+              The plan would have saved another <strong>${cur(Math.max(0, extra))}</strong>.</p>` : '<p class="muted">No complete charging sessions found yet.</p>'}
+            ${d.incomplete ? `<div class="note">${d.incomplete} session${d.incomplete > 1 ? 's' : ''} left out: prices for those hours are not known. The app stores prices from now on; integrations like EnergyZero and Nord Pool can also look back.</div>` : ''}
+            ${d.plugged_source ? '' : '<div class="note">No plugged-in sensor on the Vehicle tab, so each session is compared within the hours it was actually charging. With a plugged-in sensor the comparison uses the whole time the car was connected, which shows the real difference with charging right away.</div>'}
+          </div>
+          ${d.sessions.length ? `
+          <div class="card">
+            <h2>Charging sessions</h2>
+            <table class="periods">
+              <tr><th>Charging started</th><th class="n">Energy</th><th class="n">Paid</th><th class="n">Right away</th><th class="n">Plan</th></tr>
+              ${d.sessions.map((x) => `<tr>
+                <td>${esc(when(x.start))}${x.plugged_from ? `<div class="src">plugged in ${esc(when(x.plugged_from))}</div>` : ''}</td>
+                <td class="n">${x.energy_kwh.toFixed(1)} kWh</td>
+                ${x.complete ? `<td class="n">${cur(x.actual_cost)}</td><td class="n">${cur(x.direct_cost)}</td><td class="n">${cur(x.plan_cost)}</td>`
+                  : '<td class="n muted" colspan="3">prices unknown</td>'}
+              </tr>`).join('')}
+            </table>
+            <p class="muted small">"Right away": the same energy charged from the moment the car was plugged in. "Plan": the same energy in the cheapest hours while plugged in. Prices include your purchase fee, energy tax and VAT as set on the Prices tab.</p>
+          </div>` : ''}`;
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
     // Links like <a data-goto="departures"> switch tabs.
     document.addEventListener('click', (e) => {
       const a = e.target.closest('[data-goto]');
@@ -1093,6 +1151,7 @@
         if (btn.dataset.tab === 'status') loadStatus();
         if (btn.dataset.tab === 'overview') loadOverview();
         if (btn.dataset.tab === 'departures') loadDepartures();
+        if (btn.dataset.tab === 'savings') loadSavings();
       });
     });
 

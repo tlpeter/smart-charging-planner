@@ -8,6 +8,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 
 - **Overview**: a price chart for today and tomorrow, and a charging plan that shows the cheapest blocks to reach your target battery level before your "ready by" time, with the expected cost compared with charging right away.
 - **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
+- **Savings**: per charging session in the last 30 days, what you actually paid, what charging right away would have cost, and what the plan would have cost.
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
 - **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. Nothing is controlled yet.
 - **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
@@ -42,6 +43,10 @@ When several sources give a departure on the same day, the one-off departure win
 
 When the Grid tab is set up, the plan uses the last 14 days of your grid meter to estimate, per hour of the day, how much current is left for the charger under your main fuse. The charger's own power is subtracted when a charging power sensor is chosen on the Charger tab. Your grid meter needs long-term statistics (most P1 power sensors have them). This is an estimate; a load balancer such as the Easee Equalizer still does the real-time protection.
 
+## Savings
+
+The Savings tab needs a charging power sensor on the Charger tab (for example a separate kWh meter) with long-term statistics. With a plugged-in sensor on the Vehicle tab, sessions are compared over the whole time the car was connected; without one, only over the hours it was charging. Everything is calculated per hour, so the amounts are estimates. Prices are stored from the moment the app fetches them; EnergyZero, easyEnergy, Tibber and Nord Pool can also look back.
+
 ## Configuration
 
 - **Log level**: how much the app writes to its log. Use `debug` when reporting a problem.
@@ -49,4 +54,4 @@ When the Grid tab is set up, the plan uses the last 14 days of your grid meter t
 
 ## Planned
 
-Price sources, charging schedules, charger control, departure times, savings overview, home battery and solar forecast. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.
+Charger control (only after you allow it), home battery and solar forecast. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.

@@ -14,6 +14,7 @@
 //     others). Found by scanning attributes, so unknown integrations work too.
 
 const ha = require('./ha');
+const history = require('./pricehistory');
 
 // ---------------------------------------------------------------------------
 // Time zone helpers ("today" means today in Home Assistant's time zone)
@@ -329,7 +330,32 @@ async function fetchPrices(source, tz) {
 
   ha.debug('Price source', source.id, 'returned', raw.length, 'prices; unit hint:', unit);
   const { interval_minutes, prices } = finalise(toPerKwh(raw, unit, warnings), win);
+  try {
+    history.record(source.id, prices);
+  } catch (err) {
+    ha.warn('Could not store price history:', err.message);
+  }
   return { prices, interval_minutes, window: win, warnings };
+}
+
+// Past days for action sources (they can look back); stored in the history.
+// dayRanges: [[startMs, endMs], ...] of local days.
+async function backfill(source, dayRanges, tz) {
+  if (source.type !== 'action') return 0;
+  const def = ACTION_SOURCES[source.domain];
+  if (!def) return 0;
+  let filled = 0;
+  for (const [start, end] of history.missingDays(source.id, dayRanges)) {
+    try {
+      const raw = await def.fetch(source.config_entry, { start, tomorrow: end, end }, tz);
+      const { prices } = finalise(toPerKwh(raw, def.unit, []), { start, end });
+      history.record(source.id, prices);
+      filled += prices.length ? 1 : 0;
+    } catch (err) {
+      ha.debug('Backfill failed for', localDate(start, tz), '-', err.message);
+    }
+  }
+  return filled;
 }
 
 // All-in price per kWh from the source price and the user's surcharges.
@@ -367,7 +393,7 @@ function summarise(result, cfg, now = Date.now()) {
 }
 
 module.exports = {
-  detectPriceSources, fetchPrices, summarise, totalPrice,
+  detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES,
 };

@@ -14,6 +14,7 @@ const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseL
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
+const { computeSavings } = require('./savings');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -70,6 +71,8 @@ function valueOf(states, entityId) {
 // ---------------------------------------------------------------------------
 // API routes
 // ---------------------------------------------------------------------------
+
+let savingsCache = null;
 
 const routes = {
   'GET /api/status': async () => {
@@ -440,6 +443,23 @@ const routes = {
     s.planning = { ...s.planning, loss_percent: loss, use_house_load: body.use_house_load === true || body.use_house_load === 'on' };
     settings.save(s);
     return { ok: true, planning: s.planning };
+  },
+
+  // Savings per charging session over the last 30 days.
+  'GET /api/savings': async () => {
+    const s = settings.load();
+    const tz = ha.state.timeZone;
+    const now = Date.now();
+    if (savingsCache && now - savingsCache.at < 10 * 60000 && savingsCache.key === JSON.stringify([s.chargers, s.vehicles, s.prices])) {
+      return savingsCache.result;
+    }
+    const result = {
+      time_zone: tz,
+      currency: ha.state.currency,
+      ...(await computeSavings({ charger: s.chargers[0], vehicle: s.vehicles[0], priceCfg: s.prices, tz, now })),
+    };
+    savingsCache = { at: now, key: JSON.stringify([s.chargers, s.vehicles, s.prices]), result };
+    return result;
   },
 
   // Departure times.

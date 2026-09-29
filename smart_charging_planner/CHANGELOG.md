@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- New **Savings** tab: per charging session over the last 30 days
+  - **Actually paid**: the energy the charger used per hour, times the all-in price of that hour
+  - **Charging right away**: the same energy charged from the moment the car was plugged in
+  - **With the plan**: the same energy in the cheapest hours while the car was plugged in
+  - Totals, and how much your current way of charging saved compared with charging right away
+- Charging sessions come from the history of the charger power sensor (Charger tab); plugged-in times from the vehicle's plugged-in sensor (Vehicle tab), when set
+- The app now keeps a history of all prices it fetches. EnergyZero, easyEnergy, Tibber and Nord Pool can also look back for missing days
+- Reading state history is added to the read-only list
+
 ## 0.3.0
 
 - **House load**: the plan now estimates how much current is left for the charger in each block, like a load balancer does
