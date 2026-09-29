@@ -180,7 +180,15 @@ function winnersPerDay(candidates, tz) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([day, list]) => {
       list.sort((a, b) => PRIORITY[a.source] - PRIORITY[b.source] || a.time - b.time);
-      return { day, winner: list[0], others: list.slice(1) };
+      const winner = list[0];
+      // Replaced: departures from a lower priority source on that day.
+      // Later: more trips from the same source that day (the plan prepares for the first).
+      return {
+        day,
+        winner,
+        others: list.slice(1).filter((x) => x.source !== winner.source),
+        later: list.slice(1).filter((x) => x.source === winner.source).sort((a, b) => a.time - b.time),
+      };
     });
 }
 

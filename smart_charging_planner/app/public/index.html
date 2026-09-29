@@ -743,7 +743,7 @@
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}%${d.departure ? ` by ${esc(dayHm(d.departure.time))} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
+          <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}%${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
             · charging at ${esc(power)}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
           ${p.cost != null ? `
           <div class="stats">
@@ -834,7 +834,9 @@
 
     const depFmt = (ms, opts) => new Intl.DateTimeFormat('en-GB', { timeZone: depTz, ...opts }).format(new Date(ms));
     const depWhen = (ms) => depFmt(ms, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const depLabel = (x) => `${esc(depWhen(x.time))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}`;
+    const leaveOf = (x) => x.event_start || x.time;
+    const readyBy = (x) => (x.event_start && x.event_start !== x.time ? ` <span class="src">ready by ${esc(depFmt(x.time, { hour: '2-digit', minute: '2-digit' }))}</span>` : '');
+    const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}`;
 
     function entityOptions(list, selected, noneLabel) {
       return `<option value="">${esc(noneLabel)}</option>` + list.map((o) =>
@@ -862,9 +864,9 @@
           ${d.upcoming.length > 1 ? `
           <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
             <table class="periods">
-              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${u.others.map((o) => `<div class="small strike">${esc(depWhen(o.time))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
+              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
             </table>
-            <p class="muted small">Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
+            <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
           </details>` : ''}`;
 
         const trips = d.calendar_trips || [];
@@ -876,7 +878,7 @@
           ${trips.length ? `<table class="periods">
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
-              <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}</td>
+              <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}</td>
               <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}

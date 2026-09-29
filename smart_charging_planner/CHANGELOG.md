@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Departures: more trips from the same source on one day are no longer crossed out. They are shown as "later that day"; the plan prepares for the first departure of each day. Crossing out is only used when a higher priority source replaces a departure
+- The departure time of a calendar trip is shown everywhere; with a buffer, "ready by" is shown next to it (also on the Overview)
+
 ## 0.5.0
 
 - New **Add trip** form on the Departures tab: leave at, destination, target battery level, precondition, repeat on weekdays and weeks ahead
