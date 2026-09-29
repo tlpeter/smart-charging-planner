@@ -1494,8 +1494,11 @@
             <div id="manual-result"></div>
           </div>
           <div class="card">
-            <h2>Log</h2>
-            <p class="muted small">What the app wanted, and every command that was really sent (SENT) or could not be sent (Not sent).</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <h2 style="margin:0">Log</h2>
+              ${d.log.length ? '<button class="secondary" id="log-clear">Clear log</button>' : ''}
+            </div>
+            <p class="muted small">What the app wanted, and every command that was really sent (SENT) or could not be sent (Not sent). Keeps the last 500 lines.</p>
             ${d.log.length ? `<table class="periods">
               <tr><th>Time</th><th>The app wanted</th><th>Charger was</th></tr>
               ${d.log.map((e) => `<tr>
@@ -1505,6 +1508,18 @@
               </tr>`).join('')}
             </table>` : '<p class="muted">Nothing logged yet.</p>'}
           </div>`;
+        const lc = $('log-clear');
+        if (lc) lc.onclick = async () => {
+          if (lc.dataset.confirm !== '1') {
+            lc.dataset.confirm = '1';
+            lc.textContent = 'Click again to clear';
+            setTimeout(() => { if (lc.isConnected) { lc.dataset.confirm = ''; lc.textContent = 'Clear log'; } }, 4000);
+            return;
+          }
+          lc.disabled = true;
+          await api('DELETE', 'api/control/log');
+          loadControl();
+        };
         for (const [id, action] of [['manual-start', 'start'], ['manual-stop', 'stop']]) {
           const btn = $(id);
           if (btn) btn.onclick = async () => {

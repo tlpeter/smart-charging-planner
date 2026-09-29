@@ -1102,6 +1102,12 @@ routes['GET /api/control'] = async () => {
   };
 };
 
+routes['DELETE /api/control/log'] = async () => {
+  controller.clearLog();
+  ha.log('Control log cleared');
+  return { ok: true };
+};
+
 routes['POST /api/control/settings'] = async (req) => {
   const b = await readBody(req);
   const num = (v, name, min, max, allowEmpty = false) => {

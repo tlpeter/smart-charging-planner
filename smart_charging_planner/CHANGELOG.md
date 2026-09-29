@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1
+
+- New **Clear log** button on the Control tab (click twice to confirm). The log keeps the last 500 lines; after clearing, the current decision is logged again right away
+
 ## 0.12.0
 
 **Live control.** With "Allow control" on, the app now starts and pauses the charger by itself. With it off (the default) nothing changes: everything is advice and a dry run.

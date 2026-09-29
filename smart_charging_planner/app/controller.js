@@ -307,10 +307,15 @@ function recentLog(limit = 100) {
   return loadLog().slice(-limit).reverse();
 }
 
+function clearLog() {
+  log = [];
+  writeJson(LOG_FILE, log);
+}
+
 function clearLock() {
   const st = loadState();
   st.lock = null;
   writeJson(STATE_FILE, st);
 }
 
-module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, logSent, clearLock, DEFAULT_RULES };
+module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, logSent, clearLog, clearLock, DEFAULT_RULES };
