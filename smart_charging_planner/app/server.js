@@ -3,137 +3,176 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const WebSocket = require('ws');
+
+const ha = require('./ha');
+const settings = require('./settings');
+const { detectVehicles, percentSensors } = require('./vehicles');
 
 const PORT = 8099;
-const HA_WS_URL = process.env.HA_WS_URL || 'ws://supervisor/core/websocket';
-const TOKEN = process.env.SUPERVISOR_TOKEN || process.env.HA_TOKEN || '';
-
-// ---------------------------------------------------------------------------
-// Home Assistant WebSocket client
-// ---------------------------------------------------------------------------
-
-const ha = {
-  connected: false,
-  version: null,
-  entityCount: null,
-  lastError: null,
-  socket: null,
-  nextId: 1,
-  pending: new Map(),
-};
-
-function log(...args) {
-  console.log(new Date().toISOString(), ...args);
-}
-
-function haCall(message) {
-  return new Promise((resolve, reject) => {
-    if (!ha.connected) {
-      reject(new Error('Not connected to Home Assistant'));
-      return;
-    }
-    const id = ha.nextId++;
-    ha.pending.set(id, { resolve, reject });
-    ha.socket.send(JSON.stringify({ id, ...message }));
-    setTimeout(() => {
-      if (ha.pending.has(id)) {
-        ha.pending.delete(id);
-        reject(new Error('Timeout waiting for Home Assistant'));
-      }
-    }, 15000);
-  });
-}
-
-async function refreshEntityCount() {
-  try {
-    const states = await haCall({ type: 'get_states' });
-    ha.entityCount = states.length;
-  } catch (err) {
-    ha.lastError = err.message;
-  }
-}
-
-function connectHA() {
-  if (!TOKEN) {
-    ha.lastError = 'No SUPERVISOR_TOKEN found. Is homeassistant_api enabled?';
-    log(ha.lastError);
-    return;
-  }
-
-  log('Connecting to Home Assistant at', HA_WS_URL);
-  const socket = new WebSocket(HA_WS_URL);
-  ha.socket = socket;
-
-  socket.on('message', (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
-
-    if (msg.type === 'auth_required') {
-      socket.send(JSON.stringify({ type: 'auth', access_token: TOKEN }));
-    } else if (msg.type === 'auth_ok') {
-      ha.connected = true;
-      ha.version = msg.ha_version;
-      ha.lastError = null;
-      log('Connected to Home Assistant', ha.version);
-      refreshEntityCount();
-    } else if (msg.type === 'auth_invalid') {
-      ha.lastError = 'Authentication failed: ' + (msg.message || 'invalid token');
-      log(ha.lastError);
-      socket.close();
-    } else if (msg.type === 'result' && ha.pending.has(msg.id)) {
-      const { resolve, reject } = ha.pending.get(msg.id);
-      ha.pending.delete(msg.id);
-      if (msg.success) resolve(msg.result);
-      else reject(new Error(msg.error ? msg.error.message : 'Unknown error'));
-    }
-  });
-
-  socket.on('error', (err) => {
-    ha.lastError = err.message;
-    log('WebSocket error:', err.message);
-  });
-
-  socket.on('close', () => {
-    if (ha.connected) log('Connection to Home Assistant closed');
-    ha.connected = false;
-    for (const { reject } of ha.pending.values()) reject(new Error('Connection closed'));
-    ha.pending.clear();
-    setTimeout(connectHA, 10000);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Web server (served through Home Assistant ingress)
-// ---------------------------------------------------------------------------
-
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const APP_VERSION = require('./package.json').version;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 100000) reject(new Error('Request too large'));
+    });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch {
+        reject(new Error('Invalid JSON'));
+      }
+    });
+  });
+}
+
+async function loadRegistries() {
+  const [entities, devices, states] = await Promise.all([
+    ha.call({ type: 'config/entity_registry/list' }),
+    ha.call({ type: 'config/device_registry/list' }),
+    ha.call({ type: 'get_states' }),
+  ]);
+  return { entities, devices, states };
+}
+
+// Current value of an entity, with its unit, for showing in the UI.
+function valueOf(states, entityId) {
+  if (!entityId) return null;
+  const s = states.find((x) => x.entity_id === entityId);
+  if (!s) return { entity_id: entityId, state: 'not found', unit: null };
+  return {
+    entity_id: entityId,
+    name: (s.attributes && s.attributes.friendly_name) || entityId,
+    state: s.state,
+    unit: (s.attributes && s.attributes.unit_of_measurement) || null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API routes
+// ---------------------------------------------------------------------------
+
+const routes = {
+  'GET /api/status': async () => {
+    let entityCount = null;
+    if (ha.state.connected) {
+      try {
+        entityCount = (await ha.call({ type: 'get_states' })).length;
+      } catch (err) {
+        ha.state.lastError = err.message;
+      }
+    }
+    return {
+      app_version: APP_VERSION,
+      connected: ha.state.connected,
+      ha_version: ha.state.version,
+      time_zone: ha.state.timeZone,
+      entity_count: entityCount,
+      error: ha.state.lastError,
+    };
+  },
+
+  // Look for vehicles in Home Assistant.
+  'GET /api/vehicles/detect': async () => {
+    const { entities, devices, states } = await loadRegistries();
+    return {
+      candidates: detectVehicles(entities, devices, states),
+      percent_sensors: percentSensors(entities, states),
+    };
+  },
+
+  // The saved vehicle(s) with their live values.
+  'GET /api/vehicles': async () => {
+    const saved = settings.load().vehicles;
+    const states = ha.state.connected ? await ha.call({ type: 'get_states' }) : [];
+    return {
+      vehicles: saved.map((v) => ({
+        ...v,
+        live: {
+          soc: valueOf(states, v.soc_entity),
+          range: valueOf(states, v.range_entity),
+          charging: valueOf(states, v.charging_entity),
+          plugged: valueOf(states, v.plugged_entity),
+        },
+      })),
+    };
+  },
+
+  // Save the chosen vehicle. v1 keeps one vehicle; the list allows more later.
+  'POST /api/vehicles': async (req) => {
+    const body = await readBody(req);
+    if (!body.soc_entity || !String(body.soc_entity).startsWith('sensor.')) {
+      const err = new Error('A battery (SoC) sensor is required');
+      err.status = 400;
+      throw err;
+    }
+    const capacity = body.capacity_kwh === '' || body.capacity_kwh == null
+      ? null : Number(body.capacity_kwh);
+    if (capacity !== null && !(capacity > 0 && capacity < 300)) {
+      const err = new Error('Battery capacity must be between 0 and 300 kWh');
+      err.status = 400;
+      throw err;
+    }
+    const vehicle = {
+      name: String(body.name || 'My vehicle').slice(0, 60),
+      device_id: body.device_id || null,
+      integration: body.integration || null,
+      soc_entity: body.soc_entity,
+      range_entity: body.range_entity || null,
+      charging_entity: body.charging_entity || null,
+      plugged_entity: body.plugged_entity || null,
+      capacity_kwh: capacity,
+    };
+    const s = settings.load();
+    s.vehicles = [vehicle];
+    settings.save(s);
+    ha.log('Saved vehicle', vehicle.name, vehicle.soc_entity);
+    return { ok: true, vehicle };
+  },
+
+  'DELETE /api/vehicles': async () => {
+    const s = settings.load();
+    s.vehicles = [];
+    settings.save(s);
+    return { ok: true };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Web server (served through Home Assistant ingress)
+// ---------------------------------------------------------------------------
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  const route = routes[`${req.method} ${url.pathname}`];
 
-  if (url.pathname === '/api/status') {
-    if (ha.connected) await refreshEntityCount();
-    sendJson(res, 200, {
-      app_version: require('./package.json').version,
-      connected: ha.connected,
-      ha_version: ha.version,
-      entity_count: ha.entityCount,
-      error: ha.lastError,
-    });
+  if (route) {
+    if (url.pathname !== '/api/status' && !ha.state.connected) {
+      sendJson(res, 503, { error: 'Not connected to Home Assistant' });
+      return;
+    }
+    try {
+      sendJson(res, 200, await route(req));
+    } catch (err) {
+      ha.log('Error on', req.method, url.pathname, '-', err.message);
+      sendJson(res, err.status || 500, { error: err.message });
+    }
     return;
   }
 
-  if (url.pathname === '/' || url.pathname === '/index.html') {
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
     fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (err, data) => {
       if (err) {
         res.writeHead(500);
@@ -151,6 +190,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  log(`Smart Charging Planner listening on port ${PORT}`);
-  connectHA();
+  ha.log(`Smart Charging Planner ${APP_VERSION} listening on port ${PORT}`);
+  ha.connect();
 });

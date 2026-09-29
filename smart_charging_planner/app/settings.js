@@ -1,0 +1,32 @@
+'use strict';
+
+// Stores the app's own settings in /data, which survives app updates.
+
+const fs = require('fs');
+const path = require('path');
+
+const DATA_DIR = process.env.DATA_DIR || '/data';
+const FILE = path.join(DATA_DIR, 'settings.json');
+
+const DEFAULTS = {
+  // A list from the start, so more vehicles can be added later.
+  vehicles: [],
+};
+
+function load() {
+  try {
+    const raw = fs.readFileSync(FILE, 'utf8');
+    return { ...DEFAULTS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+
+function save(settings) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const tmp = FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2));
+  fs.renameSync(tmp, FILE);
+}
+
+module.exports = { load, save };

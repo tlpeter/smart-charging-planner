@@ -11,8 +11,11 @@
       --text: #1c1f24;
       --muted: #5f6672;
       --border: #dde1e6;
+      --accent: #03a9f4;
+      --accent-text: #ffffff;
       --good: #1f8a4c;
       --bad: #c0392b;
+      --chip: #eef1f4;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -21,8 +24,11 @@
         --text: #e8eaed;
         --muted: #9aa1ab;
         --border: #2c323a;
+        --accent: #29b6f6;
+        --accent-text: #0b1016;
         --good: #3ccf7a;
         --bad: #ff6b5b;
+        --chip: #262b33;
       }
     }
     * { box-sizing: border-box; }
@@ -32,63 +38,278 @@
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
     }
-    main { max-width: 640px; margin: 0 auto; }
-    h1 { font-size: 22px; margin: 0 0 4px; }
-    .sub { color: var(--muted); margin: 0 0 24px; }
+    main { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    h2 { font-size: 17px; margin: 0 0 4px; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    .tab {
+      background: none; border: none; padding: 10px 14px; cursor: pointer;
+      color: var(--muted); font: inherit; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
     .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 16px 20px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px 20px; margin-bottom: 16px;
     }
     .row {
-      display: flex;
-      justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; gap: 16px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
     }
     .row:last-child { border-bottom: none; }
     .label { color: var(--muted); }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
     .ok { color: var(--good); font-weight: 600; }
     .fail { color: var(--bad); font-weight: 600; }
-    .error { color: var(--bad); margin-top: 12px; font-size: 14px; }
+    .error { color: var(--bad); margin: 8px 0; }
+    .chip {
+      display: inline-block; background: var(--chip); border-radius: 12px;
+      padding: 2px 10px; font-size: 12px; color: var(--muted); margin-right: 6px;
+    }
+    .field { margin: 12px 0; }
+    .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    select, input {
+      width: 100%; padding: 8px 10px; font: inherit; color: var(--text);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    }
+    .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    button.primary, button.secondary {
+      padding: 8px 16px; border-radius: 6px; font: inherit; cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); font-weight: 600; }
+    button.secondary { background: none; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .value { text-align: right; overflow-wrap: anywhere; }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
     <h1>Smart Charging Planner</h1>
-    <p class="sub">Connection check</p>
-    <div class="card">
-      <div class="row"><span class="label">Home Assistant</span><span id="conn">Checking…</span></div>
-      <div class="row"><span class="label">Home Assistant version</span><span id="haver">–</span></div>
-      <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
-      <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
-      <div id="error" class="error" hidden></div>
-    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="vehicle">Vehicle</button>
+      <button class="tab" data-tab="status">Status</button>
+    </nav>
+
+    <!-- Vehicle tab -->
+    <section id="tab-vehicle">
+      <div id="saved"></div>
+      <div class="card" id="detect-intro">
+        <h2>Find your vehicle</h2>
+        <p class="muted">The app searches Home Assistant for electric and plug-in hybrid vehicles.</p>
+        <div class="buttons">
+          <button class="primary" id="detect-btn">Detect vehicles</button>
+        </div>
+        <div id="detect-error" class="error" hidden></div>
+      </div>
+      <div id="results"></div>
+    </section>
+
+    <!-- Status tab -->
+    <section id="tab-status" hidden>
+      <div class="card">
+        <div class="row"><span class="label">Home Assistant</span><span id="conn">Checking…</span></div>
+        <div class="row"><span class="label">Home Assistant version</span><span id="haver">–</span></div>
+        <div class="row"><span class="label">Time zone</span><span id="tz">–</span></div>
+        <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
+        <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
+        <div id="status-error" class="error" hidden></div>
+      </div>
+    </section>
   </main>
+
   <script>
-    // Relative URL: required so the request goes through the ingress path.
-    async function load() {
-      const conn = document.getElementById('conn');
-      const errorBox = document.getElementById('error');
+    // All URLs are relative, so requests go through the ingress path.
+    const $ = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    async function api(method, url, body) {
+      const res = await fetch(url, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      return data;
+    }
+
+    // ---------- Tabs ----------
+    document.querySelectorAll('.tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('main > section').forEach((s) => {
+          s.hidden = s.id !== 'tab-' + btn.dataset.tab;
+        });
+        if (btn.dataset.tab === 'status') loadStatus();
+      });
+    });
+
+    // ---------- Status ----------
+    async function loadStatus() {
+      const conn = $('conn');
       try {
-        const res = await fetch('api/status');
-        const s = await res.json();
+        const s = await api('GET', 'api/status');
         conn.textContent = s.connected ? 'Connected' : 'Not connected';
         conn.className = s.connected ? 'ok' : 'fail';
-        document.getElementById('haver').textContent = s.ha_version || '–';
-        document.getElementById('count').textContent = s.entity_count ?? '–';
-        document.getElementById('appver').textContent = s.app_version || '–';
-        errorBox.hidden = !s.error;
-        errorBox.textContent = s.error || '';
-      } catch (err) {
+        $('haver').textContent = s.ha_version || '–';
+        $('tz').textContent = s.time_zone || '–';
+        $('count').textContent = s.entity_count ?? '–';
+        $('appver').textContent = s.app_version || '–';
+        $('status-error').hidden = !s.error;
+        $('status-error').textContent = s.error || '';
+      } catch {
         conn.textContent = 'App not reachable';
         conn.className = 'fail';
       }
     }
-    load();
-    setInterval(load, 10000);
+
+    // ---------- Saved vehicle ----------
+    function fmt(v) {
+      if (!v) return '<span class="muted">not set</span>';
+      const val = v.unit ? `${esc(v.state)} ${esc(v.unit)}` : esc(v.state);
+      return `${val}<div class="muted small">${esc(v.entity_id)}</div>`;
+    }
+
+    async function loadSaved() {
+      const box = $('saved');
+      try {
+        const { vehicles } = await api('GET', 'api/vehicles');
+        if (!vehicles.length) {
+          box.innerHTML = '';
+          $('detect-intro').hidden = false;
+          return;
+        }
+        const v = vehicles[0];
+        $('detect-intro').hidden = true;
+        box.innerHTML = `
+          <div class="card">
+            <h2>${esc(v.name)}</h2>
+            <p class="muted small">${v.integration ? 'Integration: ' + esc(v.integration) : 'Chosen manually'}</p>
+            <div class="row"><span class="label">Battery (SoC)</span><span class="value">${fmt(v.live.soc)}</span></div>
+            <div class="row"><span class="label">Range</span><span class="value">${fmt(v.live.range)}</span></div>
+            <div class="row"><span class="label">Charging</span><span class="value">${fmt(v.live.charging)}</span></div>
+            <div class="row"><span class="label">Plugged in</span><span class="value">${fmt(v.live.plugged)}</span></div>
+            <div class="row"><span class="label">Battery capacity</span><span class="value">${v.capacity_kwh ? esc(v.capacity_kwh) + ' kWh' : '<span class="muted">not set</span>'}</span></div>
+            <div class="buttons">
+              <button class="secondary" id="change-btn">Change</button>
+              <button class="secondary" id="remove-btn">Remove</button>
+            </div>
+          </div>`;
+        $('change-btn').onclick = () => { $('detect-intro').hidden = false; detect(); };
+        $('remove-btn').onclick = async () => {
+          if (!confirm('Remove this vehicle from the app?')) return;
+          await api('DELETE', 'api/vehicles');
+          $('results').innerHTML = '';
+          loadSaved();
+        };
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
+    // ---------- Detection ----------
+    function selectHtml(name, options, selected, required) {
+      const opts = options.map((o) => {
+        const val = o.unit ? `${o.state} ${o.unit}` : o.state;
+        return `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(val)})</option>`;
+      }).join('');
+      const none = required ? '' : `<option value="">— none —</option>`;
+      return `<select name="${name}">${none}${opts}</select>`;
+    }
+
+    function candidateCard(c, i) {
+      const how = c.detected_by === 'known_integration' ? 'Known vehicle integration' : 'Recognised by its sensors';
+      const make = [c.manufacturer, c.model].filter(Boolean).join(' ');
+      return `
+        <form class="card" data-index="${i}">
+          <h2>${esc(c.name)}</h2>
+          <p><span class="chip">${esc(c.integration)}</span><span class="chip">${esc(how)}</span>
+            ${make ? `<span class="muted small">${esc(make)}</span>` : ''}</p>
+          <div class="field"><label>Battery (SoC) – required</label>
+            ${c.options.soc.length ? selectHtml('soc_entity', c.options.soc, c.suggested.soc, true)
+              : '<div class="error small">No battery % sensor found on this device.</div>'}</div>
+          <div class="field"><label>Range</label>${selectHtml('range_entity', c.options.range, c.suggested.range)}</div>
+          <div class="field"><label>Charging</label>${selectHtml('charging_entity', c.options.charging, c.suggested.charging)}</div>
+          <div class="field"><label>Plugged in</label>${selectHtml('plugged_entity', c.options.plugged, c.suggested.plugged)}</div>
+          <div class="field"><label>Battery capacity in kWh (optional, needed later for planning)</label>
+            <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
+          <div class="buttons"><button class="primary" type="submit" ${c.options.soc.length ? '' : 'disabled'}>Use this vehicle</button></div>
+          <div class="error form-error" hidden></div>
+        </form>`;
+    }
+
+    function manualCard(sensors) {
+      return `
+        <form class="card" data-index="manual">
+          <h2>Choose manually</h2>
+          <p class="muted">Pick any sensor that shows the battery level in %.</p>
+          <div class="field"><label>Name</label><input name="name" placeholder="My vehicle"></div>
+          <div class="field"><label>Battery (SoC) – required</label>
+            ${sensors.length ? selectHtml('soc_entity', sensors, null, true)
+              : '<div class="error small">No sensors in % found.</div>'}</div>
+          <div class="field"><label>Battery capacity in kWh (optional)</label>
+            <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
+          <div class="buttons"><button class="primary" type="submit" ${sensors.length ? '' : 'disabled'}>Use this sensor</button></div>
+          <div class="error form-error" hidden></div>
+        </form>`;
+    }
+
+    let lastDetect = null;
+
+    async function detect() {
+      const btn = $('detect-btn');
+      btn.disabled = true;
+      btn.textContent = 'Searching…';
+      $('detect-error').hidden = true;
+      try {
+        lastDetect = await api('GET', 'api/vehicles/detect');
+        const { candidates, percent_sensors } = lastDetect;
+        const header = candidates.length
+          ? `<p class="muted">${candidates.length} vehicle${candidates.length > 1 ? 's' : ''} found. Check the suggested sensors and choose one.</p>`
+          : `<div class="card"><h2>No vehicle found</h2><p class="muted">No known car integration and no device with both a battery % and a range sensor. You can pick a sensor yourself below.</p></div>`;
+        $('results').innerHTML = header +
+          candidates.map(candidateCard).join('') +
+          `<details class="card" ${candidates.length ? '' : 'open'}><summary>Not listed? Choose a sensor manually</summary>${manualCard(percent_sensors)}</details>`;
+        document.querySelectorAll('#results form').forEach((f) => f.addEventListener('submit', save));
+      } catch (err) {
+        $('detect-error').textContent = err.message;
+        $('detect-error').hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Detect again';
+      }
+    }
+
+    async function save(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = Object.fromEntries(new FormData(form));
+      const idx = form.dataset.index;
+      if (idx !== 'manual') {
+        const c = lastDetect.candidates[Number(idx)];
+        data.name = c.name;
+        data.device_id = c.device_id;
+        data.integration = c.integration;
+      }
+      const errBox = form.querySelector('.form-error');
+      try {
+        await api('POST', 'api/vehicles', data);
+        $('results').innerHTML = '';
+        loadSaved();
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+      }
+    }
+
+    $('detect-btn').addEventListener('click', detect);
+    loadSaved();
+    loadStatus();
+    setInterval(() => { if ($('saved').innerHTML && !$('results').innerHTML) loadSaved(); }, 30000);
   </script>
 </body>
 </html>
