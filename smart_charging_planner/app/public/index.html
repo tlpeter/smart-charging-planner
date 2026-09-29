@@ -851,15 +851,6 @@
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
       else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
 
-      let power = `${p.power_kw.toFixed(1)} kW (${d.charger ? d.charger.phases : 3} × ${d.charger && d.charger.max_current ? d.charger.max_current : 16} A${d.assumed_current ? ', assumed' : ''})`;
-      if (d.house_load.available && p.blocks.length) {
-        const pw = p.blocks.map((b) => b.power_kw);
-        const lo = Math.min(...pw);
-        const hi = Math.max(...pw);
-        power = lo < hi - 0.05
-          ? `${lo.toFixed(1)}–${hi.toFixed(1)} kW, depending on house load`
-          : `${hi.toFixed(1)} kW${hi < p.power_kw - 0.05 ? ', limited by house load' : ''}`;
-      }
       const socText = v.soc != null ? `${v.soc}%${v.mode === 'manual_soc' ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
@@ -868,8 +859,7 @@
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
-            · charging at ${esc(power)}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
+          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
           ${p.cost != null ? `
           <div class="stats">
             <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div>

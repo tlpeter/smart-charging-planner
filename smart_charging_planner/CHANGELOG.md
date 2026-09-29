@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Removed "charging at … kW" from the Overview. It showed the power the plan calculates with, not what the charger really does, which was confusing
+
 ## 0.9.0
 
 - **Cars without an integration** are now supported. On the Vehicle tab, under "No car integration?", choose:
