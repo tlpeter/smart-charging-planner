@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0
+
+New layout.
+
+- **Five tabs**: Overview, Departures, Savings, Log and **⚙ Settings**
+  - Settings has pages for Vehicle, Charger, Grid, Prices, Control and Status
+  - The Log tab shows what the app wants right now and the log; the control method, the rules and the manual test moved to Settings › Control
+- **Setup wizard** on first start: Vehicle → Charger → Grid (optional) → Prices. You can run it again from Settings › Status. Existing setups skip it
+- The **planning settings** moved from the Overview to the app's **Configuration** tab in Home Assistant: charging loss margin, prefer one continuous period, minimum saving to split, and account for house load. The Overview shows the current values. Values saved earlier in the app are replaced by the Configuration tab (the defaults are the same as before)
+- The Configuration tab is in a clearer order: control and calendar first, then planning, then refresh and log level
+- The "Charging current" choice says that it is not used yet
+
 ## 0.12.1
 
 - New **Clear log** button on the Control tab (click twice to confirm). The log keeps the last 500 lines; after clearing, the current decision is logged again right away

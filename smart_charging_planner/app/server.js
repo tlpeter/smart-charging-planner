@@ -565,24 +565,6 @@ const routes = {
     };
   },
 
-  'POST /api/planning': async (req) => {
-    const body = await readBody(req);
-    const loss = body.loss_percent === '' || body.loss_percent == null ? 10 : Number(body.loss_percent);
-    if (!(loss >= 0 && loss <= 30)) throw badRequest('Charging loss must be between 0 and 30 %');
-    const minSplit = body.min_split_saving === '' || body.min_split_saving == null ? 0.5 : Number(body.min_split_saving);
-    if (!(minSplit >= 0 && minSplit <= 20)) throw badRequest('Minimum saving must be between 0 and 20');
-    const s = settings.load();
-    s.planning = {
-      ...s.planning,
-      loss_percent: loss,
-      use_house_load: body.use_house_load === true || body.use_house_load === 'on',
-      continuous: body.continuous === true || body.continuous === 'on',
-      min_split_saving: minSplit,
-    };
-    settings.save(s);
-    return { ok: true, planning: s.planning };
-  },
-
   // Savings per charging session over the last 30 days.
   'GET /api/savings': async () => {
     const s = settings.load();
@@ -885,7 +867,7 @@ async function manualControl(on, reason) {
     control_allowed: options.allow_control,
   };
   if (!command) {
-    entry.error = 'No start/stop method chosen on the Control tab';
+    entry.error = 'No start/stop method chosen in Settings › Control';
   } else if (!options.allow_control) {
     entry.error = 'Allow control is off, so nothing was sent';
   } else {
@@ -1100,6 +1082,23 @@ routes['GET /api/control'] = async () => {
     })(),
     log: controller.recentLog(150),
   };
+};
+
+// Setup wizard: what is set up, and whether the user finished the wizard.
+routes['GET /api/setup'] = async () => {
+  const s = settings.load();
+  const has = { vehicle: s.vehicles.length > 0, charger: s.chargers.length > 0, grid: s.grid.length > 0, prices: !!s.prices };
+  // Set up before the wizard existed: counts as done.
+  const done = s.setup_done === true || (s.setup_done == null && has.vehicle && has.charger && has.prices);
+  return { ...has, done };
+};
+
+routes['POST /api/setup'] = async (req) => {
+  const body = await readBody(req);
+  const s = settings.load();
+  s.setup_done = body.done === true;
+  settings.save(s);
+  return { ok: true, done: s.setup_done };
 };
 
 routes['DELETE /api/control/log'] = async () => {

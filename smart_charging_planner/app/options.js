@@ -7,7 +7,16 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
-const DEFAULTS = { log_level: 'info', allow_control: false, refresh_minutes: 5, allow_calendar_write: false };
+const DEFAULTS = {
+  log_level: 'info',
+  allow_control: false,
+  refresh_minutes: 5,
+  allow_calendar_write: false,
+  loss_percent: 10,
+  continuous_charging: true,
+  min_split_saving: 0.5,
+  use_house_load: true,
+};
 
 function load() {
   try {
@@ -15,6 +24,12 @@ function load() {
     const merged = { ...DEFAULTS, ...raw };
     const n = Math.round(Number(merged.refresh_minutes));
     merged.refresh_minutes = n >= 1 && n <= 60 ? n : DEFAULTS.refresh_minutes;
+    const loss = Number(merged.loss_percent);
+    merged.loss_percent = loss >= 0 && loss <= 30 ? loss : DEFAULTS.loss_percent;
+    const split = Number(merged.min_split_saving);
+    merged.min_split_saving = split >= 0 && split <= 20 ? split : DEFAULTS.min_split_saving;
+    merged.continuous_charging = merged.continuous_charging !== false;
+    merged.use_house_load = merged.use_house_load !== false;
     return merged;
   } catch {
     return { ...DEFAULTS };

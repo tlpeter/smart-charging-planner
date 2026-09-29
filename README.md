@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.12.1). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
+> Status: early development (v0.13.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
 
 ## Installation
 
@@ -10,7 +10,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 2. Open the menu (⋮) in the top right and choose **Repositories**.
 3. Add `https://github.com/tlpeter/smart-charging-planner`.
 4. Find **Smart Charging Planner** in the store and install it.
-5. Start the app and open **Smart Charging** in the sidebar.
+5. Start the app and open **Smart Charging** in the sidebar. A setup wizard walks you through the first steps.
 
 ## Roadmap
 

@@ -23,3 +23,24 @@ configuration:
       create (test mode) and writes nothing. When on, trips are added to the
       calendar chosen on the Departures tab. This does not allow any charger
       control.
+  loss_percent:
+    name: Charging loss margin (%)
+    description: >-
+      Extra energy to plan for, because not all energy from the charger ends up
+      in the battery. 10 % is a good start.
+  continuous_charging:
+    name: Prefer one continuous charging period
+    description: >-
+      Charge in one go instead of in several short periods, unless splitting
+      saves at least the amount below.
+  min_split_saving:
+    name: Split only when it saves at least
+    description: >-
+      Amount in your currency (for example 0.50). Only used when "Prefer one
+      continuous charging period" is on.
+  use_house_load:
+    name: Account for house load
+    description: >-
+      Uses the last 14 days of your grid meter to estimate how much current is
+      left for the charger under your main fuse at each hour. Needs the grid
+      meter to be set up in the app.

@@ -1,5 +1,5 @@
 name: Smart Charging Planner
-version: "0.12.1"
+version: "0.13.0"
 slug: smart_charging_planner
 description: Plans EV and home battery charging around dynamic electricity prices.
 url: https://github.com/tlpeter/smart-charging-planner
@@ -15,12 +15,20 @@ panel_icon: mdi:ev-station
 panel_title: Smart Charging
 homeassistant_api: true
 options:
-  log_level: info
   allow_control: false
-  refresh_minutes: 5
   allow_calendar_write: false
+  loss_percent: 10
+  continuous_charging: true
+  min_split_saving: 0.5
+  use_house_load: true
+  refresh_minutes: 5
+  log_level: info
 schema:
-  log_level: list(debug|info|warning|error)
   allow_control: bool
-  refresh_minutes: int(1,60)
   allow_calendar_write: bool
+  loss_percent: int(0,30)
+  continuous_charging: bool
+  min_split_saving: float(0,20)
+  use_house_load: bool
+  refresh_minutes: int(1,60)
+  log_level: list(debug|info|warning|error)
