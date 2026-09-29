@@ -187,6 +187,7 @@ const routes = {
           power: valueOf(states, c.power_entity),
           current: valueOf(states, c.current_entity),
           switch: valueOf(states, c.switch_entity),
+          max: effectiveMaxCurrent(c, states),
         },
       })),
     };
@@ -210,6 +211,11 @@ const routes = {
       switch_entity: pick('switch_entity', ['switch']),
       phases: Number(body.phases) === 1 ? 1 : 3,
       max_current: body.max_current === '' || body.max_current == null ? null : Number(body.max_current),
+      // Limit sensors to follow live; the lowest value counts.
+      max_current_entities: (Array.isArray(body.max_current_entities) ? body.max_current_entities : String(body.max_current_entities || '').split(','))
+        .map((x) => String(x).trim())
+        .filter((x) => /^(sensor|number)\./.test(x))
+        .slice(0, 4),
     };
     if (!charger.status_entity && !charger.power_entity && !charger.current_entity && !charger.switch_entity) {
       throw badRequest('Choose at least one entity');
@@ -384,7 +390,8 @@ const routes = {
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
     const departure = nextDeparture(dep, { states, events, tz, now });
 
-    const maxCurrent = charger && charger.max_current ? charger.max_current : null;
+    const maxInfo = charger ? effectiveMaxCurrent(charger, states) : null;
+    const maxCurrent = maxInfo && maxInfo.amps ? maxInfo.amps : null;
     const phases = charger ? charger.phases : 3;
     const powerKw = chargePowerKw(phases, maxCurrent);
 
@@ -429,7 +436,7 @@ const routes = {
         capacity_kwh: vehicle.capacity_kwh,
         plugged: plugged ? plugged.state : null,
       } : null,
-      charger: charger ? { name: charger.name, phases: charger.phases, max_current: charger.max_current } : null,
+      charger: charger ? { name: charger.name, phases: charger.phases, max_current: maxCurrent, max_source: maxInfo && maxInfo.source } : null,
       assumed_current: maxCurrent ? null : 16,
       prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps })),
       house_load: houseLoad.available ? {
@@ -710,6 +717,22 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshPlan('timer').catch(() => {});
   }, every);
+}
+
+// Maximum charging current: the lowest of the followed limit sensors and the
+// manually entered value. Falls back to the manual value when sensors are
+// unavailable.
+function effectiveMaxCurrent(charger, states) {
+  const values = [];
+  for (const id of charger.max_current_entities || []) {
+    const s = states.find((x) => x.entity_id === id);
+    const n = s ? Number(s.state) : NaN;
+    if (Number.isFinite(n) && n > 0) values.push({ amps: n, source: id, name: (s.attributes && s.attributes.friendly_name) || id });
+  }
+  if (charger.max_current > 0) values.push({ amps: charger.max_current, source: 'manual', name: 'set manually' });
+  if (!values.length) return { amps: null, source: null };
+  values.sort((a, b) => a.amps - b.amps);
+  return values[0];
 }
 
 function badRequest(message) {

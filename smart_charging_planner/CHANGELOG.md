@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2
+
+- The maximum charging current is now read from the charger's own limit sensors, for any charger integration (for Easee: "Max charger limit" and "Max circuit limit")
+  - The lowest limit is followed live: change it in the charger's own app and the plan follows
+  - A manually entered maximum still works, as an extra cap
+  - Limit sensors that exist but are disabled in Home Assistant are named, with where to enable them
+- The Charger tab shows where the maximum current comes from
+
+## 0.6.1
+
+- Charger detection no longer suggests the charger's smart charging switch (or a switch that turns the whole charger off) as start/stop switch; it only suggests a real start/stop switch
+- Long sensor values are rounded (9.15299987792969 kW is shown as 9.15 kW)
+
 ## 0.6.0
 
 - New **Control check** on the Charger tab: the app finds out by itself how your charger could be controlled, for any charger integration

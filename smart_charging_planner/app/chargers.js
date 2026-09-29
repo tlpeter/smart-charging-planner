@@ -63,6 +63,17 @@ function isControlSwitch(e, s) {
   return !!s && domainOf(e.entity_id) === 'switch';
 }
 
+function suggestStartStopSwitch(switches) {
+  const tokens = (o) => new Set(`${o.entity_id} ${o.name}`.toLowerCase().split(/[^a-z0-9]+/));
+  const ok = switches.filter((o) => {
+    const t = tokens(o);
+    const has = (...w) => w.some((x) => t.has(x));
+    if (has('smart', 'schedule', 'plan', 'eco', 'idle', 'led', 'light', 'lock', 'cable', 'current', 'phase', 'ocpp', 'enabled', 'enable')) return false;
+    return has('pause', 'start', 'charging', 'charge');
+  });
+  return ok.length ? ok[0].entity_id : null;
+}
+
 function option(e, s) {
   const a = (s && s.attributes) || {};
   return {
@@ -83,11 +94,52 @@ function pickBest(list, patterns) {
   return list.length ? list[0].entity_id : null;
 }
 
+// Limit sensors: the charger's own maximum, its circuit (group) maximum, and
+// the live limits a load balancer sets. Some integrations create these but
+// leave them disabled; those are listed too, so the user knows to enable them.
+function limitKind(e, s) {
+  const d = e.entity_id.split('.')[0];
+  if (d !== 'sensor' && d !== 'number') return null;
+  const a = (s && s.attributes) || {};
+  if (s && a.unit_of_measurement && a.unit_of_measurement !== 'A') return null;
+  const w = [e.entity_id, e.original_name, e.name, e.translation_key, a.friendly_name].filter(Boolean).join(' ').toLowerCase();
+  if (/offline/.test(w)) return null;
+  if (/max\w*[ _]?charger|charger[ _]?max|max[ _]charging[ _]current|maximum[ _]charging[ _]current/.test(w)) return 'max_charger';
+  if (/max\w*[ _]?circuit|circuit[ _]?max/.test(w)) return 'max_circuit';
+  if (/dynamic[ _]?charger/.test(w)) return 'dynamic_charger';
+  if (/dynamic[ _]?circuit/.test(w)) return 'dynamic_circuit';
+  if (/output[ _]?(limit|current)/.test(w)) return 'output';
+  return null;
+}
+
+function limitOptions(allEnts, stateById) {
+  const out = [];
+  for (const e of allEnts) {
+    const s = stateById.get(e.entity_id);
+    const kind = limitKind(e, s);
+    if (!kind) continue;
+    // Without a state and not disabled: unknown unit, skip.
+    if (!s && !e.disabled_by) continue;
+    out.push({
+      entity_id: e.entity_id,
+      name: (s && s.attributes && s.attributes.friendly_name) || e.name || e.original_name || e.entity_id,
+      kind,
+      state: s ? s.state : null,
+      disabled: !!e.disabled_by,
+    });
+  }
+  return out;
+}
+
 function detectChargers(entities, devices, states, vehicleDeviceIds = new Set()) {
   const stateById = new Map(states.map((s) => [s.entity_id, s]));
   const byDevice = new Map();
+  const allByDevice = new Map(); // including disabled entities
   for (const e of entities) {
-    if (!e.device_id || e.disabled_by) continue;
+    if (!e.device_id) continue;
+    if (!allByDevice.has(e.device_id)) allByDevice.set(e.device_id, []);
+    allByDevice.get(e.device_id).push(e);
+    if (e.disabled_by) continue;
     if (!byDevice.has(e.device_id)) byDevice.set(e.device_id, []);
     byDevice.get(e.device_id).push(e);
   }
@@ -130,6 +182,11 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
       return !s || UNAVAILABLE.has(s.state);
     });
 
+    const limits = limitOptions(allByDevice.get(device.id) || [], stateById);
+    const maxLimits = limits.filter((l) => !l.disabled && ['max_charger', 'max_circuit'].includes(l.kind) &&
+      Number.isFinite(Number(l.state)) && Number(l.state) > 0);
+    const suggestedMax = maxLimits.length ? Math.min(...maxLimits.map((l) => Number(l.state))) : null;
+
     candidates.push({
       device_id: device.id,
       name: device.name_by_user || device.name || 'Unknown device',
@@ -138,12 +195,17 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
       integration: known || [...domains][0],
       detected_by: known ? 'known_integration' : 'features',
       offline,
+      limits,
+      suggested_max_current: suggestedMax,
+      suggested_max_entities: maxLimits.map((l) => l.entity_id),
       options: { status, power, current, switch: switches },
       suggested: {
         status: pickBest(status, [/_status\b|charger_status|status/, /state/]),
         power: pickBest(power, [/charging_power|charger_power|_power\b/, /power/]),
         current: pickBest(current, [/max_charging_current|charging_current|dynamic|current_limit|current/]),
-        switch: current.length ? null : pickBest(switches, [/is_enabled|enable|charging|start|pause/]),
+        // Only suggest a real start/stop switch; never smart charging, schedules
+        // or a switch that turns the whole charger off.
+        switch: suggestStartStopSwitch(switches),
       },
       // Controlling a charger without a current setting or switch is done
       // through actions (services); that comes in a later version.
@@ -177,4 +239,4 @@ function manualChargerOptions(entities, states) {
   return out;
 }
 
-module.exports = { detectChargers, manualChargerOptions, KNOWN_CHARGER_DOMAINS };
+module.exports = { detectChargers, manualChargerOptions, KNOWN_CHARGER_DOMAINS, limitKind };

@@ -342,19 +342,31 @@
           ? 'This charger has no current setting or switch in Home Assistant. Control will go through its actions (services); that is added in a later version.'
           : '',
         extraInputs: (c) => {
-          const cur = c && c.options.current.find((o) => o.entity_id === c.suggested.current);
-          const max = cur && cur.max ? cur.max : '';
+          const limits = (c && c.limits) || [];
+          const follow = (c && c.suggested_max_entities) || [];
+          const KIND = { max_charger: 'charger maximum', max_circuit: 'circuit maximum', dynamic_charger: 'live charger limit', dynamic_circuit: 'live circuit limit', output: 'output limit' };
+          const enabled = limits.filter((l) => !l.disabled);
+          const disabled = limits.filter((l) => l.disabled && ['max_charger', 'max_circuit'].includes(l.kind));
+          const limitList = enabled.length ? `<div class="small muted">Limits found: ${enabled.map((l) => `${esc(l.name)} = ${esc(tidy(l.state))} A <span class="src">(${esc(KIND[l.kind])})</span>`).join(' · ')}</div>` : '';
+          const disabledNote = disabled.length
+            ? `<div class="note">This charger also has ${disabled.map((l) => `<strong>${esc(l.name)}</strong> (<code>${esc(l.entity_id)}</code>)`).join(' and ')}, but ${disabled.length > 1 ? 'they are' : 'it is'} disabled in Home Assistant. Enable ${disabled.length > 1 ? 'them' : 'it'} under Settings → Devices & services → Entities, then detect again, and the app will read the maximum current by itself.</div>`
+            : '';
           return `
           <div class="two">
             <div class="field"><label>Phases</label>
               <select name="phases"><option value="3">3 phases</option><option value="1">1 phase</option></select></div>
-            <div class="field"><label>Maximum current in A (optional)</label>
-              <input name="max_current" type="number" min="6" max="80" step="1" value="${esc(max)}" placeholder="e.g. 16"></div>
-          </div>`;
+            <div class="field"><label>Maximum current in A${follow.length ? '' : ' (optional)'}</label>
+              <input name="max_current" type="number" min="6" max="80" step="1" value="${follow.length ? '' : ''}" placeholder="${c && c.suggested_max_current ? esc(c.suggested_max_current) : 'e.g. 16'}"></div>
+          </div>
+          ${follow.length ? `<label class="check"><input type="checkbox" name="follow_limits" checked> Follow the charger's own limit (now ${esc(c.suggested_max_current)} A) live</label>
+            <input type="hidden" name="max_current_entities" value="${esc(follow.join(','))}">` : ''}
+          ${limitList}${disabledNote}`;
         },
         extraRows: (c) => [
           ['Phases', String(c.phases)],
-          ['Maximum current', c.max_current ? `${esc(c.max_current)} A` : null],
+          ['Maximum current', c.live && c.live.max && c.live.max.amps
+            ? `${esc(tidy(c.live.max.amps))} A<div class="muted small">${c.live.max.source === 'manual' ? 'set manually' : `live from ${esc(c.live.max.source)}`}</div>`
+            : null],
         ],
         afterSaved: () => `
           <div class="card" id="control-check">
@@ -419,7 +431,7 @@
 
     // ---------- Rendering helpers ----------
     function optionLabel(o) {
-      const val = o.unit ? `${o.state} ${o.unit}` : o.state;
+      const val = o.unit ? `${tidy(o.state)} ${o.unit}` : tidy(o.state);
       return `${esc(o.name)} (${esc(val)})`;
     }
 
@@ -442,9 +454,17 @@
       return `<div class="field"><label>${esc(f.label)}${f.required ? ' – required' : ''}</label>${control}</div>`;
     }
 
+    // Round long numbers from sensors: 9.15299987792969 -> 9.15
+    function tidy(state) {
+      const n = Number(state);
+      if (state === '' || state == null || !Number.isFinite(n)) return String(state ?? '');
+      const d = Math.abs(n) >= 100 ? 0 : Math.abs(n) >= 10 ? 1 : 2;
+      return String(Number(n.toFixed(d)));
+    }
+
     function fmt(v) {
       if (!v) return '<span class="muted">not set</span>';
-      const val = v.unit ? `${esc(v.state)} ${esc(v.unit)}` : esc(v.state);
+      const val = v.unit ? `${esc(tidy(v.state))} ${esc(v.unit)}` : esc(tidy(v.state));
       return `${val}<div class="muted small">${esc(v.entity_id)}</div>`;
     }
 
@@ -580,6 +600,10 @@
       const kind = form.dataset.kind;
       const cfg = SECTIONS[kind];
       const data = Object.fromEntries(new FormData(form));
+      if ('follow_limits' in data || form.querySelector('input[name=follow_limits]')) {
+        if (!form.querySelector('input[name=follow_limits]').checked) data.max_current_entities = '';
+        delete data.follow_limits;
+      }
       const lbSelect = form.querySelector('select[name=load_balancer]');
       if (lbSelect) data.load_balancer_name = lbSelect.selectedOptions[0].dataset.name || '';
       if (form.dataset.index !== 'manual') {
