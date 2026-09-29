@@ -349,7 +349,10 @@
         extraInputs: () => `
           <div class="field"><label>Battery capacity in kWh (optional, needed later for planning)</label>
             <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>`,
-        extraRows: (v) => [['Battery capacity', v.capacity_kwh ? `${esc(v.capacity_kwh)} kWh` : null]],
+        extraRows: (v) => [
+          ['Battery level from', { sensor: 'the car (sensor)', manual_soc: 'entered by you at plug-in', fixed_kwh: `fixed amount: ${esc(v.fixed_kwh)} kWh per session` }[v.mode || 'sensor']],
+          ['Battery capacity', v.capacity_kwh ? `${esc(v.capacity_kwh)} kWh` : null],
+        ],
         manual: (data) => ({
           intro: 'Pick any sensor that shows the battery level in %.',
           options: { soc: data.percent_sensors },
@@ -537,6 +540,49 @@
         </form>`;
     }
 
+    // ---------- Car without integration ----------
+    function noIntegrationCard() {
+      return `
+        <form class="card" id="noint-form">
+          <h2>No car integration?</h2>
+          <p class="muted small">The app can still plan. It follows plugging in and out through the charger, and counts the energy charged with the charger's power sensor (Charger tab).</p>
+          <div class="field"><label>Name</label><input name="name" placeholder="My vehicle"></div>
+          <label class="check"><input type="radio" name="mode" value="manual_soc" checked> I enter the battery level myself when I plug in</label>
+          <label class="check"><input type="radio" name="mode" value="fixed_kwh"> Charge a fixed amount each time</label>
+          <div class="two">
+            <div class="field" id="noint-capacity"><label>Battery capacity in kWh</label><input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
+            <div class="field" id="noint-fixed" hidden><label>Amount per session in kWh</label><input name="fixed_kwh" type="number" min="1" max="150" step="0.5" placeholder="e.g. 20"></div>
+          </div>
+          <div class="buttons"><button class="primary" type="submit">Use this</button></div>
+          <div class="error form-error" hidden></div>
+        </form>`;
+    }
+
+    function wireNoIntegration() {
+      const f = $('noint-form');
+      f.addEventListener('change', () => {
+        const fixed = f.mode.value === 'fixed_kwh';
+        $('noint-fixed').hidden = !fixed;
+        $('noint-capacity').querySelector('label').textContent = fixed ? 'Battery capacity in kWh (optional)' : 'Battery capacity in kWh';
+      });
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errBox = f.querySelector('.form-error');
+        errBox.hidden = true;
+        try {
+          await api('POST', 'api/vehicles', {
+            mode: f.mode.value, name: f.name.value || 'My vehicle',
+            capacity_kwh: f.capacity_kwh.value, fixed_kwh: f.fixed_kwh.value,
+          });
+          $('vehicle-results').innerHTML = '';
+          loadSaved('vehicle');
+        } catch (err) {
+          errBox.textContent = err.message;
+          errBox.hidden = false;
+        }
+      });
+    }
+
     // ---------- Section flow ----------
     function sectionShell(kind) {
       const cfg = SECTIONS[kind];
@@ -548,8 +594,10 @@
           <div class="buttons"><button class="primary" id="${kind}-detect">Detect ${cfg.noun}s</button></div>
           <div id="${kind}-error" class="error" hidden></div>
         </div>
-        <div id="${kind}-results"></div>`;
+        <div id="${kind}-results"></div>
+        ${kind === 'vehicle' ? noIntegrationCard() : ''}`;
       $(`${kind}-detect`).addEventListener('click', () => detect(kind));
+      if (kind === 'vehicle') wireNoIntegration();
     }
 
     async function loadSaved(kind) {
@@ -561,10 +609,12 @@
         if (!list.length) {
           box.innerHTML = '';
           $(`${kind}-intro`).hidden = false;
+          if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = false;
           return;
         }
         const item = list[0];
         $(`${kind}-intro`).hidden = true;
+        if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = true;
         const liveRows = cfg.fields.map((f) =>
           `<div class="row"><span class="label">${esc(f.label)}</span><span class="value">${fmt(item.live[f.opt])}</span></div>`).join('');
         const extra = cfg.extraRows(item).map(([label, val]) =>
@@ -584,7 +634,11 @@
           const btn = box.querySelector('#control-check-btn');
           if (btn) btn.onclick = runControlCheck;
         }
-        box.querySelector('[data-act=change]').onclick = () => { $(`${kind}-intro`).hidden = false; detect(kind); };
+        box.querySelector('[data-act=change]').onclick = () => {
+          $(`${kind}-intro`).hidden = false;
+          if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = false;
+          detect(kind);
+        };
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
           await api('DELETE', cfg.api);
@@ -660,6 +714,8 @@
       prices_incomplete: 'Prices are not known all the way to the deadline yet. The plan uses the known prices and updates when new prices are published (usually around 13:00).',
       not_enough_known_time: 'Not enough known price blocks before the deadline to reach the target yet.',
       not_enough_time: 'Not enough time before the deadline to reach the target. The plan charges in every available block.',
+      enter_soc: 'Enter the current battery level above to get a plan.',
+      fixed_waiting: 'Waiting for the car to be plugged in. The plan starts when charging a new session.',
       no_departure: 'No departure planned. The plan uses the cheapest known blocks and the default battery level, without a deadline.',
       calendar_error: 'The calendar could not be read; other departure sources are still used.',
     };
@@ -788,7 +844,9 @@
       const p = d.plan;
       const periodsList = p.periods.map((x) => `${dayHm(x.start)}–${hm(x.end)}`).join(', ');
       let headline;
-      if (p.notes.includes('already_at_target')) headline = 'No charging needed';
+      if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
+      else if (p.notes.includes('fixed_waiting')) headline = 'Waiting for the car to be plugged in';
+      else if (p.notes.includes('already_at_target')) headline = v.mode === 'fixed_kwh' ? 'The fixed amount has been charged' : 'No charging needed';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
       else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
@@ -802,7 +860,7 @@
           ? `${lo.toFixed(1)}–${hi.toFixed(1)} kW, depending on house load`
           : `${hi.toFixed(1)} kW${hi < p.power_kw - 0.05 ? ', limited by house load' : ''}`;
       }
-      const socText = v.soc != null ? `${v.soc}%` : esc(v.soc_state || 'unknown');
+      const socText = v.soc != null ? `${v.soc}%${v.mode === 'manual_soc' ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
           <div class="row" style="border:none;padding:0;align-items:center">
@@ -810,7 +868,7 @@
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}%${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
+          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
             · charging at ${esc(power)}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
           ${p.cost != null ? `
           <div class="stats">
@@ -818,6 +876,7 @@
             <div class="stat"><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div>
             <div class="stat"><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div>
           </div>` : ''}
+          ${vehicleSessionHtml(d)}
           ${continuousNote(p)}
           ${p.notes.map((n) => `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
@@ -834,6 +893,27 @@
             ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>`;
+    }
+
+    function vehicleSessionHtml(d) {
+      const v = d.vehicle;
+      if (!v || v.mode === 'sensor' || !v.mode) return '';
+      const ss = v.session || {};
+      const since = ss.since ? `since ${esc(dayHm(ss.since))}${ss.since_known ? '' : ' (plugged in before the app saw it)'}` : '';
+      const counting = ss.counting ? '' : ' <span class="src">No charging power sensor on the Charger tab, so charged energy is not counted.</span>';
+      if (v.mode === 'fixed_kwh') {
+        return `<p class="muted small">Fixed amount: ${esc(v.fixed_kwh)} kWh per session · ${ss.plugged ? `${tidy(ss.kwh_since)} kWh charged ${since}` : 'car not plugged in'}${counting}</p>`;
+      }
+      const entered = ss.manual_soc ? `You entered ${esc(ss.manual_soc.value)}% at ${esc(hm(ss.manual_soc.at))}; ${tidy(ss.kwh_since)} kWh charged since.` : 'No battery level entered for this session yet.';
+      return `
+        <form class="row" id="soc-form" style="align-items:center;border:none">
+          <span class="label">Battery level now (estimate)</span>
+          <span style="display:flex;gap:8px;align-items:center">
+            <input name="soc" type="number" min="0" max="100" step="1" style="width:90px" placeholder="%" required>
+            <button class="secondary" type="submit">Set</button>
+          </span>
+        </form>
+        <p class="muted small">${entered}${counting} The entered level is forgotten when the car is unplugged.</p>`;
     }
 
     function continuousNote(p) {
@@ -866,6 +946,12 @@
         lastPlan = d;
         $('overview-body').innerHTML = overviewHtml(d);
         drawChart(d);
+        const sf = $('soc-form');
+        if (sf) sf.onsubmit = async (e) => {
+          e.preventDefault();
+          await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
+          loadOverview(true);
+        };
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
         const f = $('planning-form');

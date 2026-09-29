@@ -29,9 +29,11 @@ Plans EV and home battery charging around dynamic electricity prices.
 
 Nothing found? Open **Not listed? Choose manually** and pick the entities yourself.
 
+No integration for your car at all? Use **No car integration?** on the Vehicle tab: either enter the battery level on the Overview when you plug in, or charge a fixed amount each time. The app then follows the session through the charger (a charging power sensor on the Charger tab is needed to count the energy).
+
 ## Requirements
 
-- A vehicle integration that provides at least a battery level sensor in %.
+- A vehicle integration with a battery level sensor in %, or no integration (enter the level yourself, or a fixed amount per session).
 - A charger integration in Home Assistant.
 - A grid meter in Home Assistant, such as a P1 meter.
 - A dynamic price integration, such as EnergyZero (no account needed) or Nord Pool.

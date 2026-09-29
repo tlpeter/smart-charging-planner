@@ -18,6 +18,7 @@ const { computeSavings } = require('./savings');
 const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
 const { checkControl } = require('./control');
 const controller = require('./controller');
+const session = require('./session');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -131,11 +132,15 @@ const routes = {
   // Save the chosen vehicle. v1 keeps one vehicle; the list allows more later.
   'POST /api/vehicles': async (req) => {
     const body = await readBody(req);
-    if (!body.soc_entity || !String(body.soc_entity).startsWith('sensor.')) {
-      const err = new Error('A battery (SoC) sensor is required');
-      err.status = 400;
-      throw err;
+    // Modes: "sensor" (battery level from the car), "manual_soc" (the user
+    // enters it at plug-in), "fixed_kwh" (a fixed amount per session).
+    const mode = ['manual_soc', 'fixed_kwh'].includes(body.mode) ? body.mode : 'sensor';
+    if (mode === 'sensor' && (!body.soc_entity || !String(body.soc_entity).startsWith('sensor.'))) {
+      throw badRequest('A battery (SoC) sensor is required');
     }
+    if (mode === 'manual_soc' && !(Number(body.capacity_kwh) > 0)) throw badRequest('Battery capacity is required to estimate the battery level');
+    const fixedKwh = mode === 'fixed_kwh' ? Number(body.fixed_kwh) : null;
+    if (mode === 'fixed_kwh' && !(fixedKwh >= 1 && fixedKwh <= 150)) throw badRequest('The amount per session must be between 1 and 150 kWh');
     const capacity = body.capacity_kwh === '' || body.capacity_kwh == null
       ? null : Number(body.capacity_kwh);
     if (capacity !== null && !(capacity > 0 && capacity < 300)) {
@@ -145,12 +150,14 @@ const routes = {
     }
     const vehicle = {
       name: String(body.name || 'My vehicle').slice(0, 60),
+      mode,
+      fixed_kwh: fixedKwh,
       device_id: body.device_id || null,
       integration: body.integration || null,
-      soc_entity: body.soc_entity,
+      soc_entity: mode === 'sensor' ? body.soc_entity : null,
       range_entity: body.range_entity || null,
       charging_entity: body.charging_entity || null,
-      plugged_entity: body.plugged_entity || null,
+      plugged_entity: String(body.plugged_entity || '').startsWith('binary_sensor.') || String(body.plugged_entity || '').startsWith('sensor.') ? body.plugged_entity : null,
       capacity_kwh: capacity,
     };
     const s = settings.load();
@@ -158,6 +165,15 @@ const routes = {
     settings.save(s);
     ha.log('Saved vehicle', vehicle.name, vehicle.soc_entity);
     return { ok: true, vehicle };
+  },
+
+  // Battery level entered by the user (cars without integration).
+  'POST /api/vehicle/soc': async (req) => {
+    const body = await readBody(req);
+    const v = Number(body.soc);
+    if (!(v >= 0 && v <= 100)) throw badRequest('Battery level must be between 0 and 100 %');
+    session.setManualSoc(v);
+    return { ok: true };
   },
 
   'DELETE /api/vehicles': async () => {
@@ -382,9 +398,43 @@ const routes = {
     }
 
     const states = await ha.call({ type: 'get_states' });
-    const socValue = vehicle ? valueOf(states, vehicle.soc_entity) : null;
-    const soc = socValue ? Number(socValue.state) : NaN;
+    const mode = vehicle ? vehicle.mode || 'sensor' : null;
+    const socValue = vehicle && mode === 'sensor' ? valueOf(states, vehicle.soc_entity) : null;
+    let soc = socValue ? Number(socValue.state) : NaN;
     const plugged = vehicle && vehicle.plugged_entity ? valueOf(states, vehicle.plugged_entity) : null;
+
+    // Cars without integration: follow the session and the energy charged.
+    const actualNow = controller.readActual({ vehicle, charger, states, now });
+    const sess = session.update(actualNow.plugged, now);
+    let sessionInfo = null;
+    if (vehicle && mode !== 'sensor') {
+      const from = mode === 'manual_soc'
+        ? (sess.manual_soc ? Math.max(sess.manual_soc.at, sess.since || 0) : null)
+        : sess.since;
+      let kwhSince = 0;
+      let energyError = null;
+      if (from && charger && charger.power_entity) {
+        try {
+          kwhSince = await session.energySince(charger.power_entity, from, now);
+        } catch (err) {
+          energyError = err.message;
+        }
+      }
+      sessionInfo = {
+        plugged: sess.plugged,
+        since: sess.since,
+        since_known: sess.since_known,
+        manual_soc: sess.manual_soc,
+        kwh_since: kwhSince,
+        counting: !!(charger && charger.power_entity),
+        energy_error: energyError,
+      };
+      if (mode === 'manual_soc' && sess.manual_soc && vehicle.capacity_kwh > 0) {
+        const loss = 1 + (Number(s.planning.loss_percent) || 0) / 100;
+        soc = Math.min(100, sess.manual_soc.value + (kwhSince / loss / vehicle.capacity_kwh) * 100);
+        soc = Math.round(soc * 10) / 10;
+      }
+    }
 
     const planning = s.planning;
     const dep = normalise(s.departures, s.planning);
@@ -410,7 +460,11 @@ const routes = {
       }
     }
     const targetSoc = departure ? departure.soc : dep.default_soc;
-    const neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
+    let neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
+    if (vehicle && mode === 'fixed_kwh') {
+      // Nothing to plan while unplugged; otherwise the rest of the fixed amount.
+      neededKwh = sessionInfo && sessionInfo.plugged ? Math.max(0, vehicle.fixed_kwh - sessionInfo.kwh_since) : null;
+    }
     // Without a departure: plan in the cheapest known blocks, no deadline.
     const deadline = departure ? departure.time : (prices.length ? prices[prices.length - 1].end : now);
     const plan = planCharging({
@@ -419,6 +473,12 @@ const routes = {
       minSplitSaving: Number(planning.min_split_saving) || 0,
     });
     if (!departure) plan.notes.unshift('no_departure');
+    if (vehicle && mode === 'manual_soc' && !(sessionInfo && sessionInfo.manual_soc)) {
+      plan.notes = ['enter_soc', ...plan.notes.filter((n) => n !== 'missing_data')];
+    }
+    if (vehicle && mode === 'fixed_kwh' && !(sessionInfo && sessionInfo.plugged)) {
+      plan.notes = ['fixed_waiting', ...plan.notes.filter((n) => n !== 'missing_data')];
+    }
     if (calendarError) plan.notes.push('calendar_error');
 
     return {
@@ -432,6 +492,9 @@ const routes = {
       departure,
       vehicle: vehicle ? {
         name: vehicle.name,
+        mode,
+        fixed_kwh: vehicle.fixed_kwh || null,
+        session: sessionInfo,
         soc: Number.isFinite(soc) ? soc : null,
         soc_state: socValue ? socValue.state : null,
         capacity_kwh: vehicle.capacity_kwh,

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- **Cars without an integration** are now supported. On the Vehicle tab, under "No car integration?", choose:
+  - **I enter the battery level myself**: enter it on the Overview when you plug in; the app adds the energy charged since then (from the charger's power sensor) and estimates the level. The entered level is forgotten when the car is unplugged
+  - **Charge a fixed amount each time**: for example 20 kWh per session; the app plans the rest of that amount after plugging in
+- Plugging in and unplugging is followed through the charger status when there is no plugged-in sensor
+- The Overview shows the estimated battery level or the amount charged in this session
+
 ## 0.8.0
 
 Still a dry run: nothing is sent to the charger.
