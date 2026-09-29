@@ -84,16 +84,16 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
   const reference = fill([...usable].sort((a, b) => a.start - b.start));
   const cost = (list) => list.reduce((s, b) => s + b.kwh * b.total, 0);
 
-  result.blocks = planned
-    .sort((a, b) => a.start - b.start)
-    .map((b) => ({
-      start: b.start,
-      // A partly used block ends early.
-      end: b.start + (b.kwh / powerKw) * 3600000,
-      block_end: b.end,
-      kwh: b.kwh,
-      price: b.total,
-    }));
+  // A partly used block is placed against its planned neighbour, so charging
+  // runs in one go instead of stopping and starting again.
+  planned.sort((a, b) => a.start - b.start);
+  const starts = new Set(planned.map((b) => b.start));
+  result.blocks = planned.map((b) => {
+    const duration = (b.kwh / (b.hours * powerKw)) * (b.end - b.start);
+    const nextPlanned = starts.has(b.end);
+    const start = nextPlanned ? b.end - duration : b.start;
+    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total };
+  });
   result.planned_kwh = planned.reduce((s, b) => s + b.kwh, 0);
   result.cost = cost(planned);
   result.reference_cost = cost(reference);
@@ -101,18 +101,17 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
   return result;
 }
 
-// Merge adjacent blocks into periods for display.
+// Merge touching blocks into periods for display.
 function periods(blocks) {
   const out = [];
   for (const b of blocks) {
     const last = out[out.length - 1];
-    if (last && Math.abs(last.block_end - b.start) < 1000 && last.end === last.block_end) {
+    if (last && Math.abs(last.end - b.start) < 1000) {
       last.end = b.end;
-      last.block_end = b.block_end;
       last.kwh += b.kwh;
       last.cost += b.kwh * b.price;
     } else {
-      out.push({ start: b.start, end: b.end, block_end: b.block_end, kwh: b.kwh, cost: b.kwh * b.price });
+      out.push({ start: b.start, end: b.end, kwh: b.kwh, cost: b.kwh * b.price });
     }
   }
   return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh }));

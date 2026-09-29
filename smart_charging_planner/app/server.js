@@ -10,8 +10,9 @@ const settings = require('./settings');
 const { detectVehicles, percentSensors } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, summarise, totalPrice, localTimeOn, ACTION_SOURCES } = require('./prices');
-const { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, periods } = require('./planner');
+const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
+const { DAYS, normalise, collect, winnersPerDay, nextDeparture } = require('./departures');
+const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -370,11 +371,19 @@ const routes = {
     const plugged = vehicle && vehicle.plugged_entity ? valueOf(states, vehicle.plugged_entity) : null;
 
     const planning = s.planning;
+    const dep = normalise(s.departures, s.planning);
+    const { events, error: calendarError } = await calendarEvents(dep, tz, now);
+    const departure = nextDeparture(dep, { states, events, tz, now });
+
     const maxCurrent = charger && charger.max_current ? charger.max_current : null;
     const powerKw = chargePowerKw(charger ? charger.phases : 3, maxCurrent);
-    const neededKwh = vehicle ? energyNeededKwh(soc, planning.target_soc, vehicle.capacity_kwh, planning.loss_percent) : null;
-    const deadline = nextDeadline(planning.ready_by, tz, now, localTimeOn);
+    const targetSoc = departure ? departure.soc : dep.default_soc;
+    const neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
+    // Without a departure: plan in the cheapest known blocks, no deadline.
+    const deadline = departure ? departure.time : (prices.length ? prices[prices.length - 1].end : now);
     const plan = planCharging({ prices, now, deadline, neededKwh, powerKw });
+    if (!departure) plan.notes.unshift('no_departure');
+    if (calendarError) plan.notes.push('calendar_error');
 
     return {
       time_zone: tz,
@@ -382,7 +391,9 @@ const routes = {
       now,
       missing,
       price_error: priceError,
-      planning,
+      calendar_error: calendarError,
+      planning: { ...planning, target_soc: targetSoc },
+      departure,
       vehicle: vehicle ? {
         name: vehicle.name,
         soc: Number.isFinite(soc) ? soc : null,
@@ -400,17 +411,128 @@ const routes = {
 
   'POST /api/planning': async (req) => {
     const body = await readBody(req);
-    const target = Number(body.target_soc);
     const loss = body.loss_percent === '' || body.loss_percent == null ? 10 : Number(body.loss_percent);
-    if (!(target >= 10 && target <= 100)) throw badRequest('Target must be between 10 and 100 %');
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.ready_by || ''))) throw badRequest('Ready by must be a time like 07:00');
     if (!(loss >= 0 && loss <= 30)) throw badRequest('Charging loss must be between 0 and 30 %');
     const s = settings.load();
-    s.planning = { target_soc: target, ready_by: body.ready_by, loss_percent: loss };
+    s.planning = { ...s.planning, loss_percent: loss };
     settings.save(s);
     return { ok: true, planning: s.planning };
   },
+
+  // Departure times.
+  'GET /api/departures': async () => {
+    const s = settings.load();
+    const tz = ha.state.timeZone;
+    const now = Date.now();
+    const dep = normalise(s.departures, s.planning);
+    const states = await ha.call({ type: 'get_states' });
+    const { events, error } = await calendarEvents(dep, tz, now);
+    const days = winnersPerDay(collect(dep, { states, events, tz, now }), tz);
+    const list = (domain) => states
+      .filter((x) => x.entity_id.startsWith(domain + '.'))
+      .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      time_zone: tz,
+      now,
+      departures: dep,
+      next: days.length ? days[0].winner : null,
+      upcoming: days,
+      calendar_error: error,
+      options: {
+        input_datetime: list('input_datetime'),
+        input_number: list('input_number'),
+        calendar: list('calendar'),
+      },
+    };
+  },
+
+  'POST /api/departures': async (req) => {
+    const body = await readBody(req);
+    const s = settings.load();
+    const cur = normalise(s.departures, s.planning);
+    const soc = (v, name) => {
+      const n = Number(v);
+      if (!(n >= 10 && n <= 100)) throw badRequest(`${name}: battery level must be between 10 and 100 %`);
+      return n;
+    };
+    const time = (v, name) => {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''))) throw badRequest(`${name}: use a time like 07:00`);
+      return v;
+    };
+    const schedule = {};
+    for (const day of DAYS) {
+      const d = (body.schedule || {})[day] || {};
+      schedule[day] = { enabled: !!d.enabled, time: time(d.time, day), soc: soc(d.soc, day) };
+    }
+    const helper = body.helper || {};
+    const cal = body.calendar || {};
+    const buffer = Number(cal.buffer_minutes);
+    if (!(buffer >= 0 && buffer <= 240)) throw badRequest('Calendar buffer must be between 0 and 240 minutes');
+    if (helper.enabled && !String(helper.datetime_entity || '').startsWith('input_datetime.')) throw badRequest('Choose a date/time helper');
+    if (cal.enabled && !String(cal.entity || '').startsWith('calendar.')) throw badRequest('Choose a calendar');
+    s.departures = {
+      ...cur,
+      default_soc: soc(body.default_soc, 'Default'),
+      schedule_enabled: !!body.schedule_enabled,
+      schedule,
+      helper: {
+        enabled: !!helper.enabled,
+        datetime_entity: helper.datetime_entity || null,
+        soc_entity: String(helper.soc_entity || '').startsWith('input_number.') ? helper.soc_entity : null,
+      },
+      calendar: {
+        enabled: !!cal.enabled,
+        entity: cal.entity || null,
+        keyword: String(cal.keyword || '').slice(0, 40),
+        buffer_minutes: buffer,
+        soc: soc(cal.soc, 'Calendar'),
+      },
+    };
+    settings.save(s);
+    return { ok: true };
+  },
+
+  // One-off departure. Expires by itself after the departure time.
+  'POST /api/departures/override': async (req) => {
+    const body = await readBody(req);
+    const tz = ha.state.timeZone;
+    const time = parseLocal(body.datetime, tz);
+    const now = Date.now();
+    if (!Number.isFinite(time) || time <= now) throw badRequest('Choose a date and time in the future');
+    if (time > now + 7 * 86400000) throw badRequest('Choose a moment within the next 7 days');
+    const s = settings.load();
+    const dep = normalise(s.departures, s.planning);
+    const n = Number(body.soc);
+    if (!(n >= 10 && n <= 100)) throw badRequest('Battery level must be between 10 and 100 %');
+    s.departures = { ...dep, override: { time, soc: n } };
+    settings.save(s);
+    return { ok: true };
+  },
+
+  'DELETE /api/departures/override': async () => {
+    const s = settings.load();
+    s.departures = { ...normalise(s.departures, s.planning), override: null };
+    settings.save(s);
+    return { ok: true };
+  },
 };
+
+// Calendar events for the next 8 days, when the calendar source is on.
+async function calendarEvents(dep, tz, now) {
+  if (!dep.calendar.enabled || !dep.calendar.entity) return { events: [], error: null };
+  try {
+    const r = await ha.callAction('calendar', 'get_events', {
+      start_date_time: isoLocal(now, tz),
+      end_date_time: isoLocal(now + 8 * 86400000, tz),
+    }, { entity_id: dep.calendar.entity });
+    const entry = r && r[dep.calendar.entity];
+    return { events: (entry && entry.events) || [], error: null };
+  } catch (err) {
+    ha.warn('Could not read calendar', dep.calendar.entity, '-', err.message);
+    return { events: [], error: err.message };
+  }
+}
 
 function badRequest(message) {
   const err = new Error(message);

@@ -38,10 +38,24 @@ function tzOffsetMs(ms, tz) {
 // A clock time (hh:mm) on a local day, dayOffset days from today.
 function localTimeOn(tz, dayOffset, hour, minute, now = Date.now()) {
   const p = tzParts(now, tz);
-  const guess = Date.UTC(p.y, p.m - 1, p.d + dayOffset, hour, minute);
+  return localDateTime(tz, p.y, p.m, p.d + dayOffset, hour, minute);
+}
+
+// A local date and time in the time zone, as milliseconds (UTC).
+function localDateTime(tz, y, m, d, hour = 0, minute = 0, second = 0) {
+  const guess = Date.UTC(y, m - 1, d, hour, minute, second);
   let ms = guess - tzOffsetMs(guess, tz);
   ms = guess - tzOffsetMs(ms, tz);
   return ms;
+}
+
+// Parse a date-time string. Without an offset it is read as local time.
+function parseLocal(value, tz) {
+  const str = String(value || '').trim();
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return Date.parse(str.replace(' ', 'T'));
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return NaN;
+  return localDateTime(tz, +m[1], +m[2], +m[3], +m[4], +m[5], +(m[6] || 0));
 }
 
 // Start of the local day, dayOffset days from today.
@@ -354,5 +368,6 @@ function summarise(result, cfg, now = Date.now()) {
 
 module.exports = {
   detectPriceSources, fetchPrices, summarise, totalPrice,
-  localMidnight, localTimeOn, isoLocal, pricesFromAttributes, ACTION_SOURCES,
+  localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
+  pricesFromAttributes, ACTION_SOURCES,
 };

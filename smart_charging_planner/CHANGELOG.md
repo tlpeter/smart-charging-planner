@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+- New **Departures** tab with four sources for when the car must be ready and how full:
+  - **Weekly schedule**: a time and battery level per day, each day on or off
+  - **Home Assistant helper**: an `input_datetime` (date and time, or time only) and optionally an `input_number` for the battery level
+  - **Calendar**: events with a keyword (default "EV") become a departure, with a buffer before the event; all-day events are skipped
+  - **One-off departure**: for a trip that differs from normal; removed automatically after it has passed
+- Priority on a day: one-off, then calendar, then helper, then schedule. The earliest day with a departure is planned for
+- Overview of the next 7 days, showing which departures were replaced by a higher priority source
+- The plan uses the next departure and its battery level; without a departure it uses the cheapest known blocks and the default level
+- The earlier "ready by" and target settings are carried over into the weekly schedule
+- A partly used price block is placed against the next planned block, so charging runs in one go
+- Reading calendar events is added to the read-only list; nothing else can be called
+
 ## 0.1.1
 
 - Saving the planning settings now shows clear feedback ("Saving…", then "Saved – plan updated") and scrolls to the updated plan

@@ -80,23 +80,26 @@ const READ_ONLY_ACTIONS = new Set([
   'easyenergy.get_energy_usage_prices',
   'tibber.get_prices',
   'nordpool.get_prices_for_date',
+  'calendar.get_events',
 ]);
 
 // Call an action (service) that returns data, e.g. energyzero.get_energy_prices.
-async function callAction(domain, service, serviceData) {
+async function callAction(domain, service, serviceData, target = null) {
   const name = `${domain}.${service}`;
   if (!READ_ONLY_ACTIONS.has(name)) {
     warn('Refused action', name, '- it is not on the read-only list');
     throw new Error(`Action ${name} is not allowed: the app only reads data`);
   }
   debug('Calling read-only action', name);
-  const result = await call({
+  const message = {
     type: 'call_service',
     domain,
     service,
     service_data: serviceData,
     return_response: true,
-  }, 20000, ACTION_TOKEN);
+  };
+  if (target) message.target = target;
+  const result = await call(message, 20000, ACTION_TOKEN);
   return result && result.response;
 }
 

@@ -1,0 +1,166 @@
+'use strict';
+
+// Departure times: when must the car be ready, and how full?
+//
+// Four sources, each can be switched on or off:
+//   1. One-off override (highest priority)
+//   2. Calendar events with a keyword
+//   3. Home Assistant helper (input_datetime + optional input_number)
+//   4. Weekly schedule (lowest priority)
+// Rules: the earliest day with any departure is used. On that day the source
+// with the highest priority wins; within one source the earliest time counts.
+
+const { tzParts, localDateTime, localDate, parseLocal } = require('./prices');
+
+const PRIORITY = { override: 1, calendar: 2, helper: 3, schedule: 4 };
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+function defaultDepartures() {
+  const schedule = {};
+  for (const d of DAYS) schedule[d] = { enabled: true, time: '07:00', soc: 80 };
+  return {
+    default_soc: 80,
+    schedule_enabled: true,
+    schedule,
+    helper: { enabled: false, datetime_entity: null, soc_entity: null },
+    calendar: { enabled: false, entity: null, keyword: 'EV', buffer_minutes: 30, soc: 100 },
+    override: null, // { time: ms, soc }
+  };
+}
+
+// Merge saved settings over the defaults, so new fields always exist.
+// Older versions stored one "ready by" time and target; carry those over.
+function normalise(saved, legacyPlanning) {
+  const d = defaultDepartures();
+  if (!saved && legacyPlanning) {
+    for (const day of DAYS) {
+      d.schedule[day] = { enabled: true, time: legacyPlanning.ready_by || '07:00', soc: legacyPlanning.target_soc || 80 };
+    }
+    d.default_soc = legacyPlanning.target_soc || 80;
+    return d;
+  }
+  if (!saved) return d;
+  const schedule = {};
+  for (const day of DAYS) schedule[day] = { ...d.schedule[day], ...((saved.schedule || {})[day] || {}) };
+  return {
+    ...d,
+    ...saved,
+    schedule,
+    helper: { ...d.helper, ...(saved.helper || {}) },
+    calendar: { ...d.calendar, ...(saved.calendar || {}) },
+  };
+}
+
+function weekdayKey(ms, tz) {
+  const p = tzParts(ms, tz);
+  const js = new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); // 0 = Sunday
+  return DAYS[(js + 6) % 7];
+}
+
+function hhmm(str) {
+  const m = String(str || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+// --- Candidates per source -------------------------------------------------
+
+function fromSchedule(dep, tz, now, days) {
+  if (!dep.schedule_enabled) return [];
+  const out = [];
+  const p = tzParts(now, tz);
+  for (let i = 0; i <= days; i++) {
+    const midday = localDateTime(tz, p.y, p.m, p.d + i, 12, 0);
+    const day = dep.schedule[weekdayKey(midday, tz)];
+    const t = day && day.enabled && hhmm(day.time);
+    if (!t) continue;
+    const time = localDateTime(tz, p.y, p.m, p.d + i, t[0], t[1]);
+    if (time > now) out.push({ time, soc: Number(day.soc) || dep.default_soc, source: 'schedule' });
+  }
+  return out;
+}
+
+function fromHelper(dep, states, tz, now) {
+  const h = dep.helper;
+  if (!h.enabled || !h.datetime_entity) return [];
+  const s = states.find((x) => x.entity_id === h.datetime_entity);
+  if (!s || ['unknown', 'unavailable', ''].includes(s.state)) return [];
+  const a = s.attributes || {};
+  let time;
+  if (a.has_date === false || /^\d{1,2}:\d{2}/.test(s.state)) {
+    // Time only: the next time the clock shows it.
+    const t = hhmm(s.state);
+    if (!t) return [];
+    const p = tzParts(now, tz);
+    time = localDateTime(tz, p.y, p.m, p.d, t[0], t[1]);
+    if (time <= now) time = localDateTime(tz, p.y, p.m, p.d + 1, t[0], t[1]);
+  } else {
+    time = parseLocal(s.state, tz);
+  }
+  if (!Number.isFinite(time) || time <= now) return [];
+  let soc = dep.default_soc;
+  if (h.soc_entity) {
+    const n = states.find((x) => x.entity_id === h.soc_entity);
+    if (n && Number.isFinite(Number(n.state))) soc = Number(n.state);
+  }
+  return [{ time, soc, source: 'helper' }];
+}
+
+function fromCalendar(dep, events, tz, now) {
+  const c = dep.calendar;
+  if (!c.enabled || !events) return [];
+  const keyword = String(c.keyword || '').trim().toLowerCase();
+  const out = [];
+  for (const e of events) {
+    const start = String(e.start || '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start)) continue; // all-day event: no time
+    const text = `${e.summary || ''} ${e.description || ''}`.toLowerCase();
+    if (keyword && !text.includes(keyword)) continue;
+    const ms = parseLocal(start, tz);
+    if (!Number.isFinite(ms)) continue;
+    const time = ms - (Number(c.buffer_minutes) || 0) * 60000;
+    if (time > now) out.push({ time, soc: Number(c.soc) || dep.default_soc, source: 'calendar', title: e.summary || '' });
+  }
+  return out;
+}
+
+function fromOverride(dep, now) {
+  const o = dep.override;
+  if (!o || !(o.time > now)) return [];
+  return [{ time: o.time, soc: Number(o.soc) || dep.default_soc, source: 'override' }];
+}
+
+// --- Choosing --------------------------------------------------------------
+
+// Winner per local day, in date order.
+function winnersPerDay(candidates, tz) {
+  const byDay = new Map();
+  for (const c of candidates) {
+    const day = localDate(c.time, tz);
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(c);
+  }
+  return [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, list]) => {
+      list.sort((a, b) => PRIORITY[a.source] - PRIORITY[b.source] || a.time - b.time);
+      return { day, winner: list[0], others: list.slice(1) };
+    });
+}
+
+function collect(dep, { states, events, tz, now, days = 7 }) {
+  return [
+    ...fromOverride(dep, now),
+    ...fromCalendar(dep, events, tz, now),
+    ...fromHelper(dep, states, tz, now),
+    ...fromSchedule(dep, tz, now, days),
+  ];
+}
+
+function nextDeparture(dep, ctx) {
+  const days = winnersPerDay(collect(dep, ctx), ctx.tz);
+  return days.length ? days[0].winner : null;
+}
+
+module.exports = {
+  DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
+};

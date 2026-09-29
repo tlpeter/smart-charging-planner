@@ -7,6 +7,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 ## What it does now
 
 - **Overview**: a price chart for today and tomorrow, and a charging plan that shows the cheapest blocks to reach your target battery level before your "ready by" time, with the expected cost compared with charging right away.
+- **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
 - **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. Nothing is controlled yet.
 - **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
@@ -21,7 +22,8 @@ Plans EV and home battery charging around dynamic electricity prices.
 4. On the **Charger** tab, select **Detect chargers**, check the suggested entities, set the phases and select **Use this charger**.
 5. On the **Grid** tab, select **Detect grid meters**, check the suggested sensors, fill in your main fuse and choose your load balancing.
 6. On the **Prices** tab, select **Detect price sources**, fill in the costs from your energy contract, select **Test** and then **Save**.
-7. Open **Overview**, set your target battery level and ready-by time, and check the plan.
+7. On the **Departures** tab, set your weekly schedule, and optionally a helper or calendar.
+8. Open **Overview** and check the plan.
 
 Nothing found? Open **Not listed? Choose manually** and pick the entities yourself.
 
@@ -31,6 +33,10 @@ Nothing found? Open **Not listed? Choose manually** and pick the entities yourse
 - A charger integration in Home Assistant.
 - A grid meter in Home Assistant, such as a P1 meter.
 - A dynamic price integration, such as EnergyZero (no account needed) or Nord Pool.
+
+## Departure priority
+
+When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
 
 ## Configuration
 

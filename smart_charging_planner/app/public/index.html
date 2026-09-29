@@ -113,6 +113,12 @@
     .periods td, .periods th { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .periods th { color: var(--muted); font-weight: 400; font-size: 13px; }
     .periods td.n, .periods th.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+    .check input, .sched input[type=checkbox] { width: auto; }
+    .sched td { padding: 4px 8px 4px 0; }
+    .sched input[type=time], .sched input[type=number] { padding: 4px 8px; }
+    .src { font-size: 12px; color: var(--muted); }
+    .strike { text-decoration: line-through; color: var(--muted); }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .chip.offline { background: none; border: 1px solid var(--bad); color: var(--bad); }
     @media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
@@ -124,6 +130,7 @@
     <h1>Smart Charging Planner</h1>
     <nav class="tabs">
       <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="departures">Departures</button>
       <button class="tab" data-tab="vehicle">Vehicle</button>
       <button class="tab" data-tab="charger">Charger</button>
       <button class="tab" data-tab="grid">Grid</button>
@@ -135,16 +142,46 @@
       <div id="overview-body"><div class="card muted">Loading…</div></div>
       <form class="card" id="planning-form">
         <h2>Planning settings</h2>
-        <div class="two">
-          <div class="field"><label>Target battery level (%)</label>
-            <input name="target_soc" type="number" min="10" max="100" step="1"></div>
-          <div class="field"><label>Ready by</label>
-            <input name="ready_by" type="time"></div>
-        </div>
+        <p class="muted small">Departure times and target battery levels are set on the <a href="#" data-goto="departures">Departures</a> tab.</p>
         <div class="field"><label>Charging loss margin (%)</label>
           <input name="loss_percent" type="number" min="0" max="30" step="1"></div>
         <div class="buttons"><button class="primary" type="submit">Save</button></div>
         <div class="error form-error" hidden></div>
+      </form>
+    </section>
+    <section id="tab-departures" hidden>
+      <div class="card" id="dep-next"><span class="muted">Loading…</span></div>
+      <div class="card" id="dep-override"></div>
+      <form id="dep-form">
+        <div class="card">
+          <h2>Weekly schedule</h2>
+          <label class="check"><input type="checkbox" name="schedule_enabled"> Use the weekly schedule</label>
+          <table class="periods sched"><tr><th>Day</th><th>On</th><th>Ready by</th><th class="n">Battery %</th></tr><tbody id="dep-days"></tbody></table>
+          <div class="field"><label>Default battery level (%) – used when a source gives no level</label>
+            <input name="default_soc" type="number" min="10" max="100" step="1"></div>
+        </div>
+        <div class="card">
+          <h2>Home Assistant helper</h2>
+          <p class="muted small">Use a date/time helper (and optionally a number helper for the battery level), for example to set the departure from a dashboard or an automation.</p>
+          <label class="check"><input type="checkbox" name="helper_enabled"> Use a helper</label>
+          <div class="two">
+            <div class="field"><label>Date/time helper</label><select name="helper_datetime"></select></div>
+            <div class="field"><label>Battery level helper (optional)</label><select name="helper_soc"></select></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Calendar</h2>
+          <p class="muted small">Events that contain the keyword in their title or description become a departure. All-day events are skipped.</p>
+          <label class="check"><input type="checkbox" name="cal_enabled"> Use a calendar</label>
+          <div class="field"><label>Calendar</label><select name="cal_entity"></select></div>
+          <div class="two">
+            <div class="field"><label>Keyword (empty = every event)</label><input name="cal_keyword" maxlength="40"></div>
+            <div class="field"><label>Leave this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
+          </div>
+          <div class="field"><label>Battery level for calendar departures (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
+          <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
+          <div class="error form-error" hidden></div>
+        </div>
       </form>
     </section>
     <section id="tab-vehicle" hidden></section>
@@ -517,6 +554,8 @@
       prices_incomplete: 'Prices are not known all the way to the deadline yet. The plan uses the known prices and updates when new prices are published (usually around 13:00).',
       not_enough_known_time: 'Not enough known price blocks before the deadline to reach the target yet.',
       not_enough_time: 'Not enough time before the deadline to reach the target. The plan charges in every available block.',
+      no_departure: 'No departure planned. The plan uses the cheapest known blocks and the default battery level, without a deadline.',
+      calendar_error: 'The calendar could not be read; other departure sources are still used.',
     };
 
     function tzFmt(ms, opts) {
@@ -602,7 +641,7 @@
         marks.push(`<line x1="${nowX}" x2="${nowX}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5"/>
           <text x="${nowX + 4}" y="${m.t + 10}" font-size="11" fill="var(--text)">now</text>`);
       }
-      if (d.plan.deadline && d.plan.deadline > t0 && d.plan.deadline <= t1) {
+      if (d.departure && d.plan.deadline && d.plan.deadline > t0 && d.plan.deadline <= t1) {
         const dx = X(d.plan.deadline);
         marks.push(`<line x1="${dx}" x2="${dx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 3"/>
           <text x="${dx - 4}" y="${m.t + 10}" font-size="11" text-anchor="end" fill="var(--text)">ready by</text>`);
@@ -652,7 +691,7 @@
         <div class="card">
           <span class="advice">ADVICE ONLY · NOTHING IS CONTROLLED</span>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}% by ${esc(dayHm(p.deadline))}
+          <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}%${d.departure ? ` by ${esc(dayHm(d.departure.time))} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
             · charging at ${esc(power)}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
           ${p.cost != null ? `
           <div class="stats">
@@ -683,11 +722,7 @@
         $('overview-body').innerHTML = overviewHtml(d);
         drawChart(d);
         const f = $('planning-form');
-        if (document.activeElement.form !== f) {
-          f.target_soc.value = d.planning.target_soc;
-          f.ready_by.value = d.planning.ready_by;
-          f.loss_percent.value = d.planning.loss_percent;
-        }
+        if (document.activeElement.form !== f) f.loss_percent.value = d.planning.loss_percent;
       } catch (err) {
         $('overview-body').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
       }
@@ -716,6 +751,136 @@
       }
     });
     window.addEventListener('resize', () => { if (lastPlan) drawChart(lastPlan); });
+
+    // ---------- Departures ----------
+    const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+    const SOURCE_NAMES = { override: 'One-off', calendar: 'Calendar', helper: 'Helper', schedule: 'Schedule' };
+    let depTz = 'UTC';
+
+    const depFmt = (ms, opts) => new Intl.DateTimeFormat('en-GB', { timeZone: depTz, ...opts }).format(new Date(ms));
+    const depWhen = (ms) => depFmt(ms, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const depLabel = (x) => `${esc(depWhen(x.time))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}`;
+
+    function entityOptions(list, selected, noneLabel) {
+      return `<option value="">${esc(noneLabel)}</option>` + list.map((o) =>
+        `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(o.state)})</option>`).join('');
+    }
+
+    // Local "YYYY-MM-DDTHH:MM" for a datetime-local input.
+    function localInputValue(ms) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+        timeZone: depTz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+      }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+      return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+    }
+
+    async function loadDepartures() {
+      try {
+        const d = await api('GET', 'api/departures');
+        depTz = d.time_zone;
+        const dep = d.departures;
+
+        $('dep-next').innerHTML = `
+          <h2>Next departure</h2>
+          ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
+          ${d.calendar_error ? `<div class="error">Calendar could not be read: ${esc(d.calendar_error)}</div>` : ''}
+          ${d.upcoming.length > 1 ? `
+          <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
+            <table class="periods">
+              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${u.others.map((o) => `<div class="small strike">${esc(depWhen(o.time))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
+            </table>
+            <p class="muted small">Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
+          </details>` : ''}`;
+
+        const ov = dep.override && dep.override.time > d.now ? dep.override : null;
+        $('dep-override').innerHTML = `
+          <h2>One-off departure</h2>
+          <p class="muted small">For a trip that differs from normal. It has the highest priority and is removed automatically after it has passed.</p>
+          ${ov ? `<div class="row"><span>${esc(depWhen(ov.time))} · ${esc(ov.soc)}%</span><button class="secondary" id="ov-clear">Remove</button></div>` : ''}
+          <div class="two">
+            <div class="field"><label>Leave at</label><input type="datetime-local" id="ov-time" value="${ov ? localInputValue(ov.time) : ''}"></div>
+            <div class="field"><label>Battery level (%)</label><input type="number" id="ov-soc" min="10" max="100" step="1" value="${ov ? ov.soc : 100}"></div>
+          </div>
+          <div class="buttons"><button class="primary" id="ov-set">${ov ? 'Change' : 'Set one-off departure'}</button></div>
+          <div class="error" id="ov-error" hidden></div>`;
+        $('ov-set').onclick = async () => {
+          try {
+            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value });
+            loadDepartures();
+          } catch (err) {
+            $('ov-error').textContent = err.message;
+            $('ov-error').hidden = false;
+          }
+        };
+        if (ov) $('ov-clear').onclick = async () => { await api('DELETE', 'api/departures/override'); loadDepartures(); };
+
+        const f = $('dep-form');
+        if (document.activeElement.form === f) return; // don't overwrite while editing
+        f.schedule_enabled.checked = dep.schedule_enabled;
+        f.default_soc.value = dep.default_soc;
+        $('dep-days').innerHTML = DAY_KEYS.map((k) => `
+          <tr><td>${DAY_NAMES[k]}</td>
+            <td><input type="checkbox" name="${k}_on" ${dep.schedule[k].enabled ? 'checked' : ''}></td>
+            <td><input type="time" name="${k}_time" value="${esc(dep.schedule[k].time)}"></td>
+            <td class="n"><input type="number" name="${k}_soc" min="10" max="100" step="1" value="${esc(dep.schedule[k].soc)}" style="width:80px"></td></tr>`).join('');
+        f.helper_enabled.checked = dep.helper.enabled;
+        f.helper_datetime.innerHTML = entityOptions(d.options.input_datetime, dep.helper.datetime_entity, '— choose —');
+        f.helper_soc.innerHTML = entityOptions(d.options.input_number, dep.helper.soc_entity, '— none: use the default level —');
+        f.cal_enabled.checked = dep.calendar.enabled;
+        f.cal_entity.innerHTML = entityOptions(d.options.calendar, dep.calendar.entity, '— choose —');
+        f.cal_keyword.value = dep.calendar.keyword;
+        f.cal_buffer.value = dep.calendar.buffer_minutes;
+        f.cal_soc.value = dep.calendar.soc;
+      } catch (err) {
+        $('dep-next').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+      }
+    }
+
+    $('dep-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const errBox = f.querySelector('.form-error');
+      const btn = f.querySelector('button[type=submit]');
+      errBox.hidden = true;
+      const schedule = {};
+      for (const k of DAY_KEYS) {
+        schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value };
+      }
+      const body = {
+        schedule_enabled: f.schedule_enabled.checked,
+        schedule,
+        default_soc: f.default_soc.value,
+        helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
+        calendar: {
+          enabled: f.cal_enabled.checked, entity: f.cal_entity.value, keyword: f.cal_keyword.value,
+          buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value,
+        },
+      };
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        await api('POST', 'api/departures', body);
+        document.activeElement.blur();
+        await loadDepartures();
+        btn.textContent = 'Saved ✓';
+        $('dep-next').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+        btn.textContent = 'Save departures';
+      } finally {
+        setTimeout(() => { btn.textContent = 'Save departures'; btn.disabled = false; }, 2000);
+      }
+    });
+
+    // Links like <a data-goto="departures"> switch tabs.
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-goto]');
+      if (!a) return;
+      e.preventDefault();
+      document.querySelector(`.tab[data-tab="${a.dataset.goto}"]`).click();
+    });
 
     // ---------- Prices ----------
     let priceSources = [];
@@ -896,6 +1061,7 @@
         });
         if (btn.dataset.tab === 'status') loadStatus();
         if (btn.dataset.tab === 'overview') loadOverview();
+        if (btn.dataset.tab === 'departures') loadDepartures();
       });
     });
 
