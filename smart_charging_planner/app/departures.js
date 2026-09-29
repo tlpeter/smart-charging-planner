@@ -23,7 +23,9 @@ function defaultDepartures() {
     schedule_enabled: true,
     schedule,
     helper: { enabled: false, datetime_entity: null, soc_entity: null },
-    calendar: { enabled: false, entity: null, keyword: 'EV', buffer_minutes: 30, soc: 100 },
+    // match: 'target' = events with a target in the text (e.g. "doel: 80"),
+    // 'keyword' = events containing the keyword, 'all' = every event with a time.
+    calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80 },
     override: null, // { time: ms, soc }
   };
 }
@@ -47,7 +49,8 @@ function normalise(saved, legacyPlanning) {
     ...saved,
     schedule,
     helper: { ...d.helper, ...(saved.helper || {}) },
-    calendar: { ...d.calendar, ...(saved.calendar || {}) },
+    // Calendars saved before "match" existed used the keyword.
+    calendar: { ...d.calendar, ...(saved.calendar && !saved.calendar.match ? { match: 'keyword' } : {}), ...(saved.calendar || {}) },
   };
 }
 
@@ -105,7 +108,25 @@ function fromHelper(dep, states, tz, now) {
   return [{ time, soc, source: 'helper' }];
 }
 
-function fromCalendar(dep, events, tz, now) {
+// Target battery level written in an event, e.g. "doel: 80", "target=90", "85%".
+function parseTarget(text) {
+  const t = String(text || '');
+  const m = t.match(/\b(?:doel|target|soc|laaddoel|charge)\s*[:=]?\s*(\d{1,3})\s*%?/i) || t.match(/\b(\d{1,3})\s*%/);
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 10 && n <= 100 ? n : null;
+}
+
+// "precondition: ja" / "yes" / "on" -> true, "nee" / "no" / "off" -> false.
+function parsePrecondition(text) {
+  const m = String(text || '').match(/precondition(?:ing)?\s*[:=]\s*(\w+)/i);
+  if (!m) return null;
+  if (/^(ja|yes|on|true|aan|1)$/i.test(m[1])) return true;
+  if (/^(nee|no|off|false|uit|0)$/i.test(m[1])) return false;
+  return null;
+}
+
+// Calendar events that are trips, with their details.
+function calendarTrips(dep, events, tz, now) {
   const c = dep.calendar;
   if (!c.enabled || !events) return [];
   const keyword = String(c.keyword || '').trim().toLowerCase();
@@ -113,14 +134,30 @@ function fromCalendar(dep, events, tz, now) {
   for (const e of events) {
     const start = String(e.start || '');
     if (/^\d{4}-\d{2}-\d{2}$/.test(start)) continue; // all-day event: no time
-    const text = `${e.summary || ''} ${e.description || ''}`.toLowerCase();
-    if (keyword && !text.includes(keyword)) continue;
+    const text = `${e.summary || ''}\n${e.description || ''}`;
+    const target = parseTarget(e.description) ?? parseTarget(e.summary);
+    if (c.match === 'target' && target == null) continue;
+    if (c.match === 'keyword' && keyword && !text.toLowerCase().includes(keyword)) continue;
     const ms = parseLocal(start, tz);
     if (!Number.isFinite(ms)) continue;
     const time = ms - (Number(c.buffer_minutes) || 0) * 60000;
-    if (time > now) out.push({ time, soc: Number(c.soc) || dep.default_soc, source: 'calendar', title: e.summary || '' });
+    if (time <= now) continue;
+    out.push({
+      time,
+      event_start: ms,
+      soc: target ?? (Number(c.soc) || dep.default_soc),
+      soc_from_event: target != null,
+      source: 'calendar',
+      title: e.summary || '',
+      location: e.location || null,
+      precondition: parsePrecondition(text),
+    });
   }
-  return out;
+  return out.sort((a, b) => a.time - b.time);
+}
+
+function fromCalendar(dep, events, tz, now) {
+  return calendarTrips(dep, events, tz, now);
 }
 
 function fromOverride(dep, now) {
@@ -163,4 +200,5 @@ function nextDeparture(dep, ctx) {
 
 module.exports = {
   DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
+  calendarTrips, parseTarget, parsePrecondition,
 };

@@ -154,6 +154,7 @@
     </section>
     <section id="tab-departures" hidden>
       <div class="card" id="dep-next"><span class="muted">Loading…</span></div>
+      <div class="card" id="dep-trips" hidden></div>
       <div class="card" id="dep-override"></div>
       <form id="dep-form">
         <div class="card">
@@ -174,14 +175,21 @@
         </div>
         <div class="card">
           <h2>Calendar</h2>
-          <p class="muted small">Events that contain the keyword in their title or description become a departure. All-day events are skipped.</p>
+          <p class="muted small">Trips in a calendar become departures. The start of the event is the departure time. All-day events are skipped.</p>
           <label class="check"><input type="checkbox" name="cal_enabled"> Use a calendar</label>
           <div class="field"><label>Calendar</label><select name="cal_entity"></select></div>
+          <div class="field"><label>Which events are trips?</label>
+            <select name="cal_match">
+              <option value="target">Events with a target in the description, such as "doel: 80"</option>
+              <option value="keyword">Events that contain a keyword</option>
+              <option value="all">Every event with a time</option>
+            </select></div>
+          <div class="field" id="cal-keyword-field"><label>Keyword</label><input name="cal_keyword" maxlength="40"></div>
           <div class="two">
-            <div class="field"><label>Keyword (empty = every event)</label><input name="cal_keyword" maxlength="40"></div>
-            <div class="field"><label>Leave this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
+            <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
+            <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
           </div>
-          <div class="field"><label>Battery level for calendar departures (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
+          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" is read and shown, but not used yet.</p>
           <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
           <div class="error form-error" hidden></div>
         </div>
@@ -826,6 +834,21 @@
             <p class="muted small">Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
           </details>` : ''}`;
 
+        const trips = d.calendar_trips || [];
+        $('dep-trips').hidden = !dep.calendar.enabled;
+        const nextKey = d.next ? `${d.next.source}:${d.next.time}` : '';
+        $('dep-trips').innerHTML = `
+          <h2>Trips from your calendar</h2>
+          <p class="muted small">Next 14 days${dep.calendar.buffer_minutes ? ` · ready ${esc(dep.calendar.buffer_minutes)} minutes before each trip` : ''}</p>
+          ${trips.length ? `<table class="periods">
+            <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
+            ${trips.map((t) => `<tr>
+              <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}</td>
+              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}</td>
+              <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
+            </tr>`).join('')}
+          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
+
         const ov = dep.override && dep.override.time > d.now ? dep.override : null;
         $('dep-override').innerHTML = `
           <h2>One-off departure</h2>
@@ -862,7 +885,9 @@
         f.helper_soc.innerHTML = entityOptions(d.options.input_number, dep.helper.soc_entity, '— none: use the default level —');
         f.cal_enabled.checked = dep.calendar.enabled;
         f.cal_entity.innerHTML = entityOptions(d.options.calendar, dep.calendar.entity, '— choose —');
+        f.cal_match.value = dep.calendar.match || 'target';
         f.cal_keyword.value = dep.calendar.keyword;
+        $('cal-keyword-field').hidden = f.cal_match.value !== 'keyword';
         f.cal_buffer.value = dep.calendar.buffer_minutes;
         f.cal_soc.value = dep.calendar.soc;
       } catch (err) {
@@ -886,7 +911,7 @@
         default_soc: f.default_soc.value,
         helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
         calendar: {
-          enabled: f.cal_enabled.checked, entity: f.cal_entity.value, keyword: f.cal_keyword.value,
+          enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
           buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value,
         },
       };
@@ -962,6 +987,10 @@
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
       }
     }
+
+    $('dep-form').cal_match.addEventListener('change', (e) => {
+      $('cal-keyword-field').hidden = e.target.value !== 'keyword';
+    });
 
     // Links like <a data-goto="departures"> switch tabs.
     document.addEventListener('click', (e) => {

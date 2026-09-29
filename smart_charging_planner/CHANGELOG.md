@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Calendar trips reworked:
+  - New choice which events are trips: events with a target in the description (such as "doel: 80"), events with a keyword, or every event with a time. New setups use the target
+  - The target in an event ("doel: 80", "target: 90" or "85%") is used for that trip; otherwise the fallback level
+  - The start of the event is the departure; the buffer before the event now defaults to 0 minutes
+  - "precondition: ja/nee" and the event location are read and shown (not used yet)
+  - New card "Trips from your calendar" on the Departures tab with the trips of the next 14 days
+- Calendars set up in 0.2.0 keep working with their keyword
+
 ## 0.4.0
 
 - New **Savings** tab: per charging session over the last 30 days

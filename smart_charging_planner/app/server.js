@@ -11,7 +11,7 @@ const { detectVehicles, percentSensors } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
-const { DAYS, normalise, collect, winnersPerDay, nextDeparture } = require('./departures');
+const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -482,6 +482,7 @@ const routes = {
       next: days.length ? days[0].winner : null,
       upcoming: days,
       calendar_error: error,
+      calendar_trips: calendarTrips(dep, events, tz, now).filter((t) => t.time < now + 14 * 86400000),
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
@@ -514,6 +515,7 @@ const routes = {
     if (!(buffer >= 0 && buffer <= 240)) throw badRequest('Calendar buffer must be between 0 and 240 minutes');
     if (helper.enabled && !String(helper.datetime_entity || '').startsWith('input_datetime.')) throw badRequest('Choose a date/time helper');
     if (cal.enabled && !String(cal.entity || '').startsWith('calendar.')) throw badRequest('Choose a calendar');
+    const match = ['target', 'keyword', 'all'].includes(cal.match) ? cal.match : 'target';
     s.departures = {
       ...cur,
       default_soc: soc(body.default_soc, 'Default'),
@@ -527,6 +529,7 @@ const routes = {
       calendar: {
         enabled: !!cal.enabled,
         entity: cal.entity || null,
+        match,
         keyword: String(cal.keyword || '').slice(0, 40),
         buffer_minutes: buffer,
         soc: soc(cal.soc, 'Calendar'),
@@ -561,13 +564,13 @@ const routes = {
   },
 };
 
-// Calendar events for the next 8 days, when the calendar source is on.
+// Calendar events for the next 15 days, when the calendar source is on.
 async function calendarEvents(dep, tz, now) {
   if (!dep.calendar.enabled || !dep.calendar.entity) return { events: [], error: null };
   try {
     const r = await ha.callAction('calendar', 'get_events', {
       start_date_time: isoLocal(now, tz),
-      end_date_time: isoLocal(now + 8 * 86400000, tz),
+      end_date_time: isoLocal(now + 15 * 86400000, tz),
     }, { entity_id: dep.calendar.entity });
     const entry = r && r[dep.calendar.entity];
     return { events: (entry && entry.events) || [], error: null };
