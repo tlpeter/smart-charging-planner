@@ -150,6 +150,9 @@
         <p class="muted small">Departure times and target battery levels are set on the <a href="#" data-goto="departures">Departures</a> tab.</p>
         <div class="field"><label>Charging loss margin (%)</label>
           <input name="loss_percent" type="number" min="0" max="30" step="1"></div>
+        <label class="check"><input type="checkbox" name="continuous"> Prefer one continuous charging period</label>
+        <div class="field" id="split-field"><label>…unless splitting saves at least (in your currency)</label>
+          <input name="min_split_saving" type="number" min="0" max="20" step="0.05"></div>
         <label class="check"><input type="checkbox" name="use_house_load"> Account for house load</label>
         <p class="muted small">Uses the last 14 days of your grid meter to estimate how much current is left for the charger under your main fuse at each hour, like a load balancer does. Needs the Grid tab to be set up.</p>
         <div class="buttons"><button class="primary" type="submit">Save</button></div>
@@ -751,6 +754,7 @@
             <div class="stat"><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div>
             <div class="stat"><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div>
           </div>` : ''}
+          ${continuousNote(p)}
           ${p.notes.map((n) => `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
         </div>
@@ -766,6 +770,14 @@
             ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>`;
+    }
+
+    function continuousNote(p) {
+      const c = p.continuous;
+      if (!c || c.split_saving < 0.005) return '';
+      return c.used
+        ? `<p class="muted small">Charging in one go. Splitting it would save only ${money(c.split_saving)}, less than your ${money(c.threshold)}.</p>`
+        : `<p class="muted small">Charging is split because that saves ${money(c.split_saving)} (more than your ${money(c.threshold)}).</p>`;
     }
 
     function houseLoadHtml(d) {
@@ -796,6 +808,9 @@
         if (document.activeElement.form !== f) {
           f.loss_percent.value = d.planning.loss_percent;
           f.use_house_load.checked = d.planning.use_house_load !== false;
+          f.continuous.checked = d.planning.continuous !== false;
+          f.min_split_saving.value = d.planning.min_split_saving ?? 0.5;
+          $('split-field').hidden = !f.continuous.checked;
         }
       } catch (err) {
         $('overview-body').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
@@ -811,7 +826,12 @@
       btn.disabled = true;
       btn.textContent = 'Saving…';
       try {
-        await api('POST', 'api/planning', { loss_percent: f.loss_percent.value, use_house_load: f.use_house_load.checked });
+        await api('POST', 'api/planning', {
+          loss_percent: f.loss_percent.value,
+          use_house_load: f.use_house_load.checked,
+          continuous: f.continuous.checked,
+          min_split_saving: f.min_split_saving.value,
+        });
         document.activeElement.blur();
         await loadOverview();
         btn.textContent = 'Saved ✓ – plan updated';
@@ -825,6 +845,7 @@
       }
     });
     window.addEventListener('resize', () => { if (lastPlan) drawChart(lastPlan); });
+    $('planning-form').continuous.addEventListener('change', (e) => { $('split-field').hidden = !e.target.checked; });
 
     // ---------- Departures ----------
     const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];

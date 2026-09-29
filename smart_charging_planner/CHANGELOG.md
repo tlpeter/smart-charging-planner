@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+- New planning setting **Prefer one continuous charging period** (on by default): the plan charges in one go, unless splitting saves at least a set amount (default 0.50)
+- The Overview says which choice was made and how much splitting would save
+- Uses the same price blocks and house load as before; only the choice of blocks changes
+
 ## 0.5.1
 
 - Departures: more trips from the same source on one day are no longer crossed out. They are shown as "later that day"; the plan prepares for the first departure of each day. Crossing out is only used when a higher priority source replaces a departure

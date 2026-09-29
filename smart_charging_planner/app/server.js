@@ -404,7 +404,11 @@ const routes = {
     const neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
     // Without a departure: plan in the cheapest known blocks, no deadline.
     const deadline = departure ? departure.time : (prices.length ? prices[prices.length - 1].end : now);
-    const plan = planCharging({ prices, now, deadline, neededKwh, powerKw });
+    const plan = planCharging({
+      prices, now, deadline, neededKwh, powerKw,
+      continuous: planning.continuous !== false,
+      minSplitSaving: Number(planning.min_split_saving) || 0,
+    });
     if (!departure) plan.notes.unshift('no_departure');
     if (calendarError) plan.notes.push('calendar_error');
 
@@ -443,8 +447,16 @@ const routes = {
     const body = await readBody(req);
     const loss = body.loss_percent === '' || body.loss_percent == null ? 10 : Number(body.loss_percent);
     if (!(loss >= 0 && loss <= 30)) throw badRequest('Charging loss must be between 0 and 30 %');
+    const minSplit = body.min_split_saving === '' || body.min_split_saving == null ? 0.5 : Number(body.min_split_saving);
+    if (!(minSplit >= 0 && minSplit <= 20)) throw badRequest('Minimum saving must be between 0 and 20');
     const s = settings.load();
-    s.planning = { ...s.planning, loss_percent: loss, use_house_load: body.use_house_load === true || body.use_house_load === 'on' };
+    s.planning = {
+      ...s.planning,
+      loss_percent: loss,
+      use_house_load: body.use_house_load === true || body.use_house_load === 'on',
+      continuous: body.continuous === true || body.continuous === 'on',
+      min_split_saving: minSplit,
+    };
     settings.save(s);
     return { ok: true, planning: s.planning };
   },

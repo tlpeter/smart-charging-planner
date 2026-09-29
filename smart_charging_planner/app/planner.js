@@ -29,9 +29,47 @@ function nextDeadline(readyBy, tz, now, localTimeOn) {
   return null;
 }
 
+// Cheapest single uninterrupted run of blocks that delivers the energy.
+// The one partly used block may sit at the start or at the end of the run.
+function bestContiguous(usable, neededKwh) {
+  let best = null;
+  const consider = (chosen) => {
+    const got = chosen.reduce((s, b) => s + b.kwh, 0);
+    if (got < neededKwh - 1e-6) return;
+    const cost = chosen.reduce((s, b) => s + b.kwh * b.total, 0);
+    if (!best || cost < best.cost - 1e-9) best = { cost, chosen };
+  };
+  const touching = (a, b) => Math.abs(a.end - b.start) < 1000;
+  for (let i = 0; i < usable.length; i++) {
+    // Forward from block i: full blocks, the last one partly.
+    let left = neededKwh;
+    const fwd = [];
+    for (let k = i; k < usable.length && left > 1e-9; k++) {
+      if (k > i && !touching(usable[k - 1], usable[k])) break;
+      const kwh = Math.min(left, usable[k].hours * usable[k].power);
+      fwd.push({ ...usable[k], kwh });
+      left -= kwh;
+    }
+    consider(fwd);
+    // Backward ending at block i: full blocks, the first one partly.
+    left = neededKwh;
+    const back = [];
+    for (let k = i; k >= 0 && left > 1e-9; k--) {
+      if (k < i && !touching(usable[k], usable[k + 1])) break;
+      const kwh = Math.min(left, usable[k].hours * usable[k].power);
+      back.unshift({ ...usable[k], kwh });
+      left -= kwh;
+    }
+    consider(back);
+  }
+  return best;
+}
+
 // prices: [{start, end, total, power_kw?}] sorted, now: ms, deadline: ms.
 // power_kw per block overrides powerKw (e.g. less room when the house uses more).
-function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
+// continuous: prefer one uninterrupted period unless splitting saves at least
+// minSplitSaving (in currency).
+function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0 }) {
   const notes = [];
   const result = {
     needed_kwh: neededKwh,
@@ -82,9 +120,25 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
     return chosen;
   };
 
-  const planned = fill([...usable].sort((a, b) => a.total - b.total || a.start - b.start));
-  const reference = fill([...usable].sort((a, b) => a.start - b.start));
   const cost = (list) => list.reduce((s, b) => s + b.kwh * b.total, 0);
+  let planned = fill([...usable].sort((a, b) => a.total - b.total || a.start - b.start));
+  const reference = fill([...usable].sort((a, b) => a.start - b.start));
+
+  // One uninterrupted period, unless splitting saves enough.
+  if (continuous) {
+    const one = bestContiguous(usable, neededKwh);
+    if (one) {
+      const extra = one.cost - cost(planned);
+      const splitNeeded = extra > 1e-6;
+      result.continuous = {
+        preferred: true,
+        used: !splitNeeded || extra < minSplitSaving,
+        split_saving: extra,
+        threshold: minSplitSaving,
+      };
+      if (result.continuous.used) planned = one.chosen.map((b) => ({ ...b }));
+    }
+  }
 
   // A partly used block is placed against its planned neighbour, so charging
   // runs in one go instead of stopping and starting again.
