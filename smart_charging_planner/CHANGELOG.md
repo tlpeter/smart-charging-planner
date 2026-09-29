@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- New **Control check** on the Charger tab: the app finds out by itself how your charger could be controlled, for any charger integration
+  - Looks at the actions of the charger's integration (with their fields and choices) and at the charger's own entities (current setting, switches, buttons)
+  - Shows the method it would use for start/stop (preferring pause/resume) and for the charging current (preferring a temporary limit that expires by itself), plus the alternatives
+  - Warns when the charger's own smart charging is on, when only a switch that turns the whole charger off is available, or when nothing suitable is found
+  - Nothing is sent to the charger
+- Reading the list of available actions is added to the read-only list
+
 ## 0.5.2
 
 - New planning setting **Prefer one continuous charging period** (on by default): the plan charges in one go, unless splitting saves at least a set amount (default 0.50)

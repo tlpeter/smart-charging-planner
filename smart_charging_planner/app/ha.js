@@ -44,6 +44,7 @@ const READ_ONLY_COMMANDS = new Set([
   'config/device_registry/list',
   'recorder/statistics_during_period',
   'history/history_during_period',
+  'get_services',
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');

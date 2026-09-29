@@ -356,6 +356,13 @@
           ['Phases', String(c.phases)],
           ['Maximum current', c.max_current ? `${esc(c.max_current)} A` : null],
         ],
+        afterSaved: () => `
+          <div class="card" id="control-check">
+            <h2>Control check</h2>
+            <p class="muted small">Finds out how this charger could be controlled: which actions and entities the app would use for start/stop and for the charging current. Nothing is sent to the charger.</p>
+            <div class="buttons"><button class="secondary" id="control-check-btn">Check control options</button></div>
+            <div id="control-result"></div>
+          </div>`,
         manual: (data) => ({
           intro: 'Pick the entities of your charger yourself. Choose at least one.',
           options: data.manual,
@@ -524,6 +531,11 @@
               <button class="secondary" data-act="remove">Remove</button>
             </div>
           </div>`;
+        if (cfg.afterSaved) {
+          box.insertAdjacentHTML('beforeend', cfg.afterSaved(item));
+          const btn = box.querySelector('#control-check-btn');
+          if (btn) btn.onclick = runControlCheck;
+        }
         box.querySelector('[data-act=change]').onclick = () => { $(`${kind}-intro`).hidden = false; detect(kind); };
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
@@ -1043,6 +1055,48 @@
           </div>` : ''}`;
       } catch (err) {
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
+    // ---------- Control check ----------
+    const WARN_TEXT = {
+      own_smart_charging_on: (w) => `"${esc(w.name)}" is on. The charger's own smart charging would fight with the app; turn it off before letting the app control charging.`,
+      no_start_stop: () => 'No way found to start and stop charging.',
+      no_current: () => 'No way found to set the charging current. The app can still start and stop.',
+      blunt_switch: (w) => `The best start/stop option is the switch ${esc(w.entity_id)}, which may turn the whole charger off. Pausing through an action would be better.`,
+      no_device: () => 'The charger was chosen manually and has no device, so the integration\'s actions cannot be matched.',
+    };
+
+    function methodText(m) {
+      if (!m) return '<span class="muted">none</span>';
+      switch (m.type) {
+        case 'action_choice': return `Action <code>${esc(m.domain)}.${esc(m.service)}</code> with ${esc(m.field)}: <strong>${esc(m.start_value)}</strong> / <strong>${esc(m.stop_value)}</strong>`;
+        case 'action_pair': return `Actions <code>${esc(m.domain)}.${esc(m.start_service)}</code> / <code>${esc(m.stop_service)}</code>`;
+        case 'buttons': return `Buttons <code>${esc(m.start_entity)}</code> / <code>${esc(m.stop_entity)}</code>`;
+        case 'switch': return `Switch <code>${esc(m.entity_id)}</code>${m.blunt ? ' <span class="src">(turns the charger on/off)</span>' : ''}`;
+        case 'action_current': return `Action <code>${esc(m.domain)}.${esc(m.service)}</code>, field ${esc(m.field)}${m.max != null ? ` (${esc(m.min ?? 0)}–${esc(m.max)} A)` : ''}${m.dynamic ? ' <span class="src">temporary limit</span>' : ''}${m.ttl_field ? ' <span class="src">expires by itself</span>' : ''}`;
+        case 'number': return `Entity <code>${esc(m.entity_id)}</code>${m.max != null ? ` (${esc(m.min ?? 0)}–${esc(m.max)} A)` : ''}`;
+        default: return esc(m.type);
+      }
+    }
+
+    async function runControlCheck() {
+      const box = $('control-result');
+      box.innerHTML = '<p class="muted small">Checking…</p>';
+      try {
+        const r = await api('GET', 'api/control/check');
+        if (!r.available) { box.innerHTML = '<p class="muted">Set up a charger first.</p>'; return; }
+        const alt = (list, rec) => list.filter((m) => m !== list[0]).map((m) => `<div class="small muted">or: ${methodText(m)}</div>`).join('');
+        box.innerHTML = `
+          <table class="periods" style="margin-top:12px">
+            <tr><th>What</th><th>The app would use</th></tr>
+            <tr><td>Start / stop</td><td>${methodText(r.recommended.start_stop)}${alt(r.start_stop)}</td></tr>
+            <tr><td>Charging current</td><td>${methodText(r.recommended.current)}${alt(r.current)}</td></tr>
+          </table>
+          <p class="muted small">Integration: ${esc(r.domains.join(', ') || 'unknown')} · Control is ${r.control_allowed ? '<strong>allowed</strong>' : 'off'} · nothing was sent.</p>
+          ${r.warnings.map((w) => `<div class="note">${(WARN_TEXT[w.code] || (() => esc(w.code)))(w)}</div>`).join('')}`;
+      } catch (err) {
+        box.innerHTML = `<div class="error">${esc(err.message)}</div>`;
       }
     }
 

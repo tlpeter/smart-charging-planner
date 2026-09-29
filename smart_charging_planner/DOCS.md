@@ -10,7 +10,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 - **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **Savings**: per charging session in the last 30 days, what you actually paid, what charging right away would have cost, and what the plan would have cost.
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
-- **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. Nothing is controlled yet.
+- **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. **Control check** shows how the app could control it (which actions or entities), without sending anything.
 - **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
 - **Prices**: finds your dynamic price source, adds your purchase fee, energy tax and VAT, and tests it.
 - **Status**: shows the connection to Home Assistant and whether control is allowed.

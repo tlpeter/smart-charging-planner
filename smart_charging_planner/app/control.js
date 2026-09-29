@@ -1,0 +1,174 @@
+'use strict';
+
+// Control check: find out HOW a charger can be controlled, without doing it.
+//
+// Sources (all read-only):
+//   - the actions (services) of the charger's integration, from get_services,
+//     with their fields and choices
+//   - the charger device's own entities: number (current in A), switch, button
+//
+// Result: the possible methods for start/stop and for the charging current,
+// a recommended method for each, and warnings about things that would fight
+// with the app (for example the charger's own smart charging being on).
+
+const START_WORDS = ['resume', 'start'];
+const STOP_WORDS = ['pause', 'stop'];
+
+function words(...parts) {
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
+// Walk fields, including fields grouped in collapsible sections.
+function flatFields(fields) {
+  const out = [];
+  for (const [key, f] of Object.entries(fields || {})) {
+    if (f && f.fields && !f.selector) out.push(...flatFields(f.fields));
+    else out.push({ key, ...(f || {}) });
+  }
+  return out;
+}
+
+function selectOptions(field) {
+  const sel = field.selector && field.selector.select;
+  if (!sel || !Array.isArray(sel.options)) return [];
+  return sel.options.map((o) => (typeof o === 'string' ? o : o.value)).filter(Boolean).map(String);
+}
+
+function numberRange(field) {
+  const n = field.selector && field.selector.number;
+  return n ? { min: n.min ?? null, max: n.max ?? null, unit: n.unit_of_measurement || null } : null;
+}
+
+function targetKind(service) {
+  const t = service.target || {};
+  if (t.device) return 'device';
+  if (t.entity) return 'entity';
+  return null;
+}
+
+// Actions of the charger's integration(s).
+function actionMethods(domains, services) {
+  const startStop = [];
+  const current = [];
+  for (const domain of domains) {
+    const svcs = services[domain] || {};
+    for (const [name, svc] of Object.entries(svcs)) {
+      const fields = flatFields(svc.fields);
+      const label = svc.name || name;
+
+      // One action with a choice that includes pause/resume or start/stop.
+      for (const f of fields) {
+        const opts = selectOptions(f);
+        const on = START_WORDS.find((w) => opts.includes(w));
+        const off = STOP_WORDS.find((w) => opts.includes(w));
+        if (on && off) {
+          // Prefer pause/resume: it keeps the session and authorisation.
+          const pair = opts.includes('pause') && opts.includes('resume') ? ['resume', 'pause'] : [on, off];
+          startStop.push({
+            type: 'action_choice', domain, service: name, label, field: f.key,
+            start_value: pair[0], stop_value: pair[1], target: targetKind(svc),
+            score: pair[0] === 'resume' ? 100 : 90,
+          });
+        }
+      }
+
+      // A pair of separate actions, e.g. start_charging / stop_charging.
+      if (/^(resume|start)(_charg(e|ing))?$/.test(name)) {
+        const stopName = Object.keys(svcs).find((n) => /^(pause|stop)(_charg(e|ing))?$/.test(n));
+        if (stopName) {
+          startStop.push({
+            type: 'action_pair', domain, start_service: name, stop_service: stopName,
+            label: `${name} / ${stopName}`, target: targetKind(svc), score: 80,
+          });
+        }
+      }
+
+      // An action with a current field.
+      const text = words(name, svc.name, svc.description);
+      if (/circuit|offline|surplus|cost|access|phase_mode|ocpp|operator|plan/.test(name)) continue;
+      const cf = fields.find((f) => {
+        const r = numberRange(f);
+        return r && (r.unit === 'A' || /current|amp|limit/.test(words(f.key, f.name, f.description)));
+      });
+      if (cf && /limit|current|amp/.test(text)) {
+        const r = numberRange(cf);
+        const ttlField = fields.find((f) => /ttl|time_to_live|duration|minutes/.test(words(f.key, f.name)));
+        const dynamic = /dynamic/.test(text);
+        current.push({
+          type: 'action_current', domain, service: name, label, field: cf.key,
+          min: r.min, max: r.max, ttl_field: ttlField ? ttlField.key : null,
+          dynamic, target: targetKind(svc),
+          // Temporary (dynamic) limits are safest: they fall back by themselves.
+          score: (dynamic ? 100 : 60) + (ttlField ? 10 : 0),
+        });
+      }
+    }
+  }
+  return { startStop, current };
+}
+
+// Entities on the charger device.
+function entityMethods(deviceEntities, states) {
+  const byId = new Map(states.map((s) => [s.entity_id, s]));
+  const startStop = [];
+  const current = [];
+  const warnings = [];
+  const buttons = deviceEntities.filter((e) => e.entity_id.startsWith('button.'));
+  const startBtn = buttons.find((e) => /resume|start/.test(e.entity_id));
+  const stopBtn = buttons.find((e) => /pause|stop/.test(e.entity_id));
+  if (startBtn && stopBtn) {
+    startStop.push({ type: 'buttons', start_entity: startBtn.entity_id, stop_entity: stopBtn.entity_id, label: 'Buttons', score: 70 });
+  }
+  for (const e of deviceEntities) {
+    const s = byId.get(e.entity_id);
+    const a = (s && s.attributes) || {};
+    const name = words(e.entity_id, a.friendly_name);
+    if (e.entity_id.startsWith('number.') && a.unit_of_measurement === 'A' && !/circuit|offline/.test(name)) {
+      current.push({ type: 'number', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, min: a.min ?? null, max: a.max ?? null, score: /dynamic|charg/.test(name) ? 85 : 75 });
+    }
+    if (e.entity_id.startsWith('switch.')) {
+      // Compare whole words, so "enabled" does not look like "led".
+      const tokens = new Set(name.split(/[^a-z0-9]+/));
+      const has = (...w) => w.some((x) => tokens.has(x));
+      if (has('smart', 'schedule', 'plan', 'eco') && s && s.state === 'on') {
+        warnings.push({ code: 'own_smart_charging_on', entity_id: e.entity_id, name: a.friendly_name || e.entity_id });
+      }
+      const other = has('smart', 'schedule', 'plan', 'eco', 'cable', 'lock', 'light', 'led', 'idle', 'current', 'phase', 'ocpp');
+      if (!other && has('charging', 'charger', 'charge', 'enabled', 'enable', 'pause', 'start')) {
+        // A switch that turns the whole charger off is a blunt tool.
+        const blunt = has('enabled', 'enable');
+        startStop.push({ type: 'switch', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, blunt, score: blunt ? 30 : 60 });
+      }
+    }
+  }
+  return { startStop, current, warnings };
+}
+
+function checkControl({ charger, entities, states, services }) {
+  if (!charger) return { available: false, reason: 'no_charger' };
+  const deviceEntities = charger.device_id ? entities.filter((e) => e.device_id === charger.device_id && !e.disabled_by) : [];
+  const domains = [...new Set([charger.integration, ...deviceEntities.map((e) => e.platform)].filter(Boolean))];
+
+  const a = actionMethods(domains, services || {});
+  const e = entityMethods(deviceEntities, states);
+  const startStop = [...a.startStop, ...e.startStop].sort((x, y) => y.score - x.score);
+  const current = [...a.current, ...e.current].sort((x, y) => y.score - x.score);
+
+  const warnings = [...e.warnings];
+  if (!startStop.length) warnings.push({ code: 'no_start_stop' });
+  if (!current.length) warnings.push({ code: 'no_current' });
+  if (startStop[0] && startStop[0].blunt) warnings.push({ code: 'blunt_switch', entity_id: startStop[0].entity_id });
+  if (!charger.device_id) warnings.push({ code: 'no_device' });
+
+  return {
+    available: true,
+    domains,
+    device_id: charger.device_id || null,
+    start_stop: startStop,
+    current,
+    recommended: { start_stop: startStop[0] || null, current: current[0] || null },
+    warnings,
+  };
+}
+
+module.exports = { checkControl, flatFields, selectOptions };

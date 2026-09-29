@@ -16,6 +16,7 @@ const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./pla
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
 const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
+const { checkControl } = require('./control');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -494,6 +495,24 @@ const routes = {
       created++;
     }
     return { ok: true, created, skipped: plan.events.length - created };
+  },
+
+  // Control check: how could the app control the charger? Nothing is sent.
+  'GET /api/control/check': async () => {
+    const s = settings.load();
+    const charger = s.chargers[0] || null;
+    const [{ entities, states }, services] = await Promise.all([
+      loadRegistries(),
+      ha.call({ type: 'get_services' }),
+    ]);
+    let c = charger;
+    if (c && !c.device_id) {
+      // Chosen manually: find the device through one of its entities.
+      const ids = [c.status_entity, c.current_entity, c.switch_entity].filter(Boolean);
+      const reg = entities.find((e) => ids.includes(e.entity_id) && e.device_id);
+      if (reg) c = { ...c, device_id: reg.device_id, integration: c.integration || reg.platform };
+    }
+    return { control_allowed: options.allow_control, ...checkControl({ charger: c, entities, states, services }) };
   },
 
   // Departure times.
