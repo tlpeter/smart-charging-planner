@@ -69,7 +69,8 @@ function bestContiguous(usable, neededKwh) {
 // power_kw per block overrides powerKw (e.g. less room when the house uses more).
 // continuous: prefer one uninterrupted period unless splitting saves at least
 // minSplitSaving (in currency).
-function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0 }) {
+// immediate: charge right away from now (for "Charge now").
+function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, immediate = false }) {
   const notes = [];
   const result = {
     needed_kwh: neededKwh,
@@ -124,8 +125,10 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = 
   let planned = fill([...usable].sort((a, b) => a.total - b.total || a.start - b.start));
   const reference = fill([...usable].sort((a, b) => a.start - b.start));
 
+  if (immediate) planned = reference.map((b) => ({ ...b }));
+
   // One uninterrupted period, unless splitting saves enough.
-  if (continuous) {
+  if (continuous && !immediate) {
     const one = bestContiguous(usable, neededKwh);
     if (one) {
       const extra = one.cost - cost(planned);

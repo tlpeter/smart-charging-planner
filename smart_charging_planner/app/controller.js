@@ -144,6 +144,12 @@ function decide(ctx) {
   const pre = findState(states, rules.preheat_entity);
   if (pre && pre.state === 'on') return charge('Preconditioning is active', 'preheat');
 
+  // Charge now, started by the user: charge until its goal is reached.
+  if (plan.boost && plan.boost.active) {
+    const blk = p.blocks.find((x) => x.start <= now && now < x.end);
+    return charge('Charge now, started by you', 'boost', { amps: blk ? ampsFor(blk.power_kw, phases, maxAmps) : maxAmps, clear_lock: true });
+  }
+
   // 5. At the target.
   if (p.notes.includes('already_at_target') || (Number.isFinite(soc) && Number.isFinite(target) && soc >= target)) {
     return pause('Battery is at the target', 'at_target', { clear_lock: true });

@@ -7,6 +7,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 ## What it does now
 
 - **Overview**: a price chart for today and tomorrow, and a charging plan that shows the cheapest blocks to reach your target battery level before your "ready by" time, with the expected cost compared with charging right away.
+- **Charge now** (on the Overview): charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged. During the dry run this only changes what the app would do.
 - **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **Savings**: per charging session in the last 30 days, what you actually paid, what charging right away would have cost, and what the plan would have cost.
 - **Control**: a dry run of charger control. Shows what the app would do right now and which commands it would send, compared with what the charger is really doing, plus a log. Here you also choose how the charger is controlled and set the rules (minimum battery level, preconditioning, force window, hysteresis). Nothing is sent.

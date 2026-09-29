@@ -20,6 +20,7 @@ const { checkControl } = require('./control');
 const controller = require('./controller');
 const session = require('./session');
 const { learnedPower } = require('./chargepower');
+const boost = require('./boost');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -486,6 +487,33 @@ const routes = {
     }
     if (calendarError) plan.notes.push('calendar_error');
 
+    // "Charge now": replaces the plan with charging right away.
+    let activePlan = plan;
+    let boostInfo = null;
+    const b = boost.current();
+    if (b && actualNow.plugged === false) boost.stop('car unplugged');
+    else if (b) {
+      let kwh = null;
+      let boostError = null;
+      try {
+        kwh = await boostNeededKwh(b, {
+          soc, capacity: vehicle && vehicle.capacity_kwh, loss: planning.loss_percent,
+          normalNeeded: neededKwh, powerEntity: charger && charger.power_entity, now,
+        });
+      } catch (err) {
+        boostError = err.message;
+      }
+      if (kwh != null && kwh <= 0.01) boost.stop('goal reached');
+      else {
+        boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError };
+        if (kwh != null) {
+          const lastEnd = prices.length ? prices[prices.length - 1].end : now;
+          activePlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
+          boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
+        }
+      }
+    }
+
     return {
       time_zone: tz,
       currency: ha.state.currency,
@@ -526,7 +554,10 @@ const routes = {
         charger_subtracted: houseLoad.charger_subtracted,
         main_fuse: grid.main_fuse,
       } : { available: false, reason: houseLoad.reason },
-      plan: { ...plan, periods: periods(plan.blocks) },
+      plan: { ...activePlan, periods: periods(activePlan.blocks) },
+      normal_plan: { ...plan, periods: periods(plan.blocks) },
+      boost: boostInfo,
+      plugged_now: actualNow.plugged,
       control_allowed: options.allow_control,
     };
   },
@@ -753,6 +784,93 @@ async function calendarEvents(dep, tz, now) {
 // ---------------------------------------------------------------------------
 
 const computePlan = routes['GET /api/plan'];
+
+// kWh still needed for a "Charge now" goal.
+async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntity, now }) {
+  if (b.mode === 'target') return normalNeeded;
+  if (b.mode === 'soc') return energyNeededKwh(soc, b.value, capacity, loss);
+  if (b.mode === 'kwh') {
+    const done = powerEntity && b.started ? await session.energySince(powerEntity, b.started, now) : 0;
+    return Math.max(0, b.value - done);
+  }
+  return null;
+}
+
+function boostFromBody(body, cached) {
+  const mode = String(body.mode || '');
+  if (!boost.MODES.includes(mode)) throw badRequest('Choose how long to charge');
+  const value = Number(body.value);
+  if (mode === 'soc') {
+    if (!(value >= 1 && value <= 100)) throw badRequest('Battery level must be between 1 and 100 %');
+    if (!Number.isFinite(cached.vehicle && cached.vehicle.soc)) throw badRequest('The battery level is not known; choose an amount in kWh instead');
+  }
+  if (mode === 'kwh' && !(value >= 0.5 && value <= 200)) throw badRequest('Amount must be between 0.5 and 200 kWh');
+  if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
+  return { mode, value: mode === 'target' ? null : value };
+}
+
+async function freshPlan() {
+  if (!planCache || Date.now() - planCache.at > 60000) await refreshPlan('charge now');
+  return planCache.result;
+}
+
+// What "Charge now" would do, compared with the plan. Nothing is started.
+routes['POST /api/boost/preview'] = async (req) => {
+  const body = await readBody(req);
+  const cached = await freshPlan();
+  const b = boostFromBody(body, cached);
+  const now = Date.now();
+  const v = cached.vehicle || {};
+  const kwh = b.mode === 'target' ? cached.normal_plan.needed_kwh
+    : b.mode === 'soc' ? energyNeededKwh(v.soc, b.value, v.capacity_kwh, cached.planning.loss_percent)
+      : b.value;
+  const powerKw = cached.power ? cached.power.planned_kw : 11;
+  const prices = cached.prices;
+  const lastEnd = prices.length ? prices[prices.length - 1].end : now;
+  const nowPlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
+  const deadline = cached.departure ? cached.departure.time : lastEnd;
+  const laterPlan = planCharging({
+    prices, now, deadline, neededKwh: kwh, powerKw,
+    continuous: cached.planning.continuous !== false,
+    minSplitSaving: Number(cached.planning.min_split_saving) || 0,
+  });
+  const normal = cached.normal_plan;
+  const periodsNormal = normal.periods || [];
+  const running = periodsNormal.find((x) => x.start <= now && now < x.end) || null;
+  const next = periodsNormal.find((x) => x.start > now) || null;
+  const soonMinutes = 60;
+  const span = (pl) => (pl.blocks.length ? { start: pl.blocks[0].start, end: pl.blocks[pl.blocks.length - 1].end, cost: pl.cost, kwh: pl.planned_kwh, notes: pl.notes } : { notes: pl.notes });
+  return {
+    goal: b,
+    kwh,
+    plugged: cached.plugged_now,
+    now: span(nowPlan),
+    plan: span(laterPlan),
+    extra_cost: nowPlan.cost != null && laterPlan.cost != null ? nowPlan.cost - laterPlan.cost : null,
+    running: running ? { start: running.start, end: running.end } : null,
+    soon: next && next.start - now <= soonMinutes * 60000 ? { start: next.start, end: next.end, avg_price: next.avg_price } : null,
+    soon_minutes: soonMinutes,
+    departure: cached.departure ? cached.departure.time : null,
+  };
+};
+
+routes['POST /api/boost'] = async (req) => {
+  const body = await readBody(req);
+  const cached = await freshPlan();
+  const b = boostFromBody(body, cached);
+  if (cached.plugged_now === false) throw badRequest('The car is not plugged in');
+  boost.start(b);
+  planCache = null;
+  await refreshPlan('charge now started');
+  return { ok: true };
+};
+
+routes['DELETE /api/boost'] = async () => {
+  boost.stop('stopped by you');
+  planCache = null;
+  await refreshPlan('charge now stopped');
+  return { ok: true };
+};
 let planCache = null; // { at, result }
 let planRunning = null;
 let refreshTimer = null;
@@ -977,7 +1095,7 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const body = await route(req);
-      if (req.method !== 'GET') planCache = null; // settings changed: plan is outdated
+      if (req.method !== 'GET' && url.pathname !== '/api/boost/preview') planCache = null; // settings changed: plan is outdated
       sendJson(res, 200, body);
     } catch (err) {
       ha.log('Error on', req.method, url.pathname, '-', err.message);

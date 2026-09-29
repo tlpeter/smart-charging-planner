@@ -850,6 +850,7 @@
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
       else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
+      if (d.boost && p.blocks.length) headline = `Charge now: ${p.planned_kwh.toFixed(1)} kWh, ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
 
       const pw = d.power || null;
       let nowText = '';
@@ -879,7 +880,10 @@
           <div class="headline">${esc(headline)}</div>
           <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</p>
           ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
-          ${p.cost != null ? `
+          ${d.boost ? (p.cost != null ? `
+          <div class="stats">
+            <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div>
+          </div>` : '') : p.cost != null ? `
           <div class="stats">
             <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div>
             <div class="stat"><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div>
@@ -890,6 +894,7 @@
           ${p.notes.map((n) => `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
         </div>
+        ${boostHtml(d)}
         <div class="card">
           <h2>Prices and plan</h2>
           <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
@@ -902,6 +907,123 @@
             ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>`;
+    }
+
+    // ---------- Charge now ----------
+    function boostGoalText(b, d) {
+      if (b.mode === 'soc') return `up to ${b.value}%`;
+      if (b.mode === 'kwh') return `${b.value} kWh`;
+      return `up to the plan's target (${d.planning.target_soc}%)`;
+    }
+
+    function boostHtml(d) {
+      const b = d.boost;
+      if (b) {
+        return `
+        <div class="card">
+          <h2>Charge now is on</h2>
+          <p>Charging ${esc(boostGoalText(b, d))}, started at ${esc(hm(b.started))}.
+            ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
+          ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
+          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again. Dry run: the Control tab shows what would be sent; nothing is sent to the charger.</p>
+          <button class="secondary" id="boost-stop">Stop charge now</button>
+        </div>`;
+      }
+      const v = d.vehicle || {};
+      const opts = [];
+      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Up to the plan's target (${d.planning.target_soc}%)</option>`);
+      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Up to a battery level</option>');
+      opts.push('<option value="kwh">A fixed amount (kWh)</option>');
+      return `
+        <div class="card">
+          <h2>Charge now</h2>
+          <p class="muted small">Charge right away instead of waiting for the cheapest hours. The app first checks whether charging is already planned soon.</p>
+          <form id="boost-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select name="mode">${opts.join('')}</select>
+            <input name="value" type="number" step="any" min="0" style="width:100px" hidden>
+            <span class="muted small" id="boost-unit"></span>
+            <button class="secondary" type="submit">Check</button>
+          </form>
+          <div id="boost-check"></div>
+        </div>`;
+    }
+
+    function boostCheckHtml(r) {
+      const parts = [];
+      if (r.plugged === false) parts.push('<div class="error">The car is not plugged in.</div>');
+      if (r.running) parts.push(`<div class="note">The plan is already charging now, until ${esc(hm(r.running.end))}. Charge now only helps if you need more than the plan gives.</div>`);
+      else if (r.soon) {
+        const mins = Math.max(1, Math.round((r.soon.start - Date.now()) / 60000));
+        parts.push(`<div class="note">Charging is already planned soon: from ${esc(hm(r.soon.start))} (in ${mins} min) until ${esc(hm(r.soon.end))}, at ${r.soon.avg_price.toFixed(4)} /kWh on average. Waiting may be enough.</div>`);
+      }
+      if (!(r.kwh > 0.01)) {
+        parts.push('<p>Nothing to charge: the battery is already at that level.</p>');
+        return parts.join('');
+      }
+      const n = r.now;
+      const pl = r.plan;
+      const line = (label, x) => (x.start ? `<tr><td>${label}</td><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${tidy(x.kwh)} kWh</td><td class="n">${money(x.cost)}</td></tr>` : `<tr><td>${label}</td><td colspan="3" class="muted">not possible with the known prices</td></tr>`);
+      parts.push(`
+        <table class="periods" style="margin-top:10px"><tr><th></th><th>When</th><th class="n">Energy</th><th class="n">Cost</th></tr>
+          ${line('Charge now', n)}
+          ${line(r.departure ? 'Cheapest before departure' : 'Cheapest known hours', pl)}
+        </table>
+        ${n.start && pl.start && n.kwh + 0.05 < r.kwh ? '<div class="note">Not all of it fits in the hours with known prices.</div>' : ''}
+        ${r.extra_cost != null ? `<p>${r.extra_cost > 0.005 ? `Charging now costs about <strong>${money(r.extra_cost)}</strong> more.` : 'Charging now costs about the same.'}</p>` : ''}`);
+      if (r.plugged !== false) {
+        parts.push(`<div style="display:flex;gap:8px"><button class="primary" id="boost-start">Charge now</button><button class="secondary" id="boost-cancel">Cancel</button></div>
+          <p class="muted small">Dry run: this changes what the app would do (see the Control tab); nothing is sent to the charger.</p>`);
+      }
+      return parts.join('');
+    }
+
+    function bindBoost() {
+      const stop = $('boost-stop');
+      if (stop) stop.onclick = async () => {
+        stop.disabled = true;
+        stop.textContent = 'Stopping…';
+        await api('DELETE', 'api/boost');
+        loadOverview();
+      };
+      const f = $('boost-form');
+      if (!f) return;
+      const syncMode = () => {
+        const m = f.mode.value;
+        f.value.hidden = m === 'target';
+        f.value.required = m !== 'target';
+        $('boost-unit').textContent = m === 'soc' ? '%' : m === 'kwh' ? 'kWh' : '';
+        f.value.placeholder = m === 'soc' ? '90' : '10';
+        $('boost-check').innerHTML = '';
+      };
+      f.mode.onchange = syncMode;
+      syncMode();
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const box = $('boost-check');
+        const goal = { mode: f.mode.value, value: f.value.value };
+        box.innerHTML = '<p class="muted small">Checking…</p>';
+        try {
+          const r = await api('POST', 'api/boost/preview', goal);
+          box.innerHTML = boostCheckHtml(r);
+          const go = $('boost-start');
+          if (go) go.onclick = async () => {
+            go.disabled = true;
+            go.textContent = 'Starting…';
+            try {
+              await api('POST', 'api/boost', goal);
+              loadOverview();
+            } catch (err) {
+              box.insertAdjacentHTML('beforeend', `<div class="error">${esc(err.message)}</div>`);
+              go.disabled = false;
+              go.textContent = 'Charge now';
+            }
+          };
+          const cancel = $('boost-cancel');
+          if (cancel) cancel.onclick = () => { box.innerHTML = ''; };
+        } catch (err) {
+          box.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+        }
+      };
     }
 
     function vehicleSessionHtml(d) {
@@ -961,6 +1083,7 @@
           await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
           loadOverview(true);
         };
+        bindBoost();
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
         const f = $('planning-form');
@@ -1642,7 +1765,8 @@
     loadPrices();
     loadOverview();
     setInterval(() => {
-      if (!$('tab-overview').hidden && document.activeElement.form !== $('planning-form')) loadOverview();
+      const busy = document.activeElement.form === $('planning-form') || document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);
+      if (!$('tab-overview').hidden && !busy) loadOverview();
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {

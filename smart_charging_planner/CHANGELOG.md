@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0
+
+Still a dry run: nothing is sent to the charger.
+
+- New **Charge now** on the Overview, for when you need the car sooner than the plan
+  - Choose how much: up to the plan's target, up to a battery level, or a fixed amount in kWh
+  - **Check** first shows:
+    - whether the plan is already charging now, or starts charging within the next hour
+    - when charging now would be ready and what it costs, compared with the cheapest hours before your departure
+  - **Charge now** then replaces the plan: the Overview and the chart show charging from now on, and the Control dry run wants to charge ("Charge now, started by you")
+  - It stops by itself when the goal is reached or the car is unplugged, or with **Stop charge now**; then the normal plan takes over again
+  - Can only be started while the car is plugged in
+
 ## 0.9.2
 
 - The plan now uses the **real charging power**: the app learns from the charger power sensor (last 10 days) at what power the car really charges, and uses that when it is lower than the charger maximum. A load balancer, the car's own on-board charger or a lower voltage no longer make the plan too optimistic
