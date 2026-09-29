@@ -39,11 +39,21 @@ function start({ mode, value }, now = Date.now()) {
   return state;
 }
 
+function update(fields) {
+  if (!load()) return null;
+  Object.assign(state, fields);
+  save();
+  return state;
+}
+
+// Ends Charge now and returns how it was, so the caller can undo the start.
 function stop(reason) {
-  if (!load()) return;
+  const prev = load();
+  if (!prev) return null;
   ha.log(`Charge now ended (${reason})`);
   state = null;
   save();
+  return prev;
 }
 
-module.exports = { MODES, current, start, stop };
+module.exports = { MODES, current, start, stop, update };

@@ -491,7 +491,7 @@ const routes = {
     let activePlan = plan;
     let boostInfo = null;
     const b = boost.current();
-    if (b && actualNow.plugged === false) boost.stop('car unplugged');
+    if (b && actualNow.plugged === false) boost.stop('car unplugged'); // nothing to stop: the car is gone
     else if (b) {
       let kwh = null;
       let boostError = null;
@@ -503,9 +503,12 @@ const routes = {
       } catch (err) {
         boostError = err.message;
       }
-      if (kwh != null && kwh <= 0.01) boost.stop('goal reached');
+      if (kwh != null && kwh <= 0.01) {
+        const prev = boost.stop('goal reached');
+        endBoost(prev, 'Charge now reached its goal').catch((err) => ha.warn('Stopping after Charge now failed:', err.message));
+      }
       else {
-        boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError };
+        boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
         if (kwh != null) {
           const lastEnd = prices.length ? prices[prices.length - 1].end : now;
           activePlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
@@ -854,22 +857,93 @@ routes['POST /api/boost/preview'] = async (req) => {
   };
 };
 
+// Really start or stop the charger with the chosen start/stop method.
+// Only when "Allow control" is on; otherwise it is logged as not sent.
+async function manualControl(on, reason) {
+  const s = settings.load();
+  const charger = s.chargers[0] || null;
+  if (!charger) throw badRequest('Set up a charger first');
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const [methods, states] = await Promise.all([currentControlMethods(charger), ha.call({ type: 'get_states' })]);
+  const chosen = chosenMethods(methods, rules);
+  const m = chosen && chosen.start_stop;
+  const command = controller.startStopCommand(m, on, methods && methods.device_id);
+  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
+  const entry = {
+    time: Date.now(),
+    manual: true,
+    plugged: actual.plugged,
+    charging: actual.charging,
+    status: actual.status,
+    power_w: actual.power_w,
+    want: on ? 'charge' : 'pause',
+    code: on ? 'manual_start' : 'manual_stop',
+    reason,
+    commands: command ? [{ what: on ? 'start charging' : 'pause charging', service: command.service, data: command.data, target: command.target }] : [],
+    agrees: true,
+    sent: false,
+    control_allowed: options.allow_control,
+  };
+  if (!command) {
+    entry.error = 'No start/stop method chosen on the Control tab';
+  } else if (!options.allow_control) {
+    entry.error = 'Allow control is off, so nothing was sent';
+  } else {
+    try {
+      await ha.sendControl(command, controller.allowedFor(m));
+      entry.sent = true;
+    } catch (err) {
+      entry.error = err.message;
+    }
+  }
+  controller.logSent(entry);
+  if (entry.error) ha.log(`${reason}: not sent (${entry.error})`);
+  return { sent: entry.sent, error: entry.error || null, command: entry.commands[0] || null, at: entry.time };
+}
+
+// Charge now ended: stop the charger again if Charge now started it.
+async function endBoost(prev, reason) {
+  if (!prev || !prev.send || !prev.send.sent || prev.was_charging) return null;
+  return manualControl(false, reason);
+}
+
 routes['POST /api/boost'] = async (req) => {
   const body = await readBody(req);
   const cached = await freshPlan();
   const b = boostFromBody(body, cached);
   if (cached.plugged_now === false) throw badRequest('The car is not plugged in');
+  const s = settings.load();
+  const states = await ha.call({ type: 'get_states' });
+  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger: s.chargers[0] || null, states });
+  if (actual.plugged === false) throw badRequest('The car is not plugged in');
+  const wasCharging = actual.charging === true;
   boost.start(b);
+  let send = null;
+  if (!wasCharging) {
+    send = await manualControl(true, 'Charge now started by you');
+  } else {
+    send = { sent: false, error: null, note: 'The charger was already charging, so nothing had to be sent', at: Date.now() };
+  }
+  boost.update({ was_charging: wasCharging, send });
   planCache = null;
   await refreshPlan('charge now started');
-  return { ok: true };
+  return { ok: true, send };
 };
 
 routes['DELETE /api/boost'] = async () => {
-  boost.stop('stopped by you');
+  const prev = boost.stop('stopped by you');
+  const send = await endBoost(prev, 'Charge now stopped by you');
   planCache = null;
   await refreshPlan('charge now stopped');
-  return { ok: true };
+  return { ok: true, send };
+};
+
+// Manual test on the Control tab: start or stop once.
+routes['POST /api/control/manual'] = async (req) => {
+  const body = await readBody(req);
+  if (body.action !== 'start' && body.action !== 'stop') throw badRequest('Choose start or stop');
+  const r = await manualControl(body.action === 'start', body.action === 'start' ? 'Manual test: start' : 'Manual test: stop');
+  return r;
 };
 let planCache = null; // { at, result }
 let planRunning = null;
@@ -990,6 +1064,11 @@ routes['GET /api/control'] = async () => {
         (x.entity_id.startsWith('input_boolean.') || /preheat|precondition|climate|hvac|airco|voorverwarm|verwarm|condition/.test(x.entity_id))).map(opt).sort(byName),
     },
     now: lastDryRun,
+    chosen_start_stop: (() => {
+      const c = chosenMethods(methods, rules);
+      const cmd = c && controller.startStopCommand(c.start_stop, true, methods && methods.device_id);
+      return cmd ? cmd.service + (cmd.target && cmd.target.entity_id ? ` → ${cmd.target.entity_id}` : '') : null;
+    })(),
     log: controller.recentLog(150),
   };
 };

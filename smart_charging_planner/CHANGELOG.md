@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0
+
+**First version that can really control the charger**, only when you turn on "Allow control" in the Configuration tab. The charging plan itself is still a dry run.
+
+- **Charge now** really starts the charger when "Allow control" is on, and pauses it again when the goal is reached or you select **Stop charge now**. If the charger was already charging before, it is left alone. When the car is unplugged nothing is sent
+- New **Manual test** on the Control tab: **Start charging** and **Stop charging** send one command, to check that control works with your charger
+- Only the start/stop method chosen on the Control tab is used, and only its own action or entity. The charging current is not changed
+- Safety:
+  - With "Allow control" off (the default) nothing is sent; the log shows "Not sent"
+  - Automations, scripts, scenes, helpers and other settings are never touched, whatever is chosen
+  - Everything that is sent is logged in the app log ("SENDING to charger") and in the Control log ("SENT")
+- Turn off your own charging automation while testing, or it may undo what the app does
+
 ## 0.10.0
 
 Still a dry run: nothing is sent to the charger.

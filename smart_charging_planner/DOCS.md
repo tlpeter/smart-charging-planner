@@ -2,15 +2,15 @@
 
 Plans EV and home battery charging around dynamic electricity prices.
 
-> Early development. The app gives advice only. It only reads from Home Assistant, with one exception you switch on yourself: adding trips to your calendar.
+> Early development. The charging plan is advice only. The app only reads from Home Assistant, with two exceptions you switch on yourself: adding trips to your calendar, and (with "Allow control") starting and stopping the charger through Charge now and the manual test.
 
 ## What it does now
 
 - **Overview**: a price chart for today and tomorrow, and a charging plan that shows the cheapest blocks to reach your target battery level before your "ready by" time, with the expected cost compared with charging right away.
-- **Charge now** (on the Overview): charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged. During the dry run this only changes what the app would do.
+- **Charge now** (on the Overview): charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged. With "Allow control" on it really starts the charger, and pauses it again afterwards; with it off it only changes what the app would do.
 - **Departures**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **Savings**: per charging session in the last 30 days, what you actually paid, what charging right away would have cost, and what the plan would have cost.
-- **Control**: a dry run of charger control. Shows what the app would do right now and which commands it would send, compared with what the charger is really doing, plus a log. Here you also choose how the charger is controlled and set the rules (minimum battery level, preconditioning, force window, hysteresis). Nothing is sent.
+- **Control**: a dry run of charger control. Shows what the app would do right now and which commands it would send, compared with what the charger is really doing, plus a log. Here you also choose how the charger is controlled and set the rules (minimum battery level, preconditioning, force window, hysteresis). The plan sends nothing. A **Manual test** starts or stops the charger once, only when "Allow control" is on.
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
 - **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. **Control check** shows how the app could control it (which actions or entities), without sending anything.
 - **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
@@ -57,14 +57,14 @@ The Savings tab needs a charging power sensor on the Charger tab (for example a 
 
 ## Handing over from your own automation
 
-If you already control your charger with your own automation, keep it running during the dry run: the Control log then compares the app with your automation. When the app is allowed to control the charger in a later version, turn your own automation off (disable it), so the two do not fight.
+If you already control your charger with your own automation, keep it running during the dry run: the Control log then compares the app with your automation. When you test Charge now or the manual test with "Allow control" on, turn your own automation off (disable it in Settings → Automations), so the two do not fight. Turn it on again afterwards: the plan does not control the charger yet.
 
 ## Configuration
 
 - **Log level**: how much the app writes to its log. Use `debug` when reporting a problem.
 - **Refresh interval**: how often (1 to 60 minutes) the app reads prices, departures and states and recalculates the plan in the background. Note that Home Assistant itself also has a refresh interval for some integrations; for example a Google calendar is updated by Home Assistant on its own schedule.
 - **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Departures tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Departures tab. This does not allow any charger control.
-- **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery.
+- **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, Charge now and the manual test on the Control tab really start and stop the charger, with the start/stop method chosen on the Control tab. The charging plan itself is still a dry run. Automations, scripts and helpers are never touched.
 
 ## Planned
 

@@ -1,7 +1,8 @@
 'use strict';
 
 // Control dry run: at every refresh, decide what the app WOULD do with the
-// charger and log it. Nothing is ever sent from here.
+// charger and log it. The plan itself never sends anything from here; only
+// manual actions (Charge now, the manual test) send, through ha.sendControl().
 //
 // Decision order (first match wins):
 //   1. car not plugged in                         -> nothing to do
@@ -185,23 +186,47 @@ function decide(ctx) {
   return pause(next ? 'Not a planned block' : 'No more charging planned before the departure', 'not_planned', { next_start: next ? next.start : null });
 }
 
+// The start or stop command for a start/stop method.
+function startStopCommand(m, on, deviceId) {
+  if (!m) return null;
+  const dev = deviceId ? { device_id: deviceId } : null;
+  switch (m.type) {
+    case 'action_choice': return { service: `${m.domain}.${m.service}`, data: { [m.field]: on ? m.start_value : m.stop_value }, target: dev };
+    case 'action_pair': return { service: `${m.domain}.${on ? m.start_service : m.stop_service}`, data: {}, target: dev };
+    case 'buttons': return { service: 'button.press', data: {}, target: { entity_id: on ? m.start_entity : m.stop_entity } };
+    case 'switch': return { service: `switch.turn_${on ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
+    default: return null;
+  }
+}
+
+// What sendControl() may send for a start/stop method: exactly its own
+// action(s) or entities, nothing else.
+function allowedFor(m) {
+  if (!m) return [];
+  switch (m.type) {
+    case 'action_choice': return [{ service: `${m.domain}.${m.service}` }];
+    case 'action_pair': return [{ service: `${m.domain}.${m.start_service}` }, { service: `${m.domain}.${m.stop_service}` }];
+    case 'buttons': return [{ service: 'button.press', entity_id: m.start_entity }, { service: 'button.press', entity_id: m.stop_entity }];
+    case 'switch': return [{ service: 'switch.turn_on', entity_id: m.entity_id }, { service: 'switch.turn_off', entity_id: m.entity_id }];
+    default: return [];
+  }
+}
+
+// Log a command that was really sent (or refused / failed).
+function logSent(entry) {
+  const entries = loadLog();
+  entries.push({ commands: [], ...entry });
+  log = entries.slice(-KEEP);
+  writeJson(LOG_FILE, log);
+}
+
 // The commands the app would send for a decision, with the chosen methods.
 function commandsFor(decision, actual, methods, deviceId) {
   if (!methods) return [];
   const out = [];
   const ss = methods.start_stop;
   const cur = methods.current;
-  const describe = (m, on) => {
-    if (!m) return null;
-    const dev = deviceId ? { device_id: deviceId } : null;
-    switch (m.type) {
-      case 'action_choice': return { service: `${m.domain}.${m.service}`, data: { [m.field]: on ? m.start_value : m.stop_value }, target: dev };
-      case 'action_pair': return { service: `${m.domain}.${on ? m.start_service : m.stop_service}`, data: {}, target: dev };
-      case 'buttons': return { service: 'button.press', data: {}, target: { entity_id: on ? m.start_entity : m.stop_entity } };
-      case 'switch': return { service: `switch.turn_${on ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
-      default: return null;
-    }
-  };
+  const describe = (m, on) => startStopCommand(m, on, deviceId);
   if (decision.want === 'charge') {
     if (cur && decision.amps) {
       if (cur.type === 'number') out.push({ what: `set current to ${decision.amps} A`, service: 'number.set_value', data: { value: decision.amps }, target: { entity_id: cur.entity_id } });
@@ -277,4 +302,4 @@ function clearLock() {
   writeJson(STATE_FILE, st);
 }
 
-module.exports = { dryRun, recentLog, readActual, decide, commandsFor, clearLock, DEFAULT_RULES };
+module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, logSent, clearLock, DEFAULT_RULES };

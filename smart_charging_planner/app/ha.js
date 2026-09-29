@@ -48,6 +48,7 @@ const READ_ONLY_COMMANDS = new Set([
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
+const CONTROL_TOKEN = Symbol('charger control');
 
 // Send a command to Home Assistant and wait for its result.
 function call(message, timeoutMs = 20000, token = null) {
@@ -58,7 +59,10 @@ function call(message, timeoutMs = 20000, token = null) {
       // switched on "Allow adding trips to calendar".
       (message.type === 'call_service' && token === CALENDAR_WRITE_TOKEN &&
         message.domain === 'calendar' && message.service === 'create_event' &&
-        options.allow_calendar_write === true);
+        options.allow_calendar_write === true) ||
+      // Starting or stopping the charger, only when "Allow control" is on
+      // and only through sendControl() below.
+      (message.type === 'call_service' && token === CONTROL_TOKEN && options.allow_control === true);
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -130,6 +134,42 @@ async function createCalendarEvent(calendarEntity, data) {
   }, 20000, CALENDAR_WRITE_TOKEN);
 }
 
+// SAFETY: domains the app never controls, whatever method is chosen. This
+// keeps your automations, scripts, helpers and settings untouched.
+const NEVER_CONTROL_DOMAINS = new Set([
+  'automation', 'script', 'scene', 'homeassistant', 'hassio', 'input_boolean', 'input_number',
+  'input_select', 'input_text', 'input_datetime', 'input_button', 'recorder', 'system_log',
+  'logger', 'persistent_notification', 'notify', 'shell_command', 'rest_command', 'python_script',
+  'pyscript', 'calendar', 'counter', 'timer', 'zone', 'person', 'update', 'backup', 'frontend',
+  'lovelace', 'schedule', 'climate', 'lock', 'alarm_control_panel', 'cover', 'light', 'media_player',
+]);
+
+// Start or stop the charger. Refused unless "Allow control" is on, and only
+// for the exact action or entity of the start/stop method the user chose.
+// allowed: [{ service: 'switch.turn_on', entity_id: 'switch.x' }, ...]
+async function sendControl(command, allowed) {
+  if (options.allow_control !== true) {
+    warn('Refused', command.service, '- "Allow control" is off');
+    throw new Error('Allow control is off in the app\'s Configuration tab, so nothing was sent');
+  }
+  const [domain, service] = String(command.service || '').split('.');
+  if (!domain || !service || NEVER_CONTROL_DOMAINS.has(domain)) {
+    warn('Refused', command.service, '- this domain is never controlled');
+    throw new Error(`${command.service} is never sent by this app`);
+  }
+  const target = command.target || {};
+  const ok = (allowed || []).some((a) => a.service === command.service &&
+    (!a.entity_id || target.entity_id === a.entity_id));
+  if (!ok) {
+    warn('Refused', command.service, '- not the chosen start/stop method');
+    throw new Error(`${command.service} is not the chosen start/stop method`);
+  }
+  log('SENDING to charger:', command.service, JSON.stringify(command.data || {}), JSON.stringify(target));
+  const message = { type: 'call_service', domain, service, service_data: command.data || {} };
+  if (command.target) message.target = command.target;
+  return call(message, 20000, CONTROL_TOKEN);
+}
+
 function onConnect(fn) {
   connectListeners.push(fn);
 }
@@ -193,4 +233,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, createCalendarEvent, onConnect, connect, log, debug, warn };
+module.exports = { state, call, callAction, createCalendarEvent, sendControl, onConnect, connect, log, debug, warn };

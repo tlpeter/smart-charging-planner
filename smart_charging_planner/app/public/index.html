@@ -874,7 +874,7 @@
       return `
         <div class="card">
           <div class="row" style="border:none;padding:0;align-items:center">
-            <span class="advice">ADVICE ONLY · NOTHING IS CONTROLLED</span>
+            <span class="advice">${d.control_allowed ? 'PLAN IS ADVICE ONLY · CHARGE NOW CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
@@ -916,6 +916,17 @@
       return `up to the plan's target (${d.planning.target_soc}%)`;
     }
 
+    let boostMessage = '';
+
+    // Result of a real start/stop command.
+    function sendHtml(send, verb) {
+      if (!send) return '';
+      if (send.sent) return `<div class="note">${verb} sent to the charger at ${esc(hm(send.at))}${send.command ? `: <span class="cmd">${esc(send.command.service)}</span>` : ''}.</div>`;
+      if (send.note) return `<div class="note">${esc(send.note)}.</div>`;
+      if (send.error) return `<div class="${/Allow control is off/.test(send.error) ? 'note' : 'error'}">${verb} not sent: ${esc(send.error)}.</div>`;
+      return '';
+    }
+
     function boostHtml(d) {
       const b = d.boost;
       if (b) {
@@ -925,7 +936,8 @@
           <p>Charging ${esc(boostGoalText(b, d))}, started at ${esc(hm(b.started))}.
             ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
           ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
-          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again. Dry run: the Control tab shows what would be sent; nothing is sent to the charger.</p>
+          ${sendHtml(b.send, 'Start')}
+          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.${d.control_allowed ? ' When the goal is reached or you stop it, the app pauses the charger again (unless it was already charging before).' : ' Allow control is off: nothing is sent to the charger, the Control tab shows what would be sent.'}</p>
           <button class="secondary" id="boost-stop">Stop charge now</button>
         </div>`;
       }
@@ -944,7 +956,7 @@
             <span class="muted small" id="boost-unit"></span>
             <button class="secondary" type="submit">Check</button>
           </form>
-          <div id="boost-check"></div>
+          <div id="boost-check">${boostMessage}</div>
         </div>`;
     }
 
@@ -972,7 +984,7 @@
         ${r.extra_cost != null ? `<p>${r.extra_cost > 0.005 ? `Charging now costs about <strong>${money(r.extra_cost)}</strong> more.` : 'Charging now costs about the same.'}</p>` : ''}`);
       if (r.plugged !== false) {
         parts.push(`<div style="display:flex;gap:8px"><button class="primary" id="boost-start">Charge now</button><button class="secondary" id="boost-cancel">Cancel</button></div>
-          <p class="muted small">Dry run: this changes what the app would do (see the Control tab); nothing is sent to the charger.</p>`);
+          <p class="muted small">${lastPlan && lastPlan.control_allowed ? 'This really starts the charger now (Allow control is on).' : 'Allow control is off: this only changes what the app would do (see the Control tab); nothing is sent to the charger.'}</p>`);
       }
       return parts.join('');
     }
@@ -982,8 +994,10 @@
       if (stop) stop.onclick = async () => {
         stop.disabled = true;
         stop.textContent = 'Stopping…';
-        await api('DELETE', 'api/boost');
-        loadOverview();
+        const r = await api('DELETE', 'api/boost');
+        boostMessage = `<p class="muted small">Charge now stopped.</p>${sendHtml(r.send, 'Stop')}`;
+        await loadOverview();
+        setTimeout(() => { boostMessage = ''; }, 60000);
       };
       const f = $('boost-form');
       if (!f) return;
@@ -1001,6 +1015,7 @@
         e.preventDefault();
         const box = $('boost-check');
         const goal = { mode: f.mode.value, value: f.value.value };
+        boostMessage = '';
         box.innerHTML = '<p class="muted small">Checking…</p>';
         try {
           const r = await api('POST', 'api/boost/preview', goal);
@@ -1374,7 +1389,7 @@
     function wantText(e) {
       if (!e) return 'No decision yet';
       switch (e.want) {
-        case 'charge': return `Charge at ${e.amps} A`;
+        case 'charge': return e.manual ? 'Start charging' : `Charge at ${e.amps} A`;
         case 'pause': return 'Pause charging';
         case 'leave': return 'Leave the charger alone';
         default: return 'Nothing to do';
@@ -1462,25 +1477,49 @@
         }
         box.innerHTML = `
           <div class="card">
-            <span class="advice test">DRY RUN · NOTHING IS SENT</span>
+            <span class="advice test">PLAN: DRY RUN · NOTHING IS SENT</span>
             <div class="headline">Right now the app would: ${esc(wantText(n))}</div>
             <p class="muted small">${esc(n.reason)}${n.block_end ? ` until ${esc(t(n.block_end))}` : ''}${n.next_start ? ` · next planned start ${esc(t(n.next_start))}` : ''}${n.locked_until ? ` · period locked until ${esc(t(n.locked_until))}` : ''}</p>
             <div class="row"><span class="label">Charger now</span><span class="value">${esc(actualText(n))}</span></div>
             <div class="row"><span class="label">Same as the plan?</span><span class="value">${n.agrees ? '<span class="agree">Yes</span>' : '<span class="differ">No — the app would change this</span>'}</span></div>
             <div class="row"><span class="label">Would send</span><span class="value">${n.commands.length ? n.commands.map(cmdText).join('<br>') : '<span class="muted">nothing</span>'}</span></div>
-            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. Even with "Allow control" on, this version never sends anything.</p>
+            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. The plan never sends anything in this version; only Charge now (Overview) and the manual test below do, and only when "Allow control" is on.</p>
           </div>
           <div class="card">
-            <h2>Dry run log</h2>
+            <h2>Manual test</h2>
+            <p class="muted small">Start or stop the charger once with the start/stop method chosen below${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. Turn off your own charging automation first, so it does not undo the test.</p>
+            ${d.control_allowed
+              ? '<div style="display:flex;gap:8px"><button class="primary" id="manual-start">Start charging</button><button class="secondary" id="manual-stop">Stop charging</button></div>'
+              : '<div class="note">Allow control is off in the app\'s Configuration tab, so these buttons are hidden and nothing can be sent.</div>'}
+            <div id="manual-result"></div>
+          </div>
+          <div class="card">
+            <h2>Log</h2>
+            <p class="muted small">What the plan would do (dry run), and every command that was really sent (SENT) or refused (Not sent).</p>
             ${d.log.length ? `<table class="periods">
               <tr><th>Time</th><th>The app would</th><th>Charger was</th></tr>
               ${d.log.map((e) => `<tr>
                 <td>${esc(t(e.time))}</td>
-                <td>${esc(wantText(e))}<div class="src">${esc(e.reason)}</div>${e.commands.map((c) => `<div class="src">${esc(c.what)}</div>`).join('')}</td>
+                <td>${e.manual ? `<strong>${e.sent ? 'SENT' : 'Not sent'}</strong> · ` : ''}${esc(wantText(e))}<div class="src">${esc(e.reason)}</div>${e.commands.map((c) => `<div class="src">${esc(c.what)}${e.manual ? `: ${esc(c.service)}` : ''}</div>`).join('')}${e.error ? `<div class="src differ">${esc(e.error)}</div>` : ''}</td>
                 <td>${esc(actualText(e))}<div class="small ${e.agrees ? 'agree' : 'differ'}">${e.agrees ? 'same' : 'different'}</div></td>
               </tr>`).join('')}
             </table>` : '<p class="muted">Nothing logged yet.</p>'}
           </div>`;
+        for (const [id, action] of [['manual-start', 'start'], ['manual-stop', 'stop']]) {
+          const btn = $(id);
+          if (btn) btn.onclick = async () => {
+            btn.disabled = true;
+            const out = $('manual-result');
+            out.innerHTML = '<p class="muted small">Sending…</p>';
+            try {
+              const r = await api('POST', 'api/control/manual', { action });
+              out.innerHTML = sendHtml(r, action === 'start' ? 'Start' : 'Stop') + '<p class="muted small">The charger status is read again at the next refresh; check the charger or its app to see the result.</p>';
+            } catch (err) {
+              out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+            }
+            btn.disabled = false;
+          };
+        }
       } catch (err) {
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
       }
@@ -1726,7 +1765,7 @@
         $('count').textContent = s.entity_count ?? '–';
         $('appver').textContent = s.app_version || '–';
         $('control').innerHTML = s.allow_control
-          ? '<span class="ok">Allowed</span>'
+          ? '<span class="ok">Allowed</span> <span class="muted small">(Charge now and the manual test only; the plan is still a dry run)</span>'
           : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
         $('loglevel').textContent = s.log_level || '–';
         $('calwrite').innerHTML = s.allow_calendar_write ? '<span class="ok">Allowed</span>' : 'Off <span class="muted small">(test mode)</span>';

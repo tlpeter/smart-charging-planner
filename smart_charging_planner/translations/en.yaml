@@ -5,8 +5,12 @@ configuration:
   allow_control:
     name: Allow control
     description: >-
-      Master switch. When off, the app only shows advice and never changes your
-      charger, vehicle or home battery.
+      Master switch, off by default. When off, the app only shows advice and
+      never changes your charger, vehicle or home battery. When on, only "Charge
+      now" and the manual test on the Control tab really start and stop the
+      charger, with the start/stop method chosen on the Control tab. The
+      charging plan itself stays a dry run. Turn off your own charging
+      automation while testing.
   refresh_minutes:
     name: Refresh interval (minutes)
     description: >-
