@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- **House load**: the plan now estimates how much current is left for the charger in each block, like a load balancer does
+  - Uses the last 14 days of long-term statistics of the grid meter (Grid tab), per hour of the day
+  - The charger's own power is subtracted, so earlier charging sessions do not count as house load
+  - Room for the charger = main fuse minus typical house load, capped at the charger's maximum current; below 6 A a block is skipped
+  - The Overview shows the charging power range, the room for the charger per block (hover) and a summary of the typical house load
+  - Can be switched off with "Account for house load" in the planning settings
+- Reading long-term statistics is added to the read-only list
+
 ## 0.2.0
 
 - New **Departures** tab with four sources for when the car must be ready and how full:

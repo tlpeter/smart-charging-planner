@@ -145,6 +145,8 @@
         <p class="muted small">Departure times and target battery levels are set on the <a href="#" data-goto="departures">Departures</a> tab.</p>
         <div class="field"><label>Charging loss margin (%)</label>
           <input name="loss_percent" type="number" min="0" max="30" step="1"></div>
+        <label class="check"><input type="checkbox" name="use_house_load"> Account for house load</label>
+        <p class="muted small">Uses the last 14 days of your grid meter to estimate how much current is left for the charger under your main fuse at each hour, like a load balancer does. Needs the Grid tab to be set up.</p>
         <div class="buttons"><button class="primary" type="submit">Save</button></div>
         <div class="error form-error" hidden></div>
       </form>
@@ -660,7 +662,8 @@
         el.addEventListener('mouseenter', () => {
           const p = d.prices[Number(el.dataset.i)];
           const blk = d.plan.blocks.find((b) => p.start <= b.start && b.start < p.end);
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${blk ? `<br><span style="color:var(--accent)">■</span> Charge ${blk.kwh.toFixed(1)} kWh` : ''}`;
+          const room = p.amps != null ? `<br><span class="src">Room for charger: ${p.amps ? `${Math.floor(p.amps)} A (${p.power_kw.toFixed(1)} kW)` : 'too little'}</span>` : '';
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${room}${blk ? `<br><span style="color:var(--accent)">■</span> Charge ${blk.kwh.toFixed(1)} kWh` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -685,7 +688,15 @@
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
       else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
 
-      const power = `${p.power_kw.toFixed(1)} kW (${d.charger ? d.charger.phases : 3} × ${d.charger && d.charger.max_current ? d.charger.max_current : 16} A${d.assumed_current ? ', assumed' : ''})`;
+      let power = `${p.power_kw.toFixed(1)} kW (${d.charger ? d.charger.phases : 3} × ${d.charger && d.charger.max_current ? d.charger.max_current : 16} A${d.assumed_current ? ', assumed' : ''})`;
+      if (d.house_load.available && p.blocks.length) {
+        const pw = p.blocks.map((b) => b.power_kw);
+        const lo = Math.min(...pw);
+        const hi = Math.max(...pw);
+        power = lo < hi - 0.05
+          ? `${lo.toFixed(1)}–${hi.toFixed(1)} kW, depending on house load`
+          : `${hi.toFixed(1)} kW${hi < p.power_kw - 0.05 ? ', limited by house load' : ''}`;
+      }
       const socText = v.soc != null ? `${v.soc}%` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
@@ -707,12 +718,29 @@
           <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
           <div class="chart-wrap" id="chart"></div>
           <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span></div>
+          ${houseLoadHtml(d)}
           ${p.periods.length ? `
           <details><summary class="small muted" style="margin-top:12px;cursor:pointer">Show plan as table</summary>
             <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
             ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>`;
+    }
+
+    function houseLoadHtml(d) {
+      const h = d.house_load;
+      if (!h.available) {
+        const why = {
+          not_enough_history: 'Not enough history from your grid meter yet (it needs long-term statistics); the plan assumes full charging power.',
+          statistics_error: 'The history of your grid meter could not be read; the plan assumes full charging power.',
+        }[h.reason];
+        return why ? `<div class="note">${esc(why)}</div>` : '';
+      }
+      const prof = h.profile;
+      const peakHour = prof.indexOf(Math.max(...prof));
+      const night = prof.slice(0, 6).reduce((a, b) => a + b, 0) / 6;
+      const kw = (w) => (w >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`);
+      return `<p class="muted small" style="margin-top:10px">Typical house load (last ${h.days} days${h.charger_subtracted ? ', without the charger' : ''}): about ${kw(night)} at night, up to ${kw(prof[peakHour])} around ${String(peakHour).padStart(2, '0')}:00. Main fuse ${esc(h.main_fuse)} A.</p>`;
     }
 
     async function loadOverview() {
@@ -722,7 +750,10 @@
         $('overview-body').innerHTML = overviewHtml(d);
         drawChart(d);
         const f = $('planning-form');
-        if (document.activeElement.form !== f) f.loss_percent.value = d.planning.loss_percent;
+        if (document.activeElement.form !== f) {
+          f.loss_percent.value = d.planning.loss_percent;
+          f.use_house_load.checked = d.planning.use_house_load !== false;
+        }
       } catch (err) {
         $('overview-body').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
       }
@@ -737,7 +768,7 @@
       btn.disabled = true;
       btn.textContent = 'Saving…';
       try {
-        await api('POST', 'api/planning', Object.fromEntries(new FormData(f)));
+        await api('POST', 'api/planning', { loss_percent: f.loss_percent.value, use_house_load: f.use_house_load.checked });
         document.activeElement.blur();
         await loadOverview();
         btn.textContent = 'Saved ✓ – plan updated';

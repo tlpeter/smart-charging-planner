@@ -13,6 +13,7 @@ const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./
 const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
+const { houseLoadProfile, availableForBlock } = require('./houseload');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -376,7 +377,22 @@ const routes = {
     const departure = nextDeparture(dep, { states, events, tz, now });
 
     const maxCurrent = charger && charger.max_current ? charger.max_current : null;
-    const powerKw = chargePowerKw(charger ? charger.phases : 3, maxCurrent);
+    const phases = charger ? charger.phases : 3;
+    const powerKw = chargePowerKw(phases, maxCurrent);
+
+    // House load: less room for the charger when the house uses more.
+    const grid = s.grid[0] || null;
+    let houseLoad = { available: false, reason: planning.use_house_load === false ? 'off' : 'no_grid' };
+    if (grid && planning.use_house_load !== false) {
+      houseLoad = await houseLoadProfile(grid, charger, tz, now);
+      if (houseLoad.available) {
+        const opts = { profile: houseLoad.profile, mainFuse: grid.main_fuse, phases, chargerMax: maxCurrent || 16 };
+        prices = prices.map((p) => {
+          const a = availableForBlock(p.start, tz, opts);
+          return { ...p, power_kw: a.power_kw, amps: a.amps };
+        });
+      }
+    }
     const targetSoc = departure ? departure.soc : dep.default_soc;
     const neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
     // Without a departure: plan in the cheapest known blocks, no deadline.
@@ -403,7 +419,14 @@ const routes = {
       } : null,
       charger: charger ? { name: charger.name, phases: charger.phases, max_current: charger.max_current } : null,
       assumed_current: maxCurrent ? null : 16,
-      prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total })),
+      prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps })),
+      house_load: houseLoad.available ? {
+        available: true,
+        profile: houseLoad.profile.map((w) => Math.round(w)),
+        days: houseLoad.days,
+        charger_subtracted: houseLoad.charger_subtracted,
+        main_fuse: grid.main_fuse,
+      } : { available: false, reason: houseLoad.reason },
       plan: { ...plan, periods: periods(plan.blocks) },
       control_allowed: options.allow_control,
     };
@@ -414,7 +437,7 @@ const routes = {
     const loss = body.loss_percent === '' || body.loss_percent == null ? 10 : Number(body.loss_percent);
     if (!(loss >= 0 && loss <= 30)) throw badRequest('Charging loss must be between 0 and 30 %');
     const s = settings.load();
-    s.planning = { ...s.planning, loss_percent: loss };
+    s.planning = { ...s.planning, loss_percent: loss, use_house_load: body.use_house_load === true || body.use_house_load === 'on' };
     settings.save(s);
     return { ok: true, planning: s.planning };
   },

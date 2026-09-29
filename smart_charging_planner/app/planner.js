@@ -29,7 +29,8 @@ function nextDeadline(readyBy, tz, now, localTimeOn) {
   return null;
 }
 
-// prices: [{start, end, total}] sorted, now: ms, deadline: ms.
+// prices: [{start, end, total, power_kw?}] sorted, now: ms, deadline: ms.
+// power_kw per block overrides powerKw (e.g. less room when the house uses more).
 function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
   const notes = [];
   const result = {
@@ -57,14 +58,15 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
     .map((p) => {
       const start = Math.max(p.start, now);
       const end = Math.min(p.end, deadline);
-      return { start, end, total: p.total, hours: (end - start) / 3600000 };
+      const power = Number.isFinite(p.power_kw) ? p.power_kw : powerKw;
+      return { start, end, total: p.total, power, hours: (end - start) / 3600000 };
     })
-    .filter((b) => b.hours > 0);
+    .filter((b) => b.hours > 0 && b.power > 0);
 
   const lastKnown = prices.length ? prices[prices.length - 1].end : now;
   if (lastKnown < deadline) notes.push('prices_incomplete');
 
-  const capacity = usable.reduce((s, b) => s + b.hours * powerKw, 0);
+  const capacity = usable.reduce((s, b) => s + b.hours * b.power, 0);
   if (capacity < neededKwh) notes.push(lastKnown < deadline ? 'not_enough_known_time' : 'not_enough_time');
 
   // Plan: cheapest blocks first. Reference: charge right away until full.
@@ -73,7 +75,7 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
     const chosen = [];
     for (const b of ordered) {
       if (left <= 1e-9) break;
-      const kwh = Math.min(left, b.hours * powerKw);
+      const kwh = Math.min(left, b.hours * b.power);
       chosen.push({ ...b, kwh });
       left -= kwh;
     }
@@ -89,10 +91,10 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw }) {
   planned.sort((a, b) => a.start - b.start);
   const starts = new Set(planned.map((b) => b.start));
   result.blocks = planned.map((b) => {
-    const duration = (b.kwh / (b.hours * powerKw)) * (b.end - b.start);
+    const duration = (b.kwh / (b.hours * b.power)) * (b.end - b.start);
     const nextPlanned = starts.has(b.end);
     const start = nextPlanned ? b.end - duration : b.start;
-    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total };
+    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power };
   });
   result.planned_kwh = planned.reduce((s, b) => s + b.kwh, 0);
   result.cost = cost(planned);

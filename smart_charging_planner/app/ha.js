@@ -42,6 +42,7 @@ const READ_ONLY_COMMANDS = new Set([
   'get_config',
   'config/entity_registry/list',
   'config/device_registry/list',
+  'recorder/statistics_during_period',
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
 

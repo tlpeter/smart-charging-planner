@@ -14,7 +14,7 @@ const DEFAULTS = {
   chargers: [],
   grid: [],
   prices: null,
-  planning: { target_soc: 80, ready_by: '07:00', loss_percent: 10 },
+  planning: { target_soc: 80, ready_by: '07:00', loss_percent: 10, use_house_load: true },
   departures: null, // filled by departures.js defaults on first use
 };
 
