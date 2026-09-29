@@ -13,6 +13,7 @@ const state = {
   connected: false,
   version: null,
   timeZone: 'UTC',
+  currency: 'EUR',
   lastError: null,
 };
 
@@ -35,9 +36,25 @@ function log(...args) { logAt('info', args); }
 function debug(...args) { logAt('debug', args); }
 function warn(...args) { logAt('warning', args); }
 
+// SAFETY: WebSocket commands the app may send. All of them only read.
+const READ_ONLY_COMMANDS = new Set([
+  'get_states',
+  'get_config',
+  'config/entity_registry/list',
+  'config/device_registry/list',
+]);
+const ACTION_TOKEN = Symbol('read-only action');
+
 // Send a command to Home Assistant and wait for its result.
-function call(message, timeoutMs = 20000) {
+function call(message, timeoutMs = 20000, token = null) {
   return new Promise((resolve, reject) => {
+    const allowed = READ_ONLY_COMMANDS.has(message.type) ||
+      (message.type === 'call_service' && token === ACTION_TOKEN);
+    if (!allowed) {
+      warn('Refused command', message.type, '- it is not on the read-only list');
+      reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
+      return;
+    }
     if (!state.connected) {
       reject(new Error('Not connected to Home Assistant'));
       return;
@@ -54,15 +71,32 @@ function call(message, timeoutMs = 20000) {
   });
 }
 
+// SAFETY: the app may only call actions on this list. They all just return
+// data and change nothing. Any other action is refused, even if some other
+// part of the code asks for it. Controlling devices will get its own, separate
+// path that also requires "Allow control" in the Configuration tab.
+const READ_ONLY_ACTIONS = new Set([
+  'energyzero.get_energy_prices',
+  'easyenergy.get_energy_usage_prices',
+  'tibber.get_prices',
+  'nordpool.get_prices_for_date',
+]);
+
 // Call an action (service) that returns data, e.g. energyzero.get_energy_prices.
 async function callAction(domain, service, serviceData) {
+  const name = `${domain}.${service}`;
+  if (!READ_ONLY_ACTIONS.has(name)) {
+    warn('Refused action', name, '- it is not on the read-only list');
+    throw new Error(`Action ${name} is not allowed: the app only reads data`);
+  }
+  debug('Calling read-only action', name);
   const result = await call({
     type: 'call_service',
     domain,
     service,
     service_data: serviceData,
     return_response: true,
-  });
+  }, 20000, ACTION_TOKEN);
   return result && result.response;
 }
 
@@ -98,6 +132,7 @@ function connect() {
       try {
         const config = await call({ type: 'get_config' });
         state.timeZone = config.time_zone || 'UTC';
+        state.currency = config.currency || 'EUR';
       } catch (err) {
         log('Could not read HA config:', err.message);
       }

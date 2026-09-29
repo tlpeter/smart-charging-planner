@@ -14,14 +14,16 @@ const DEFAULTS = {
   chargers: [],
   grid: [],
   prices: null,
+  planning: { target_soc: 80, ready_by: '07:00', loss_percent: 10 },
 };
 
 function load() {
   try {
     const raw = fs.readFileSync(FILE, 'utf8');
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    const saved = JSON.parse(raw);
+    return { ...DEFAULTS, ...saved, planning: { ...DEFAULTS.planning, ...(saved.planning || {}) } };
   } catch {
-    return { ...DEFAULTS };
+    return JSON.parse(JSON.stringify(DEFAULTS));
   }
 }
 

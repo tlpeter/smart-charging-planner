@@ -35,13 +35,18 @@ function tzOffsetMs(ms, tz) {
   return asUtc - Math.floor(ms / 1000) * 1000;
 }
 
-// Start of the local day, dayOffset days from today.
-function localMidnight(tz, dayOffset = 0, now = Date.now()) {
+// A clock time (hh:mm) on a local day, dayOffset days from today.
+function localTimeOn(tz, dayOffset, hour, minute, now = Date.now()) {
   const p = tzParts(now, tz);
-  const guess = Date.UTC(p.y, p.m - 1, p.d + dayOffset);
+  const guess = Date.UTC(p.y, p.m - 1, p.d + dayOffset, hour, minute);
   let ms = guess - tzOffsetMs(guess, tz);
   ms = guess - tzOffsetMs(ms, tz);
   return ms;
+}
+
+// Start of the local day, dayOffset days from today.
+function localMidnight(tz, dayOffset = 0, now = Date.now()) {
+  return localTimeOn(tz, dayOffset, 0, 0, now);
 }
 
 function isoLocal(ms, tz) {
@@ -349,5 +354,5 @@ function summarise(result, cfg, now = Date.now()) {
 
 module.exports = {
   detectPriceSources, fetchPrices, summarise, totalPrice,
-  localMidnight, isoLocal, pricesFromAttributes, ACTION_SOURCES,
+  localMidnight, localTimeOn, isoLocal, pricesFromAttributes, ACTION_SOURCES,
 };

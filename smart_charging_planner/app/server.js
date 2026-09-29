@@ -10,7 +10,8 @@ const settings = require('./settings');
 const { detectVehicles, percentSensors } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, summarise, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, summarise, totalPrice, localTimeOn, ACTION_SOURCES } = require('./prices');
+const { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, periods } = require('./planner');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -339,6 +340,75 @@ const routes = {
     s.prices = null;
     settings.save(s);
     return { ok: true };
+  },
+
+  // The charging plan (advice only) with everything the Overview shows.
+  'GET /api/plan': async () => {
+    const s = settings.load();
+    const tz = ha.state.timeZone;
+    const now = Date.now();
+    const missing = [];
+    const vehicle = s.vehicles[0] || null;
+    const charger = s.chargers[0] || null;
+    if (!s.prices) missing.push('prices');
+    if (!vehicle) missing.push('vehicle');
+
+    let prices = [];
+    let priceError = null;
+    if (s.prices) {
+      try {
+        const result = await fetchPrices(s.prices.source, tz);
+        prices = result.prices.map((p) => ({ ...p, total: totalPrice(p.price, s.prices) }));
+      } catch (err) {
+        priceError = err.message;
+      }
+    }
+
+    const states = await ha.call({ type: 'get_states' });
+    const socValue = vehicle ? valueOf(states, vehicle.soc_entity) : null;
+    const soc = socValue ? Number(socValue.state) : NaN;
+    const plugged = vehicle && vehicle.plugged_entity ? valueOf(states, vehicle.plugged_entity) : null;
+
+    const planning = s.planning;
+    const maxCurrent = charger && charger.max_current ? charger.max_current : null;
+    const powerKw = chargePowerKw(charger ? charger.phases : 3, maxCurrent);
+    const neededKwh = vehicle ? energyNeededKwh(soc, planning.target_soc, vehicle.capacity_kwh, planning.loss_percent) : null;
+    const deadline = nextDeadline(planning.ready_by, tz, now, localTimeOn);
+    const plan = planCharging({ prices, now, deadline, neededKwh, powerKw });
+
+    return {
+      time_zone: tz,
+      currency: ha.state.currency,
+      now,
+      missing,
+      price_error: priceError,
+      planning,
+      vehicle: vehicle ? {
+        name: vehicle.name,
+        soc: Number.isFinite(soc) ? soc : null,
+        soc_state: socValue ? socValue.state : null,
+        capacity_kwh: vehicle.capacity_kwh,
+        plugged: plugged ? plugged.state : null,
+      } : null,
+      charger: charger ? { name: charger.name, phases: charger.phases, max_current: charger.max_current } : null,
+      assumed_current: maxCurrent ? null : 16,
+      prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total })),
+      plan: { ...plan, periods: periods(plan.blocks) },
+      control_allowed: options.allow_control,
+    };
+  },
+
+  'POST /api/planning': async (req) => {
+    const body = await readBody(req);
+    const target = Number(body.target_soc);
+    const loss = body.loss_percent === '' || body.loss_percent == null ? 10 : Number(body.loss_percent);
+    if (!(target >= 10 && target <= 100)) throw badRequest('Target must be between 10 and 100 %');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.ready_by || ''))) throw badRequest('Ready by must be a time like 07:00');
+    if (!(loss >= 0 && loss <= 30)) throw badRequest('Charging loss must be between 0 and 30 %');
+    const s = settings.load();
+    s.planning = { target_soc: target, ready_by: body.ready_by, loss_percent: loss };
+    settings.save(s);
+    return { ok: true, planning: s.planning };
   },
 };
 

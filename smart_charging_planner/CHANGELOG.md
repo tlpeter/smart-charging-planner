@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0
+
+First planning version. **Advice only: nothing is controlled.**
+
+- New **Overview** tab (now the first tab):
+  - Price chart for today and tomorrow with the planned charging blocks highlighted, the current time and the "ready by" moment
+  - Charging plan: how much energy is needed and in which blocks it is cheapest to charge before the deadline
+  - Expected cost of the plan compared with charging right away after plugging in
+  - Clear messages when data is missing, tomorrow's prices are not published yet, or there is not enough time
+- Planning settings: target battery level (default 80%), ready by (default 07:00) and a charging loss margin (default 10%)
+- Charging power follows the charger's phases and maximum current (16 A assumed when not set)
+- Amounts are shown in the currency set in Home Assistant
+- **Safety:** the app can now only send read-only commands to Home Assistant. Any other command is refused and logged, so nothing in your setup can be changed by the app
+- Tabs scroll on small screens
+
 ## 0.0.6
 
 - Added the **Prices** tab: detects and tests your dynamic electricity price source
