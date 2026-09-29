@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
-const DEFAULTS = { log_level: 'info', allow_control: false, refresh_minutes: 5 };
+const DEFAULTS = { log_level: 'info', allow_control: false, refresh_minutes: 5, allow_calendar_write: false };
 
 function load() {
   try {

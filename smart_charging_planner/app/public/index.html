@@ -113,6 +113,10 @@
     .periods td, .periods th { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .periods th { color: var(--muted); font-weight: 400; font-size: 13px; }
     .periods td.n, .periods th.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .days { display: flex; gap: 6px; flex-wrap: wrap; }
+    .days label { display: flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 16px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+    .days input { width: auto; }
+    .advice.test { color: var(--bad); border-color: var(--bad); }
     .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
     .check input, .sched input[type=checkbox] { width: auto; }
     .sched td { padding: 4px 8px 4px 0; }
@@ -155,6 +159,27 @@
     <section id="tab-departures" hidden>
       <div class="card" id="dep-next"><span class="muted">Loading…</span></div>
       <div class="card" id="dep-trips" hidden></div>
+      <form class="card" id="trip-form" hidden>
+        <h2>Add trip <span class="advice" id="trip-mode"></span></h2>
+        <p class="muted small" id="trip-mode-text"></p>
+        <div class="two">
+          <div class="field"><label>Leave at</label><input type="datetime-local" name="datetime" required></div>
+          <div class="field"><label>Destination</label><input name="destination" maxlength="80" placeholder="e.g. Thuis" required></div>
+        </div>
+        <div class="two">
+          <div class="field"><label>Target battery level (%)</label><input type="number" name="soc" min="10" max="100" step="1" value="80"></div>
+          <div class="field"><label>Precondition</label><label class="check"><input type="checkbox" name="precondition"> Heat or cool the car before leaving</label></div>
+        </div>
+        <div class="field"><label>Repeat on (optional)</label>
+          <div class="days"></div></div>
+        <div class="field" id="trip-weeks-field" hidden><label>Weeks ahead</label><input type="number" name="weeks" min="1" max="12" step="1" value="4"></div>
+        <div class="buttons">
+          <button class="secondary" type="button" id="trip-preview">Preview</button>
+          <button class="primary" type="submit" id="trip-add">Add to calendar</button>
+        </div>
+        <div class="error form-error" hidden></div>
+        <div id="trip-result"></div>
+      </form>
       <div class="card" id="dep-override"></div>
       <form id="dep-form">
         <div class="card">
@@ -249,6 +274,7 @@
         <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
         <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
         <div class="row"><span class="label">Control</span><span id="control">–</span></div>
+        <div class="row"><span class="label">Adding trips to calendar</span><span id="calwrite">–</span></div>
         <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
         <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
         <div id="status-error" class="error" hidden></div>
@@ -856,6 +882,8 @@
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
 
+        renderTripForm(d);
+
         const ov = dep.override && dep.override.time > d.now ? dep.override : null;
         $('dep-override').innerHTML = `
           <h2>One-off departure</h2>
@@ -994,6 +1022,75 @@
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
       }
     }
+
+    // ---------- Add trip ----------
+    let tripWriteAllowed = false;
+
+    function renderTripForm(d) {
+      const f = $('trip-form');
+      f.hidden = !d.departures.calendar.enabled || !d.departures.calendar.entity;
+      tripWriteAllowed = !!d.calendar_write_allowed;
+      $('trip-mode').textContent = tripWriteAllowed ? 'WRITES TO CALENDAR' : 'TEST MODE';
+      $('trip-mode').className = tripWriteAllowed ? 'advice' : 'advice test';
+      $('trip-mode-text').innerHTML = tripWriteAllowed
+        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …", the same format this app reads.`
+        : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
+      $('trip-add').hidden = !tripWriteAllowed;
+      $('trip-preview').textContent = tripWriteAllowed ? 'Preview' : 'Show what would be added';
+      $('trip-preview').className = tripWriteAllowed ? 'secondary' : 'primary';
+      const days = f.querySelector('.days');
+      if (!days.children.length) {
+        days.innerHTML = DAY_KEYS.map((k) => `<label><input type="checkbox" name="rep_${k}"> ${DAY_NAMES[k].slice(0, 2)}</label>`).join('');
+        days.addEventListener('change', () => {
+          $('trip-weeks-field').hidden = !DAY_KEYS.some((k) => f[`rep_${k}`].checked);
+        });
+      }
+    }
+
+    function tripBody() {
+      const f = $('trip-form');
+      return {
+        datetime: f.datetime.value,
+        destination: f.destination.value,
+        soc: f.soc.value,
+        precondition: f.precondition.checked,
+        weekdays: DAY_KEYS.filter((k) => f[`rep_${k}`].checked),
+        weeks: f.weeks.value,
+      };
+    }
+
+    function tripTable(r) {
+      const rows = r.events.map((e) => `<tr>
+        <td>${esc(depWhen(e.start))}</td>
+        <td>${esc(e.summary)}<div class="src">${esc(e.description)}</div></td>
+        <td class="n">${e.duplicate ? '<span class="muted small">already in calendar</span>' : 'new'}</td></tr>`).join('');
+      return `<table class="periods"><tr><th>Leave</th><th>Event</th><th class="n"></th></tr>${rows}</table>`;
+    }
+
+    async function tripSend(add) {
+      const f = $('trip-form');
+      const errBox = f.querySelector('.form-error');
+      errBox.hidden = true;
+      if (!f.reportValidity()) return;
+      try {
+        if (!add) {
+          const r = await api('POST', 'api/trips/preview', tripBody());
+          const n = r.events.filter((e) => !e.duplicate).length;
+          $('trip-result').innerHTML = `<p class="small" style="margin-top:12px"><strong>${n} event${n === 1 ? '' : 's'}</strong> ${r.write_allowed ? 'will be added' : 'would be added (test mode, nothing written)'}:</p>${tripTable(r)}`;
+          return;
+        }
+        if (!confirm('Add these trips to your calendar?')) return;
+        const r = await api('POST', 'api/trips', tripBody());
+        $('trip-result').innerHTML = `<p class="ok" style="margin-top:12px">Added ${r.created} trip${r.created === 1 ? '' : 's'}${r.skipped ? `, skipped ${r.skipped} already in the calendar` : ''}.</p>`;
+        loadDepartures();
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.hidden = false;
+      }
+    }
+
+    $('trip-preview').addEventListener('click', () => tripSend(false));
+    $('trip-form').addEventListener('submit', (e) => { e.preventDefault(); tripSend(true); });
 
     $('dep-form').cal_match.addEventListener('change', (e) => {
       $('cal-keyword-field').hidden = e.target.value !== 'keyword';
@@ -1169,6 +1266,7 @@
           ? '<span class="ok">Allowed</span>'
           : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
         $('loglevel').textContent = s.log_level || '–';
+        $('calwrite').innerHTML = s.allow_calendar_write ? '<span class="ok">Allowed</span>' : 'Off <span class="muted small">(test mode)</span>';
         $('refresh').innerHTML = s.refresh_minutes
           ? `every ${esc(s.refresh_minutes)} min${s.last_refresh ? ` <span class="muted small">(last ${esc(new Date(s.last_refresh).toLocaleTimeString('en-GB', { timeZone: s.time_zone, hour: '2-digit', minute: '2-digit' }))})</span>` : ''}`
           : '–';

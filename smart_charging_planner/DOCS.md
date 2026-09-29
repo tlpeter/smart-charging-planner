@@ -2,7 +2,7 @@
 
 Plans EV and home battery charging around dynamic electricity prices.
 
-> Early development. The app gives advice only and cannot change anything in Home Assistant: it only sends read-only commands.
+> Early development. The app gives advice only. It only reads from Home Assistant, with one exception you switch on yourself: adding trips to your calendar.
 
 ## What it does now
 
@@ -51,6 +51,7 @@ The Savings tab needs a charging power sensor on the Charger tab (for example a 
 
 - **Log level**: how much the app writes to its log. Use `debug` when reporting a problem.
 - **Refresh interval**: how often (1 to 60 minutes) the app reads prices, departures and states and recalculates the plan in the background. Note that Home Assistant itself also has a refresh interval for some integrations; for example a Google calendar is updated by Home Assistant on its own schedule.
+- **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Departures tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Departures tab. This does not allow any charger control.
 - **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery.
 
 ## Planned

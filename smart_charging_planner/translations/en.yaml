@@ -12,3 +12,10 @@ configuration:
     description: >-
       How often the app reads prices, departures and states from Home Assistant
       and recalculates the plan in the background, between 1 and 60 minutes.
+  allow_calendar_write:
+    name: Allow adding trips to calendar
+    description: >-
+      When off (default), "Add trip" only shows which calendar events it would
+      create (test mode) and writes nothing. When on, trips are added to the
+      calendar chosen on the Departures tab. This does not allow any charger
+      control.

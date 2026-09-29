@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- New **Add trip** form on the Departures tab: leave at, destination, target battery level, precondition, repeat on weekdays and weeks ahead
+  - Creates events in the same format the app reads: "Naar <destination>", the destination as location, and "doel: 80 precondition: ja" as description
+  - Trips that are already in the calendar (same title and time) are skipped
+- **Test mode by default**: a new option **Allow adding trips to calendar** in the Configuration tab is off by default. While off, the form only shows which events it would add and nothing is written
+- Adding a calendar event is the only write the app can do, and only when that option is on, and only to the calendar chosen on the Departures tab. Charger control stays off and separate ("Allow control")
+- The Status tab shows whether adding trips is allowed
+
 ## 0.4.2
 
 - New option **Refresh interval** in the app's Configuration tab (1 to 60 minutes, default 5)

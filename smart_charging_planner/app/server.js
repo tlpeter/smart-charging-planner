@@ -15,6 +15,7 @@ const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } 
 const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
+const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -94,6 +95,7 @@ const routes = {
       refresh_minutes: options.refresh_minutes,
       last_refresh: planCache ? planCache.at : null,
       allow_control: options.allow_control,
+      allow_calendar_write: options.allow_calendar_write === true,
       error: ha.state.lastError,
     };
   },
@@ -464,6 +466,24 @@ const routes = {
     return result;
   },
 
+  // Add trips to the calendar. Without "Allow adding trips to calendar" this
+  // only shows what would be added (test mode).
+  'POST /api/trips/preview': async (req) => tripsPlan(await readBody(req)),
+
+  'POST /api/trips': async (req) => {
+    const plan = await tripsPlan(await readBody(req));
+    if (!plan.write_allowed) {
+      throw badRequest('Test mode: nothing was added. Turn on "Allow adding trips to calendar" in the app\'s Configuration tab to add trips.');
+    }
+    let created = 0;
+    for (const e of plan.events) {
+      if (e.duplicate) continue;
+      await ha.createCalendarEvent(plan.calendar, toHaData(e, ha.state.timeZone));
+      created++;
+    }
+    return { ok: true, created, skipped: plan.events.length - created };
+  },
+
   // Departure times.
   'GET /api/departures': async () => {
     const s = settings.load();
@@ -485,6 +505,7 @@ const routes = {
       upcoming: days,
       calendar_error: error,
       calendar_trips: calendarTrips(dep, events, tz, now).filter((t) => t.time < now + 14 * 86400000),
+      calendar_write_allowed: options.allow_calendar_write === true,
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
@@ -565,6 +586,32 @@ const routes = {
     return { ok: true };
   },
 };
+
+// What adding trips would create, with duplicates marked.
+async function tripsPlan(body) {
+  const s = settings.load();
+  const tz = ha.state.timeZone;
+  const dep = normalise(s.departures, s.planning);
+  const calendar = dep.calendar.entity;
+  if (!calendar) throw badRequest('Choose a calendar on the Departures tab first');
+  const events = buildTripEvents(body, tz);
+  let existing = [];
+  try {
+    const r = await ha.callAction('calendar', 'get_events', {
+      start_date_time: isoLocal(events[0].start - 60000, tz),
+      end_date_time: isoLocal(events[events.length - 1].end + 60000, tz),
+    }, { entity_id: calendar });
+    existing = (r && r[calendar] && r[calendar].events) || [];
+  } catch (err) {
+    ha.warn('Could not check for duplicate trips:', err.message);
+  }
+  return {
+    calendar,
+    write_allowed: options.allow_calendar_write === true,
+    events: markDuplicates(events, existing, tz),
+    time_zone: tz,
+  };
+}
 
 // Calendar events for the next 15 days, when the calendar source is on.
 async function calendarEvents(dep, tz, now) {

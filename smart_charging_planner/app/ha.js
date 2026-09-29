@@ -46,12 +46,18 @@ const READ_ONLY_COMMANDS = new Set([
   'history/history_during_period',
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
+const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 
 // Send a command to Home Assistant and wait for its result.
 function call(message, timeoutMs = 20000, token = null) {
   return new Promise((resolve, reject) => {
     const allowed = READ_ONLY_COMMANDS.has(message.type) ||
-      (message.type === 'call_service' && token === ACTION_TOKEN);
+      (message.type === 'call_service' && token === ACTION_TOKEN) ||
+      // The only write: adding a calendar event, and only when the user
+      // switched on "Allow adding trips to calendar".
+      (message.type === 'call_service' && token === CALENDAR_WRITE_TOKEN &&
+        message.domain === 'calendar' && message.service === 'create_event' &&
+        options.allow_calendar_write === true);
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -103,6 +109,24 @@ async function callAction(domain, service, serviceData, target = null) {
   if (target) message.target = target;
   const result = await call(message, 20000, ACTION_TOKEN);
   return result && result.response;
+}
+
+// Add one event to a calendar. Refused unless "Allow adding trips to calendar"
+// is on in the Configuration tab.
+async function createCalendarEvent(calendarEntity, data) {
+  if (options.allow_calendar_write !== true) {
+    warn('Refused calendar.create_event - "Allow adding trips to calendar" is off');
+    throw new Error('Adding trips is switched off (test mode). Turn on "Allow adding trips to calendar" in the app\'s Configuration tab.');
+  }
+  if (!String(calendarEntity || '').startsWith('calendar.')) throw new Error('No calendar chosen');
+  log('Adding calendar event to', calendarEntity, '-', data.summary, data.start_date_time);
+  return call({
+    type: 'call_service',
+    domain: 'calendar',
+    service: 'create_event',
+    service_data: data,
+    target: { entity_id: calendarEntity },
+  }, 20000, CALENDAR_WRITE_TOKEN);
 }
 
 function onConnect(fn) {
@@ -168,4 +192,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, onConnect, connect, log, debug, warn };
+module.exports = { state, call, callAction, createCalendarEvent, onConnect, connect, log, debug, warn };
