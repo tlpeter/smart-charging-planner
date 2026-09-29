@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.5
+
+- Added the **Grid** tab: detects the meter that measures your grid connection
+  - Recognises P1 and smart meter readers (DSMR, HomeWizard P1, SlimmeLezer, P1 Monitor, Tibber Pulse)
+  - A load balancer that measures the connection (such as the Easee Equalizer) can also be used
+  - Meters for a single device (charger, washing machine, heat pump) are skipped
+  - Suggests net power, or import and export power, and the current per phase
+- Detects existing load balancers, with the choice "built into the charger or not in Home Assistant"
+- Main fuse (A) and number of phases can be set
+
+## 0.0.4
+
+- Load balancers (such as the Easee Equalizer), kWh meters and P1 meters are no longer shown as a charger
+- Devices that report no data are marked **Offline** and listed last, for both vehicles and chargers
+- Charging power can now come from a sensor on another device, such as a separate kWh meter
+
 ## 0.0.3
 
 - Added the **Charger** tab: detects EV chargers in Home Assistant

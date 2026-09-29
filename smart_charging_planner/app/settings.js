@@ -12,6 +12,7 @@ const DEFAULTS = {
   // A list from the start, so more vehicles can be added later.
   vehicles: [],
   chargers: [],
+  grid: [],
 };
 
 function load() {

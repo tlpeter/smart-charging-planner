@@ -8,6 +8,7 @@ const ha = require('./ha');
 const settings = require('./settings');
 const { detectVehicles, percentSensors } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
+const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -211,6 +212,87 @@ const routes = {
   'DELETE /api/chargers': async () => {
     const s = settings.load();
     s.chargers = [];
+    settings.save(s);
+    return { ok: true };
+  },
+
+  // Grid meter and load balancer. Vehicles and chargers are skipped.
+  'GET /api/grid/detect': async () => {
+    const { entities, devices, states } = await loadRegistries();
+    const vehicleIds = detectVehicles(entities, devices, states).map((v) => v.device_id);
+    const chargerIds = detectChargers(entities, devices, states, new Set(vehicleIds)).map((c) => c.device_id);
+    const skip = new Set([...vehicleIds, ...chargerIds]);
+    return {
+      candidates: detectGridMeters(entities, devices, states, skip),
+      load_balancers: detectLoadBalancers(entities, devices, states, skip),
+      manual: manualGridOptions(entities, states),
+    };
+  },
+
+  'GET /api/grid': async () => {
+    const saved = settings.load().grid;
+    const states = ha.state.connected ? await ha.call({ type: 'get_states' }) : [];
+    return {
+      grid: saved.map((g) => ({
+        ...g,
+        live: {
+          net: valueOf(states, g.net_entity),
+          import: valueOf(states, g.import_entity),
+          export: valueOf(states, g.export_entity),
+          current_l1: valueOf(states, g.current_l1_entity),
+          current_l2: valueOf(states, g.current_l2_entity),
+          current_l3: valueOf(states, g.current_l3_entity),
+        },
+      })),
+    };
+  },
+
+  'POST /api/grid': async (req) => {
+    const body = await readBody(req);
+    const sensor = (key) => {
+      const v = body[key];
+      if (!v) return null;
+      if (!String(v).startsWith('sensor.')) throw badRequest(`Invalid entity for ${key}`);
+      return v;
+    };
+    const grid = {
+      name: String(body.name || 'Grid meter').slice(0, 60),
+      device_id: body.device_id || null,
+      integration: body.integration || null,
+      net_entity: sensor('net_entity'),
+      import_entity: sensor('import_entity'),
+      export_entity: sensor('export_entity'),
+      current_l1_entity: sensor('current_l1_entity'),
+      current_l2_entity: sensor('current_l2_entity'),
+      current_l3_entity: sensor('current_l3_entity'),
+      phases: Number(body.phases) === 1 ? 1 : 3,
+      main_fuse: Number(body.main_fuse),
+      load_balancer: null,
+    };
+    if (!grid.net_entity && !grid.import_entity) {
+      throw badRequest('Choose a net power sensor, or an import power sensor');
+    }
+    if (!(grid.main_fuse >= 6 && grid.main_fuse <= 200)) {
+      throw badRequest('Main fuse must be between 6 and 200 A');
+    }
+    // Load balancer: "" = none, "other" = built into the charger or not in HA,
+    // otherwise the device id of a detected load balancer.
+    const lb = String(body.load_balancer || '');
+    if (lb === 'other') {
+      grid.load_balancer = { type: 'other', device_id: null, name: 'Built into charger or not in Home Assistant' };
+    } else if (lb) {
+      grid.load_balancer = { type: 'device', device_id: lb, name: String(body.load_balancer_name || 'Load balancer').slice(0, 60) };
+    }
+    const s = settings.load();
+    s.grid = [grid];
+    settings.save(s);
+    ha.log('Saved grid meter', grid.name);
+    return { ok: true, grid };
+  },
+
+  'DELETE /api/grid': async () => {
+    const s = settings.load();
+    s.grid = [];
     settings.save(s);
     return { ok: true };
   },

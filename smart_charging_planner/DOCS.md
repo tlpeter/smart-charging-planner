@@ -8,6 +8,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 
 - **Vehicle**: finds your electric or plug-in hybrid vehicle in Home Assistant and lets you confirm which sensors to use for battery level, range, charging and plugged in.
 - **Charger**: finds your EV charger and lets you confirm its status, charging power, current setting and start/stop switch. Nothing is controlled yet.
+- **Grid**: finds the meter for your grid connection (P1 meter, smart meter reader or load balancer), and asks for your main fuse and whether a load balancer is present.
 - **Status**: shows whether the app is connected to Home Assistant.
 
 ## Getting started
@@ -16,6 +17,7 @@ Plans EV and home battery charging around dynamic electricity prices.
 2. On the **Vehicle** tab, select **Detect vehicles**.
 3. Check the suggested sensors, fill in the battery capacity if you know it, and select **Use this vehicle**.
 4. On the **Charger** tab, select **Detect chargers**, check the suggested entities, set the phases and select **Use this charger**.
+5. On the **Grid** tab, select **Detect grid meters**, check the suggested sensors, fill in your main fuse and choose your load balancing.
 
 Nothing found? Open **Not listed? Choose manually** and pick the entities yourself.
 
@@ -23,6 +25,7 @@ Nothing found? Open **Not listed? Choose manually** and pick the entities yourse
 
 - A vehicle integration that provides at least a battery level sensor in %.
 - A charger integration in Home Assistant.
+- A grid meter in Home Assistant, such as a P1 meter.
 
 ## Planned
 

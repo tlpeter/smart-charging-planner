@@ -16,7 +16,13 @@ const KNOWN_CHARGER_DOMAINS = new Set([
   'etrel', 'ev_charger',
 ]);
 
-const EXCLUDED_DOMAINS = new Set(['mobile_app']);
+const EXCLUDED_DOMAINS = new Set(['mobile_app', 'homewizard', 'dsmr', 'dsmr_reader', 'p1_monitor']);
+
+// Devices that belong to a charging setup but are not a charger themselves:
+// load balancers (Easee Equalizer), energy meters, P1 meters, circuits.
+const NOT_A_CHARGER = /equalizer|kwh[ _-]?meter|energy[ _-]?meter|smart[ _-]?meter|\bp1\b|circuit|load[ _-]?balanc/;
+
+const UNAVAILABLE = new Set(['unavailable', 'unknown']);
 
 const CHARGER_NAME = /charger|wallbox|laadpaal|laadpunt|evse|charge_point|chargepoint|charge_max|charge_up/;
 
@@ -110,11 +116,19 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
 
     const deviceText = [device.name, device.name_by_user, device.model, device.manufacturer]
       .filter(Boolean).join(' ').toLowerCase();
+    if (NOT_A_CHARGER.test(deviceText)) continue;
     const known = [...domains].find((d) => KNOWN_CHARGER_DOMAINS.has(d));
     const chargerName = CHARGER_NAME.test(deviceText) ||
       ents.some((e) => CHARGER_NAME.test(e.entity_id));
     const byFeatures = chargerName && (power.length > 0 || current.length > 0);
     if (!known && !byFeatures) continue;
+
+    // Offline: none of its entities report a value (e.g. an old charger
+    // that was replaced but is still in Home Assistant).
+    const offline = ents.every((e) => {
+      const s = stateById.get(e.entity_id);
+      return !s || UNAVAILABLE.has(s.state);
+    });
 
     candidates.push({
       device_id: device.id,
@@ -123,6 +137,7 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
       model: device.model || null,
       integration: known || [...domains][0],
       detected_by: known ? 'known_integration' : 'features',
+      offline,
       options: { status, power, current, switch: switches },
       suggested: {
         status: pickBest(status, [/_status\b|charger_status|status/, /state/]),
@@ -137,6 +152,7 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
   }
 
   candidates.sort((a, b) =>
+    (a.offline - b.offline) ||
     (a.detected_by === b.detected_by ? 0 : a.detected_by === 'known_integration' ? -1 : 1) ||
     a.name.localeCompare(b.name));
   return candidates;

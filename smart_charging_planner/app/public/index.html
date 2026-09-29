@@ -87,6 +87,7 @@
       font-size: 13px; color: var(--muted); margin: 12px 0;
     }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .chip.offline { background: none; border: 1px solid var(--bad); color: var(--bad); }
     @media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
     [hidden] { display: none !important; }
   </style>
@@ -97,11 +98,13 @@
     <nav class="tabs">
       <button class="tab active" data-tab="vehicle">Vehicle</button>
       <button class="tab" data-tab="charger">Charger</button>
+      <button class="tab" data-tab="grid">Grid</button>
       <button class="tab" data-tab="status">Status</button>
     </nav>
 
     <section id="tab-vehicle"></section>
     <section id="tab-charger" hidden></section>
+    <section id="tab-grid" hidden></section>
 
     <section id="tab-status" hidden>
       <div class="card">
@@ -164,7 +167,7 @@
         intro: 'The app searches Home Assistant for EV chargers. Nothing is controlled yet; this only checks what your charger offers.',
         fields: [
           { key: 'status_entity', opt: 'status', label: 'Status' },
-          { key: 'power_entity', opt: 'power', label: 'Charging power' },
+          { key: 'power_entity', opt: 'power', label: 'Charging power', others: 'power' },
           { key: 'current_entity', opt: 'current', label: 'Charging current setting (A)' },
           { key: 'switch_entity', opt: 'switch', label: 'Start/stop switch' },
         ],
@@ -191,6 +194,51 @@
           options: data.manual,
         }),
       },
+      grid: {
+        api: 'api/grid',
+        listKey: 'grid',
+        noun: 'grid meter',
+        intro: 'The app looks for the meter that measures your home\'s connection to the grid (P1 meter, smart meter reader, load balancer), and for an existing load balancer.',
+        fields: [
+          { key: 'net_entity', opt: 'net', label: 'Net power (import minus export)' },
+          { key: 'import_entity', opt: 'import', label: 'Import power (only if there is no net power)' },
+          { key: 'export_entity', opt: 'export', label: 'Export power (only if there is no net power)' },
+          { key: 'current_l1_entity', opt: 'current_l1', label: 'Current phase L1 (A)' },
+          { key: 'current_l2_entity', opt: 'current_l2', label: 'Current phase L2 (A)' },
+          { key: 'current_l3_entity', opt: 'current_l3', label: 'Current phase L3 (A)' },
+        ],
+        candidateNote: (c) => c.kind === 'load_balancer'
+          ? 'This is a load balancer that also measures your grid connection. You can use it as grid meter, but a P1 meter is usually more accurate.'
+          : '',
+        extraInputs: (c, data) => {
+          const lbs = (data && data.load_balancers) || [];
+          const lbOpts = lbs.map((lb, i) =>
+            `<option value="${esc(lb.device_id)}" data-name="${esc(lb.name)}" ${i === 0 && !lb.offline ? 'selected' : ''}>${esc(lb.name)}${lb.model ? ' (' + esc(lb.model) + ')' : ''}${lb.offline ? ' – offline' : ''}</option>`).join('');
+          return `
+          <div class="two">
+            <div class="field"><label>Main fuse in A – required</label>
+              <input name="main_fuse" type="number" min="6" max="200" step="1" value="25" required></div>
+            <div class="field"><label>Phases</label>
+              <select name="phases"><option value="3">3 phases</option><option value="1">1 phase</option></select></div>
+          </div>
+          <div class="field"><label>Load balancing</label>
+            <select name="load_balancer">
+              ${lbOpts}
+              <option value="" data-name="">No load balancer</option>
+              <option value="other" data-name="">Built into the charger, or not in Home Assistant</option>
+            </select></div>
+          <div class="note">With a load balancer, the main fuse is already protected and the app will work within its limits. Without one, the app will watch the main fuse itself using the grid meter.</div>`;
+        },
+        extraRows: (g) => [
+          ['Main fuse', `${esc(g.main_fuse)} A`],
+          ['Phases', String(g.phases)],
+          ['Load balancing', g.load_balancer ? esc(g.load_balancer.name) : 'None'],
+        ],
+        manual: (data) => ({
+          intro: 'Pick your grid power sensor yourself: a net power sensor, or import and export sensors.',
+          options: data.manual,
+        }),
+      },
     };
 
     const lastDetect = {};
@@ -201,16 +249,21 @@
       return `${esc(o.name)} (${esc(val)})`;
     }
 
-    function selectField(f, options, selected) {
+    function selectField(f, options, selected, others = []) {
+      const own = new Set(options.map((o) => o.entity_id));
+      const extra = others.filter((o) => !own.has(o.entity_id));
       let control;
-      if (!options.length) {
+      if (!options.length && !extra.length) {
         control = f.required
           ? '<div class="error small">None found.</div>'
           : '<div class="muted small">None found.</div>';
       } else {
-        const opts = options.map((o) =>
+        const toOpts = (list) => list.map((o) =>
           `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${optionLabel(o)}</option>`).join('');
-        control = `<select name="${f.key}">${f.required ? '' : '<option value="">— none —</option>'}${opts}</select>`;
+        const main = extra.length && options.length
+          ? `<optgroup label="This device">${toOpts(options)}</optgroup>` : toOpts(options);
+        const other = extra.length ? `<optgroup label="Other devices">${toOpts(extra)}</optgroup>` : '';
+        control = `<select name="${f.key}">${f.required ? '' : '<option value="">— none —</option>'}${main}${other}</select>`;
       }
       return `<div class="field"><label>${esc(f.label)}${f.required ? ' – required' : ''}</label>${control}</div>`;
     }
@@ -227,19 +280,22 @@
       return cfg.fields.some((f) => (options[f.opt] || []).length);
     }
 
-    function candidateCard(kind, c, i) {
+    function candidateCard(kind, c, i, data) {
       const cfg = SECTIONS[kind];
       const how = c.detected_by === 'known_integration' ? 'Known integration' : 'Recognised by its entities';
       const make = [c.manufacturer, c.model].filter(Boolean).join(' ');
-      const note = cfg.candidateNote ? cfg.candidateNote(c) : '';
+      const notes = [];
+      if (c.offline) notes.push(`This ${cfg.noun} is not reporting any data. It may be an old device that is still in Home Assistant.`);
+      if (cfg.candidateNote && cfg.candidateNote(c)) notes.push(cfg.candidateNote(c));
+      const others = (f) => (f.others && data.manual ? data.manual[f.others] || [] : []);
       return `
         <form class="card" data-kind="${kind}" data-index="${i}">
           <h2>${esc(c.name)}</h2>
-          <p><span class="chip">${esc(c.integration)}</span><span class="chip">${esc(how)}</span>
+          <p>${c.offline ? '<span class="chip offline">Offline</span>' : ''}<span class="chip">${esc(c.integration)}</span><span class="chip">${esc(how)}</span>
             ${make ? `<span class="muted small">${esc(make)}</span>` : ''}</p>
-          ${cfg.fields.map((f) => selectField(f, c.options[f.opt] || [], c.suggested[f.opt])).join('')}
-          ${note ? `<div class="note">${esc(note)}</div>` : ''}
-          ${cfg.extraInputs(c)}
+          ${cfg.fields.map((f) => selectField(f, c.options[f.opt] || [], c.suggested[f.opt], others(f))).join('')}
+          ${notes.map((n) => `<div class="note">${esc(n)}</div>`).join('')}
+          ${cfg.extraInputs(c, data)}
           <div class="buttons"><button class="primary" type="submit" ${canSubmit(cfg, c.options) ? '' : 'disabled'}>Use this ${cfg.noun}</button></div>
           <div class="error form-error" hidden></div>
         </form>`;
@@ -253,7 +309,7 @@
           <p class="muted">${esc(m.intro)}</p>
           <div class="field"><label>Name</label><input name="name" placeholder="My ${cfg.noun}"></div>
           ${cfg.fields.map((f) => selectField(f, m.options[f.opt] || [], null)).join('')}
-          ${cfg.extraInputs(null)}
+          ${cfg.extraInputs(null, data)}
           <div class="buttons"><button class="primary" type="submit" ${canSubmit(cfg, m.options) ? '' : 'disabled'}>Save</button></div>
           <div class="error form-error" hidden></div>
         </form>`;
@@ -327,7 +383,7 @@
           ? `<p class="muted">${n} ${cfg.noun}${n > 1 ? 's' : ''} found. Check the suggested entities and choose one.</p>`
           : `<div class="card"><h2>No ${cfg.noun} found</h2><p class="muted">Nothing recognisable was found. You can choose the entities yourself below.</p></div>`;
         $(`${kind}-results`).innerHTML = header +
-          data.candidates.map((c, i) => candidateCard(kind, c, i)).join('') +
+          data.candidates.map((c, i) => candidateCard(kind, c, i, data)).join('') +
           `<details class="card" ${n ? '' : 'open'}><summary>Not listed? Choose manually</summary>${manualCard(kind, data)}</details>`;
         $(`${kind}-results`).querySelectorAll('form').forEach((f) => f.addEventListener('submit', save));
       } catch (err) {
@@ -345,6 +401,8 @@
       const kind = form.dataset.kind;
       const cfg = SECTIONS[kind];
       const data = Object.fromEntries(new FormData(form));
+      const lbSelect = form.querySelector('select[name=load_balancer]');
+      if (lbSelect) data.load_balancer_name = lbSelect.selectedOptions[0].dataset.name || '';
       if (form.dataset.index !== 'manual') {
         const c = lastDetect[kind].candidates[Number(form.dataset.index)];
         data.name = c.name;

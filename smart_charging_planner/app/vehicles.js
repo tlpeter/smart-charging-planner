@@ -124,6 +124,11 @@ function detectVehicles(entities, devices, states) {
     const byFeatures = battery.length > 0 && distance.length > 0;
     if (!known && !byFeatures) continue;
 
+    const offline = ents.every((e) => {
+      const s = stateById.get(e.entity_id);
+      return !s || s.state === 'unavailable' || s.state === 'unknown';
+    });
+
     candidates.push({
       device_id: device.id,
       name: device.name_by_user || device.name || 'Unknown device',
@@ -131,6 +136,7 @@ function detectVehicles(entities, devices, states) {
       model: device.model || null,
       integration: known || [...domains][0],
       detected_by: known ? 'known_integration' : 'features',
+      offline,
       options: {
         soc: battery,
         range: range.length ? range : distance,
@@ -148,6 +154,7 @@ function detectVehicles(entities, devices, states) {
 
   // Known integrations first, then by name.
   candidates.sort((a, b) =>
+    (a.offline - b.offline) ||
     (a.detected_by === b.detected_by ? 0 : a.detected_by === 'known_integration' ? -1 : 1) ||
     a.name.localeCompare(b.name));
 
