@@ -7,3 +7,8 @@ configuration:
     description: >-
       Master switch. When off, the app only shows advice and never changes your
       charger, vehicle or home battery.
+  refresh_minutes:
+    name: Refresh interval (minutes)
+    description: >-
+      How often the app reads prices, departures and states from Home Assistant
+      and recalculates the plan in the background, between 1 and 60 minutes.

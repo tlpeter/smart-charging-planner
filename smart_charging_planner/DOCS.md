@@ -50,6 +50,7 @@ The Savings tab needs a charging power sensor on the Charger tab (for example a 
 ## Configuration
 
 - **Log level**: how much the app writes to its log. Use `debug` when reporting a problem.
+- **Refresh interval**: how often (1 to 60 minutes) the app reads prices, departures and states and recalculates the plan in the background. Note that Home Assistant itself also has a refresh interval for some integrations; for example a Google calendar is updated by Home Assistant on its own schedule.
 - **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery.
 
 ## Planned

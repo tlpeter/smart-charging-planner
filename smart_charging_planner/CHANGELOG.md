@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2
+
+- New option **Refresh interval** in the app's Configuration tab (1 to 60 minutes, default 5)
+- The app now reads prices, departures and states and recalculates the plan in the background at that interval, also when nobody has the page open
+- Opening the page uses the latest plan instead of calculating it again; after a settings change the plan is recalculated right away
+- The Overview shows when the plan was last updated, with a **Refresh now** link
+- The Status tab shows the refresh interval and the last refresh
+
 ## 0.4.1
 
 - Calendar trips reworked:

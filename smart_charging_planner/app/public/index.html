@@ -250,6 +250,7 @@
         <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
         <div class="row"><span class="label">Control</span><span id="control">–</span></div>
         <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
+        <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
         <div id="status-error" class="error" hidden></div>
       </div>
     </section>
@@ -622,7 +623,7 @@
         const top = Math.min(Y(p.total), Y(0));
         const h = Math.max(1, Math.abs(Y(p.total) - Y(0)));
         const fill = planned.has(p.start) ? 'var(--accent)' : 'var(--bar)';
-        const past = p.end <= d.now ? ' opacity="0.45"' : '';
+        const past = p.end <= Date.now() ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
         const up = p.total >= 0;
@@ -647,9 +648,10 @@
         if (h === 0 && t > t0) xl += `<line x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--border)"/>`;
       }
 
-      const nowX = X(d.now);
+      const nowMs = Date.now();
+      const nowX = X(nowMs);
       const marks = [];
-      if (d.now > t0 && d.now < t1) {
+      if (nowMs > t0 && nowMs < t1) {
         marks.push(`<line x1="${nowX}" x2="${nowX}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5"/>
           <text x="${nowX + 4}" y="${m.t + 10}" font-size="11" fill="var(--text)">now</text>`);
       }
@@ -710,7 +712,10 @@
       const socText = v.soc != null ? `${v.soc}%` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
-          <span class="advice">ADVICE ONLY · NOTHING IS CONTROLLED</span>
+          <div class="row" style="border:none;padding:0;align-items:center">
+            <span class="advice">ADVICE ONLY · NOTHING IS CONTROLLED</span>
+            <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
+          </div>
           <div class="headline">${esc(headline)}</div>
           <p class="muted small">${esc(v.name)}: ${socText} now → ${d.planning.target_soc}%${d.departure ? ` by ${esc(dayHm(d.departure.time))} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}
             · charging at ${esc(power)}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}</p>
@@ -753,12 +758,14 @@
       return `<p class="muted small" style="margin-top:10px">Typical house load (last ${h.days} days${h.charger_subtracted ? ', without the charger' : ''}): about ${kw(night)} at night, up to ${kw(prof[peakHour])} around ${String(peakHour).padStart(2, '0')}:00. Main fuse ${esc(h.main_fuse)} A.</p>`;
     }
 
-    async function loadOverview() {
+    async function loadOverview(force = false) {
       try {
-        const d = await api('GET', 'api/plan');
+        const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
         lastPlan = d;
         $('overview-body').innerHTML = overviewHtml(d);
         drawChart(d);
+        const rn = $('refresh-now');
+        if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
         const f = $('planning-form');
         if (document.activeElement.form !== f) {
           f.loss_percent.value = d.planning.loss_percent;
@@ -1162,6 +1169,9 @@
           ? '<span class="ok">Allowed</span>'
           : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
         $('loglevel').textContent = s.log_level || '–';
+        $('refresh').innerHTML = s.refresh_minutes
+          ? `every ${esc(s.refresh_minutes)} min${s.last_refresh ? ` <span class="muted small">(last ${esc(new Date(s.last_refresh).toLocaleTimeString('en-GB', { timeZone: s.time_zone, hour: '2-digit', minute: '2-digit' }))})</span>` : ''}`
+          : '–';
         $('status-error').hidden = !s.error;
         $('status-error').textContent = s.error || '';
       } catch {

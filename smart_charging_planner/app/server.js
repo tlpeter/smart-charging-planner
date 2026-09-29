@@ -91,6 +91,8 @@ const routes = {
       time_zone: ha.state.timeZone,
       entity_count: entityCount,
       log_level: options.log_level,
+      refresh_minutes: options.refresh_minutes,
+      last_refresh: planCache ? planCache.at : null,
       allow_control: options.allow_control,
       error: ha.state.lastError,
     };
@@ -580,6 +582,58 @@ async function calendarEvents(dep, tz, now) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Background refresh: recalculate the plan every "refresh_minutes" (set in the
+// app's Configuration tab), also when nobody has the page open.
+// ---------------------------------------------------------------------------
+
+const computePlan = routes['GET /api/plan'];
+let planCache = null; // { at, result }
+let planRunning = null;
+let refreshTimer = null;
+
+function refreshPlan(reason) {
+  if (planRunning) return planRunning;
+  planRunning = (async () => {
+    try {
+      const result = await computePlan();
+      planCache = { at: Date.now(), result };
+      const p = result.plan;
+      ha.debug(`Plan refreshed (${reason}):`, p.blocks.length ? `${p.planned_kwh.toFixed(1)} kWh in ${p.periods.length} period(s)` : 'nothing to charge', p.notes.join(',') || '');
+      return result;
+    } catch (err) {
+      ha.warn('Plan refresh failed:', err.message);
+      throw err;
+    } finally {
+      planRunning = null;
+    }
+  })();
+  return planRunning;
+}
+
+routes['GET /api/plan'] = async (req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const force = url.searchParams.get('refresh') === '1';
+  const maxAge = options.refresh_minutes * 60000;
+  if (force || !planCache || Date.now() - planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request');
+  return {
+    ...planCache.result,
+    computed_at: planCache.at,
+    next_refresh: planCache.at + maxAge,
+    refresh_minutes: options.refresh_minutes,
+  };
+};
+
+function startBackgroundRefresh() {
+  if (refreshTimer) return;
+  const every = options.refresh_minutes * 60000;
+  ha.log(`Background refresh every ${options.refresh_minutes} minute(s)`);
+  refreshPlan('start').catch(() => {});
+  refreshTimer = setInterval(() => {
+    if (ha.state.connected) refreshPlan('timer').catch(() => {});
+  }, every);
+}
+
 function badRequest(message) {
   const err = new Error(message);
   err.status = 400;
@@ -628,7 +682,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
-      sendJson(res, 200, await route(req));
+      const body = await route(req);
+      if (req.method !== 'GET') planCache = null; // settings changed: plan is outdated
+      sendJson(res, 200, body);
     } catch (err) {
       ha.log('Error on', req.method, url.pathname, '-', err.message);
       sendJson(res, err.status || 500, { error: err.message });
@@ -655,5 +711,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   ha.log(`Smart Charging Planner ${APP_VERSION} listening on port ${PORT}`);
+  ha.onConnect(startBackgroundRefresh);
   ha.connect();
 });
