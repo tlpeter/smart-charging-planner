@@ -44,3 +44,21 @@ configuration:
       Uses the last 14 days of your grid meter to estimate how much current is
       left for the charger under your main fuse at each hour. Needs the grid
       meter to be set up in the app.
+  publish_sensors:
+    name: Publish sensors
+    description: >-
+      Writes the app's own sensors to Home Assistant for your dashboards, such
+      as sensor.smart_charging_next_start, sensor.smart_charging_status and
+      sensor.smart_charging_planned_cost. Only these sensors are written.
+  notify_service:
+    name: Notify action
+    description: >-
+      Optional. The notify action for notifications, for example
+      notify.mobile_app_your_phone (see Developer tools → Actions). Leave empty
+      for no notifications. Problems are always sent: a failed command, a
+      charger that does not react, or a car that will not be ready in time.
+  notify_start_stop:
+    name: Notify every start and pause
+    description: >-
+      Also send a notification each time the app starts or pauses the charger.
+      Only used when a notify action is set.

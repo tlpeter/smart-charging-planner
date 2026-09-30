@@ -21,6 +21,7 @@ const controller = require('./controller');
 const session = require('./session');
 const { learnedPower } = require('./chargepower');
 const boost = require('./boost');
+const notifier = require('./notify');
 
 const PORT = 8099;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -874,10 +875,12 @@ async function manualControl(on, reason) {
     try {
       await ha.sendControl(command, controller.allowedFor(m));
       entry.sent = true;
+      await afterSent(on, command, reason);
       // Remember it, so the live control knows the last command sent.
       lastLiveSend = { key: JSON.stringify([command.service, command.data, command.target]), at: entry.time };
     } catch (err) {
       entry.error = err.message;
+      await commandFailed(on, err.message);
     }
   }
   controller.logSent(entry);
@@ -941,6 +944,12 @@ function refreshPlan(reason) {
         ha.warn('Control dry run failed:', err.message);
       }
       const p = result.plan;
+      if (result.departure && p.notes.includes('not_enough_time') && !result.boost) {
+        const short = Math.max(0, (p.needed_kwh || 0) - (p.planned_kwh || 0));
+        await notifier.notify('problem', 'Car will not be ready',
+          `Only ${p.planned_kwh.toFixed(1)} of ${(p.needed_kwh || 0).toFixed(1)} kWh fits before the departure at ${hmLocal(result.departure.time)} (${short.toFixed(1)} kWh short).`,
+          { key: `notready:${result.departure.time}`, minGapMs: 24 * 3600000 });
+      }
       ha.debug(`Plan refreshed (${reason}):`, p.blocks.length ? `${p.planned_kwh.toFixed(1)} kWh in ${p.periods.length} period(s)` : 'nothing to charge', p.notes.join(',') || '');
       return result;
     } catch (err) {
@@ -1002,8 +1011,52 @@ async function runDryRun(planResult) {
     live: options.allow_control === true,
   });
   ha.debug('Control:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
-  if (options.allow_control === true) await sendLive(lastDryRun, chosenMethods(methods, rules));
+  if (options.allow_control === true) {
+    await checkReaction(lastDryRun);
+    await sendLive(lastDryRun, chosenMethods(methods, rules));
+  }
+  await notifier.publishSensors(planResult, lastDryRun, { lastCommand: lastCommandInfo });
   return lastDryRun;
+}
+
+// Time as the user reads it, e.g. "Thu 03:10".
+function hmLocal(ms) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: ha.state.timeZone, weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+}
+
+// After a start or pause, check a few minutes later that the charger really
+// followed. If not, log it and send a notification.
+const CHECK_AFTER_MS = Number(process.env.SCP_CHECK_AFTER_MS) || 5 * 60000;
+let pendingCheck = null; // { on, at, service }
+let lastCommandInfo = null; // for the status sensor
+
+async function afterSent(on, command, reason, extraText = '') {
+  pendingCheck = { on, at: Date.now(), service: command.service };
+  lastCommandInfo = `${on ? 'start' : 'pause'} at ${hmLocal(Date.now())}`;
+  await notifier.notify('startstop', on ? 'Charging started' : 'Charging paused', `${reason}${extraText}.`);
+}
+
+async function commandFailed(on, err) {
+  await notifier.notify('problem', 'Charger command failed', `Could not ${on ? 'start' : 'pause'} the charger: ${err}`, { key: `fail:${on}`, minGapMs: 30 * 60000 });
+}
+
+async function checkReaction(entry) {
+  if (!pendingCheck || Date.now() - pendingCheck.at < CHECK_AFTER_MS) return;
+  const { on, service } = pendingCheck;
+  pendingCheck = null;
+  if (entry.plugged === false) return; // unplugged meanwhile: nothing to check
+  const followed = on ? entry.charging === true : entry.charging !== true;
+  if (followed) return;
+  const text = on
+    ? `The charger did not start charging within 5 minutes after ${service} (status: ${entry.status || 'unknown'}). The car may be full, or not ready to charge.`
+    : `The charger is still charging 5 minutes after ${service}.`;
+  controller.logSent({
+    time: Date.now(), live: true, want: on ? 'charge' : 'pause', code: 'no_reaction',
+    reason: 'Charger did not react', error: text, sent: false,
+    plugged: entry.plugged, charging: entry.charging, status: entry.status, power_w: entry.power_w, agrees: false,
+  });
+  ha.warn(text);
+  await notifier.notify('problem', on ? 'Charger did not start' : 'Charger did not pause', text, { key: `noreact:${on}`, minGapMs: 60 * 60000 });
 }
 
 // Live control: send the start/stop command the decision needs. The same
@@ -1033,6 +1086,9 @@ async function sendLive(entry, chosen) {
   }
   entry.sent_at = line.time;
   controller.logSent(line);
+  const on = c.what === 'start charging';
+  if (line.sent) await afterSent(on, c, entry.reason, entry.block_end ? ` until ${hmLocal(entry.block_end)}` : '');
+  else await commandFailed(on, line.error);
 }
 
 // The methods the user chose, or the recommended ones.
@@ -1099,6 +1155,15 @@ routes['POST /api/setup'] = async (req) => {
   s.setup_done = body.done === true;
   settings.save(s);
   return { ok: true, done: s.setup_done };
+};
+
+routes['GET /api/notify'] = async () => notifier.status();
+
+routes['POST /api/notify/test'] = async () => {
+  if (!options.notify_service) throw badRequest('Set a notify action in the app\'s Configuration tab first');
+  const r = await notifier.notify('problem', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.');
+  if (!r.sent) throw badRequest(`Not sent: ${r.error || r.reason}`);
+  return { ok: true };
 };
 
 routes['DELETE /api/control/log'] = async () => {

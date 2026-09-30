@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0
+
+- **Notifications** to your phone, with a notify action set in the Configuration tab ("Notify action")
+  - Problems are always sent: a failed command, a charger that does not start or pause within 5 minutes after a command, and a car that will not be ready at the departure
+  - Every start and pause, with the reason; can be switched off with "Notify every start and pause"
+  - The same problem is not repeated for a while
+- **Watchdog**: 5 minutes after each start or pause the app checks that the charger followed. If not, it is logged ("Charger did not react") and notified
+- **Sensors for dashboards**, with "Publish sensors" in the Configuration tab: status, next start and end, planned energy and cost, saving, departure, and Charge now. They are written again after Home Assistant restarts
+- Settings › Status shows notifications and sensors, with a **Send test notification** button
+- Safety: the app can only send to the one notify action you set, and only write its own `sensor.smart_charging_*` and `binary_sensor.smart_charging_*` entities
+
 ## 0.13.0
 
 New layout.

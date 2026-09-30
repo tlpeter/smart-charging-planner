@@ -16,6 +16,9 @@ const DEFAULTS = {
   continuous_charging: true,
   min_split_saving: 0.5,
   use_house_load: true,
+  notify_service: '',
+  notify_start_stop: true,
+  publish_sensors: false,
 };
 
 function load() {
@@ -30,6 +33,9 @@ function load() {
     merged.min_split_saving = split >= 0 && split <= 20 ? split : DEFAULTS.min_split_saving;
     merged.continuous_charging = merged.continuous_charging !== false;
     merged.use_house_load = merged.use_house_load !== false;
+    merged.notify_service = String(merged.notify_service || '').trim();
+    merged.notify_start_stop = merged.notify_start_stop !== false;
+    merged.publish_sensors = merged.publish_sensors === true;
     return merged;
   } catch {
     return { ...DEFAULTS };

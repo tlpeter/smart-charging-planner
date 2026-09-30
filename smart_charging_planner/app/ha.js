@@ -49,6 +49,8 @@ const READ_ONLY_COMMANDS = new Set([
 const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 const CONTROL_TOKEN = Symbol('charger control');
+const NOTIFY_TOKEN = Symbol('notification');
+const REST_URL = process.env.HA_REST_URL || 'http://supervisor/core/api';
 
 // Send a command to Home Assistant and wait for its result.
 function call(message, timeoutMs = 20000, token = null) {
@@ -62,7 +64,11 @@ function call(message, timeoutMs = 20000, token = null) {
         options.allow_calendar_write === true) ||
       // Starting or stopping the charger, only when "Allow control" is on
       // and only through sendControl() below.
-      (message.type === 'call_service' && token === CONTROL_TOKEN && options.allow_control === true);
+      (message.type === 'call_service' && token === CONTROL_TOKEN && options.allow_control === true) ||
+      // Sending a notification, only to the notify action set in the
+      // Configuration tab.
+      (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
+        !!options.notify_service && `notify.${message.service}` === normaliseNotify(options.notify_service));
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -170,6 +176,43 @@ async function sendControl(command, allowed) {
   return call(message, 20000, CONTROL_TOKEN);
 }
 
+// "mobile_app_pixel" or "notify.mobile_app_pixel" -> "notify.mobile_app_pixel"
+function normaliseNotify(v) {
+  const x = String(v || '').trim();
+  if (!x) return '';
+  return x.startsWith('notify.') ? x : `notify.${x}`;
+}
+
+// Send a notification with the notify action from the Configuration tab.
+async function sendNotification(title, message) {
+  const full = normaliseNotify(options.notify_service);
+  if (!full) throw new Error('No notify action set in the Configuration tab');
+  const service = full.slice('notify.'.length);
+  if (!/^[a-z0-9_]+$/.test(service)) throw new Error(`"${full}" is not a valid notify action`);
+  debug('Notification:', title, '-', message);
+  return call({ type: 'call_service', domain: 'notify', service, service_data: { title, message } }, 20000, NOTIFY_TOKEN);
+}
+
+// SAFETY: the app may only write the states of its own sensors, and only
+// when "Publish sensors" is on. These sensors are not stored by Home
+// Assistant between restarts; the app writes them again at every refresh.
+const OWN_SENSOR = /^(sensor|binary_sensor)\.smart_charging_[a-z0-9_]+$/;
+
+async function setState(entityId, state, attributes) {
+  if (options.publish_sensors !== true) throw new Error('Publish sensors is off');
+  if (!OWN_SENSOR.test(entityId)) {
+    warn('Refused to write', entityId, '- not one of the app\'s own sensors');
+    throw new Error(`${entityId} is not one of the app's own sensors`);
+  }
+  const res = await fetch(`${REST_URL}/states/${entityId}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: String(state), attributes: attributes || {} }),
+  });
+  if (!res.ok) throw new Error(`Writing ${entityId} failed: HTTP ${res.status}`);
+  return true;
+}
+
 function onConnect(fn) {
   connectListeners.push(fn);
 }
@@ -233,4 +276,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, createCalendarEvent, sendControl, onConnect, connect, log, debug, warn };
+module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendNotification, setState, normaliseNotify, onConnect, connect, log, debug, warn };
