@@ -51,12 +51,11 @@ configuration:
       as sensor.smart_charging_next_start, sensor.smart_charging_status and
       sensor.smart_charging_planned_cost. Only these sensors are written.
   notify_service:
-    name: Notify action
+    name: Notify action (optional)
     description: >-
-      Optional. The notify action for notifications, for example
-      notify.mobile_app_your_phone (see Developer tools → Actions). Leave empty
-      for no notifications. Problems are always sent: a failed command, a
-      charger that does not react, or a car that will not be ready in time.
+      Easier: choose it from a list in the app under Settings › Status. Only
+      used when nothing is chosen there. For example
+      notify.mobile_app_your_phone.
   notify_start_stop:
     name: Notify every start and pause
     description: >-

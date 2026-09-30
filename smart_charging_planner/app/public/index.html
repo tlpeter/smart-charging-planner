@@ -315,10 +315,12 @@
       </div>
       <div class="card">
         <h2>Notifications and sensors</h2>
-        <div class="row"><span class="label">Notifications</span><span class="value" id="notify-state">–</span></div>
+        <div class="field"><label>Send notifications to</label>
+          <div style="display:flex;gap:8px"><select id="notify-choice"></select><button class="primary" id="notify-save">Save</button></div>
+          <div class="src" id="notify-state"></div></div>
         <div class="row"><span class="label">Last notification</span><span class="value" id="notify-last">–</span></div>
         <div class="row"><span class="label">Sensors in Home Assistant</span><span class="value" id="sensors-state">–</span></div>
-        <p class="muted small">Set these in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration ("Notify action", "Notify every start and pause", "Publish sensors").</p>
+        <p class="muted small">"Notify every start and pause" and "Publish sensors" are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
         <div class="buttons"><button class="secondary" id="notify-test">Send test notification</button></div>
         <div id="notify-test-result"></div>
       </div>
@@ -1851,9 +1853,16 @@
       try {
         const n = await api('GET', 'api/notify');
         const tm = (ms) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-        $('notify-state').innerHTML = n.notify_service
-          ? `<span class="ok">On</span> <span class="cmd">${esc(n.notify_service)}</span><div class="src">${n.notify_start_stop ? 'Every start and pause, and problems' : 'Problems only'}</div>`
-          : 'Off <span class="muted small">(no notify action set)</span>';
+        const sel = $('notify-choice');
+        const current = n.notify_service || '';
+        const list = n.choices || [];
+        const known = list.some((c) => c.id === current);
+        sel.innerHTML = '<option value="">— no notifications —</option>' +
+          list.map((c) => `<option value="${esc(c.id)}"${c.id === current ? ' selected' : ''}>${esc(c.id)}</option>`).join('') +
+          (current && !known ? `<option value="${esc(current)}" selected>${esc(current)} (not found in Home Assistant)</option>` : '');
+        $('notify-state').innerHTML = current
+          ? `<span class="ok">On</span> · ${n.notify_start_stop ? 'every start and pause, and problems' : 'problems only'}${n.notify_source === 'configuration' ? ' · set in the Configuration tab' : ''}`
+          : (list.length ? 'Choose where notifications go, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
         const l = n.last_notification;
         $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';
         const p = n.last_publish;
@@ -1865,6 +1874,22 @@
         // status card stays as it is
       }
     }
+
+    $('notify-save').addEventListener('click', async () => {
+      const btn = $('notify-save');
+      const out = $('notify-test-result');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        await api('POST', 'api/notify', { service: $('notify-choice').value });
+        out.innerHTML = '<div class="note">Saved. Use "Send test notification" to check it.</div>';
+      } catch (err) {
+        out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+      }
+      btn.textContent = 'Save';
+      btn.disabled = false;
+      loadNotifyStatus();
+    });
 
     $('notify-test').addEventListener('click', async () => {
       const out = $('notify-test-result');

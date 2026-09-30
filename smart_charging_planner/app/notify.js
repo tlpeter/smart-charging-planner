@@ -8,6 +8,16 @@
 
 const ha = require('./ha');
 const { options } = require('./options');
+const settings = require('./settings');
+
+// The chosen notify action: from the app (Settings › Status), else from the
+// Configuration tab.
+function target() {
+  const s = settings.load();
+  const t = ha.normaliseNotify((s.notify && s.notify.service) || options.notify_service || '');
+  ha.setNotifyTarget(t);
+  return t;
+}
 
 const lastSentByKey = new Map(); // key -> time, to avoid repeating the same message
 let lastNotification = null; // { at, title, message, sent, error }
@@ -15,7 +25,7 @@ let lastNotification = null; // { at, title, message, sent, error }
 // kind: 'startstop' (can be switched off) or 'problem' (always, when a notify
 // action is set). key + minGapMs: do not repeat the same message too often.
 async function notify(kind, title, message, { key = null, minGapMs = 0 } = {}) {
-  if (!options.notify_service) return { sent: false, reason: 'off' };
+  if (!target()) return { sent: false, reason: 'off' };
   if (kind === 'startstop' && !options.notify_start_stop) return { sent: false, reason: 'start_stop_off' };
   if (key) {
     const at = lastSentByKey.get(key);
@@ -113,8 +123,10 @@ async function publishSensors(d, n, extra) {
 }
 
 function status() {
+  const s = settings.load();
   return {
-    notify_service: options.notify_service ? ha.normaliseNotify(options.notify_service) : null,
+    notify_service: target() || null,
+    notify_source: s.notify && s.notify.service ? 'app' : options.notify_service ? 'configuration' : null,
     notify_start_stop: options.notify_start_stop,
     last_notification: lastNotification,
     publish_sensors: options.publish_sensors,
@@ -122,4 +134,4 @@ function status() {
   };
 }
 
-module.exports = { notify, publishSensors, sensorsFor, status };
+module.exports = { notify, publishSensors, sensorsFor, status, target };

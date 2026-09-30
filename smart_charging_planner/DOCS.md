@@ -62,7 +62,7 @@ The Savings tab needs a charging power sensor in Settings › Charger (for examp
 
 ## Notifications and sensors
 
-Set a **Notify action** in the Configuration tab (for example `notify.mobile_app_your_phone`; the name is listed under Developer tools → Actions) to get notifications:
+Choose where notifications go in **Settings › Status** (a list of the notify actions in your Home Assistant, such as `notify.mobile_app_your_phone`) and select **Save**. You get:
 
 - **Problems, always**: a command to the charger failed; the charger did not start (or pause) within 5 minutes after a command; the car will not be ready at the departure because not enough time is left.
 - **Every start and pause**: when "Notify every start and pause" is on (the default), with the reason, for example "Planned charging block until Thu 03:10".
@@ -90,7 +90,7 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 - **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, the app starts and pauses the charger itself, following the plan, Charge now and the rules in Settings › Control, with the start/stop method chosen there. Only start/stop is sent; the charging current is not changed. Automations, scripts and helpers are never touched.
 - **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Departures tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Departures tab. This does not allow any charger control.
 - **Publish sensors**: write the app's own sensors to Home Assistant (default off). See Notifications and sensors.
-- **Notify action**: the notify action for notifications, for example `notify.mobile_app_your_phone`. Empty means no notifications.
+- **Notify action**: optional; only used when no notify action is chosen in Settings › Status.
 - **Notify every start and pause**: also notify each start and pause, not only problems (default on).
 - **Charging loss margin (%)**: extra energy to plan for, because not all energy from the charger ends up in the battery (default 10).
 - **Prefer one continuous charging period**: charge in one go instead of in several short periods (default on).

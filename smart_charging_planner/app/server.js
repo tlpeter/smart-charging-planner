@@ -1157,10 +1157,43 @@ routes['POST /api/setup'] = async (req) => {
   return { ok: true, done: s.setup_done };
 };
 
-routes['GET /api/notify'] = async () => notifier.status();
+// Notify actions that exist in Home Assistant, for the choice list.
+async function notifyOptions() {
+  const services = await ha.call({ type: 'get_services' });
+  const n = (services && services.notify) || {};
+  return Object.keys(n)
+    .filter((k) => k !== 'send_message') // needs a notify entity, not usable like this
+    .map((k) => ({ id: `notify.${k}`, name: (n[k] && n[k].name) || k }))
+    .sort((a, b) => (a.id.startsWith('notify.mobile_app_') ? 0 : 1) - (b.id.startsWith('notify.mobile_app_') ? 0 : 1) || a.id.localeCompare(b.id));
+}
+
+routes['GET /api/notify'] = async () => {
+  let choices = [];
+  try {
+    choices = await notifyOptions();
+  } catch (err) {
+    ha.warn('Could not list notify actions:', err.message);
+  }
+  return { ...notifier.status(), choices };
+};
+
+routes['POST /api/notify'] = async (req) => {
+  const body = await readBody(req);
+  const id = String(body.service || '').trim();
+  if (id) {
+    const choices = await notifyOptions();
+    if (!choices.some((c) => c.id === id)) throw badRequest('Choose a notify action from the list');
+  }
+  const s = settings.load();
+  s.notify = { service: id || null };
+  settings.save(s);
+  notifier.target();
+  ha.log(id ? `Notifications go to ${id}` : 'Notifications chosen in the app switched off');
+  return notifier.status();
+};
 
 routes['POST /api/notify/test'] = async () => {
-  if (!options.notify_service) throw badRequest('Set a notify action in the app\'s Configuration tab first');
+  if (!notifier.target()) throw badRequest('Choose a notify action first');
   const r = await notifier.notify('problem', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.');
   if (!r.sent) throw badRequest(`Not sent: ${r.error || r.reason}`);
   return { ok: true };

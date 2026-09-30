@@ -68,7 +68,7 @@ function call(message, timeoutMs = 20000, token = null) {
       // Sending a notification, only to the notify action set in the
       // Configuration tab.
       (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
-        !!options.notify_service && `notify.${message.service}` === normaliseNotify(options.notify_service));
+        !!notifyTarget && `notify.${message.service}` === notifyTarget);
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -183,10 +183,16 @@ function normaliseNotify(v) {
   return x.startsWith('notify.') ? x : `notify.${x}`;
 }
 
-// Send a notification with the notify action from the Configuration tab.
+// The one notify action the app may use: chosen in the app (Settings ›
+// Status) or, as fallback, set in the Configuration tab.
+let notifyTarget = '';
+function setNotifyTarget(v) {
+  notifyTarget = normaliseNotify(v);
+}
+
 async function sendNotification(title, message) {
-  const full = normaliseNotify(options.notify_service);
-  if (!full) throw new Error('No notify action set in the Configuration tab');
+  const full = notifyTarget;
+  if (!full) throw new Error('No notify action chosen');
   const service = full.slice('notify.'.length);
   if (!/^[a-z0-9_]+$/.test(service)) throw new Error(`"${full}" is not a valid notify action`);
   debug('Notification:', title, '-', message);
@@ -276,4 +282,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendNotification, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };
