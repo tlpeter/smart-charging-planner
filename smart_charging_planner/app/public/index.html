@@ -1861,7 +1861,7 @@
           list.map((c) => `<option value="${esc(c.id)}"${c.id === current ? ' selected' : ''}>${esc(c.id)}</option>`).join('') +
           (current && !known ? `<option value="${esc(current)}" selected>${esc(current)} (not found in Home Assistant)</option>` : '');
         $('notify-state').innerHTML = current
-          ? `<span class="ok">On</span> · ${n.notify_start_stop ? 'every start and pause, and problems' : 'problems only'}${n.notify_source === 'configuration' ? ' · set in the Configuration tab' : ''}`
+          ? `<span class="ok">On</span> · ${n.notify_start_stop ? 'every start and pause, and problems' : 'problems only'}`
           : (list.length ? 'Choose where notifications go, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
         const l = n.last_notification;
         $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';

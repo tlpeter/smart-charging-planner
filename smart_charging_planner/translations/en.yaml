@@ -50,14 +50,8 @@ configuration:
       Writes the app's own sensors to Home Assistant for your dashboards, such
       as sensor.smart_charging_next_start, sensor.smart_charging_status and
       sensor.smart_charging_planned_cost. Only these sensors are written.
-  notify_service:
-    name: Notify action (optional)
-    description: >-
-      Easier: choose it from a list in the app under Settings › Status. Only
-      used when nothing is chosen there. For example
-      notify.mobile_app_your_phone.
   notify_start_stop:
     name: Notify every start and pause
     description: >-
       Also send a notification each time the app starts or pauses the charger.
-      Only used when a notify action is set.
+      Choose where notifications go in the app, under Settings › Status.

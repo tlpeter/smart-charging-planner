@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.2
+
+- The "Notify action" field is removed from the Configuration tab. Choose where notifications go only from the list in the app, under Settings › Status
+
 ## 0.14.1
 
 - Choose where notifications go from a **list** in Settings › Status: the app shows the notify actions that exist in your Home Assistant (your phones first). The Configuration tab cannot show such a list, so the "Notify action" field there is now only a fallback
