@@ -109,6 +109,15 @@ These sensors are not stored by Home Assistant between restarts; the app writes 
 
 If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again.
 
+## Security
+
+- The app only accepts requests through Home Assistant ingress (the sidebar panel). Other apps on the internal network are refused.
+- Changes are only accepted as JSON from the app's own page, not from other websites.
+- The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the one notify action you choose, and its own `smart_charging_*` sensors.
+- It never changes automations, scripts, helpers, locks, alarms, covers, lights or other devices. Control only works for a device that Home Assistant's registry shows as an EV charger.
+- The Supervisor token is never logged or shown in the browser.
+- Every command sent is logged in the Log tab and the app log.
+
 ## Configuration
 
 These are set in Home Assistant: Settings → Apps → Smart Charging Planner → **Configuration**. Saving restarts the app.

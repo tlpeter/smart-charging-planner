@@ -151,8 +151,10 @@ function entityMethods(deviceEntities, states, domains = []) {
   const current = [];
   const warnings = [];
   const buttons = deviceEntities.filter((e) => e.entity_id.startsWith('button.'));
-  const startBtn = buttons.find((e) => /resume|start/.test(e.entity_id));
-  const stopBtn = buttons.find((e) => /pause|stop/.test(e.entity_id));
+  // Whole words only, so "restart" is not "start".
+  const tok = (e) => new Set(e.entity_id.toLowerCase().split(/[^a-z0-9]+/));
+  const startBtn = buttons.find((e) => ['resume', 'start'].some((w) => tok(e).has(w)));
+  const stopBtn = buttons.find((e) => ['pause', 'stop'].some((w) => tok(e).has(w)));
   if (startBtn && stopBtn) {
     startStop.push({ type: 'buttons', start_entity: startBtn.entity_id, stop_entity: stopBtn.entity_id, label: 'Buttons', score: 70 });
   }
