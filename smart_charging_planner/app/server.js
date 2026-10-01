@@ -1385,6 +1385,90 @@ routes['POST /api/notify/test'] = async () => {
   return { ok: true };
 };
 
+// Automations (and scripts they call) that also use the charger's start/stop
+// entity, the charger device or the car's charge limit. They may fight with
+// the app. Only a warning: the app never turns automations off.
+let conflictsCache = null; // { at, result }
+async function findConflicts() {
+  if (conflictsCache && Date.now() - conflictsCache.at < 5 * 60000) return conflictsCache.result;
+  const s = settings.load();
+  const charger = s.chargers[0] || null;
+  const vehicle = s.vehicles[0] || null;
+  const result = { items: [], dismissed: (s.conflicts_dismissed || []).slice(), checked: [] };
+  if (!charger) return result;
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const [methods, states] = await Promise.all([currentControlMethods(charger).catch(() => null), ha.call({ type: 'get_states' })]);
+  const chosen = chosenMethods(methods, rules);
+  const m = chosen && chosen.start_stop;
+  const watched = [];
+  if (m && m.entity_id) watched.push({ item_type: 'entity', item_id: m.entity_id, what: 'the charger start/stop' });
+  if (m && m.start_entity) watched.push({ item_type: 'entity', item_id: m.start_entity, what: 'the charger start/stop' });
+  if (m && m.stop_entity) watched.push({ item_type: 'entity', item_id: m.stop_entity, what: 'the charger start/stop' });
+  if (m && /^action_/.test(m.type) && methods && methods.device_id) watched.push({ item_type: 'device', item_id: methods.device_id, what: 'the charger' });
+  const lim = await carChargeLimit(vehicle, states).catch(() => null);
+  if (lim && lim.entity_id) watched.push({ item_type: 'entity', item_id: lim.entity_id, what: "the car's charge limit" });
+  const stateOf = (id) => states.find((x) => x.entity_id === id);
+  const found = new Map(); // automation entity_id -> { uses: Set, via: Set }
+  const add = (id, what, via) => {
+    if (!found.has(id)) found.set(id, { uses: new Set(), via: new Set() });
+    found.get(id).uses.add(what);
+    if (via) found.get(id).via.add(via);
+  };
+  for (const w of watched) {
+    result.checked.push(w.item_id);
+    let rel;
+    try {
+      rel = await ha.call({ type: 'search/related', item_type: w.item_type, item_id: w.item_id });
+    } catch (err) {
+      ha.debug('search/related failed for', w.item_id, err.message);
+      continue;
+    }
+    for (const a of (rel && rel.automation) || []) add(a, w.what);
+    // One step further: automations that call a script that uses it.
+    for (const sc of (rel && rel.script) || []) {
+      try {
+        const rel2 = await ha.call({ type: 'search/related', item_type: 'entity', item_id: sc });
+        for (const a of (rel2 && rel2.automation) || []) add(a, w.what, sc);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  for (const [id, f] of found) {
+    const st = stateOf(id);
+    if (!st || st.state !== 'on') continue; // only enabled automations
+    result.items.push({
+      entity_id: id,
+      name: (st.attributes && st.attributes.friendly_name) || id,
+      uses: [...f.uses],
+      via: [...f.via],
+      dismissed: result.dismissed.includes(id),
+    });
+  }
+  result.items.sort((a, b) => a.dismissed - b.dismissed || a.name.localeCompare(b.name));
+  conflictsCache = { at: Date.now(), result };
+  return result;
+}
+
+routes['GET /api/conflicts'] = async (req) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.searchParams.get('refresh') === '1') conflictsCache = null;
+  return findConflicts();
+};
+
+routes['POST /api/conflicts/dismiss'] = async (req) => {
+  const body = await readBody(req);
+  const id = String(body.entity_id || '');
+  if (!/^automation\./.test(id)) throw badRequest('Not an automation');
+  const s = settings.load();
+  const list = new Set(s.conflicts_dismissed || []);
+  if (body.undo === true) list.delete(id); else list.add(id);
+  s.conflicts_dismissed = [...list];
+  settings.save(s);
+  conflictsCache = null;
+  return findConflicts();
+};
+
 routes['DELETE /api/control/log'] = async () => {
   controller.clearLog();
   ha.log('Control log cleared');
@@ -1415,6 +1499,7 @@ routes['POST /api/control/settings'] = async (req) => {
   };
   settings.save(s);
   lastDryRun = null;
+  conflictsCache = null;
   return { ok: true, control: s.control };
 };
 

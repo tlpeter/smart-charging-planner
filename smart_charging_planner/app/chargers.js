@@ -200,8 +200,9 @@ function detectChargers(entities, devices, states, vehicleDeviceIds = new Set())
       suggested_max_entities: maxLimits.map((l) => l.entity_id),
       options: { status, power, current, switch: switches },
       suggested: {
-        status: pickBest(status, [/_status\b|charger_status|status/, /state/]),
-        power: pickBest(power, [/charging_power|charger_power|_power\b/, /power/]),
+        // Brand-specific names first (Zaptec, Wallbox, Alfen, go-e, OCPP, Peblar).
+        status: pickBest(status, [/charger_mode\b|status_description|status_code_socket_1|car_value|status_connector|ev_charger_state/, /_status\b|charger_status|status/, /state/]),
+        power: pickBest(power, [/nrg_11|power total|active_power_total|power_active_import|charge_power|charging_power|charger_power/, /_power\b/, /power/]),
         current: pickBest(current, [/max_charging_current|charging_current|dynamic|current_limit|current/]),
         // Only suggest a real start/stop switch; never smart charging, schedules
         // or a switch that turns the whole charger off.

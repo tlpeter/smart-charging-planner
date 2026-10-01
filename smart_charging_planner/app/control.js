@@ -107,8 +107,45 @@ function actionMethods(domains, services) {
   return { startStop, current };
 }
 
+// A select (choice list) that starts and stops charging, e.g.
+//   go-e "Force state" (frc): 0 Neutral, 1 Don't charge, 2 Charge
+//   Ohme "Charge mode": smart_charge, max_charge, paused
+//   Alfen "Socket 1 operation mode": Operative, In-operative (turns the socket off)
+const SELECT_START = ['2', 'charge', 'max_charge', 'on', 'operative'];
+const SELECT_STOP = ['1', "don't charge", 'dont_charge', 'paused', 'pause', 'off', 'in-operative', 'inoperative'];
+function selectMethod(e, s) {
+  const a = (s && s.attributes) || {};
+  const opts = Array.isArray(a.options) ? a.options.map(String) : [];
+  const name = words(e.entity_id, a.friendly_name);
+  if (!/frc|force.?state|charge.?mode|operation.?mode/.test(name)) return null;
+  const find = (list) => opts.find((o) => list.includes(o.toLowerCase()));
+  const on = find(SELECT_START);
+  const off = find(SELECT_STOP);
+  if (!on || !off || on === off) return null;
+  const blunt = /operation.?mode/.test(name); // takes the whole socket out of service
+  return { type: 'select', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, start_option: on, stop_option: off, blunt, score: blunt ? 25 : 75 };
+}
+
+// The charger's own smart modes that would fight with the app. Values that
+// mean "off / let others decide" are fine.
+const NEUTRAL_MODES = new Set(['off', 'default', 'disable', 'disabled', 'normal', 'none', '3', 'manual']);
+function ownModeWarning(e, s, domain) {
+  if (!s) return null;
+  const a = s.attributes || {};
+  const name = words(e.entity_id, a.friendly_name);
+  if (e.entity_id.startsWith('select.')) {
+    // Wallbox Eco-Smart, Peblar smart charging, go-e logic mode, Alfen solar, Ohme charge mode
+    if (!/ecosmart|eco.?smart|smart.?charging|solar.?charging|charging.?mode|charge.?mode|logic.?mode|_lmo\b/.test(name)) return null;
+    const v = String(s.state || '').toLowerCase();
+    if (!v || v === 'unavailable' || v === 'unknown' || NEUTRAL_MODES.has(v)) return null;
+    if (/charge.?mode/.test(name) && ['max_charge', 'paused'].includes(v)) return null; // Ohme, controlled by the app
+    return { code: 'own_mode_on', entity_id: e.entity_id, name: a.friendly_name || e.entity_id, state: s.state };
+  }
+  return null;
+}
+
 // Entities on the charger device.
-function entityMethods(deviceEntities, states) {
+function entityMethods(deviceEntities, states, domains = []) {
   const byId = new Map(states.map((s) => [s.entity_id, s]));
   const startStop = [];
   const current = [];
@@ -130,7 +167,9 @@ function entityMethods(deviceEntities, states) {
       // Compare whole words, so "enabled" does not look like "led".
       const tokens = new Set(name.split(/[^a-z0-9]+/));
       const has = (...w) => w.some((x) => tokens.has(x));
-      if (has('smart', 'schedule', 'plan', 'eco') && s && s.state === 'on') {
+      // Easee's "Smart charging" switch only changes the LED colour.
+      const easeeLed = domains.includes('easee') && has('smart') && !has('schedule', 'plan');
+      if (has('smart', 'schedule', 'plan', 'eco', 'solar', 'pv', 'surplus', 'fup') && s && s.state === 'on' && !easeeLed) {
         warnings.push({ code: 'own_smart_charging_on', entity_id: e.entity_id, name: a.friendly_name || e.entity_id });
       }
       const other = has('smart', 'schedule', 'plan', 'eco', 'cable', 'lock', 'light', 'led', 'idle', 'current', 'phase', 'ocpp');
@@ -139,6 +178,12 @@ function entityMethods(deviceEntities, states) {
         const blunt = has('enabled', 'enable');
         startStop.push({ type: 'switch', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, blunt, score: blunt ? 30 : 60 });
       }
+    }
+    if (e.entity_id.startsWith('select.')) {
+      const m = selectMethod(e, s);
+      if (m) startStop.push(m);
+      const w = ownModeWarning(e, s);
+      if (w) warnings.push(w);
     }
   }
   return { startStop, current, warnings };
@@ -150,7 +195,7 @@ function checkControl({ charger, entities, states, services }) {
   const domains = [...new Set([charger.integration, ...deviceEntities.map((e) => e.platform)].filter(Boolean))];
 
   const a = actionMethods(domains, services || {});
-  const e = entityMethods(deviceEntities, states);
+  const e = entityMethods(deviceEntities, states, domains);
   const withId = (m) => ({ ...m, id: `${m.type}:${m.service || m.start_service || m.entity_id || m.start_entity}${m.domain ? '@' + m.domain : ''}` });
   const startStop = [...a.startStop, ...e.startStop].map(withId).sort((x, y) => y.score - x.score);
   const current = [...a.current, ...e.current].map(withId).sort((x, y) => y.score - x.score);
@@ -160,6 +205,10 @@ function checkControl({ charger, entities, states, services }) {
   if (!current.length) warnings.push({ code: 'no_current' });
   if (startStop[0] && startStop[0].blunt) warnings.push({ code: 'blunt_switch', entity_id: startStop[0].entity_id });
   if (!charger.device_id) warnings.push({ code: 'no_device' });
+  // Integrations that can only read, not control.
+  if (domains.includes('tesla_wall_connector') && !startStop.length) warnings.push({ code: 'read_only_integration', integration: 'Tesla Wall Connector' });
+  if (domains.includes('alfen_wallbox')) warnings.push({ code: 'alfen_single_login' });
+  if (domains.includes('ocpp')) warnings.push({ code: 'ocpp_backend' });
 
   return {
     available: true,

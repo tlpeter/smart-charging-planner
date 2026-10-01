@@ -28,8 +28,18 @@ const VOLTAGE = 230;
 const MIN_CURRENT = 6;
 const GRACE_MS = 120000;
 
-const UNPLUGGED = /disconnected|not_connected|unplugged|^available$|idle|standby/;
-const CHARGING = /^charging$|^charge$|in_progress|^on$/;
+// Charger status texts of the common integrations (lower case):
+//   Easee: disconnected, awaiting_start, charging, completed, ready_to_charge
+//   Zaptec: disconnected, connected_requesting, connected_charging, connected_finished
+//   Alfen: Available, Cable connected, Charging Normal, Suspended…, Finish Wait…
+//   Wallbox: Charging, Paused, Ready, Disconnected, Waiting for car demand
+//   go-e: Idle, Charging, Wait for car, Complete / "Charger ready, no vehicle"
+//   Peblar: charging, suspended, no_ev_connected
+//   OCPP: Available, Preparing, Charging, SuspendedEV, SuspendedEVSE, Finishing
+//   Ohme: unplugged, plugged_in, charging, paused, finished
+const UNPLUGGED = /disconnected|not_connected|no_ev_connected|no vehicle|unplugged|^available$|^ready$|^idle$|standby/;
+const CHARGING = /^charging|connected_charging|^charge$|in_progress|^on$/;
+const NOT_CHARGING = /finish|complete|wait|pause|suspend|requesting/;
 const INVALID = new Set(['unknown', 'unavailable', '', 'none', 'error', 'offline']);
 
 const DEFAULT_RULES = {
@@ -97,7 +107,7 @@ function readActual({ vehicle, charger, states, now = Date.now() }) {
   else if (status && !statusInvalid) plugged = !UNPLUGGED.test(status.toLowerCase());
 
   let charging = null;
-  if (status && CHARGING.test(status.toLowerCase())) charging = true;
+  if (status && CHARGING.test(status.toLowerCase()) && !NOT_CHARGING.test(status.toLowerCase())) charging = true;
   else if (powerW != null) charging = powerW > 500;
   else if (status && !statusInvalid) charging = false;
 
@@ -198,6 +208,7 @@ function startStopCommand(m, on, deviceId) {
     case 'action_pair': return { service: `${m.domain}.${on ? m.start_service : m.stop_service}`, data: {}, target: dev };
     case 'buttons': return { service: 'button.press', data: {}, target: { entity_id: on ? m.start_entity : m.stop_entity } };
     case 'switch': return { service: `switch.turn_${on ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
+    case 'select': return { service: 'select.select_option', data: { option: on ? m.start_option : m.stop_option }, target: { entity_id: m.entity_id } };
     default: return null;
   }
 }
@@ -211,6 +222,7 @@ function allowedFor(m) {
     case 'action_pair': return [{ service: `${m.domain}.${m.start_service}` }, { service: `${m.domain}.${m.stop_service}` }];
     case 'buttons': return [{ service: 'button.press', entity_id: m.start_entity }, { service: 'button.press', entity_id: m.stop_entity }];
     case 'switch': return [{ service: 'switch.turn_on', entity_id: m.entity_id }, { service: 'switch.turn_off', entity_id: m.entity_id }];
+    case 'select': return [{ service: 'select.select_option', entity_id: m.entity_id }];
     default: return [];
   }
 }
@@ -269,6 +281,11 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   if (ss && ss.type === 'switch') {
     const sw = findState(states, ss.entity_id);
     if (sw && (sw.state === 'on' || sw.state === 'off')) cmdActual = { ...actual, charging: sw.state === 'on' };
+  }
+  if (ss && ss.type === 'select') {
+    const sel = findState(states, ss.entity_id);
+    if (sel && sel.state === ss.start_option) cmdActual = { ...actual, charging: true };
+    else if (sel && sel.state === ss.stop_option) cmdActual = { ...actual, charging: false };
   }
   const commands = live
     ? commandsFor(decision, cmdActual, methods ? { start_stop: ss, current: null } : null, deviceId)

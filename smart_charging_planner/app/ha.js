@@ -45,6 +45,7 @@ const READ_ONLY_COMMANDS = new Set([
   'recorder/statistics_during_period',
   'history/history_during_period',
   'get_services',
+  'search/related', // which automations and scripts use an entity (to warn about conflicts)
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
