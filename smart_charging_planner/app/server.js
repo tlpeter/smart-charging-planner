@@ -929,6 +929,7 @@ async function manualControl(on, reason) {
     try {
       await ha.sendControl(command, controller.allowedFor(m));
       entry.sent = true;
+      lastManual = { on, at: entry.time };
       await afterSent(on, command, reason);
       // Remember it, so the live control knows the last command sent.
       lastLiveSend = { key: JSON.stringify([command.service, command.data, command.target]), at: entry.time };
@@ -961,14 +962,15 @@ routes['POST /api/boost'] = async (req) => {
   }
   boost.update({ was_charging: wasCharging, send });
   planCache = null;
-  await refreshPlan('charge now started');
+  await refreshPlan('charge now started', { fresh: true });
   return { ok: true, send };
 };
 
 routes['DELETE /api/boost'] = async () => {
   boost.stop('stopped by you');
+  lastManual = null;
   planCache = null;
-  await refreshPlan('charge now stopped');
+  await refreshPlan('charge now stopped', { fresh: true });
   const n = lastDryRun;
   const c = n && n.commands[0];
   const send = n && (n.sent || n.error) && c ? { sent: !!n.sent, error: n.error || null, command: c, at: n.sent_at || Date.now() } : null;
@@ -985,9 +987,11 @@ routes['POST /api/vehicle/charge_limit'] = async (req) => {
   const lim = await carChargeLimit(vehicle, states);
   if (!lim) throw badRequest('No charge limit of the car found');
   if (!lim.writable) throw badRequest(`${lim.name} cannot be changed from Home Assistant`);
-  const value = Math.round(Number(body.value));
   const min = Number.isFinite(lim.min) ? lim.min : 1;
   const max = Number.isFinite(lim.max) ? lim.max : 100;
+  const step = Number(lim.step) > 0 ? Number(lim.step) : 1;
+  // Round up to a value the car accepts (Renault: steps of 5).
+  const value = Math.min(max, Math.ceil((Number(body.value) - min) / step - 1e-9) * step + min);
   if (!(value >= min && value <= max)) throw badRequest(`Choose a value between ${min} and ${max} %`);
   const domain = lim.entity_id.split('.')[0];
   const command = { service: `${domain}.set_value`, data: { value }, target: { entity_id: lim.entity_id } };
@@ -1021,8 +1025,21 @@ let planCache = null; // { at, result }
 let planRunning = null;
 let refreshTimer = null;
 
-function refreshPlan(reason) {
-  if (planRunning) return planRunning;
+// A refresh that is already running may have started before a change (for
+// example Charge now). With fresh = true the plan is calculated again after
+// it, so the result always includes the change.
+let rerunAfter = null;
+function refreshPlan(reason, { fresh = false } = {}) {
+  if (planRunning) {
+    if (!fresh) return planRunning;
+    if (!rerunAfter) {
+      rerunAfter = planRunning.catch(() => {}).then(() => {
+        rerunAfter = null;
+        return refreshPlan(`${reason} (again)`);
+      });
+    }
+    return rerunAfter;
+  }
   planRunning = (async () => {
     try {
       const result = await computePlan();
@@ -1098,6 +1115,7 @@ async function runDryRun(planResult) {
     rules,
     controlAllowed: options.allow_control,
     live: options.allow_control === true,
+    boostActive: !!boost.current(),
   });
   ha.debug('Control:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
   if (options.allow_control === true) {
@@ -1154,9 +1172,20 @@ async function checkReaction(entry) {
 const LIVE_RETRY_MS = 15 * 60000;
 let lastLiveSend = null; // { key, at }
 
+// After a start you asked for (Charge now, manual test), the app does not
+// pause the charger for a few minutes, whatever a calculation says. Only
+// unplugging ends it earlier.
+const MANUAL_GRACE_MS = 3 * 60000;
+let lastManual = null; // { on, at }
+
 async function sendLive(entry, chosen) {
   const c = entry.commands.find((x) => x.what === 'start charging' || x.what === 'pause charging');
   if (!c) return;
+  if (lastManual && Date.now() - lastManual.at < MANUAL_GRACE_MS && (c.what === 'start charging') !== lastManual.on) {
+    entry.held = true;
+    ha.debug('Not sending', c.what, '- you', lastManual.on ? 'started' : 'stopped', 'charging less than 3 minutes ago');
+    return;
+  }
   const key = JSON.stringify([c.service, c.data, c.target]);
   if (lastLiveSend && lastLiveSend.key === key && Date.now() - lastLiveSend.at < LIVE_RETRY_MS) {
     entry.waiting = true;

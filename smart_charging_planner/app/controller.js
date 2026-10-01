@@ -146,7 +146,9 @@ function decide(ctx) {
   if (pre && pre.state === 'on') return charge('Preconditioning is active', 'preheat');
 
   // Charge now, started by the user: charge until its goal is reached.
-  if (plan.boost && plan.boost.active) {
+  // The live state counts, not the (possibly older) plan: Charge now
+  // overrules the plan, the target and the departure.
+  if (ctx.boostActive === true || (ctx.boostActive === undefined && plan.boost && plan.boost.active)) {
     const blk = p.blocks.find((x) => x.start <= now && now < x.end);
     return charge('Charge now, started by you', 'boost', { amps: blk ? ampsFor(blk.power_kw, phases, maxAmps) : maxAmps, clear_lock: true });
   }
@@ -244,11 +246,11 @@ function commandsFor(decision, actual, methods, deviceId) {
 }
 
 // One dry-run step. Logs only when something changes.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
-  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock });
+  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive });
 
   // Keep the lock up to date.
   let lock = st.lock && st.lock.end > now ? st.lock : null;

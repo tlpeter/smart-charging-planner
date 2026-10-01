@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.1
+
+Charge now is a firmer overrule:
+
+- The decision uses whether Charge now is on right now, not the last calculated plan. A plan calculated just before you pressed Charge now (or Stop) can no longer pause or start the charger
+- After Charge now or Stop, the plan is calculated again once the running calculation is done, so it always includes your change
+- For 3 minutes after you start charging (Charge now, manual test), the app does not pause the charger, whatever a calculation says
+- Raising the car's limit rounds up to a value the car accepts (Renault: steps of 5, so 83% becomes 85%)
+
 ## 0.15.0
 
 - The app now knows the **car's own charge limit** (for example Renault "Target charge level"). The car stops charging there, whatever the charger does

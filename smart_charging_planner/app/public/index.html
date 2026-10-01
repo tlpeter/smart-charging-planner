@@ -955,8 +955,8 @@
           btn.disabled = true;
           btn.textContent = 'Sending…';
           try {
-            await api('POST', 'api/vehicle/charge_limit', { value: btn.dataset.value });
-            out.innerHTML = `<p class="small"><span class="ok">Sent.</span> The car can take a minute to report the new limit.</p>`;
+            const r = await api('POST', 'api/vehicle/charge_limit', { value: btn.dataset.value });
+            out.innerHTML = `<p class="small"><span class="ok">Sent: ${esc(r.value)}%.</span>${Number(r.value) !== Number(btn.dataset.value) ? ' (rounded up to a value the car accepts)' : ''} The car can take a few minutes to report the new limit.</p>`;
             setTimeout(after, 4000);
           } catch (err) {
             out.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
