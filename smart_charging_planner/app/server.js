@@ -7,7 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
-const { detectVehicles, percentSensors, findChargeLimit } = require('./vehicles');
+const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
@@ -36,19 +36,48 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// Read a JSON object body: at most 100 kB, and it must be a plain object.
+const MAX_BODY = 100000;
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let data = '';
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const fail = (status, message) => {
+      if (done) return;
+      done = true;
+      const err = new Error(message);
+      err.status = status;
+      reject(err);
+    };
     req.on('data', (chunk) => {
-      data += chunk;
-      if (data.length > 100000) reject(new Error('Request too large'));
-    });
-    req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch {
-        reject(new Error('Invalid JSON'));
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        fail(413, 'Request too large');
+        req.destroy();
+        return;
       }
+      chunks.push(chunk);
+    });
+    req.on('error', () => fail(400, 'Request failed'));
+    req.on('end', () => {
+      if (done) return;
+      let body = {};
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          fail(400, 'Invalid JSON');
+          return;
+        }
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        fail(400, 'Expected a JSON object');
+        return;
+      }
+      done = true;
+      resolve(body);
     });
   });
 }
@@ -79,7 +108,7 @@ async function carChargeLimit(vehicle, states) {
     entity_id: id,
     value,
     name: (st.attributes && st.attributes.friendly_name) || id,
-    writable: /^(number|input_number)\./.test(id),
+    writable: /^number\./.test(id) && st.attributes && st.attributes.unit_of_measurement === '%',
     min: st.attributes && st.attributes.min,
     max: st.attributes && st.attributes.max,
     step: st.attributes && st.attributes.step,
@@ -189,15 +218,25 @@ const routes = {
       name: String(body.name || 'My vehicle').slice(0, 60),
       mode,
       fixed_kwh: fixedKwh,
-      device_id: body.device_id || null,
-      integration: body.integration || null,
+      device_id: body.device_id ? String(body.device_id).slice(0, 64) : null,
+      integration: body.integration ? String(body.integration).slice(0, 40) : null, // shown only; control uses the registry
       soc_entity: mode === 'sensor' ? body.soc_entity : null,
       range_entity: body.range_entity || null,
       charging_entity: body.charging_entity || null,
       plugged_entity: String(body.plugged_entity || '').startsWith('binary_sensor.') || String(body.plugged_entity || '').startsWith('sensor.') ? body.plugged_entity : null,
       capacity_kwh: capacity,
-      charge_limit_entity: /^(number|sensor|input_number)\./.test(String(body.charge_limit_entity || '')) ? body.charge_limit_entity : null,
+      charge_limit_entity: null, // checked below
     };
+    if (body.charge_limit_entity) {
+      // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
+      const { entities, states } = await loadRegistries();
+      const id = String(body.charge_limit_entity);
+      const reg = entities.find((e) => e.entity_id === id);
+      const st = states.find((x) => x.entity_id === id);
+      const sameDevice = !vehicle.device_id || (reg && reg.device_id === vehicle.device_id);
+      if (!reg || !st || !sameDevice || !isChargeLimit(reg, st)) throw badRequest("That entity is not the car's charge limit");
+      vehicle.charge_limit_entity = id;
+    }
     const s = settings.load();
     s.vehicles = [vehicle];
     settings.save(s);
@@ -648,18 +687,9 @@ const routes = {
   'GET /api/control/check': async () => {
     const s = settings.load();
     const charger = s.chargers[0] || null;
-    const [{ entities, states }, services] = await Promise.all([
-      loadRegistries(),
-      ha.call({ type: 'get_services' }),
-    ]);
-    let c = charger;
-    if (c && !c.device_id) {
-      // Chosen manually: find the device through one of its entities.
-      const ids = [c.status_entity, c.current_entity, c.switch_entity].filter(Boolean);
-      const reg = entities.find((e) => ids.includes(e.entity_id) && e.device_id);
-      if (reg) c = { ...c, device_id: reg.device_id, integration: c.integration || reg.platform };
-    }
-    return { control_allowed: options.allow_control, ...checkControl({ charger: c, entities, states, services }) };
+    controlMethods = null; // always a fresh check
+    const r = await currentControlMethods(charger);
+    return { control_allowed: options.allow_control, ...r };
   },
 
   // Departure times.
@@ -989,8 +1019,9 @@ function managingCarLimit(s) {
 
 // Round up to a value the car accepts (Renault: steps of 5).
 function limitValue(lim, wanted) {
-  const min = Number.isFinite(lim.min) ? lim.min : 1;
-  const max = Number.isFinite(lim.max) ? lim.max : 100;
+  // SAFETY: a charge limit is a battery percentage; never below 50 or above 100.
+  const min = Math.max(50, Number.isFinite(lim.min) ? lim.min : 50);
+  const max = Math.min(100, Number.isFinite(lim.max) ? lim.max : 100);
   const step = Number(lim.step) > 0 ? Number(lim.step) : 1;
   const v = Math.ceil((Number(wanted) - min) / step - 1e-9) * step + min;
   return Math.max(min, Math.min(max, v));
@@ -1154,14 +1185,24 @@ let lastDryRun = null;
 
 async function currentControlMethods(charger) {
   if (controlMethods && Date.now() - controlMethods.at < 60 * 60000 && controlMethods.key === JSON.stringify(charger)) return controlMethods.result;
-  const [{ entities, states }, services] = await Promise.all([loadRegistries(), ha.call({ type: 'get_services' })]);
-  let c = charger;
-  if (c && !c.device_id) {
-    const ids = [c.status_entity, c.current_entity, c.switch_entity].filter(Boolean);
+  const [{ entities, devices, states }, services] = await Promise.all([loadRegistries(), ha.call({ type: 'get_services' })]);
+  // SAFETY: the device and its integration come from Home Assistant's own
+  // registry, and the device must be recognised as a charger. Settings sent
+  // to the app cannot turn another device (a garage door, a pump) into "the
+  // charger".
+  let deviceId = charger && charger.device_id;
+  if (charger && !deviceId) {
+    const ids = [charger.status_entity, charger.current_entity, charger.switch_entity, charger.power_entity].filter(Boolean);
     const reg = entities.find((e) => ids.includes(e.entity_id) && e.device_id);
-    if (reg) c = { ...c, device_id: reg.device_id, integration: c.integration || reg.platform };
+    deviceId = reg ? reg.device_id : null;
   }
-  const result = checkControl({ charger: c, entities, states, services });
+  const s = settings.load();
+  const vehicleDevices = new Set(s.vehicles.map((v) => v.device_id).filter(Boolean));
+  const asCharger = deviceId ? detectChargers(entities, devices, states, vehicleDevices).find((x) => x.device_id === deviceId) : null;
+  let result;
+  if (!charger) result = { available: false, reason: 'no_charger' };
+  else if (!asCharger) result = { available: false, reason: 'not_a_charger' };
+  else result = checkControl({ charger: { ...charger, device_id: deviceId, integration: asCharger.integration }, entities, states, services });
   controlMethods = { at: Date.now(), key: JSON.stringify(charger), result };
   return result;
 }
@@ -1576,9 +1617,35 @@ function priceConfigFrom(body) {
 // Web server (served through Home Assistant ingress)
 // ---------------------------------------------------------------------------
 
+// SAFETY: only the Home Assistant ingress proxy may talk to the app. Other
+// apps (add-ons) on the internal network are refused. Loopback is allowed
+// for processes inside this container only.
+const INGRESS_PROXY = new Set(['172.30.32.2', '::ffff:172.30.32.2', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const ALLOW_ANY_CLIENT = process.env.SCP_ALLOW_ANY_CLIENT === '1'; // development only
+
 const server = http.createServer(async (req, res) => {
+  const remote = req.socket.remoteAddress;
+  if (!ALLOW_ANY_CLIENT && !INGRESS_PROXY.has(remote)) {
+    ha.warn('Refused request from', remote, '- only Home Assistant ingress is allowed');
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
   const url = new URL(req.url, 'http://localhost');
   const route = routes[`${req.method} ${url.pathname}`];
+
+  // SAFETY against requests from other websites (CSRF): changes must be
+  // JSON (which a plain web form cannot send without the browser asking
+  // first) and must not come from another site.
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const fetchSite = String(req.headers['sec-fetch-site'] || '');
+    if (fetchSite === 'cross-site' || (type !== 'application/json' && (req.headers['content-length'] || req.headers['transfer-encoding']))) {
+      ha.warn('Refused', req.method, url.pathname, '- not a same-site JSON request');
+      sendJson(res, 403, { error: 'Forbidden' });
+      return;
+    }
+  }
 
   if (route) {
     if (url.pathname !== '/api/status' && !ha.state.connected) {

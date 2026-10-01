@@ -151,6 +151,9 @@ const NEVER_CONTROL_DOMAINS = new Set([
   'lovelace', 'schedule', 'climate', 'lock', 'alarm_control_panel', 'cover', 'light', 'media_player',
 ]);
 
+const CONTROL_DOMAINS = new Set(['switch', 'button', 'select', 'number']);
+const { KNOWN_CHARGER_DOMAINS } = require('./chargers');
+
 // Start or stop the charger. Refused unless "Allow control" is on, and only
 // for the exact action or entity of the start/stop method the user chose.
 // allowed: [{ service: 'switch.turn_on', entity_id: 'switch.x' }, ...]
@@ -160,7 +163,9 @@ async function sendControl(command, allowed) {
     throw new Error('Allow control is off in the app\'s Configuration tab, so nothing was sent');
   }
   const [domain, service] = String(command.service || '').split('.');
-  if (!domain || !service || NEVER_CONTROL_DOMAINS.has(domain)) {
+  // Only entity types a charger or car uses, or a charger integration's own actions.
+  const allowedDomain = CONTROL_DOMAINS.has(domain) || KNOWN_CHARGER_DOMAINS.has(domain);
+  if (!domain || !service || NEVER_CONTROL_DOMAINS.has(domain) || !allowedDomain) {
     warn('Refused', command.service, '- this domain is never controlled');
     throw new Error(`${command.service} is never sent by this app`);
   }

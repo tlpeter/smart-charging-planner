@@ -343,10 +343,12 @@
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     async function api(method, url, body) {
+      // Changes are always sent as JSON: the app refuses anything else.
+      const write = method !== 'GET';
       const res = await fetch(url, {
         method,
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
+        headers: write ? { 'Content-Type': 'application/json' } : undefined,
+        body: write ? JSON.stringify(body || {}) : undefined,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -1405,7 +1407,12 @@
       box.innerHTML = '<p class="muted small">Checking…</p>';
       try {
         const r = await api('GET', 'api/control/check');
-        if (!r.available) { box.innerHTML = '<p class="muted">Set up a charger first.</p>'; return; }
+        if (!r.available) {
+          box.innerHTML = r.reason === 'not_a_charger'
+            ? '<div class="note">This device is not recognised as an EV charger, so the app will not control it. Choose your charger with "Detect chargers".</div>'
+            : '<p class="muted">Set up a charger first.</p>';
+          return;
+        }
         const alt = (list, rec) => list.filter((m) => m !== list[0]).map((m) => `<div class="small muted">or: ${methodText(m)}</div>`).join('');
         box.innerHTML = `
           <table class="periods" style="margin-top:12px">

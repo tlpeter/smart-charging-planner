@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.18.0
+
+Security review and fixes.
+
+- **Only Home Assistant may talk to the app**: requests that do not come through Home Assistant ingress (for example from other apps on the internal network) are refused
+- **Protection against other websites (CSRF)**: changes are only accepted as JSON from the same site; plain web forms and cross-site requests are refused
+- **The charger must be a real charger**: the device and its integration are taken from Home Assistant's registry, and control only works for a device that is recognised as an EV charger. Settings can no longer point the app at another device, such as a garage door or a pump
+- Control commands are limited to switches, buttons, choices and numbers, and the actions of known charger integrations
+- **The car's charge limit** must be a % entity that looks like a charge limit, on the car's own device; values stay between 50 and 100 %
+- Buttons are matched on whole words ("restart" is no longer seen as "start")
+- Requests are limited to 100 kB; invalid requests get a clear error instead of a crash
+- The installed library versions are fixed with a lock file (`npm ci`, with integrity checks)
+
 ## 0.17.0
 
 - **Charger brands** checked against the real names of their Home Assistant integrations (from their source code), with a test per brand (`tests/brands.test.js`):
