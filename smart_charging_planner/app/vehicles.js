@@ -68,6 +68,19 @@ function isPlugged(entity, s) {
     (entity.entity_id.startsWith('binary_sensor.') || entity.entity_id.startsWith('sensor.'));
 }
 
+// The car's own charge limit ("Target charge level", "Charge limit"): the
+// car stops charging there, whatever the charger does.
+function isChargeLimit(entity, s) {
+  if (!s) return false;
+  const id = entity.entity_id;
+  if (!/^(number|sensor|input_number)\./.test(id)) return false;
+  const a = s.attributes || {};
+  if (a.unit_of_measurement !== '%') return false;
+  const w = words(entity, s);
+  return /target.?(charge|soc|battery|level)|charge.?(limit|target)|charging.?limit|max.?(charge|soc)|soc.?(limit|target)|laadlimiet|laaddoel/.test(w) &&
+    !/min(imum)?/.test(w);
+}
+
 function option(entity, s) {
   const a = (s && s.attributes) || {};
   return {
@@ -110,6 +123,7 @@ function detectVehicles(entities, devices, states) {
     const distance = [];
     const charging = [];
     const plugged = [];
+    const chargeLimit = [];
 
     for (const e of ents) {
       const s = stateById.get(e.entity_id);
@@ -118,6 +132,7 @@ function detectVehicles(entities, devices, states) {
       if (isDistance(e, s)) distance.push(option(e, s));
       if (isCharging(e, s)) charging.push(option(e, s));
       if (isPlugged(e, s)) plugged.push(option(e, s));
+      if (isChargeLimit(e, s)) chargeLimit.push(option(e, s));
     }
 
     const known = [...domains].find((d) => KNOWN_VEHICLE_DOMAINS.has(d));
@@ -142,12 +157,14 @@ function detectVehicles(entities, devices, states) {
         range: range.length ? range : distance,
         charging,
         plugged,
+        charge_limit: chargeLimit,
       },
       suggested: {
         soc: pickBest(battery, /battery_level|state_of_charge|soc|battery/),
         range: pickBest(range.length ? range : [], /range/),
         charging: pickBest(charging, /charging/),
         plugged: pickBest(plugged, /plug/),
+        charge_limit: pickBest(chargeLimit.filter((o) => o.entity_id.startsWith('number.')).concat(chargeLimit), /target|limit/),
       },
     });
   }
@@ -161,6 +178,17 @@ function detectVehicles(entities, devices, states) {
   return candidates;
 }
 
+// The charge limit entity on the car's device, for vehicles saved before the
+// app knew about it.
+function findChargeLimit(entities, states, deviceId) {
+  if (!deviceId) return null;
+  const stateById = new Map(states.map((x) => [x.entity_id, x]));
+  const list = entities
+    .filter((e) => e.device_id === deviceId && !e.disabled_by && isChargeLimit(e, stateById.get(e.entity_id)))
+    .map((e) => e.entity_id);
+  return list.find((id) => id.startsWith('number.')) || list[0] || null;
+}
+
 // All sensors in %, for choosing a SoC manually when nothing is found.
 function percentSensors(entities, states) {
   const regById = new Map(entities.map((e) => [e.entity_id, e]));
@@ -171,4 +199,4 @@ function percentSensors(entities, states) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-module.exports = { detectVehicles, percentSensors, KNOWN_VEHICLE_DOMAINS };
+module.exports = { detectVehicles, percentSensors, findChargeLimit, isChargeLimit, KNOWN_VEHICLE_DOMAINS };

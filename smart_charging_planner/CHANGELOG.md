@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+
+- The app now knows the **car's own charge limit** (for example Renault "Target charge level"). The car stops charging there, whatever the charger does
+  - Found automatically on the car's device, also for vehicles set up earlier; can be chosen in Settings › Vehicle
+  - The plan aims for the lower of your target and the car's limit, and says so on the Overview ("80% (car limit)")
+  - Charge now warns when the chosen level is above the car's limit, and does not start; Charge now up to a level stops at the limit
+  - With "Allow control" on, a button **Raise the car's limit to …%** sets the limit in the car (only that entity; logged in the Log tab). The app does not lower it again afterwards
+
 ## 0.14.2
 
 - The "Notify action" field is removed from the Configuration tab. Choose where notifications go only from the list in the app, under Settings › Status

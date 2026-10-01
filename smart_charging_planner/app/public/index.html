@@ -364,6 +364,7 @@
           { key: 'range_entity', opt: 'range', label: 'Range' },
           { key: 'charging_entity', opt: 'charging', label: 'Charging' },
           { key: 'plugged_entity', opt: 'plugged', label: 'Plugged in' },
+          { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
         ],
         extraInputs: () => `
           <div class="field"><label>Battery capacity in kWh (optional, needed later for planning)</label>
@@ -897,7 +898,7 @@
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
           <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</p>
+          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</p>
           ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
           ${d.boost ? (p.cost != null ? `
           <div class="stats">
@@ -910,7 +911,7 @@
           </div>` : ''}
           ${vehicleSessionHtml(d)}
           ${continuousNote(p)}
-          ${p.notes.map((n) => `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
+          ${p.notes.map((n) => n === 'car_limit' ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed) : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
         </div>
         ${boostHtml(d)}
@@ -934,6 +935,38 @@
     }
 
     // ---------- Charge now ----------
+    // The car stops at its own charge limit.
+    function carLimitNote(lim, wanted, controlAllowed) {
+      if (!lim || lim.value == null) return '';
+      const btn = lim.writable && controlAllowed && wanted > lim.value
+        ? ` <button class="secondary raise-limit" data-value="${esc(wanted)}">Raise the car's limit to ${esc(wanted)}%</button>`
+        : '';
+      const how = lim.writable
+        ? (controlAllowed ? '' : ' (with Allow control on, the app can raise it for you)')
+        : '';
+      return `<div class="note">Your car stops charging at <strong>${esc(lim.value)}%</strong> (${esc(lim.name)}), below the wanted ${esc(wanted)}%. The app plans up to ${esc(lim.value)}%. Raise the limit in the car or its app to charge further${how}.${btn}<div class="raise-result"></div></div>`;
+    }
+
+    function bindRaiseLimit(after) {
+      document.querySelectorAll('.raise-limit').forEach((btn) => {
+        btn.onclick = async (e) => {
+          e.preventDefault();
+          const out = btn.parentElement.querySelector('.raise-result');
+          btn.disabled = true;
+          btn.textContent = 'Sending…';
+          try {
+            await api('POST', 'api/vehicle/charge_limit', { value: btn.dataset.value });
+            out.innerHTML = `<p class="small"><span class="ok">Sent.</span> The car can take a minute to report the new limit.</p>`;
+            setTimeout(after, 4000);
+          } catch (err) {
+            out.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+            btn.disabled = false;
+            btn.textContent = `Raise the car's limit to ${btn.dataset.value}%`;
+          }
+        };
+      });
+    }
+
     function boostGoalText(b, d) {
       if (b.mode === 'soc') return `up to ${b.value}%`;
       if (b.mode === 'kwh') return `${b.value} kWh`;
@@ -992,8 +1025,9 @@
         const mins = Math.max(1, Math.round((r.soon.start - Date.now()) / 60000));
         parts.push(`<div class="note">Charging is already planned soon: from ${esc(hm(r.soon.start))} (in ${mins} min) until ${esc(hm(r.soon.end))}, at ${r.soon.avg_price.toFixed(4)} /kWh on average. Waiting may be enough.</div>`);
       }
+      if (r.above_limit) parts.push(carLimitNote(r.car_limit, r.wanted_soc, r.control_allowed));
       if (!(r.kwh > 0.01)) {
-        parts.push('<p>Nothing to charge: the battery is already at that level.</p>');
+        if (!r.above_limit) parts.push('<p>Nothing to charge: the battery is already at that level.</p>');
         return parts.join('');
       }
       const n = r.now;
@@ -1006,7 +1040,7 @@
         </table>
         ${n.start && pl.start && n.kwh + 0.05 < r.kwh ? '<div class="note">Not all of it fits in the hours with known prices.</div>' : ''}
         ${r.extra_cost != null ? `<p>${r.extra_cost > 0.005 ? `Charging now costs about <strong>${money(r.extra_cost)}</strong> more.` : 'Charging now costs about the same.'}</p>` : ''}`);
-      if (r.plugged !== false) {
+      if (r.plugged !== false && !r.above_limit) {
         parts.push(`<div style="display:flex;gap:8px"><button class="primary" id="boost-start">Charge now</button><button class="secondary" id="boost-cancel">Cancel</button></div>
           <p class="muted small">${lastPlan && lastPlan.control_allowed ? 'This really starts the charger now (Allow control is on).' : 'Allow control is off: this only changes what the app would do (see the Log tab); nothing is sent to the charger.'}</p>`);
       }
@@ -1044,6 +1078,7 @@
         try {
           const r = await api('POST', 'api/boost/preview', goal);
           box.innerHTML = boostCheckHtml(r);
+          bindRaiseLimit(() => f.requestSubmit());
           const go = $('boost-start');
           if (go) go.onclick = async () => {
             go.disabled = true;
@@ -1123,6 +1158,7 @@
           loadOverview(true);
         };
         bindBoost();
+        bindRaiseLimit(() => loadOverview(true));
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
       } catch (err) {

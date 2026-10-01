@@ -60,6 +60,10 @@ When Settings › Grid is set up, the plan uses the last 14 days of your grid me
 
 The Savings tab needs a charging power sensor in Settings › Charger (for example a separate kWh meter) with long-term statistics. With a plugged-in sensor in Settings › Vehicle, sessions are compared over the whole time the car was connected; without one, only over the hours it was charging. Everything is calculated per hour, so the amounts are estimates. Prices are stored from the moment the app fetches them; EnergyZero, easyEnergy, Tibber and Nord Pool can also look back.
 
+## The car's own charge limit
+
+Many cars have their own charge limit (for example Renault "Target charge level"). The car stops charging there, even when the charger keeps going. The app finds this limit on the car's device (or you choose it in Settings › Vehicle) and plans up to the lower of your target and the car's limit. Charge now warns when you ask for more than the limit. With "Allow control" on, the app can raise the limit for you with a button; it does not lower it again afterwards.
+
 ## Notifications and sensors
 
 Choose where notifications go in **Settings › Status** (a list of the notify actions in your Home Assistant, such as `notify.mobile_app_your_phone`) and select **Save**. You get:

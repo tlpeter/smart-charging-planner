@@ -7,7 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
-const { detectVehicles, percentSensors } = require('./vehicles');
+const { detectVehicles, percentSensors, findChargeLimit } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
@@ -51,6 +51,39 @@ function readBody(req) {
       }
     });
   });
+}
+
+// The car's own charge limit (e.g. Renault "Target charge level"). For a
+// vehicle saved before the app knew about it, it is looked up on the car's
+// device once.
+const foundLimit = new Map(); // device_id -> entity_id | null
+async function carChargeLimit(vehicle, states) {
+  if (!vehicle) return null;
+  let id = vehicle.charge_limit_entity;
+  if (id === undefined && vehicle.device_id) {
+    if (!foundLimit.has(vehicle.device_id)) {
+      try {
+        const { entities } = await loadRegistries();
+        foundLimit.set(vehicle.device_id, findChargeLimit(entities, states, vehicle.device_id));
+      } catch {
+        foundLimit.set(vehicle.device_id, null);
+      }
+    }
+    id = foundLimit.get(vehicle.device_id);
+  }
+  if (!id) return null;
+  const st = states.find((x) => x.entity_id === id);
+  const value = st ? Number(st.state) : NaN;
+  if (!Number.isFinite(value) || value <= 0 || value > 100) return { entity_id: id, value: null, name: (st && st.attributes && st.attributes.friendly_name) || id };
+  return {
+    entity_id: id,
+    value,
+    name: (st.attributes && st.attributes.friendly_name) || id,
+    writable: /^(number|input_number)\./.test(id),
+    min: st.attributes && st.attributes.min,
+    max: st.attributes && st.attributes.max,
+    step: st.attributes && st.attributes.step,
+  };
 }
 
 async function loadRegistries() {
@@ -127,6 +160,7 @@ const routes = {
           range: valueOf(states, v.range_entity),
           charging: valueOf(states, v.charging_entity),
           plugged: valueOf(states, v.plugged_entity),
+          charge_limit: valueOf(states, v.charge_limit_entity),
         },
       })),
     };
@@ -162,6 +196,7 @@ const routes = {
       charging_entity: body.charging_entity || null,
       plugged_entity: String(body.plugged_entity || '').startsWith('binary_sensor.') || String(body.plugged_entity || '').startsWith('sensor.') ? body.plugged_entity : null,
       capacity_kwh: capacity,
+      charge_limit_entity: /^(number|sensor|input_number)\./.test(String(body.charge_limit_entity || '')) ? body.charge_limit_entity : null,
     };
     const s = settings.load();
     s.vehicles = [vehicle];
@@ -466,7 +501,11 @@ const routes = {
         });
       }
     }
-    const targetSoc = departure ? departure.soc : dep.default_soc;
+    const wantedSoc = departure ? departure.soc : dep.default_soc;
+    // The car stops at its own charge limit; planning above it is pointless.
+    const carLimit = vehicle && mode !== 'fixed_kwh' ? await carChargeLimit(vehicle, states) : null;
+    const limited = carLimit && carLimit.value != null && wantedSoc > carLimit.value;
+    const targetSoc = limited ? carLimit.value : wantedSoc;
     let neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
     if (vehicle && mode === 'fixed_kwh') {
       // Nothing to plan while unplugged; otherwise the rest of the fixed amount.
@@ -487,6 +526,7 @@ const routes = {
       plan.notes = ['fixed_waiting', ...plan.notes.filter((n) => n !== 'missing_data')];
     }
     if (calendarError) plan.notes.push('calendar_error');
+    if (limited) plan.notes.push('car_limit');
 
     // "Charge now": replaces the plan with charging right away.
     let activePlan = plan;
@@ -498,7 +538,7 @@ const routes = {
       let boostError = null;
       try {
         kwh = await boostNeededKwh(b, {
-          soc, capacity: vehicle && vehicle.capacity_kwh, loss: planning.loss_percent,
+          soc, capacity: vehicle && vehicle.capacity_kwh, loss: planning.loss_percent, carLimit,
           normalNeeded: neededKwh, powerEntity: charger && charger.power_entity, now,
         });
       } catch (err) {
@@ -525,7 +565,8 @@ const routes = {
       missing,
       price_error: priceError,
       calendar_error: calendarError,
-      planning: { ...planning, target_soc: targetSoc },
+      planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
+      car_limit: carLimit,
       departure,
       vehicle: vehicle ? {
         name: vehicle.name,
@@ -772,9 +813,12 @@ async function calendarEvents(dep, tz, now) {
 const computePlan = routes['GET /api/plan'];
 
 // kWh still needed for a "Charge now" goal.
-async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntity, now }) {
+async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntity, now, carLimit }) {
   if (b.mode === 'target') return normalNeeded;
-  if (b.mode === 'soc') return energyNeededKwh(soc, b.value, capacity, loss);
+  if (b.mode === 'soc') {
+    const goal = carLimit && carLimit.value != null ? Math.min(b.value, carLimit.value) : b.value;
+    return energyNeededKwh(soc, goal, capacity, loss);
+  }
   if (b.mode === 'kwh') {
     const done = powerEntity && b.started ? await session.energySince(powerEntity, b.started, now) : 0;
     return Math.max(0, b.value - done);
@@ -782,7 +826,7 @@ async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntit
   return null;
 }
 
-function boostFromBody(body, cached) {
+function boostFromBody(body, cached, starting = false) {
   const mode = String(body.mode || '');
   if (!boost.MODES.includes(mode)) throw badRequest('Choose how long to charge');
   const value = Number(body.value);
@@ -791,6 +835,10 @@ function boostFromBody(body, cached) {
     if (!Number.isFinite(cached.vehicle && cached.vehicle.soc)) throw badRequest('The battery level is not known; choose an amount in kWh instead');
   }
   if (mode === 'kwh' && !(value >= 0.5 && value <= 200)) throw badRequest('Amount must be between 0.5 and 200 kWh');
+  const lim = cached.car_limit;
+  if (starting && mode === 'soc' && lim && lim.value != null && value > lim.value) {
+    throw badRequest(`Your car stops at ${lim.value}% (${lim.name}). Raise that limit first, or choose ${lim.value}% or less.`);
+  }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
   return { mode, value: mode === 'target' ? null : value };
 }
@@ -807,8 +855,10 @@ routes['POST /api/boost/preview'] = async (req) => {
   const b = boostFromBody(body, cached);
   const now = Date.now();
   const v = cached.vehicle || {};
+  const lim = cached.car_limit;
+  const aboveLimit = b.mode === 'soc' && lim && lim.value != null && b.value > lim.value;
   const kwh = b.mode === 'target' ? cached.normal_plan.needed_kwh
-    : b.mode === 'soc' ? energyNeededKwh(v.soc, b.value, v.capacity_kwh, cached.planning.loss_percent)
+    : b.mode === 'soc' ? energyNeededKwh(v.soc, aboveLimit ? lim.value : b.value, v.capacity_kwh, cached.planning.loss_percent)
       : b.value;
   const powerKw = cached.power ? cached.power.planned_kw : 11;
   const prices = cached.prices;
@@ -836,6 +886,10 @@ routes['POST /api/boost/preview'] = async (req) => {
     running: running ? { start: running.start, end: running.end } : null,
     soon: next && next.start - now <= soonMinutes * 60000 ? { start: next.start, end: next.end, avg_price: next.avg_price } : null,
     soon_minutes: soonMinutes,
+    car_limit: lim || null,
+    above_limit: aboveLimit,
+    wanted_soc: b.mode === 'soc' ? b.value : null,
+    control_allowed: options.allow_control,
     departure: cached.departure ? cached.departure.time : null,
   };
 };
@@ -891,7 +945,7 @@ async function manualControl(on, reason) {
 routes['POST /api/boost'] = async (req) => {
   const body = await readBody(req);
   const cached = await freshPlan();
-  const b = boostFromBody(body, cached);
+  const b = boostFromBody(body, cached, true);
   if (cached.plugged_now === false) throw badRequest('The car is not plugged in');
   const s = settings.load();
   const states = await ha.call({ type: 'get_states' });
@@ -919,6 +973,41 @@ routes['DELETE /api/boost'] = async () => {
   const c = n && n.commands[0];
   const send = n && (n.sent || n.error) && c ? { sent: !!n.sent, error: n.error || null, command: c, at: n.sent_at || Date.now() } : null;
   return { ok: true, send, next: n ? { want: n.want, reason: n.reason } : null };
+};
+
+// Raise (or set) the car's own charge limit. Only with "Allow control" on,
+// and only the limit entity of the chosen vehicle.
+routes['POST /api/vehicle/charge_limit'] = async (req) => {
+  const body = await readBody(req);
+  const s = settings.load();
+  const vehicle = s.vehicles[0] || null;
+  const states = await ha.call({ type: 'get_states' });
+  const lim = await carChargeLimit(vehicle, states);
+  if (!lim) throw badRequest('No charge limit of the car found');
+  if (!lim.writable) throw badRequest(`${lim.name} cannot be changed from Home Assistant`);
+  const value = Math.round(Number(body.value));
+  const min = Number.isFinite(lim.min) ? lim.min : 1;
+  const max = Number.isFinite(lim.max) ? lim.max : 100;
+  if (!(value >= min && value <= max)) throw badRequest(`Choose a value between ${min} and ${max} %`);
+  const domain = lim.entity_id.split('.')[0];
+  const command = { service: `${domain}.set_value`, data: { value }, target: { entity_id: lim.entity_id } };
+  const entry = {
+    time: Date.now(), manual: true, want: 'none', code: 'car_limit',
+    reason: `Car charge limit ${lim.value}% → ${value}%`,
+    commands: [{ what: `set car charge limit to ${value}%`, service: command.service, data: command.data, target: command.target }],
+    agrees: true, sent: false, control_allowed: options.allow_control,
+  };
+  try {
+    await ha.sendControl(command, [{ service: command.service, entity_id: lim.entity_id }]);
+    entry.sent = true;
+  } catch (err) {
+    entry.error = err.message;
+  }
+  controller.logSent(entry);
+  if (!entry.sent) throw badRequest(entry.error);
+  ha.log(`Car charge limit set to ${value}% (${lim.entity_id})`);
+  planCache = null;
+  return { ok: true, value, entity_id: lim.entity_id };
 };
 
 // Manual test on the Control tab: start or stop once.
