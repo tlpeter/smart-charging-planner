@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.1
+
+- Managing the car's charge limit: a new limit is now sent **right away, once** (for example back to your departure target as soon as Charge now ends). It is only sent again when the car still shows the old value after 15 minutes, at most twice; then you get a notification
+- The Log tab no longer shows each sent command twice (only one command was sent)
+
+## 0.16.0
+
+- New rule in Settings › Control: **Let the app manage the car's own charge limit** (off by default, only with "Allow control" on)
+  - While Charge now runs up to a level, the car's limit is set to that level (rounded up to a value the car accepts)
+  - Otherwise the car's limit follows your next departure, for example "doel: 80" from the calendar
+  - Only while the car is plugged in, and only when the limit differs
+  - Right away when you start Charge now or use the button; otherwise at most once every 15 minutes since the last limit sent, because the car's cloud API limits the number of calls
+  - Every change is logged in the Log tab and notified (with "Notify every start and pause")
+- With the rule on, the plan and Charge now no longer stop at the car's current limit, because the app sets it
+
 ## 0.15.1
 
 Charge now is a firmer overrule:

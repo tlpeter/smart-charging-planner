@@ -504,7 +504,8 @@ const routes = {
     const wantedSoc = departure ? departure.soc : dep.default_soc;
     // The car stops at its own charge limit; planning above it is pointless.
     const carLimit = vehicle && mode !== 'fixed_kwh' ? await carChargeLimit(vehicle, states) : null;
-    const limited = carLimit && carLimit.value != null && wantedSoc > carLimit.value;
+    const managesLimit = managingCarLimit(s);
+    const limited = !managesLimit && carLimit && carLimit.value != null && wantedSoc > carLimit.value;
     const targetSoc = limited ? carLimit.value : wantedSoc;
     let neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
     if (vehicle && mode === 'fixed_kwh') {
@@ -538,7 +539,7 @@ const routes = {
       let boostError = null;
       try {
         kwh = await boostNeededKwh(b, {
-          soc, capacity: vehicle && vehicle.capacity_kwh, loss: planning.loss_percent, carLimit,
+          soc, capacity: vehicle && vehicle.capacity_kwh, loss: planning.loss_percent, carLimit: managesLimit ? null : carLimit,
           normalNeeded: neededKwh, powerEntity: charger && charger.power_entity, now,
         });
       } catch (err) {
@@ -567,6 +568,7 @@ const routes = {
       calendar_error: calendarError,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
+      manages_car_limit: managesLimit,
       departure,
       vehicle: vehicle ? {
         name: vehicle.name,
@@ -836,7 +838,7 @@ function boostFromBody(body, cached, starting = false) {
   }
   if (mode === 'kwh' && !(value >= 0.5 && value <= 200)) throw badRequest('Amount must be between 0.5 and 200 kWh');
   const lim = cached.car_limit;
-  if (starting && mode === 'soc' && lim && lim.value != null && value > lim.value) {
+  if (starting && mode === 'soc' && lim && lim.value != null && value > lim.value && !cached.manages_car_limit) {
     throw badRequest(`Your car stops at ${lim.value}% (${lim.name}). Raise that limit first, or choose ${lim.value}% or less.`);
   }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
@@ -856,7 +858,7 @@ routes['POST /api/boost/preview'] = async (req) => {
   const now = Date.now();
   const v = cached.vehicle || {};
   const lim = cached.car_limit;
-  const aboveLimit = b.mode === 'soc' && lim && lim.value != null && b.value > lim.value;
+  const aboveLimit = b.mode === 'soc' && lim && lim.value != null && b.value > lim.value && !cached.manages_car_limit;
   const kwh = b.mode === 'target' ? cached.normal_plan.needed_kwh
     : b.mode === 'soc' ? energyNeededKwh(v.soc, aboveLimit ? lim.value : b.value, v.capacity_kwh, cached.planning.loss_percent)
       : b.value;
@@ -890,6 +892,7 @@ routes['POST /api/boost/preview'] = async (req) => {
     above_limit: aboveLimit,
     wanted_soc: b.mode === 'soc' ? b.value : null,
     control_allowed: options.allow_control,
+    manages_car_limit: !!cached.manages_car_limit,
     departure: cached.departure ? cached.departure.time : null,
   };
 };
@@ -954,6 +957,8 @@ routes['POST /api/boost'] = async (req) => {
   if (actual.plugged === false) throw badRequest('The car is not plugged in');
   const wasCharging = actual.charging === true;
   boost.start(b);
+  // Raise the car's limit first, so the car accepts the charge.
+  await manageCarLimit(cached, actual, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
   let send = null;
   if (!wasCharging) {
     send = await manualControl(true, 'Charge now started by you');
@@ -977,6 +982,86 @@ routes['DELETE /api/boost'] = async () => {
   return { ok: true, send, next: n ? { want: n.want, reason: n.reason } : null };
 };
 
+// "Let the app manage the car's charge limit": only with Allow control on.
+function managingCarLimit(s) {
+  return options.allow_control === true && !!(s.control && s.control.manage_car_limit);
+}
+
+// Round up to a value the car accepts (Renault: steps of 5).
+function limitValue(lim, wanted) {
+  const min = Number.isFinite(lim.min) ? lim.min : 1;
+  const max = Number.isFinite(lim.max) ? lim.max : 100;
+  const step = Number(lim.step) > 0 ? Number(lim.step) : 1;
+  const v = Math.ceil((Number(wanted) - min) / step - 1e-9) * step + min;
+  return Math.max(min, Math.min(max, v));
+}
+
+// Send the car's charge limit. Used by the button and by managing.
+async function sendCarLimit(lim, value, reason, live) {
+  const domain = lim.entity_id.split('.')[0];
+  const command = { service: `${domain}.set_value`, data: { value }, target: { entity_id: lim.entity_id } };
+  const entry = {
+    time: Date.now(), manual: !live, live: !!live, want: 'none', code: 'car_limit',
+    reason: `${reason}: car charge limit ${lim.value}% → ${value}%`,
+    commands: [{ what: `set car charge limit to ${value}%`, service: command.service, data: command.data, target: command.target }],
+    agrees: true, sent: false, control_allowed: options.allow_control,
+  };
+  try {
+    await ha.sendControl(command, [{ service: command.service, entity_id: lim.entity_id }]);
+    entry.sent = true;
+    ha.log(`Car charge limit set to ${value}% (${lim.entity_id}) - ${reason}`);
+  } catch (err) {
+    entry.error = err.message;
+  }
+  controller.logSent(entry);
+  return entry;
+}
+
+// Keep the car's limit at the goal: the Charge now level while it runs,
+// otherwise the departure target (e.g. "doel: 80" from the calendar).
+// Only while the car is plugged in. A new value is sent right away, once.
+// The car's cloud is slow and limits the number of calls, so the same value
+// is only sent again when the car still shows the old one after 15 minutes,
+// at most twice.
+const LIMIT_RETRY_MS = Number(process.env.SCP_LIMIT_GAP_MS) || 15 * 60000;
+const LIMIT_MAX_TRIES = 3;
+let lastLimitSend = null; // { value, at, tries }
+async function manageCarLimit(planResult, actual, states) {
+  const s = settings.load();
+  if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
+  const vehicle = s.vehicles[0] || null;
+  if (!vehicle || (vehicle.mode || 'sensor') === 'fixed_kwh') return;
+  const lim = await carChargeLimit(vehicle, states);
+  if (!lim || !lim.writable || lim.value == null) return;
+  const b = boost.current();
+  let wanted;
+  let reason;
+  if (b && b.mode === 'soc') { wanted = b.value; reason = 'Charge now'; }
+  else if (b && b.mode === 'kwh') return; // an amount, not a level: leave the limit
+  else { wanted = planResult.planning && planResult.planning.wanted_soc; reason = b ? 'Charge now' : 'Planned target'; }
+  if (!Number.isFinite(Number(wanted))) return;
+  const value = limitValue(lim, wanted);
+  if (value === lim.value) return;
+  let tries = 1;
+  if (lastLimitSend && lastLimitSend.value === value) {
+    // Already sent: wait for the car to report it.
+    if (Date.now() - lastLimitSend.at < LIMIT_RETRY_MS) return;
+    if (lastLimitSend.tries >= LIMIT_MAX_TRIES) {
+      if (!lastLimitSend.gaveUp) {
+        lastLimitSend.gaveUp = true;
+        await notifier.notify('problem', 'Car charge limit not changed',
+          `The car still reports ${lim.value}% after ${LIMIT_MAX_TRIES} attempts to set ${value}% (${lim.name}).`);
+      }
+      return;
+    }
+    tries = lastLimitSend.tries + 1;
+  }
+  lastLimitSend = { value, at: Date.now(), tries };
+  const e = await sendCarLimit(lim, value, tries > 1 ? `${reason} (attempt ${tries})` : reason, true);
+  if (e.sent) await notifier.notify('startstop', 'Car charge limit changed', `${e.reason}.`);
+  else await notifier.notify('problem', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
+}
+
 // Raise (or set) the car's own charge limit. Only with "Allow control" on,
 // and only the limit entity of the chosen vehicle.
 routes['POST /api/vehicle/charge_limit'] = async (req) => {
@@ -987,29 +1072,11 @@ routes['POST /api/vehicle/charge_limit'] = async (req) => {
   const lim = await carChargeLimit(vehicle, states);
   if (!lim) throw badRequest('No charge limit of the car found');
   if (!lim.writable) throw badRequest(`${lim.name} cannot be changed from Home Assistant`);
-  const min = Number.isFinite(lim.min) ? lim.min : 1;
-  const max = Number.isFinite(lim.max) ? lim.max : 100;
-  const step = Number(lim.step) > 0 ? Number(lim.step) : 1;
-  // Round up to a value the car accepts (Renault: steps of 5).
-  const value = Math.min(max, Math.ceil((Number(body.value) - min) / step - 1e-9) * step + min);
-  if (!(value >= min && value <= max)) throw badRequest(`Choose a value between ${min} and ${max} %`);
-  const domain = lim.entity_id.split('.')[0];
-  const command = { service: `${domain}.set_value`, data: { value }, target: { entity_id: lim.entity_id } };
-  const entry = {
-    time: Date.now(), manual: true, want: 'none', code: 'car_limit',
-    reason: `Car charge limit ${lim.value}% → ${value}%`,
-    commands: [{ what: `set car charge limit to ${value}%`, service: command.service, data: command.data, target: command.target }],
-    agrees: true, sent: false, control_allowed: options.allow_control,
-  };
-  try {
-    await ha.sendControl(command, [{ service: command.service, entity_id: lim.entity_id }]);
-    entry.sent = true;
-  } catch (err) {
-    entry.error = err.message;
-  }
-  controller.logSent(entry);
+  if (!(Number(body.value) > 0)) throw badRequest('Choose a battery level');
+  const value = limitValue(lim, body.value);
+  const entry = await sendCarLimit(lim, value, 'Set by you', false);
   if (!entry.sent) throw badRequest(entry.error);
-  ha.log(`Car charge limit set to ${value}% (${lim.entity_id})`);
+  lastLimitSend = { value, at: Date.now(), tries: 1 };
   planCache = null;
   return { ok: true, value, entity_id: lim.entity_id };
 };
@@ -1121,6 +1188,7 @@ async function runDryRun(planResult) {
   if (options.allow_control === true) {
     await checkReaction(lastDryRun);
     await sendLive(lastDryRun, chosenMethods(methods, rules));
+    await manageCarLimit(planResult, lastDryRun, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
   }
   await notifier.publishSensors(planResult, lastDryRun, { lastCommand: lastCommandInfo });
   return lastDryRun;
@@ -1343,6 +1411,7 @@ routes['POST /api/control/settings'] = async (req) => {
     preheat_entity: ent(b.preheat_entity, /^(input_boolean|switch|binary_sensor)\./),
     force_minutes: num(b.force_minutes, 'Force window', 0, 600),
     hysteresis: num(b.hysteresis, 'Hysteresis', 0, 1),
+    manage_car_limit: b.manage_car_limit === true,
   };
   settings.save(s);
   lastDryRun = null;

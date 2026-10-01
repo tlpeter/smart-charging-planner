@@ -62,7 +62,7 @@ The Savings tab needs a charging power sensor in Settings › Charger (for examp
 
 ## The car's own charge limit
 
-Many cars have their own charge limit (for example Renault "Target charge level"). The car stops charging there, even when the charger keeps going. The app finds this limit on the car's device (or you choose it in Settings › Vehicle) and plans up to the lower of your target and the car's limit. Charge now warns when you ask for more than the limit. With "Allow control" on, the app can raise the limit for you with a button; it does not lower it again afterwards.
+Many cars have their own charge limit (for example Renault "Target charge level"). The car stops charging there, even when the charger keeps going. The app finds this limit on the car's device (or you choose it in Settings › Vehicle) and plans up to the lower of your target and the car's limit. Charge now warns when you ask for more than the limit. With "Allow control" on, the app can raise the limit for you with a button. Turn on **Let the app manage the car's own charge limit** in Settings › Control to let the app keep the limit at the goal: the Charge now level while it runs, otherwise the battery level of your next departure. A new limit is sent right away, once. Because the car's cloud is slow and limits the number of calls, it is only sent again when the car still shows the old value after 15 minutes (at most twice).
 
 ## Notifications and sensors
 

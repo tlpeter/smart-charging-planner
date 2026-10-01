@@ -249,6 +249,8 @@
           <div class="field"><label>Force charging this many minutes before departure (0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
         </div>
         <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
+        <label class="check"><input type="checkbox" name="manage_car_limit"> Let the app manage the car's own charge limit</label>
+        <p class="muted small">Sets the car's charge limit (for example Renault "Target charge level") to the goal: the Charge now level while it runs, otherwise the battery level of your next departure. Only while the car is plugged in and "Allow control" is on. A new limit is sent right away, once. Because the car's cloud is slow and limits the number of calls, it is only sent again if the car still shows the old value after 15 minutes (at most twice).</p>
         <p class="muted small">Once a planned period has started, it is finished even if a new calculation would move it. A charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         <div class="buttons"><button class="primary" type="submit">Save</button></div>
         <div class="error form-error" hidden></div>
@@ -1026,6 +1028,9 @@
         parts.push(`<div class="note">Charging is already planned soon: from ${esc(hm(r.soon.start))} (in ${mins} min) until ${esc(hm(r.soon.end))}, at ${r.soon.avg_price.toFixed(4)} /kWh on average. Waiting may be enough.</div>`);
       }
       if (r.above_limit) parts.push(carLimitNote(r.car_limit, r.wanted_soc, r.control_allowed));
+      if (r.manages_car_limit && r.car_limit && r.car_limit.value != null && r.wanted_soc > r.car_limit.value) {
+        parts.push(`<div class="note">The car's limit is ${esc(r.car_limit.value)}%. The app first sets it to ${esc(r.wanted_soc)}% (or the next value the car accepts), and back to your departure target when Charge now ends.</div>`);
+      }
       if (!(r.kwh > 0.01)) {
         if (!r.above_limit) parts.push('<p>Nothing to charge: the battery is already at that level.</p>');
         return parts.join('');
@@ -1458,6 +1463,7 @@
       f.preheat_entity.innerHTML = entityOptions(d.options.preheat, r.preheat_entity, '— none —');
       f.force_minutes.value = r.force_minutes;
       f.hysteresis.value = r.hysteresis;
+      f.manage_car_limit.checked = !!r.manage_car_limit;
     }
 
     $('control-form').addEventListener('submit', async (e) => {
@@ -1474,6 +1480,7 @@
           min_soc_enabled: f.min_soc_enabled.checked, min_soc: f.min_soc.value, min_soc_entity: f.min_soc_entity.value,
           min_soc_max_price: f.min_soc_max_price.value, preheat_entity: f.preheat_entity.value,
           force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
+          manage_car_limit: f.manage_car_limit.checked,
         });
         document.activeElement.blur();
         await loadControl();

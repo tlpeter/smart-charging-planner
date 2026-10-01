@@ -42,6 +42,7 @@ const DEFAULT_RULES = {
   preheat_entity: null,
   force_minutes: 0,
   hysteresis: 0.03,
+  manage_car_limit: false, // set the car's own charge limit to the goal
 };
 
 let log = null;
@@ -298,7 +299,9 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   const last = entries[entries.length - 1];
   const key = (e) => JSON.stringify([e.plugged, e.charging, e.want, e.code, e.amps, e.commands.map((c) => c.what)]);
   if (!last || key(last) !== key(entry)) {
-    entries.push(entry);
+    // A copy: the server marks the live entry as sent afterwards, and that
+    // gets its own log line.
+    entries.push({ ...entry, commands: entry.commands.map((c) => ({ ...c })) });
     log = entries.slice(-KEEP);
     writeJson(LOG_FILE, log);
   }
