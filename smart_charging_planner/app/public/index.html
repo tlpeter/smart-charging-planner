@@ -228,9 +228,11 @@
     </section>
     <section id="tab-savings" hidden><div id="savings-body"><div class="card muted">Loading…</div></div></section>
     <section id="tab-log" hidden>
+      <div id="conflicts-log"></div>
       <div id="control-body"><div class="card muted">Loading…</div></div>
     </section>
     <section id="tab-ctlset" hidden>
+      <div id="conflicts-ctl"></div>
       <form class="card" id="control-form">
         <h2>How to control the charger</h2>
         <p class="muted small">Found by the control check. Choose the method that works best with your charger, for example the one your own automation already uses.</p>
@@ -1379,6 +1381,10 @@
       no_current: () => 'No way found to set the charging current. The app can still start and stop.',
       blunt_switch: (w) => `The best start/stop option is the switch ${esc(w.entity_id)}, which may turn the whole charger off. Pausing through an action would be better.`,
       no_device: () => 'The charger was chosen manually and has no device, so the integration\'s actions cannot be matched.',
+      own_mode_on: (w) => `"${esc(w.name)}" is set to "${esc(w.state)}". The charger's own smart or solar mode would fight with the app; set it to its normal or default mode before letting the app control charging.`,
+      read_only_integration: (w) => `The ${esc(w.integration)} integration can only read data; it cannot start or stop charging. The app can plan and advise, but not control this charger.`,
+      alfen_single_login: () => 'Alfen allows only one login at a time: the Alfen app (MyEve / Eve Connect) and Home Assistant push each other out. Use the integration\'s login/logout buttons when you need the Alfen app.',
+      ocpp_backend: () => 'OCPP: the charger must be set to connect to Home Assistant (ws://&lt;HA&gt;:9000/&lt;id&gt;). Use the "Charge control" switch for start/stop, not the availability switches.',
     };
 
     function methodText(m) {
@@ -1441,6 +1447,7 @@
         case 'action_pair': return `${m.domain}.${m.start_service} / ${m.stop_service}`;
         case 'buttons': return `Buttons ${m.start_entity} / ${m.stop_entity}`;
         case 'switch': return `Switch ${m.entity_id}${m.blunt ? ' (turns the charger on/off)' : ''}`;
+        case 'select': return `Choice ${m.entity_id}: ${m.start_option} / ${m.stop_option}${m.blunt ? ' (takes the socket out of service)' : ''}`;
         case 'action_current': return `${m.domain}.${m.service} (${m.field})${m.ttl_field ? ', expires by itself' : ''}`;
         case 'number': return `Entity ${m.entity_id}`;
         default: return m.id;
@@ -1495,7 +1502,43 @@
       }
     });
 
+    // Automations that may fight with the app.
+    function conflictsHtml(r) {
+      const active = (r.items || []).filter((x) => !x.dismissed);
+      const ignored = (r.items || []).filter((x) => x.dismissed);
+      if (!active.length && !ignored.length) return '';
+      const row = (x) => `<div class="row" style="align-items:center">
+          <span><strong>${esc(x.name)}</strong><div class="src">${esc(x.entity_id)} · uses ${esc(x.uses.join(' and '))}${x.via.length ? ` (through ${esc(x.via.join(', '))})` : ''}</div></span>
+          <button class="secondary conflict-dismiss" data-id="${esc(x.entity_id)}" data-undo="${x.dismissed ? '1' : ''}">${x.dismissed ? 'Warn again' : 'Ignore'}</button>
+        </div>`;
+      return `<div class="card">
+          ${active.length ? `<h2>Possible conflicts</h2>
+          <p class="muted small">These automations are on and use the same charger or car limit as the app. When "Allow control" is on, they may undo what the app does. Turn them off in Settings → Automations if the app takes over their job. The app never turns them off itself. Home Assistant only says that an automation <em>uses</em> the entity, not that it changes it; select Ignore if it is harmless (for example a notification).</p>
+          ${active.map(row).join('')}` : ''}
+          ${ignored.length ? `<details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">Ignored (${ignored.length})</summary>${ignored.map(row).join('')}</details>` : ''}
+        </div>`;
+    }
+
+    async function loadConflicts(refresh = false) {
+      try {
+        const r = await api('GET', refresh ? 'api/conflicts?refresh=1' : 'api/conflicts');
+        const html = conflictsHtml(r);
+        $('conflicts-log').innerHTML = html;
+        $('conflicts-ctl').innerHTML = html;
+        document.querySelectorAll('.conflict-dismiss').forEach((btn) => {
+          btn.onclick = async () => {
+            btn.disabled = true;
+            await api('POST', 'api/conflicts/dismiss', { entity_id: btn.dataset.id, undo: btn.dataset.undo === '1' });
+            loadConflicts();
+          };
+        });
+      } catch {
+        // no warning card when the check fails
+      }
+    }
+
     async function loadControl() {
+      loadConflicts();
       const box = $('control-body');
       try {
         const d = await api('GET', 'api/control');

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.17.0
+
+- **Charger brands** checked against the real names of their Home Assistant integrations (from their source code), with a test per brand (`tests/brands.test.js`):
+  - Easee (pause/resume action), Zaptec (resume/stop buttons), Alfen (charging switch), Wallbox (pause/resume switch), go-e (Force state choice, or the allow charging switch of the older integration), Peblar (charge switch), OCPP (Charge control switch), Ohme (Charge mode choice)
+  - New start/stop method: a **choice (select)**, for go-e "Force state", Ohme "Charge mode" and, as a last resort, Alfen "Operation mode"
+  - More status texts are understood, such as Zaptec `connected_charging`, Peblar `no_ev_connected`, Wallbox "Ready", OCPP "SuspendedEV", Alfen "Charging Normal" and go-e "charging finished"
+  - Better suggestions for the status and power sensor per brand
+  - Warnings when the charger's own smart or solar mode is on (Wallbox Eco-Smart, Peblar smart charging, Alfen solar mode, go-e PV surplus, Ohme smart charge); Easee's "Smart charging" switch is no longer reported, because it only changes the LED colour
+  - Notes for Alfen (only one login at a time), OCPP (the charger must connect to Home Assistant) and Tesla Wall Connector (can only read, not control)
+- **Possible conflicts**: the Log tab and Settings › Control list automations that are on and use the charger's start/stop, the charger itself or the car's charge limit, also through a script. Each can be ignored. The app never turns automations off
+
 ## 0.16.1
 
 - Managing the car's charge limit: a new limit is now sent **right away, once** (for example back to your departure target as soon as Charge now ends). It is only sent again when the car still shows the old value after 15 minutes, at most twice; then you get a notification

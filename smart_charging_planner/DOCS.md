@@ -64,6 +64,28 @@ The Savings tab needs a charging power sensor in Settings › Charger (for examp
 
 Many cars have their own charge limit (for example Renault "Target charge level"). The car stops charging there, even when the charger keeps going. The app finds this limit on the car's device (or you choose it in Settings › Vehicle) and plans up to the lower of your target and the car's limit. Charge now warns when you ask for more than the limit. With "Allow control" on, the app can raise the limit for you with a button. Turn on **Let the app manage the car's own charge limit** in Settings › Control to let the app keep the limit at the goal: the Charge now level while it runs, otherwise the battery level of your next departure. A new limit is sent right away, once. Because the car's cloud is slow and limits the number of calls, it is only sent again when the car still shows the old value after 15 minutes (at most twice).
 
+## Supported chargers
+
+The app reads which actions and entities your charger's integration offers and picks the best way to start and stop. Checked against the integrations' source code:
+
+| Charger | Integration | Start / stop | Notes |
+|---|---|---|---|
+| Easee | easee (HACS) | `easee.action_command` pause / resume | The "Charger enabled" switch also works, but turns the whole charger off |
+| Zaptec | zaptec (HACS) | Resume / Stop charging buttons | Resume only works after a stop command |
+| Alfen | alfen_wallbox (HACS) | Charging switch | One login at a time; solar mode may override |
+| Wallbox | wallbox | Pause/resume switch | Eco-Smart and Wallbox schedules may override |
+| go-e | goecharger_api2 (HACS) | Force state: Charge / Don't charge | Older goecharger: Allow charging switch |
+| Peblar | peblar | Charge switch | Set Smart charging to "default" |
+| OCPP (many brands) | ocpp (HACS) | Charge control switch | The charger must connect to Home Assistant |
+| Ohme | ohme | Charge mode: Max charge / Paused | Ohme's own smart charging is replaced while the app controls |
+| Tesla Wall Connector | tesla_wall_connector | – | Can only read; no control |
+
+Other chargers work when their integration offers a pause/resume or start/stop action, start and stop buttons, a charging switch or a choice with charge / stop options.
+
+## Possible conflicts
+
+Automations that also start or stop the charger, or change the car's charge limit, undo what the app does. The Log tab and Settings › Control list automations that are on and use the charger's start/stop entity, the charger device or the car's charge limit (also through a script they call). Home Assistant only tells whether an automation uses an entity, not whether it changes it, so select **Ignore** for harmless ones such as notifications. The app never turns automations off.
+
 ## Notifications and sensors
 
 Choose where notifications go in **Settings › Status** (a list of the notify actions in your Home Assistant, such as `notify.mobile_app_your_phone`) and select **Save**. You get:
