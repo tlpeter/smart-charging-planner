@@ -5,34 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Smart Charging Planner</title>
   <style>
+    /* Look and feel: Home Assistant's default theme with Mushroom-style cards,
+       chips and round tinted icons. */
     :root {
-      --bg: #f5f6f8;
+      --bg: #fafafa;
       --card: #ffffff;
-      --text: #1c1f24;
-      --muted: #5f6672;
-      --border: #dde1e6;
+      --text: #212121;
+      --muted: #727272;
+      --border: #e0e0e0;
       --accent: #03a9f4;
+      --rgb-accent: 3, 169, 244;
       --accent-text: #ffffff;
-      --good: #1f8a4c;
-      --bad: #c0392b;
-      --chip: #eef1f4;
+      --good: #43a047;
+      --bad: #db4437;
+      --chip: rgba(0, 0, 0, 0.05);
       --bar: #cfd5dc;
-      --grid: #e6e9ed;
+      --grid: #eceff1;
+      --rgb-text: 33, 33, 33;
+      --rgb-green: 76, 175, 80;
+      --rgb-amber: 255, 193, 7;
+      --rgb-orange: 255, 152, 0;
+      --rgb-blue: 33, 150, 243;
+      --rgb-red: 244, 67, 54;
+      --rgb-grey: 158, 158, 158;
+      --rgb-purple: 156, 39, 176;
+      --radius: 12px;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #111418;
-        --card: #1b1f25;
-        --text: #e8eaed;
-        --muted: #9aa1ab;
-        --border: #2c323a;
-        --accent: #29b6f6;
-        --accent-text: #0b1016;
-        --good: #3ccf7a;
-        --bad: #ff6b5b;
-        --chip: #262b33;
-        --bar: #3a424c;
-        --grid: #262b33;
+        --bg: #111111;
+        --card: #1c1c1c;
+        --text: #e1e1e1;
+        --muted: #9b9b9b;
+        --border: #2e2e2e;
+        --accent: #03a9f4;
+        --accent-text: #ffffff;
+        --good: #66bb6a;
+        --bad: #ef5350;
+        --chip: rgba(255, 255, 255, 0.06);
+        --bar: #3a3f45;
+        --grid: #262a2e;
+        --rgb-text: 225, 225, 225;
+        --shadow: none;
       }
     }
     * { box-sizing: border-box; }
@@ -139,12 +154,63 @@
     .sub { margin: 4px 0 4px 26px; }
     .savebar { padding: 0 0 16px; display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
     .savebar .error { margin: 0; }
+
+    /* ---- Mushroom style ---- */
+    body { font-family: Roboto, "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }
+    h1 { font-size: 20px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+    h2 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .card { border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 14px 16px; }
+    .tabs { border-bottom: none; gap: 8px; padding-bottom: 2px; margin-bottom: 16px; }
+    .tab, .subtab {
+      display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+      border-radius: 18px; border: 1px solid var(--border); background: var(--card); box-shadow: var(--shadow);
+      color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; margin: 0;
+    }
+    .tab.active, .subtab.active {
+      background: rgba(var(--rgb-accent), 0.18); border-color: transparent; color: var(--accent); font-weight: 600;
+    }
+    .subtabs { margin: -6px 0 16px; gap: 8px; }
+    .subtab { height: 32px; font-size: 12.5px; }
+    .tab svg, .subtab svg { width: 18px; height: 18px; fill: currentColor; flex: none; }
+    button.primary, button.secondary { border-radius: 18px; padding: 8px 16px; font-weight: 600; font-size: 13px; border: none; }
+    button.primary { background: rgba(var(--rgb-accent), 0.18); color: var(--accent); }
+    button.primary:hover { background: rgba(var(--rgb-accent), 0.28); }
+    button.secondary { background: var(--chip); color: var(--text); }
+    button.secondary:hover { background: rgba(var(--rgb-text), 0.1); }
+    select, input { border: none; background: var(--chip); border-radius: 10px; padding: 9px 12px; }
+    select:focus, input:focus { outline: 2px solid rgba(var(--rgb-accent), 0.5); outline-offset: 0; }
+    .check input { accent-color: var(--accent); }
+    .advice { border: none; border-radius: 12px; background: rgba(var(--rgb-grey), 0.18); color: var(--muted); padding: 3px 10px; font-size: 11px; }
+    .advice.test { background: rgba(var(--rgb-red), 0.15); color: rgb(var(--rgb-red)); }
+    .advice.live { background: rgba(var(--rgb-green), 0.18); color: rgb(var(--rgb-green)); }
+    .note { border-radius: 10px; background: var(--chip); }
+    .row { border-bottom-color: var(--border); }
+    .headline { font-size: 16px; font-weight: 600; margin: 0; }
+    .stats { gap: 10px; }
+    .stat { display: flex; align-items: center; gap: 10px; background: var(--chip); border-radius: var(--radius); padding: 10px 12px; }
+    .stat .v { font-size: 16px; }
+    .stat .l { font-size: 12px; }
+    /* Round tinted icon, as in Mushroom cards */
+    .shape { --c: var(--rgb-grey); width: 40px; height: 40px; flex: none; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(var(--c), 0.2); color: rgb(var(--c)); }
+    .shape svg { width: 22px; height: 22px; fill: currentColor; }
+    .shape.sm { width: 32px; height: 32px; }
+    .shape.sm svg { width: 18px; height: 18px; }
+    .c-green { --c: var(--rgb-green); } .c-amber { --c: var(--rgb-amber); } .c-orange { --c: var(--rgb-orange); }
+    .c-blue { --c: var(--rgb-blue); } .c-red { --c: var(--rgb-red); } .c-grey { --c: var(--rgb-grey); } .c-purple { --c: var(--rgb-purple); }
+    .entity { display: flex; align-items: center; gap: 12px; }
+    .entity .txt { min-width: 0; flex: 1; }
+    .entity .primary { font-weight: 600; font-size: 15px; }
+    .entity .secondary { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+    .periods td, .periods th { border-bottom-color: var(--border); }
+    a { color: var(--accent); }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Smart Charging Planner</h1>
+    <h1 id="app-title">Smart Charging Planner</h1>
     <div id="wizard" class="card" hidden></div>
     <nav class="tabs" id="main-nav">
       <button class="tab active" data-tab="overview">Overview</button>
@@ -238,7 +304,7 @@
       <div id="conflicts-ctl"></div>
       <form id="control-form">
         <div class="card">
-          <h2>Charger</h2>
+          <h2 data-icon="charger" data-color="blue">Charger</h2>
           <p class="muted small">How the app starts and stops the charger. Found by the control check; for example choose the method your own automation used.</p>
           <div class="field"><label>Start / stop charging</label><select name="start_stop_id"></select></div>
           <div class="field"><label>Charging current</label><select name="current_id"></select>
@@ -246,7 +312,7 @@
         </div>
 
         <div class="card">
-          <h2>Car</h2>
+          <h2 data-icon="car" data-color="green">Car</h2>
           <p class="muted small">The car's own charge limit and a minimum battery level.</p>
           <label class="check"><input type="checkbox" name="manage_car_limit"> <strong>Let the app manage the car's own charge limit</strong></label>
           <div class="sub" data-when="manage_car_limit">
@@ -264,7 +330,7 @@
         </div>
 
         <div class="card">
-          <h2>Timing and price</h2>
+          <h2 data-icon="clock" data-color="purple">Timing and price</h2>
           <div class="two">
             <div class="field"><label>Force charging before departure (minutes, 0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
             <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
@@ -384,6 +450,11 @@
 
   <script>
     // All URLs are relative, so requests go through the ingress path.
+
+    // Material Design Icons (as used by Home Assistant and Mushroom), from @mdi/js 7.4.47 (Apache-2.0).
+    const ICONS = {"overview": "M19,5V7H15V5H19M9,5V11H5V5H9M19,13V19H15V13H19M9,17V19H5V17H9M21,3H13V9H21V3M11,3H3V13H11V3M21,11H13V21H21V11M11,15H3V21H11V15Z", "departures": "M15,13H16.5V15.82L18.94,17.23L18.19,18.53L15,16.69V13M19,8H5V19H9.67C9.24,18.09 9,17.07 9,16A7,7 0 0,1 16,9C17.07,9 18.09,9.24 19,9.67V8M5,21C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V11.1C22.24,12.36 23,14.09 23,16A7,7 0 0,1 16,23C14.09,23 12.36,22.24 11.1,21H5M16,11.15A4.85,4.85 0 0,0 11.15,16C11.15,18.68 13.32,20.85 16,20.85A4.85,4.85 0 0,0 20.85,16C20.85,13.32 18.68,11.15 16,11.15Z", "savings": "M15 10C15 9.45 15.45 9 16 9C16.55 9 17 9.45 17 10S16.55 11 16 11 15 10.55 15 10M8 9H13V7H8V9M22 7.5V14.47L19.18 15.41L17.5 21H12V19H10V21H4.5C4.5 21 2 12.54 2 9.5S4.46 4 7.5 4H12.5C13.41 2.79 14.86 2 16.5 2C17.33 2 18 2.67 18 3.5C18 3.71 17.96 3.9 17.88 4.08C17.74 4.42 17.62 4.81 17.56 5.23L19.83 7.5H22M20 9.5H19L15.5 6C15.5 5.35 15.59 4.71 15.76 4.09C14.79 4.34 14 5.06 13.67 6H7.5C5.57 6 4 7.57 4 9.5C4 11.38 5.22 16.15 6 19H8V17H14V19H16L17.56 13.85L20 13.03V9.5Z", "log": "M7,5H21V7H7V5M7,13V11H21V13H7M4,4.5A1.5,1.5 0 0,1 5.5,6A1.5,1.5 0 0,1 4,7.5A1.5,1.5 0 0,1 2.5,6A1.5,1.5 0 0,1 4,4.5M4,10.5A1.5,1.5 0 0,1 5.5,12A1.5,1.5 0 0,1 4,13.5A1.5,1.5 0 0,1 2.5,12A1.5,1.5 0 0,1 4,10.5M7,19V17H21V19H7M4,16.5A1.5,1.5 0 0,1 5.5,18A1.5,1.5 0 0,1 4,19.5A1.5,1.5 0 0,1 2.5,18A1.5,1.5 0 0,1 4,16.5Z", "settings": "M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z", "car": "M18.92 2C18.72 1.42 18.16 1 17.5 1H6.5C5.84 1 5.29 1.42 5.08 2L3 8V16C3 16.55 3.45 17 4 17H5C5.55 17 6 16.55 6 16V15H18V16C18 16.55 18.45 17 19 17H20C20.55 17 21 16.55 21 16V8L18.92 2M6.85 3H17.14L18.22 6.11H5.77L6.85 3M19 13H5V8H19V13M7.5 9C8.33 9 9 9.67 9 10.5S8.33 12 7.5 12 6 11.33 6 10.5 6.67 9 7.5 9M16.5 9C17.33 9 18 9.67 18 10.5S17.33 12 16.5 12C15.67 12 15 11.33 15 10.5S15.67 9 16.5 9M7 20H11V18L17 21H13V23L7 20Z", "charger": "M19.77,7.23L19.78,7.22L16.06,3.5L15,4.56L17.11,6.67C16.17,7.03 15.5,7.93 15.5,9A2.5,2.5 0 0,0 18,11.5C18.36,11.5 18.69,11.42 19,11.29V18.5A1,1 0 0,1 18,19.5A1,1 0 0,1 17,18.5V14A2,2 0 0,0 15,12H14V5A2,2 0 0,0 12,3H6A2,2 0 0,0 4,5V21H14V13.5H15.5V18.5A2.5,2.5 0 0,0 18,21A2.5,2.5 0 0,0 20.5,18.5V9C20.5,8.31 20.22,7.68 19.77,7.23M18,10A1,1 0 0,1 17,9A1,1 0 0,1 18,8A1,1 0 0,1 19,9A1,1 0 0,1 18,10M8,18V13.5H6L10,6V11H12L8,18Z", "grid": "M8.28,5.45L6.5,4.55L7.76,2H16.23L17.5,4.55L15.72,5.44L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.45L19.89,10.56L18.62,8M17.77,22H15.7L15.46,21.1L12,15.9L8.53,21.1L8.3,22H6.23L9.12,11H11.19L10.83,12.35L12,14.1L13.16,12.35L12.81,11H14.88L17.77,22M11.4,15L10.5,13.65L9.32,18.13L11.4,15M14.68,18.12L13.5,13.64L12.6,15L14.68,18.12Z", "prices": "M15 18.5C12.5 18.5 10.32 17.08 9.24 15H15L16 13H8.58C8.53 12.67 8.5 12.34 8.5 12S8.53 11.33 8.58 11H15L16 9H9.24C10.32 6.92 12.5 5.5 15 5.5C16.61 5.5 18.09 6.09 19.23 7.07L21 5.3C19.41 3.87 17.3 3 15 3C11.08 3 7.76 5.5 6.5 9H3L2 11H6.06C6 11.33 6 11.66 6 12S6 12.67 6.06 13H3L2 15H6.5C7.76 18.5 11.08 21 15 21C17.31 21 19.41 20.13 21 18.7L19.22 16.93C18.09 17.91 16.62 18.5 15 18.5Z", "control": "M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z", "status": "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z", "bolt": "M11 15H6L13 1V9H18L11 23V15Z", "pause": "M14,19H18V5H14M6,19H10V5H6V19Z", "plug": "M16 7V3H14V7H10V3H8V7C7 7 6 8 6 9V14.5L9.5 18V21H14.5V18L18 14.5V9C18 8 17 7 16 7M16 13.67L13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.09C8 9.06 8.06 9 8.09 9H15.92C15.95 9 16 9.06 16 9.09V13.67Z", "plugOff": "M22.11 21.46L2.39 1.73L1.11 3L6.25 8.14C6.1 8.41 6 8.7 6 9V14.5L9.5 18V21H14.5V18L15.31 17.2L20.84 22.73L22.11 21.46M13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.89L13.89 15.78L13.09 16.59M12.2 9L10.2 7H14V3H16V7C17 7 18 8 18 9V14.5L17.85 14.65L16 12.8V9.09C16 9.06 15.95 9 15.92 9H12.2M10 6.8L8 4.8V3H10V6.8Z", "clock": "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z", "alert": "M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16", "check": "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z", "battery": "M12,11H4V6H12M12.67,4H11V2H5V4H3.33A1.33,1.33 0 0,0 2,5.33V20.67C2,21.4 2.6,22 3.33,22H12.67C13.4,22 14,21.4 14,20.67V5.33A1.33,1.33 0 0,0 12.67,4M23,11H20V4L15,14H18V22L23,11Z", "cash": "M5,6H23V18H5V6M14,9A3,3 0 0,1 17,12A3,3 0 0,1 14,15A3,3 0 0,1 11,12A3,3 0 0,1 14,9M9,8A2,2 0 0,1 7,10V14A2,2 0 0,1 9,16H19A2,2 0 0,1 21,14V10A2,2 0 0,1 19,8H9M1,10H3V20H19V22H1V10Z", "chart": "M22,21H2V3H4V19H6V10H10V19H12V6H16V19H18V14H22V21Z", "bell": "M10 21H14C14 22.1 13.1 23 12 23S10 22.1 10 21M21 19V20H3V19L5 17V11C5 7.9 7 5.2 10 4.3V4C10 2.9 10.9 2 12 2S14 2.9 14 4V4.3C17 5.2 19 7.9 19 11V17L21 19M17 11C17 8.2 14.8 6 12 6S7 8.2 7 11V18H17V11Z", "flag": "M14.4,6H20V16H13L12.6,14H7V21H5V4H14L14.4,6M14,14H16V12H18V10H16V8H14V10L13,8V6H11V8H9V6H7V8H9V10H7V12H9V10H11V12H13V10L14,12V14M11,10V8H13V10H11M14,10H16V12H14V10Z", "sleep": "M23,12H17V10L20.39,6H17V4H23V6L19.62,10H23V12M15,16H9V14L12.39,10H9V8H15V10L11.62,14H15V16M7,20H1V18L4.39,14H1V12H7V14L3.62,18H7V20Z"};
+    const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`;
+    const shape = (name, color, small) => `<span class="shape c-${color}${small ? ' sm' : ''}">${icon(name)}</span>`;
     const $ = (id) => document.getElementById(id);
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -907,6 +978,16 @@
       });
     }
 
+    // Icon and colour for the state on the Overview, as a Mushroom card would show it.
+    function overviewShape(d, p, pw) {
+      if (d.boost) return shape('bolt', 'amber');
+      if (pw && pw.now_w > 500) return shape('battery', 'green');
+      if (p.notes.includes('missing_data') || p.notes.includes('enter_soc')) return shape('alert', 'red');
+      if (p.notes.includes('already_at_target')) return shape('check', 'green');
+      if (p.blocks.length) return shape('clock', 'blue');
+      return shape('sleep', 'grey');
+    }
+
     function overviewHtml(d) {
       if (d.missing.length) {
         const tabs = { prices: 'Prices', vehicle: 'Vehicle' };
@@ -946,20 +1027,23 @@
       return `
         <div class="card">
           <div class="row" style="border:none;padding:0;align-items:center">
-            <span class="advice">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
+            <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
           </div>
-          <div class="headline">${esc(headline)}</div>
-          <p class="muted small">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</p>
+          <div class="entity" style="margin:12px 0 4px">
+            ${overviewShape(d, p, pw)}
+            <div class="txt"><div class="headline">${esc(headline)}</div>
+            <div class="secondary">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</div></div>
+          </div>
           ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
           ${d.boost ? (p.cost != null ? `
           <div class="stats">
-            <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div>
+            <div class="stat">${shape('bolt', 'amber', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div></div>
           </div>` : '') : p.cost != null ? `
           <div class="stats">
-            <div class="stat"><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div>
-            <div class="stat"><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div>
-            <div class="stat"><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div>
+            <div class="stat">${shape('cash', 'blue', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div></div>
+            <div class="stat">${shape('bolt', 'grey', true)}<div><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div></div>
+            <div class="stat">${shape('savings', 'green', true)}<div><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div></div>
           </div>` : ''}
           ${vehicleSessionHtml(d)}
           ${continuousNote(p)}
@@ -1041,7 +1125,7 @@
       if (b) {
         return `
         <div class="card">
-          <h2>Charge now is on</h2>
+          <h2>${shape('bolt', 'amber', true)} Charge now is on</h2>
           <p>Charging ${esc(boostGoalText(b, d))}, started at ${esc(hm(b.started))}.
             ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
           ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
@@ -1057,7 +1141,7 @@
       opts.push('<option value="kwh">A fixed amount (kWh)</option>');
       return `
         <div class="card">
-          <h2>Charge now</h2>
+          <h2>${shape('bolt', 'grey', true)} Charge now</h2>
           <p class="muted small">Charge right away instead of waiting for the cheapest hours. The app first checks whether charging is already planned soon.</p>
           <form id="boost-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <select name="mode">${opts.join('')}</select>
@@ -1581,7 +1665,7 @@
           <button class="secondary conflict-dismiss" data-id="${esc(x.entity_id)}" data-undo="${x.dismissed ? '1' : ''}">${x.dismissed ? 'Warn again' : 'Ignore'}</button>
         </div>`;
       return `<div class="card">
-          ${active.length ? `<h2>Possible conflicts</h2>
+          ${active.length ? `<h2>${shape('alert', 'orange', true)} Possible conflicts</h2>
           <p class="muted small">These automations are on and use the same charger or car limit as the app. When "Allow control" is on, they may undo what the app does. Turn them off in Settings → Automations if the app takes over their job. The app never turns them off itself. Home Assistant only says that an automation <em>uses</em> the entity, not that it changes it; select Ignore if it is harmless (for example a notification).</p>
           ${active.map(row).join('')}` : ''}
           ${ignored.length ? `<details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">Ignored (${ignored.length})</summary>${ignored.map(row).join('')}</details>` : ''}
@@ -1619,7 +1703,7 @@
           return;
         }
         $('manual-test-body').innerHTML = `          <div class="card">
-            <h2>Manual test</h2>
+            <h2>${shape('control', 'grey', true)} Manual test</h2>
             <p class="muted small">Start or stop the charger once with the start/stop method chosen below${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. With Allow control on, the plan takes over again at the next check (within a minute); to charge now, use Charge now on the Overview.</p>
             ${d.control_allowed
               ? '<div style="display:flex;gap:8px"><button class="primary" id="manual-start">Start charging</button><button class="secondary" id="manual-stop">Stop charging</button></div>'
@@ -1628,8 +1712,11 @@
           </div>`;
         box.innerHTML = `
           <div class="card">
-            ${d.control_allowed ? '<span class="advice">LIVE · THE APP CONTROLS THE CHARGER</span>' : '<span class="advice test">DRY RUN · NOTHING IS SENT</span>'}
-            <div class="headline">Right now the app ${d.control_allowed ? 'wants to' : 'would'}: ${esc(wantText(n))}</div>
+            ${d.control_allowed ? '<span class="advice live">LIVE · THE APP CONTROLS THE CHARGER</span>' : '<span class="advice test">DRY RUN · NOTHING IS SENT</span>'}
+            <div class="entity" style="margin:12px 0 4px">
+              ${n.want === 'charge' ? shape('bolt', 'green') : n.want === 'pause' ? shape('pause', 'amber') : shape('sleep', 'grey')}
+              <div class="txt"><div class="headline">Right now the app ${d.control_allowed ? 'wants to' : 'would'}: ${esc(wantText(n))}</div></div>
+            </div>
             <p class="muted small">${esc(n.reason)}${n.block_end ? ` until ${esc(t(n.block_end))}` : ''}${n.next_start ? ` · next planned start ${esc(t(n.next_start))}` : ''}${n.locked_until ? ` · period locked until ${esc(t(n.locked_until))}` : ''}</p>
             <div class="row"><span class="label">Charger now</span><span class="value">${esc(actualText(n))}</span></div>
             <div class="row"><span class="label">Same as the plan?</span><span class="value">${n.agrees ? '<span class="agree">Yes</span>' : '<span class="differ">No — the app would change this</span>'}</span></div>
@@ -2134,6 +2221,16 @@
     }
     document.querySelectorAll('#main-nav .tab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
     document.querySelectorAll('#settings-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
+
+    // Icons on the tabs.
+    const NAV_ICONS = { overview: 'overview', departures: 'departures', savings: 'savings', log: 'log', settings: 'settings',
+      vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', ctlset: 'control', status: 'status' };
+    document.querySelectorAll('#main-nav .tab, #settings-nav .subtab').forEach((b) => {
+      const label = b.textContent.replace('⚙', '').trim();
+      b.innerHTML = `${icon(NAV_ICONS[b.dataset.tab || b.dataset.sub])}<span>${esc(label)}</span>`;
+    });
+    $('app-title').insertAdjacentHTML('afterbegin', shape('charger', 'blue'));
+    document.querySelectorAll('h2[data-icon]').forEach((h) => h.insertAdjacentHTML('afterbegin', shape(h.dataset.icon, h.dataset.color, true)));
 
     // ---------- Start ----------
     for (const kind of Object.keys(SECTIONS)) {

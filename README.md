@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.19.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
+> Status: early development (v0.20.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
 
 ## Installation
 
@@ -29,3 +29,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 ## Tests
 
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
+
+## Credits
+
+Icons: [Material Design Icons](https://pictogrammers.com/library/mdi/) (`@mdi/js` 7.4.47, Apache License 2.0), the same icons Home Assistant and Mushroom use. The look follows Home Assistant's default theme and the [Mushroom](https://github.com/piitaya/lovelace-mushroom) card style.
