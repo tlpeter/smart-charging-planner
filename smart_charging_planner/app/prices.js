@@ -303,6 +303,34 @@ function finalise(prices, win) {
   };
 }
 
+// A fixed tariff, or a day/night (peak/off-peak) tariff, for people without
+// a dynamic contract. Prices are all-in per kWh, as on the energy bill.
+// source: { mode: 'single'|'day_night', normal, low, low_from: 'HH:MM',
+//           low_to: 'HH:MM', weekend_low: bool }
+function minutesOf(hhmm) {
+  const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+  return ((h || 0) * 60 + (m || 0)) % 1440;
+}
+
+function fixedTariff(source, win, tz) {
+  const from = minutesOf(source.low_from);
+  const to = minutesOf(source.low_to);
+  const quarter = from % 60 !== 0 || to % 60 !== 0;
+  const step = (quarter ? 15 : 60) * 60000;
+  const inLow = (min) => (from <= to ? min >= from && min < to : min >= from || min < to);
+  const out = [];
+  for (let t = win.start; t < win.end; t += step) {
+    const p = tzParts(t, tz);
+    let low = false;
+    if (source.mode === 'day_night') {
+      const weekday = new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); // 0 = Sunday
+      low = (source.weekend_low && (weekday === 0 || weekday === 6)) || inLow(p.h * 60 + p.mi);
+    }
+    out.push({ start: t, end: t + step, price: low ? Number(source.low) : Number(source.normal) });
+  }
+  return out;
+}
+
 async function fetchPrices(source, tz) {
   const win = {
     start: localMidnight(tz, 0),
@@ -312,6 +340,12 @@ async function fetchPrices(source, tz) {
   const warnings = [];
   let raw;
   let unit;
+
+  if (source.type === 'fixed') {
+    // Nothing to fetch and nothing to store: the tariff is the same every day.
+    const prices = fixedTariff(source, win, tz);
+    return { prices, interval_minutes: Math.round((prices[0] ? prices[0].end - prices[0].start : 3600000) / 60000), window: win, warnings };
+  }
 
   if (source.type === 'action') {
     const def = ACTION_SOURCES[source.domain];
@@ -393,6 +427,7 @@ function summarise(result, cfg, now = Date.now()) {
 }
 
 module.exports = {
+  fixedTariff,
   detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES,

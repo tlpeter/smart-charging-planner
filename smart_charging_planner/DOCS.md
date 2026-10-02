@@ -27,8 +27,8 @@ The app has five tabs:
 2. The **setup wizard** walks you through four steps:
    1. **Vehicle**: select **Detect vehicles**, check the suggested sensors, fill in the battery capacity and select **Use this vehicle**.
    2. **Charger**: select **Detect chargers**, check the suggested entities, set the phases and select **Use this charger**.
-   3. **Grid** (optional): select **Detect grid meters**, check the suggested sensors, fill in your main fuse and choose your load balancing.
-   4. **Prices**: select **Detect price sources**, fill in the costs from your energy contract, select **Test** and then **Save**.
+   3. **Grid** (optional, can be skipped): select **Detect grid meters**, check the suggested sensors, fill in your main fuse and choose your load balancing.
+   4. **Prices**: select **Detect price sources**, fill in the costs from your energy contract (or choose **Fixed or day/night tariff**), select **Test** and then **Save**.
 3. On the **Departures** tab, set your weekly schedule, and optionally a helper or calendar.
 4. Open **Overview** and check the plan.
 5. Check the planning settings in the app's **Configuration** tab in Home Assistant.
@@ -39,10 +39,22 @@ No integration for your car at all? Use **No car integration?** in Settings › 
 
 ## Requirements
 
-- A vehicle integration with a battery level sensor in %, or no integration (enter the level yourself, or a fixed amount per session).
-- A charger integration in Home Assistant.
-- A grid meter in Home Assistant, such as a P1 meter.
-- A dynamic price integration, such as EnergyZero (no account needed) or Nord Pool.
+Required:
+
+- **A vehicle**: an integration with a battery level sensor in %, or no integration (enter the level yourself, or a fixed amount per session).
+- **A charger** integration in Home Assistant (needed to control charging; the plan itself also works without).
+- **Prices**: a dynamic price integration, such as EnergyZero (no account needed) or Nord Pool, or, without a dynamic contract, the built-in **Fixed or day/night tariff**. The plan needs prices to know which hours are cheapest.
+
+Optional:
+
+- **A grid meter**, such as a P1 meter, and your main fuse. Then the plan takes your house load into account. Without it, the plan assumes the charger can always charge at full power and your load balancer (if any) protects the main fuse.
+
+## Prices without a dynamic contract
+
+Choose **Fixed or day/night tariff** in Settings › Prices and enter your prices per kWh as on your energy bill (all-in):
+
+- **Day and night**: a normal and a low price, the low tariff hours (for example 23:00–07:00) and whether the weekend is low too. The plan charges in the low hours before your departure, as much as fits.
+- **One price all day**: the plan cannot save money, so it charges right away and the car is ready as soon as possible. Everything else (departures, the car's limit, Charge now, notifications) works as usual.
 
 ## Departure priority
 
