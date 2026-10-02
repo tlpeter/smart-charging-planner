@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0
+
+New look, in the style of Home Assistant's default theme and Mushroom cards:
+
+- Tabs and settings pages as rounded chips with icons
+- Round tinted icons that show the state at a glance: charging (green), Charge now (amber), planned (blue), nothing to do (grey), missing data (red)
+- Rounded cards, softer buttons and input fields, and the amounts on the Overview as small tiles with icons
+- Light and dark mode follow your device, like Home Assistant
+- Icons are Material Design Icons, the same set Home Assistant uses
+
 ## 0.19.0
 
 - New price source **Fixed or day/night tariff**, for contracts without dynamic prices. Always offered in Settings › Prices:
