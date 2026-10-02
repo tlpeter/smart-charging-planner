@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.2
+
+- Settings › Control: the lists for preconditioning and the minimum battery level are much shorter. They show the entities of your car first ("From your car"), then only entities whose name fits (preconditioning, HVAC, airco; a minimum charge level), instead of every helper in Home Assistant
+- The preconditioning rule is explained: while the chosen entity is on, the charger stays on, so heating or cooling the car uses grid power instead of the battery
+
 ## 0.18.1
 
 - Settings › Control is split into clear sections: **Charger** (start/stop method), **Car** (managing the car's charge limit, minimum battery level), **Timing and price** (force window, keep charging, preconditioning) and **Manual test**

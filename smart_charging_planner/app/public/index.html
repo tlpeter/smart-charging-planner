@@ -269,7 +269,8 @@
             <div class="field"><label>Force charging before departure (minutes, 0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
             <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
           </div>
-          <div class="field"><label>Charge while preconditioning (entity that is "on")</label><select name="preheat_entity"></select></div>
+          <div class="field"><label>Keep charging while the car preconditions (heats or cools)</label><select name="preheat_entity"></select>
+            <p class="muted small">While this entity is "on", the charger stays on, so heating or cooling the car uses grid power instead of the battery. For example the car's HVAC status, or your own helper. Only entities of your car and entities about preconditioning, HVAC or airco are listed.</p></div>
           <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>
 
@@ -1211,8 +1212,13 @@
     const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}`;
 
     function entityOptions(list, selected, noneLabel) {
-      return `<option value="">${esc(noneLabel)}</option>` + list.map((o) =>
-        `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(o.state)})</option>`).join('');
+      const item = (o) => `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(o.state)})</option>`;
+      const car = list.filter((o) => o.group === 'car');
+      const other = list.filter((o) => o.group !== 'car');
+      if (!car.length) return `<option value="">${esc(noneLabel)}</option>` + list.map(item).join('');
+      return `<option value="">${esc(noneLabel)}</option>` +
+        `<optgroup label="From your car">${car.map(item).join('')}</optgroup>` +
+        (other.length ? `<optgroup label="Other">${other.map(item).join('')}</optgroup>` : '');
     }
 
     // Local "YYYY-MM-DDTHH:MM" for a datetime-local input.
