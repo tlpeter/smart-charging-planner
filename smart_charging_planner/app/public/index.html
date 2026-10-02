@@ -136,6 +136,9 @@
     .step { padding: 4px 12px; border-radius: 14px; border: 1px solid var(--border); font-size: 13px; color: var(--muted); }
     .step.current { border-color: var(--accent); color: var(--text); font-weight: 600; }
     .step.done { color: var(--good); }
+    .sub { margin: 4px 0 4px 26px; }
+    .savebar { padding: 0 0 16px; display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
+    .savebar .error { margin: 0; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -233,29 +236,47 @@
     </section>
     <section id="tab-ctlset" hidden>
       <div id="conflicts-ctl"></div>
-      <form class="card" id="control-form">
-        <h2>How to control the charger</h2>
-        <p class="muted small">Found by the control check. Choose the method that works best with your charger, for example the one your own automation already uses.</p>
-        <div class="field"><label>Start / stop charging</label><select name="start_stop_id"></select></div>
-        <div class="field"><label>Charging current</label><select name="current_id"></select>
-          <p class="muted small">Not used yet: the app only starts and pauses the charger. Your load balancer keeps setting the current.</p></div>
-        <h2 style="margin-top:20px">Rules</h2>
-        <label class="check"><input type="checkbox" name="min_soc_enabled"> Always charge when the battery is below a minimum</label>
-        <div class="two">
-          <div class="field"><label>Minimum battery level (%)</label><input name="min_soc" type="number" min="0" max="100" step="1"></div>
-          <div class="field"><label>…or take it from an entity</label><select name="min_soc_entity"></select></div>
+      <form id="control-form">
+        <div class="card">
+          <h2>Charger</h2>
+          <p class="muted small">How the app starts and stops the charger. Found by the control check; for example choose the method your own automation used.</p>
+          <div class="field"><label>Start / stop charging</label><select name="start_stop_id"></select></div>
+          <div class="field"><label>Charging current</label><select name="current_id"></select>
+            <p class="muted small">Not used yet: the app only starts and pauses the charger. Your load balancer keeps setting the current.</p></div>
         </div>
-        <div class="field"><label>Only when the price is at most (per kWh, empty = any price)</label><input name="min_soc_max_price" type="number" step="0.01" min="-1" max="5"></div>
-        <div class="two">
+
+        <div class="card">
+          <h2>Car</h2>
+          <p class="muted small">The car's own charge limit and a minimum battery level.</p>
+          <label class="check"><input type="checkbox" name="manage_car_limit"> <strong>Let the app manage the car's own charge limit</strong></label>
+          <div class="sub" data-when="manage_car_limit">
+            <p class="muted small" id="car-limit-now"></p>
+            <p class="muted small">Sets the car's limit to the goal: the Charge now level while it runs, otherwise the battery level of your next departure (for example "doel: 90" in the calendar). Only while the car is plugged in. A new limit is sent once, right away; it is only sent again if the car still shows the old value after 15 minutes (at most twice), because the car's cloud limits the number of calls.</p>
+          </div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>
+          <div class="sub" data-when="min_soc_enabled">
+            <div class="two">
+              <div class="field"><label>Minimum battery level (%)</label><input name="min_soc" type="number" min="0" max="100" step="1"></div>
+              <div class="field"><label>…or take it from an entity</label><select name="min_soc_entity"></select></div>
+            </div>
+            <div class="field"><label>Only when the price is at most (per kWh, empty = any price)</label><input name="min_soc_max_price" type="number" step="0.01" min="-1" max="5"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Timing and price</h2>
+          <div class="two">
+            <div class="field"><label>Force charging before departure (minutes, 0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
+            <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
+          </div>
           <div class="field"><label>Charge while preconditioning (entity that is "on")</label><select name="preheat_entity"></select></div>
-          <div class="field"><label>Force charging this many minutes before departure (0 = off)</label><input name="force_minutes" type="number" min="0" max="600" step="5"></div>
+          <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>
-        <div class="field"><label>Keep charging when the price is at most this much above the planned price (per kWh)</label><input name="hysteresis" type="number" min="0" max="1" step="0.005"></div>
-        <label class="check"><input type="checkbox" name="manage_car_limit"> Let the app manage the car's own charge limit</label>
-        <p class="muted small">Sets the car's charge limit (for example Renault "Target charge level") to the goal: the Charge now level while it runs, otherwise the battery level of your next departure. Only while the car is plugged in and "Allow control" is on. A new limit is sent right away, once. Because the car's cloud is slow and limits the number of calls, it is only sent again if the car still shows the old value after 15 minutes (at most twice).</p>
-        <p class="muted small">Once a planned period has started, it is finished even if a new calculation would move it. A charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
-        <div class="buttons"><button class="primary" type="submit">Save</button></div>
-        <div class="error form-error" hidden></div>
+
+        <div class="savebar">
+          <div class="error form-error" hidden></div>
+          <button class="primary" type="submit">Save control settings</button>
+        </div>
       </form>
       <div id="manual-test-body"></div>
     </section>
@@ -1478,7 +1499,19 @@
       f.force_minutes.value = r.force_minutes;
       f.hysteresis.value = r.hysteresis;
       f.manage_car_limit.checked = !!r.manage_car_limit;
+      const lim = d.car_limit;
+      $('car-limit-now').innerHTML = lim && lim.entity_id
+        ? `Car limit now: <strong>${lim.value != null ? esc(lim.value) + '%' : 'unknown'}</strong> (${esc(lim.name)})${lim.writable ? '' : ' · <span class="differ">cannot be changed from Home Assistant</span>'}${d.control_allowed ? '' : ' · <span class="differ">needs "Allow control" on</span>'}`
+        : '<span class="differ">No charge limit of the car found. Choose it in Settings › Vehicle.</span>';
+      syncSubs(f);
     }
+
+    // Show the fields under a checkbox only when it is on.
+    function syncSubs(f) {
+      f.querySelectorAll('.sub[data-when]').forEach((el) => { el.hidden = !f[el.dataset.when].checked; });
+    }
+
+    $('control-form').addEventListener('change', (e) => { if (e.target.type === 'checkbox') syncSubs(e.currentTarget); });
 
     $('control-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1499,13 +1532,12 @@
         document.activeElement.blur();
         await loadControl();
         btn.textContent = 'Saved ✓';
-        $('control-body').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (err) {
         errBox.textContent = err.message;
         errBox.hidden = false;
-        btn.textContent = 'Save';
+        btn.textContent = 'Save control settings';
       } finally {
-        setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+        setTimeout(() => { btn.textContent = 'Save control settings'; btn.disabled = false; }, 2000);
       }
     });
 

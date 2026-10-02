@@ -1358,6 +1358,7 @@ routes['GET /api/control'] = async () => {
         (x.entity_id.startsWith('input_boolean.') || /preheat|precondition|climate|hvac|airco|voorverwarm|verwarm|condition/.test(x.entity_id))).map(opt).sort(byName),
     },
     now: lastDryRun,
+    car_limit: await carChargeLimit(s.vehicles[0] || null, states).catch(() => null),
     chosen_start_stop: (() => {
       const c = chosenMethods(methods, rules);
       const cmd = c && controller.startStopCommand(c.start_stop, true, methods && methods.device_id);
