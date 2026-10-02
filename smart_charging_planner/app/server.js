@@ -415,7 +415,9 @@ const routes = {
   // Price sources.
   'GET /api/prices/detect': async () => {
     const { entities, devices, states } = await loadRegistries();
-    return { candidates: detectPriceSources(entities, devices, states) };
+    // Always offered: a fixed or day/night tariff, for contracts without dynamic prices.
+    const fixed = { id: 'fixed', type: 'fixed', name: 'Fixed or day/night tariff (no dynamic contract)', price_type: 'all_in' };
+    return { candidates: [...detectPriceSources(entities, devices, states), fixed] };
   },
 
   // Fetch prices with the given (unsaved) settings and summarise them.
@@ -1624,6 +1626,29 @@ function priceConfigFrom(body) {
   } else if (src.type === 'attribute') {
     if (!String(src.entity_id || '').startsWith('sensor.')) throw badRequest('Invalid price sensor');
     source = { id: `attr:${src.entity_id}`, type: 'attribute', domain: src.domain || null, entity_id: src.entity_id, name: String(src.name || src.entity_id).slice(0, 80) };
+  } else if (src.type === 'fixed') {
+    const f = body.fixed || {};
+    const price = (v, name) => {
+      const n = Number(v);
+      if (!(n >= 0 && n <= 5)) throw badRequest(`${name} must be between 0 and 5 per kWh`);
+      return n;
+    };
+    const time = (v, name) => {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''))) throw badRequest(`${name} must be a time like 23:00`);
+      return String(v);
+    };
+    const mode = f.mode === 'day_night' ? 'day_night' : 'single';
+    source = { id: 'fixed', type: 'fixed', mode, normal: price(f.normal, 'Tariff') };
+    if (mode === 'day_night') {
+      source.low = price(f.low, 'Low (night) tariff');
+      source.low_from = time(f.low_from, 'Low tariff from');
+      source.low_to = time(f.low_to, 'Low tariff until');
+      source.weekend_low = f.weekend_low === true;
+      if (source.low_from === source.low_to) throw badRequest('Low tariff from and until must differ');
+    }
+    source.name = mode === 'day_night' ? 'Day/night tariff' : 'Fixed tariff';
+    // The tariff is entered all-in, as on the energy bill.
+    return { source, price_type: 'all_in', purchase_fee: 0, energy_tax: 0, vat_percent: 0 };
   } else {
     throw badRequest('Choose a price source');
   }

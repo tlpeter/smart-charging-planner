@@ -10,7 +10,7 @@
 
 const ha = require('./ha');
 const history = require('./pricehistory');
-const { tzParts, localDateTime, backfill, totalPrice } = require('./prices');
+const { tzParts, localDateTime, backfill, totalPrice, fixedTariff } = require('./prices');
 
 const HOUR = 3600000;
 const MIN_W = 300; // below this an hour does not count as charging
@@ -75,9 +75,13 @@ function groupSessions(hours) {
 }
 
 // All-in price per hour start (average of 15-minute prices within the hour).
-function hourlyPrices(sourceId, from, to, cfg) {
+function hourlyPrices(sourceId, from, to, cfg, tz) {
   const byHour = new Map();
-  for (const p of history.range(sourceId, from, to)) {
+  // A fixed or day/night tariff is the same every day: calculate it.
+  const list = cfg.source && cfg.source.type === 'fixed'
+    ? fixedTariff(cfg.source, { start: Math.floor(from / HOUR) * HOUR, end: to }, tz || 'UTC')
+    : history.range(sourceId, from, to);
+  for (const p of list) {
     const h = Math.floor(p.start / HOUR) * HOUR;
     if (!byHour.has(h)) byHour.set(h, []);
     byHour.get(h).push(totalPrice(p.price, cfg));
@@ -133,7 +137,7 @@ async function computeSavings({ charger, vehicle, priceCfg, tz, days = 30, now =
   if (sessions.length) {
     await backfill(priceCfg.source, dayRanges(sessions[0].start - 86400000, now, tz), tz);
   }
-  const price = hourlyPrices(priceCfg.source.id, from - 86400000, now + 86400000, priceCfg);
+  const price = hourlyPrices(priceCfg.source.id, from - 86400000, now + 86400000, priceCfg, tz);
 
   const results = sessions.map((s) => {
     const energy = s.hours.reduce((a, h) => a + h.kwh, 0);

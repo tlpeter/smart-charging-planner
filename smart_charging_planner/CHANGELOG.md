@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0
+
+- New price source **Fixed or day/night tariff**, for contracts without dynamic prices. Always offered in Settings › Prices:
+  - **Day and night**: a normal and a low price, the low tariff hours (also across midnight, and on the quarter hour) and optionally the whole weekend low. The plan charges in the low hours before your departure
+  - **One price all day**: the plan charges right away; departures, the car's limit, Charge now and notifications work as usual
+  - Prices are entered all-in, as on the energy bill. The Savings tab calculates past days from the same tariff
+- When no dynamic price integration is found, the Prices page now says so and offers the fixed tariff instead of stopping
+- Documentation: the grid meter is optional (it was listed as required); the requirements now say what is required and why
+
 ## 0.18.2
 
 - Settings › Control: the lists for preconditioning and the minimum battery level are much shorter. They show the entities of your car first ("From your car"), then only entities whose name fits (preconditioning, HVAC, airco; a minimum charge level), instead of every helper in Home Assistant

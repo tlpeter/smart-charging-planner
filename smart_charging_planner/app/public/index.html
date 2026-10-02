@@ -299,7 +299,31 @@
           <div class="field"><label>Source</label><select name="source" id="prices-source"></select></div>
           <p class="muted small" id="prices-source-detail"></p>
         </div>
-        <div class="card">
+        <div class="card" id="fixed-card" hidden>
+          <h2>Your tariff</h2>
+          <p class="muted small">Enter the prices per kWh as on your energy bill, including energy tax, fees and VAT.</p>
+          <div class="field"><label>Tariff</label>
+            <select name="fx_mode">
+              <option value="single">One price, all day</option>
+              <option value="day_night">Day and night (normal and low tariff)</option>
+            </select></div>
+          <div class="two">
+            <div class="field"><label id="fx-normal-label">Price per kWh</label><input name="fx_normal" type="number" step="0.0001" min="0" max="5" placeholder="0.28"></div>
+            <div class="field fx-dn"><label>Low (night) price per kWh</label><input name="fx_low" type="number" step="0.0001" min="0" max="5" placeholder="0.24"></div>
+          </div>
+          <div class="two fx-dn">
+            <div class="field"><label>Low tariff from</label><input name="fx_low_from" type="time" step="900" value="23:00"></div>
+            <div class="field"><label>Low tariff until</label><input name="fx_low_to" type="time" step="900" value="07:00"></div>
+          </div>
+          <label class="check fx-dn"><input type="checkbox" name="fx_weekend_low" checked> Low tariff all weekend</label>
+          <p class="muted small" id="fx-note"></p>
+          <div class="buttons">
+            <button class="secondary" type="button" id="prices-test-fixed">Test</button>
+            <button class="primary" type="submit">Save</button>
+          </div>
+          <div class="error form-error" hidden></div>
+        </div>
+        <div class="card" id="price-costs">
           <h2>Costs on top of the price</h2>
           <p class="muted small">Used to calculate what you really pay per kWh. Check your energy contract for these amounts.</p>
           <div class="field"><label>The source price is</label>
@@ -1768,16 +1792,43 @@
       const data = Object.fromEntries(new FormData(form));
       const src = priceSources.find((c) => c.id === data.source);
       delete data.source;
+      if (src && src.type === 'fixed') {
+        return {
+          source: src,
+          fixed: {
+            mode: form.fx_mode.value, normal: form.fx_normal.value, low: form.fx_low.value,
+            low_from: form.fx_low_from.value, low_to: form.fx_low_to.value, weekend_low: form.fx_weekend_low.checked,
+          },
+        };
+      }
       return { ...data, source: src };
+    }
+
+    // Show the tariff form for a fixed tariff, the cost fields otherwise.
+    function syncFixed() {
+      const src = priceSources.find((c) => c.id === $('prices-source').value);
+      const fixed = !!src && src.type === 'fixed';
+      const f = $('prices-form');
+      $('fixed-card').hidden = !fixed;
+      $('price-costs').hidden = fixed;
+      const dn = f.fx_mode.value === 'day_night';
+      f.querySelectorAll('.fx-dn').forEach((el) => { el.hidden = !dn; });
+      $('fx-normal-label').textContent = dn ? 'Normal (day) price per kWh' : 'Price per kWh';
+      $('fx-note').textContent = dn
+        ? 'The plan charges in the low tariff hours before your departure, as much as fits.'
+        : 'With one price all day, the plan cannot save money: it charges right away, so the car is ready as soon as possible. Departures, the car\'s limit, Charge now and notifications all work as usual.';
     }
 
     function showSourceDetail() {
       const src = priceSources.find((c) => c.id === $('prices-source').value);
       if (!src) return;
-      $('prices-source-detail').textContent = src.type === 'action'
-        ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
-        : `Sensor attributes · ${src.detail}`;
+      $('prices-source-detail').textContent = src.type === 'fixed'
+        ? 'For contracts without dynamic prices.'
+        : src.type === 'action'
+          ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
+          : `Sensor attributes · ${src.detail}`;
       $('prices-form').price_type.value = src.price_type;
+      syncFixed();
     }
 
     async function detectPrices(preselect) {
@@ -1788,11 +1839,9 @@
       try {
         const { candidates } = await api('GET', 'api/prices/detect');
         priceSources = candidates;
-        if (!candidates.length) {
-          $('prices-error').textContent = 'No price source found. Install a dynamic price integration, such as EnergyZero (no account needed), and try again.';
+        if (!candidates.some((c) => c.type !== 'fixed')) {
+          $('prices-error').textContent = 'No dynamic price integration found. With a dynamic contract, install one such as EnergyZero (no account needed) and detect again. Otherwise choose "Fixed or day/night tariff".';
           $('prices-error').hidden = false;
-          $('prices-form').hidden = true;
-          return;
         }
         $('prices-source').innerHTML = candidates.map((c) =>
           `<option value="${esc(c.id)}">${esc(c.name)}${c.detail && c.type === 'action' && c.detail !== c.name ? ' – ' + esc(c.detail) : ''}${c.type === 'attribute' ? ' (sensor)' : ''}</option>`).join('');
@@ -1804,7 +1853,19 @@
           f.purchase_fee.value = preselect.purchase_fee || '';
           f.energy_tax.value = preselect.energy_tax || '';
           f.vat_percent.value = preselect.vat_percent;
+          if (preselect.source.type === 'fixed') {
+            const x = preselect.source;
+            f.fx_mode.value = x.mode;
+            f.fx_normal.value = x.normal;
+            if (x.mode === 'day_night') {
+              f.fx_low.value = x.low;
+              f.fx_low_from.value = x.low_from;
+              f.fx_low_to.value = x.low_to;
+              f.fx_weekend_low.checked = !!x.weekend_low;
+            }
+          }
           $('prices-source-detail').textContent = '';
+          syncFixed();
         } else {
           showSourceDetail();
         }
@@ -1837,7 +1898,8 @@
 
     async function savePrices(e) {
       e.preventDefault();
-      const errBox = $('prices-form').querySelector('.form-error');
+      const errBox = $('fixed-card').hidden ? $('price-costs').querySelector('.form-error') : $('fixed-card').querySelector('.form-error');
+      errBox.hidden = true;
       try {
         await api('POST', 'api/prices', priceFormData());
         $('prices-form').hidden = true;
@@ -1860,10 +1922,16 @@
         priceTz = r.time_zone;
         $('prices-intro').hidden = true;
         const typeLabel = { market_excl_vat: 'Market price, excl. VAT', market_incl_vat: 'Market price, incl. VAT', all_in: 'All-in' }[r.prices.price_type];
+        const fx = r.prices.source.type === 'fixed' ? r.prices.source : null;
+        const detailLine = fx
+          ? (fx.mode === 'day_night'
+            ? `Normal ${esc(fx.normal)} · low ${esc(fx.low)} from ${esc(fx.low_from)} until ${esc(fx.low_to)}${fx.weekend_low ? ', and all weekend' : ''} · all-in per kWh`
+            : `${esc(fx.normal)} per kWh, all-in`)
+          : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%`;
         box.innerHTML = `
           <div class="card">
             <h2>${esc(r.prices.source.name)}</h2>
-            <p class="muted small">${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%</p>
+            <p class="muted small">${detailLine}</p>
             ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary)}
             <div class="buttons">
               <button class="secondary" data-act="change">Change</button>
@@ -1885,6 +1953,8 @@
     $('prices-detect').addEventListener('click', () => detectPrices());
     $('prices-source').addEventListener('change', showSourceDetail);
     $('prices-test').addEventListener('click', testPrices);
+    $('prices-test-fixed').addEventListener('click', testPrices);
+    $('prices-form').fx_mode.addEventListener('change', syncFixed);
     $('prices-form').addEventListener('submit', savePrices);
 
     // ---------- Status ----------
