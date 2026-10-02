@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1
+
+- Settings › Control is split into clear sections: **Charger** (start/stop method), **Car** (managing the car's charge limit, minimum battery level), **Timing and price** (force window, keep charging, preconditioning) and **Manual test**
+- Fields under an option are only shown when that option is on
+- The Car section shows the car's current charge limit, and says when it cannot be changed or "Allow control" is off
+
 ## 0.18.0
 
 Security review and fixes.
