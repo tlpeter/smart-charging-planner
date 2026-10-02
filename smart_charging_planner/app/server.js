@@ -1331,6 +1331,38 @@ function chosenMethods(methods, rules) {
   };
 }
 
+// Short lists for the rules: entities of the car first, then entities whose
+// name fits (and whatever is chosen now), instead of every helper in Home
+// Assistant.
+async function ruleEntityOptions(s, states, rules) {
+  let carIds = new Set();
+  const vehicle = s.vehicles[0] || null;
+  if (vehicle && vehicle.device_id) {
+    try {
+      const { entities } = await loadRegistries();
+      carIds = new Set(entities.filter((e) => e.device_id === vehicle.device_id).map((e) => e.entity_id));
+    } catch {
+      // no car group
+    }
+  }
+  const text = (x) => `${x.entity_id} ${(x.attributes && x.attributes.friendly_name) || ''}`.toLowerCase();
+  const opt = (x) => ({
+    entity_id: x.entity_id,
+    name: (x.attributes && x.attributes.friendly_name) || x.entity_id,
+    state: x.state,
+    group: carIds.has(x.entity_id) ? 'car' : 'other',
+  });
+  const order = (a, b) => (a.group === b.group ? a.name.localeCompare(b.name) : a.group === 'car' ? -1 : 1);
+  const pick = (filter, chosen) => states.filter((x) => filter(x) || x.entity_id === chosen).map(opt).sort(order);
+  const onOff = /^(input_boolean|switch|binary_sensor)\./;
+  const preheatWords = /precondition|pre[ _-]?condition|preheat|pre[ _-]?heat|hvac|airco|air[ _-]?con|voorverwarm|voorkoel/;
+  const percent = (x) => /^(number|sensor|input_number)\./.test(x.entity_id) && x.attributes && x.attributes.unit_of_measurement === '%';
+  return {
+    preheat: pick((x) => onOff.test(x.entity_id) && (preheatWords.test(text(x)) || (carIds.has(x.entity_id) && /climate|heat|cool/.test(text(x)))), rules.preheat_entity),
+    min_soc: pick((x) => percent(x) && /min(imum)?/.test(text(x)) && (carIds.has(x.entity_id) || /charg|soc|battery|accu|laad|ev\b/.test(text(x))), rules.min_soc_entity),
+  };
+}
+
 routes['GET /api/control'] = async () => {
   const s = settings.load();
   if (!planCache) await refreshPlan('on request').catch(() => {});
@@ -1352,11 +1384,7 @@ routes['GET /api/control'] = async () => {
       recommended: { start_stop: methods.recommended.start_stop && methods.recommended.start_stop.id, current: methods.recommended.current && methods.recommended.current.id },
       warnings: methods.warnings,
     } : null,
-    options: {
-      min_soc: states.filter((x) => /^(number|sensor|input_number)\./.test(x.entity_id) && x.attributes && x.attributes.unit_of_measurement === '%').map(opt).sort(byName),
-      preheat: states.filter((x) => /^(input_boolean|switch|binary_sensor)\./.test(x.entity_id) &&
-        (x.entity_id.startsWith('input_boolean.') || /preheat|precondition|climate|hvac|airco|voorverwarm|verwarm|condition/.test(x.entity_id))).map(opt).sort(byName),
-    },
+    options: await ruleEntityOptions(s, states, rules),
     now: lastDryRun,
     car_limit: await carChargeLimit(s.vehicles[0] || null, states).catch(() => null),
     chosen_start_stop: (() => {
