@@ -1,5 +1,5 @@
 name: Smart Charging Planner
-version: "0.23.0"
+version: "0.24.0"
 slug: smart_charging_planner
 description: Plans EV and home battery charging around dynamic electricity prices.
 url: https://github.com/tlpeter/smart-charging-planner
@@ -16,6 +16,7 @@ panel_title: Smart Charging
 homeassistant_api: true
 options:
   allow_control: false
+  allow_battery_control: false
   allow_calendar_write: false
   publish_sensors: false
   notify_start_stop: true
@@ -27,6 +28,7 @@ options:
   log_level: info
 schema:
   allow_control: bool
+  allow_battery_control: bool
   allow_calendar_write: bool
   publish_sensors: bool
   notify_start_stop: bool

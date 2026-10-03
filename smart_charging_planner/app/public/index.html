@@ -15,6 +15,7 @@
       --border: #e0e0e0;
       --accent: #03a9f4;
       --solar: #f5b301;
+      --battery: #9c27b0;
       --rgb-accent: 3, 169, 244;
       --accent-text: #ffffff;
       --good: #43a047;
@@ -42,6 +43,7 @@
         --border: #2e2e2e;
         --accent: #03a9f4;
       --solar: #f5b301;
+      --battery: #9c27b0;
         --accent-text: #ffffff;
         --good: #66bb6a;
         --bad: #ef5350;
@@ -243,6 +245,7 @@
       <button class="subtab" data-sub="grid">Grid</button>
       <button class="subtab" data-sub="prices">Prices</button>
       <button class="subtab" data-sub="solar">Solar</button>
+      <button class="subtab" data-sub="battery">Battery</button>
       <button class="subtab" data-sub="ctlset">Rules</button>
       <button class="subtab" data-sub="status">Notifications</button>
       <button class="subtab" data-sub="diag">Diagnostics</button>
@@ -428,6 +431,57 @@
         </div>
       </form>
     </section>
+    <section id="tab-battery" hidden>
+      <div id="battery-status"></div>
+      <form id="battery-form">
+        <div class="card">
+          <h2 data-icon="battery" data-color="purple">Home battery</h2>
+          <p class="muted small">The app plans the home battery next to the car: charge from the grid in cheap hours when that pays off after losses and wear, save the energy for expensive hours, take the sun in between, and decide whether the battery may charge the car.</p>
+          <div class="field"><label>Battery</label><select name="battery"></select></div>
+          <div id="battery-detail"></div>
+          <label class="check"><input type="checkbox" name="enabled"> <strong>Plan the home battery</strong></label>
+        </div>
+        <div class="card bat-on">
+          <h2>Battery</h2>
+          <div class="two">
+            <div class="field"><label>Usable capacity, kWh</label><input name="capacity_kwh" type="number" min="0.5" max="200" step="0.1"></div>
+            <div class="field"><label>Round-trip efficiency (0.9 = 90 %)</label><input name="efficiency" type="number" min="0.5" max="1" step="0.01"></div>
+            <div class="field"><label>Charging power, kW</label><input name="charge_kw" type="number" min="0.1" max="50" step="0.1"></div>
+            <div class="field"><label>Discharging power, kW</label><input name="discharge_kw" type="number" min="0.1" max="50" step="0.1"></div>
+            <div class="field"><label>Never below, %</label><input name="min_pct" type="number" min="0" max="90" step="1"></div>
+            <div class="field"><label>Never above, %</label><input name="max_pct" type="number" min="50" max="100" step="1"></div>
+            <div class="field"><label>Wear per kWh discharged</label><input name="wear" type="number" min="0" max="0.5" step="0.005"></div>
+            <div class="field"><label>Battery power sensor: positive means</label>
+              <select name="power_sign"><option value="charge_positive">Charging</option><option value="discharge_positive">Discharging</option></select></div>
+          </div>
+          <p class="muted small">Wear: what a discharged kWh costs in battery life (price ÷ guaranteed kWh throughput, often 0.02–0.05). Charging from the grid only happens when the price difference covers losses and wear.</p>
+        </div>
+        <div class="card bat-on">
+          <h2>Choices</h2>
+          <label class="check"><input type="checkbox" name="arbitrage"> Charge from the grid in cheap hours when that pays off</label>
+          <div class="field" style="margin-top:12px"><label>May the home battery charge the car?</label>
+            <select name="ev_discharge">
+              <option value="never">Never: the battery does not discharge while the car charges</option>
+              <option value="solar_only">Only with stored solar power</option>
+              <option value="always">Always: the battery does what it does</option>
+            </select></div>
+          <div class="field"><label>Who gets the sun first?</label>
+            <select name="solar_priority">
+              <option value="smart">Smart: the car while it still needs energy, otherwise the battery</option>
+              <option value="car">Always the car first</option>
+              <option value="battery">Always the battery first</option>
+            </select></div>
+        </div>
+        <div class="savebar">
+          <div class="error form-error" hidden></div>
+          <button class="primary" type="submit">Save battery settings</button>
+        </div>
+      </form>
+      <div class="card">
+        <h2>Brands</h2>
+        <div id="battery-brands" class="small"></div>
+      </div>
+    </section>
     <section id="tab-setup" hidden><div id="setup-body"><div class="card muted">Loading…</div></div></section>
     <section id="tab-diag" hidden>
       <div class="card">
@@ -437,12 +491,24 @@
         <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
         <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
         <div class="row"><span class="label">Control</span><span id="control">–</span></div>
+        <div class="row"><span class="label">Home battery control</span><span id="batctl">–</span></div>
         <div class="row"><span class="label">Adding trips to calendar</span><span id="calwrite">–</span></div>
         <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
         <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
         <div id="status-error" class="error" hidden></div>
       </div>
       <div id="manual-test-body"></div>
+      <div class="card">
+        <h2>Home battery test</h2>
+        <p class="muted small">Send one battery action by hand, to check that the commands work with your battery (Settings › Battery). The plan takes over again within a minute.</p>
+        <div class="buttons" id="battery-test-buttons">
+          <button class="secondary" data-bat="charge">Charge</button>
+          <button class="secondary" data-bat="hold">Hold</button>
+          <button class="secondary" data-bat="no_discharge">No discharging</button>
+          <button class="secondary" data-bat="auto">Back to normal</button>
+        </div>
+        <div id="battery-test-result"></div>
+      </div>
       <div class="card">
         <h2>Setup wizard</h2>
         <p class="muted small">Walks you through Vehicle, Charger, Grid and Prices again. Your current settings are kept.</p>
@@ -1147,6 +1213,15 @@
         bars += `<rect class="hit" data-i="${i}" x="${X(p.start)}" y="${m.t}" width="${slot}" height="${ih}" fill="transparent"/>`;
       });
 
+      // Battery actions as a thin band under the bars.
+      let batteryMarks = '';
+      if (d.battery && d.battery.actions) {
+        const col = { charge: 'var(--battery)', hold: 'var(--muted)', no_discharge: 'var(--muted)' };
+        for (const a of d.battery.actions) {
+          if (!col[a.action] || a.end <= t0 || a.start >= t1) continue;
+          batteryMarks += `<rect x="${X(Math.max(a.start, t0)).toFixed(1)}" y="${(Y(0) - 5).toFixed(1)}" width="${Math.max(1, X(Math.min(a.end, t1)) - X(Math.max(a.start, t0))).toFixed(1)}" height="4" fill="${col[a.action]}" opacity="${a.action === 'charge' ? 1 : 0.5}"/>`;
+        }
+      }
       // Expected solar surplus as a line (own scale, top of the chart).
       let solarCurve = '';
       const solPts = d.prices.filter((p) => Number.isFinite(p.solar_kw));
@@ -1192,7 +1267,7 @@
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
           </defs>
-          ${grid}${bars}${solarCurve}
+          ${grid}${bars}${solarCurve}${batteryMarks}
           <line x1="${m.l}" x2="${W - m.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>
           ${xl}${marks.join('')}
         </svg>
@@ -1292,11 +1367,12 @@
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
         </div>
         ${quickHtml(d)}
+        ${batteryHtml(d)}
         <div class="card">
           <h2>Prices and plan</h2>
           <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
           <div class="chart-wrap" id="chart"></div>
-          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Planned on solar · line: expected sun for the car</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i style="background:repeating-linear-gradient(45deg,var(--bar) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--bar)"></i>Forecast (striped)</span>' : ''}</div>
+          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((a) => a.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery charges · grey: holds</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Planned on solar · line: expected sun for the car</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i style="background:repeating-linear-gradient(45deg,var(--bar) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--bar)"></i>Forecast (striped)</span>' : ''}</div>
           ${houseLoadHtml(d)}
           ${p.periods.length ? `
           <details><summary class="small muted" style="margin-top:12px;cursor:pointer">Show plan as table</summary>
@@ -2598,6 +2674,7 @@
         $('control').innerHTML = s.allow_control
           ? '<span class="ok">On</span> <span class="muted small">(live: the app starts and pauses the charger)</span>'
           : 'Off <span class="muted small">(turn on in the app\'s Configuration tab)</span>';
+        $('batctl').innerHTML = s.allow_battery_control && s.allow_control ? '<span class="ok">On</span>' : 'Off <span class="muted small">(advice only)</span>';
         $('loglevel').textContent = s.log_level || '–';
         $('calwrite').innerHTML = s.allow_calendar_write ? '<span class="ok">Allowed</span>' : 'Off <span class="muted small">(test mode)</span>';
         $('refresh').innerHTML = s.refresh_minutes
@@ -2745,6 +2822,18 @@
     }
 
     $('solar-form').addEventListener('change', syncSolar);
+    document.querySelectorAll('#battery-test-buttons [data-bat]').forEach((b) => {
+      b.onclick = async () => {
+        const out = $('battery-test-result');
+        out.innerHTML = '<p class="muted small">Sending…</p>';
+        try {
+          const r = await api('POST', 'api/battery/test', { action: b.dataset.bat });
+          out.innerHTML = `<p class="small"><span class="ok">Sent: ${esc(r.action)}</span><br><span class="src">${r.sent.map(esc).join('<br>')}</span></p>`;
+        } catch (err) {
+          out.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+        }
+      };
+    });
     $('solar-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = e.target;
@@ -2769,6 +2858,103 @@
         err.hidden = false;
       }
     });
+
+    // ---------- Settings › Battery ----------
+    const ACTION_TEXT = { auto: 'normal (own mode)', charge: 'charge from the grid', discharge: 'discharge', hold: 'hold (save)', no_discharge: 'no discharging' };
+    let batteryData = null;
+
+    function syncBattery() {
+      const f = $('battery-form');
+      f.querySelectorAll('.bat-on').forEach((el) => { el.hidden = !f.enabled.checked; });
+      const c = batteryData && batteryData.candidates.find((x) => x.soc_entity === f.battery.value);
+      $('battery-detail').innerHTML = c ? `
+        <p class="small">${shape('battery', 'purple', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
+        <p class="small">${c.control.supported.length ? `The app can: ${c.control.supported.map((a) => esc(ACTION_TEXT[a] || a)).join(', ')}.` : '<span class="differ">The app can only read this battery; the plan is advice.</span>'} ${c.control.note ? `<span class="muted">${esc(c.control.note)}</span>` : ''}</p>
+        ${c.sign_verified ? '' : '<p class="muted small">The sign of the power sensor is not documented in the integration; check below that charging shows as charging.</p>'}` : '';
+    }
+
+    async function loadBattery() {
+      const f = $('battery-form');
+      if (f.contains(document.activeElement)) return;
+      let r;
+      try {
+        r = await api('GET', 'api/battery');
+      } catch (err) {
+        $('battery-status').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+        return;
+      }
+      batteryData = r;
+      const c = r.settings;
+      f.battery.innerHTML = '<option value="">— no home battery —</option>' + r.candidates.map((x) => `<option value="${esc(x.soc_entity)}" data-platform="${esc(x.platform)}" ${x.soc_entity === c.soc_entity ? 'selected' : ''}>${esc(x.name)} (${esc(x.brand)})</option>`).join('');
+      if (!c.soc_entity && r.candidates[0]) f.battery.value = r.candidates[0].soc_entity;
+      f.enabled.checked = !!c.enabled;
+      for (const k of ['capacity_kwh', 'efficiency', 'charge_kw', 'discharge_kw', 'min_pct', 'max_pct', 'wear']) f[k].value = c[k];
+      if (!c.soc_entity) {
+        const cand = r.candidates.find((x) => x.soc_entity === f.battery.value);
+        if (cand && cand.capacity_kwh) f.capacity_kwh.value = tidy(cand.capacity_kwh);
+        if (cand) f.power_sign.value = cand.power_sign === 'discharge_positive' ? 'discharge_positive' : 'charge_positive';
+      } else f.power_sign.value = c.power_sign;
+      f.arbitrage.checked = c.arbitrage !== false;
+      f.ev_discharge.value = c.ev_discharge;
+      f.solar_priority.value = c.solar_priority;
+      $('battery-brands').innerHTML = r.brands.map((b) => `${b.read_only ? shape('alert', 'grey', true) : shape('check', 'green', true)} ${esc(b.name)} <span class="muted">(${esc(b.integration)}${b.read_only ? ', read only' : ''})</span>`).join('<br>');
+      const allowed = r.control_allowed && r.battery_control_allowed;
+      $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'purple', true)} Battery now</h2>
+          <p class="small">${r.now.soc != null ? `${tidy(r.now.soc)} %` : 'level unknown'}${r.now.power_kw != null ? ` · ${r.now.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(r.now.power_kw))} kW` : ''} · stored solar power about ${tidy(r.ledger.solar_kwh)} kWh</p>
+          <p class="muted small">${allowed ? 'The app steers the battery (Allow control and Allow home battery control are on).' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
+      syncBattery();
+    }
+
+    $('battery-form').addEventListener('change', syncBattery);
+    $('battery-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const err = f.querySelector('.form-error');
+      const btn = f.querySelector('button[type=submit]');
+      err.hidden = true;
+      const opt = f.battery.selectedOptions[0];
+      try {
+        await api('POST', 'api/battery', {
+          soc_entity: f.battery.value, platform: opt ? opt.dataset.platform : undefined,
+          enabled: f.enabled.checked, capacity_kwh: f.capacity_kwh.value, efficiency: f.efficiency.value,
+          charge_kw: f.charge_kw.value, discharge_kw: f.discharge_kw.value, min_pct: f.min_pct.value, max_pct: f.max_pct.value,
+          wear: f.wear.value, power_sign: f.power_sign.value, arbitrage: f.arbitrage.checked,
+          ev_discharge: f.ev_discharge.value, solar_priority: f.solar_priority.value,
+        });
+        document.activeElement.blur();
+        await loadBattery();
+        btn.textContent = 'Saved ✓';
+        setTimeout(() => { btn.textContent = 'Save battery settings'; }, 2000);
+      } catch (x) {
+        err.textContent = x.message;
+        err.hidden = false;
+      }
+    });
+
+    // Home: the battery plan as periods.
+    function batteryHtml(d) {
+      const b = d.battery;
+      if (!b) return '';
+      if (b.error) return `<div class="card"><h2>${shape('battery', 'purple', true)} Home battery</h2><div class="error">${esc(b.error)}</div></div>`;
+      const now = d.battery_now;
+      const periods = [];
+      for (const a of b.actions || []) {
+        const last = periods[periods.length - 1];
+        if (last && last.action === a.action && Math.abs(last.end - a.start) < 1000) { last.end = a.end; last.soc = a.soc_pct; }
+        else periods.push({ start: a.start, end: a.end, action: a.action, soc: a.soc_pct });
+      }
+      const shown = periods.filter((x) => x.action !== 'auto').slice(0, 6);
+      return `
+        <div class="card">
+          <h2>${shape('battery', 'purple', true)} Home battery</h2>
+          <p class="small">${esc(b.name || '')}: <strong>${b.soc != null ? `${tidy(b.soc)} %` : '–'}</strong>${b.power_kw != null ? ` · ${b.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(b.power_kw))} kW` : ''}${now ? ` · now: <strong>${esc(ACTION_TEXT[now.action] || now.action)}</strong> <span class="muted">(${esc(now.reason)})</span>` : ''}</p>
+          ${shown.length ? `<table class="periods"><tr><th>When</th><th>Battery</th><th class="n">Level after</th></tr>
+            ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
+            <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}
+          ${b.saving > 0.005 ? `<p class="small">Expected saving compared with leaving it alone: <strong>${money(b.saving)}</strong>.</p>` : ''}
+          ${b.control_allowed ? '' : `<p class="muted small">${b.control.supported.length ? 'Advice only: the app steers the battery once Allow home battery control is on.' : esc(b.control.note || 'This battery can only be read.')}</p>`}
+        </div>`;
+    }
 
     // ---------- Settings › Overview: is everything set up well? ----------
     async function loadChecklist() {
@@ -2862,7 +3048,7 @@
 
     // ---------- Tabs ----------
     // Use: Home, Planning, History. Set up once: Settings.
-    const SETTINGS_SUBS = ['setup', 'vehicle', 'charger', 'grid', 'prices', 'solar', 'ctlset', 'status', 'diag'];
+    const SETTINGS_SUBS = ['setup', 'vehicle', 'charger', 'grid', 'prices', 'solar', 'battery', 'ctlset', 'status', 'diag'];
     const HISTORY_SUBS = ['savings', 'log'];
     let settingsSub = 'setup';
     let historySub = 'savings';
@@ -2886,6 +3072,7 @@
       if (show === 'diag') { loadStatus(); loadControl(); }
       if (show === 'setup') loadChecklist();
       if (show === 'solar') loadSolar();
+      if (show === 'battery') loadBattery();
       if (show === 'overview') loadOverview();
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
@@ -2896,7 +3083,7 @@
 
     // Icons on the tabs.
     const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', settings: 'settings',
-      setup: 'check', vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', solar: 'sun', ctlset: 'control', status: 'bell', diag: 'status' };
+      setup: 'check', vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', solar: 'sun', battery: 'battery', ctlset: 'control', status: 'bell', diag: 'status' };
     document.querySelectorAll('#main-nav .tab, #settings-nav .subtab, #history-nav .subtab').forEach((b) => {
       const label = b.textContent.replace('⚙', '').trim();
       b.innerHTML = `${icon(NAV_ICONS[b.dataset.tab || b.dataset.sub])}<span>${esc(label)}</span>`;

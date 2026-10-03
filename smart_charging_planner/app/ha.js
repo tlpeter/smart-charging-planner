@@ -184,6 +184,33 @@ async function sendControl(command, allowed) {
   return call(message, 20000, CONTROL_TOKEN);
 }
 
+// Steer the home battery. Refused unless both "Allow control" and "Allow
+// home battery control" are on, and only for the exact entities and actions
+// of the chosen battery. allowed: [{ service, entity_id? }]
+const BATTERY_SERVICE_DOMAINS = new Set(['huawei_solar', 'marstek_local_api']);
+async function sendBattery(command, allowed) {
+  if (options.allow_control !== true || options.allow_battery_control !== true) {
+    warn('Refused', command.service, '- home battery control is off');
+    throw new Error('Allow control and Allow home battery control must both be on in the app\'s Configuration tab');
+  }
+  const [domain, service] = String(command.service || '').split('.');
+  const allowedDomain = CONTROL_DOMAINS.has(domain) || BATTERY_SERVICE_DOMAINS.has(domain);
+  if (!domain || !service || NEVER_CONTROL_DOMAINS.has(domain) || !allowedDomain) {
+    warn('Refused', command.service, '- this domain is never controlled');
+    throw new Error(`${command.service} is never sent by this app`);
+  }
+  const target = command.target || {};
+  const ok = (allowed || []).some((a) => a.service === command.service && (!a.entity_id || target.entity_id === a.entity_id));
+  if (!ok) {
+    warn('Refused', command.service, '- not a control of the chosen battery');
+    throw new Error(`${command.service} is not a control of the chosen battery`);
+  }
+  log('SENDING to battery:', command.service, JSON.stringify(command.data || {}), JSON.stringify(target));
+  const message = { type: 'call_service', domain, service, service_data: command.data || {} };
+  if (command.target) message.target = command.target;
+  return call(message, 20000, CONTROL_TOKEN);
+}
+
 // "mobile_app_pixel" or "notify.mobile_app_pixel" -> "notify.mobile_app_pixel"
 function normaliseNotify(v) {
   const x = String(v || '').trim();
@@ -289,4 +316,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendBattery, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };

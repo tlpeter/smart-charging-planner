@@ -99,6 +99,37 @@ Set up in **Settings › Solar** (needs the grid meter in Settings › Grid: the
 
 **Current back to normal.** When the app charges at full power again (plan, Charge now), it sets the current back to the maximum and the phases back to three. A current the app never changed is left alone.
 
+## Home battery
+
+Set up in **Settings › Battery**. The app plans the home battery next to the car, per price block:
+
+- **Charge from the grid** in cheap hours, only when the price difference covers the round-trip losses and the wear per kWh (default 0.03).
+- **Hold (save)** the energy for expensive hours instead of emptying it in cheap ones.
+- **Normal**: the battery's own mode (covering the house, taking the sun) the rest of the time.
+
+The plan shows on Home (Home battery card) and in the chart (purple: charges, grey: holds), with the expected saving compared with leaving the battery alone.
+
+**The car and the battery.** "May the home battery charge the car?": *Never* (default: the battery does not discharge while the car charges), *Only stored solar power* (the app counts how much of the battery's energy came from the sun), or *Always* (when that pays). "Who gets the sun first?": *Smart* (default: the car while it still needs energy, otherwise the battery), *Car* or *Battery*.
+
+**Brands.** Control goes through the integration's own entities and actions, checked against its source code:
+
+| Brand | Integration | The app can |
+|---|---|---|
+| Sigenergy | Sigenergy Local Modbus | normal, charge, discharge, hold (Remote EMS) |
+| Huawei LUNA2000 | Huawei Solar | normal, charge, discharge, hold, no discharging |
+| SolarEdge | SolarEdge Modbus Multi | normal, charge, discharge, hold, no discharging (needs Remote Control) |
+| Victron | sfstar/hass-victron | normal, charge, no discharging |
+| GoodWe | GoodWe (core) | normal, charge, discharge (full power only) |
+| Tesla Powerwall | Teslemetry, Tesla Fleet | normal, no discharging (backup reserve); no forced charging |
+| HomeWizard Plug-In Battery | HomeWizard (core) | normal, charge, hold, no discharging |
+| Marstek Venus | Marstek Venus Modbus, Marstek Local API | normal, charge, discharge, hold |
+| Sessy | Sessy | normal, hold |
+| Zonneplan Nexus, Growatt, Anker Solix, EcoFlow, Powerwall (local) | | read only (level and power shown, not steered) |
+
+When a brand cannot "not discharge", the app uses "hold" instead, and the other way round. The battery power sign of some brands is not verified: check it on the Settings › Battery page and flip "Battery power sensor: positive means" when it is wrong.
+
+**Control.** Only with **Allow control** and **Allow home battery control** both on. The app sends a command when the wanted action changes, and again every 15 minutes (30 for brands with timed commands) so a battery that fell back to its own mode is steered again. Diagnostics has a test button per action.
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
@@ -176,6 +207,7 @@ If you already control your charger with your own automation, keep it running wh
 - The app only accepts requests through Home Assistant ingress (the sidebar panel). Other apps on the internal network are refused.
 - Changes are only accepted as JSON from the app's own page, not from other websites.
 - The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the one notify action you choose, and its own `smart_charging_*` sensors.
+- The home battery is only steered with Allow control and Allow home battery control both on, and only through the battery's own entities and actions.
 - It never changes automations, scripts, helpers, locks, alarms, covers, lights or other devices. Control only works for a device that Home Assistant's registry shows as an EV charger.
 - The Supervisor token is never logged or shown in the browser.
 - Every command sent is logged in the Log tab and the app log.
@@ -185,6 +217,7 @@ If you already control your charger with your own automation, keep it running wh
 These are set in Home Assistant: Settings → Apps → Smart Charging Planner → **Configuration**. Saving restarts the app.
 
 - **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, the app starts and pauses the charger itself, following the plan, Charge now and the rules in Settings › Rules, with the start/stop method chosen in Settings › Charger. Only start/stop is sent, plus the charging current and phases when charging on solar (Settings › Solar). Automations, scripts and helpers are never touched.
+- **Allow home battery control**: off by default. With Allow control also on, the app steers the home battery following its plan (Settings › Battery). While off, the battery plan is advice only.
 - **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Planning tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Planning tab. This does not allow any charger control.
 - **Publish sensors**: write the app's own sensors to Home Assistant (default off). See Notifications and sensors.
 - **Notify every start and pause**: also notify each start and pause, not only problems (default on).
@@ -197,4 +230,4 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 ## Planned
 
-Home battery (Sigenergy and others) and more cars. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.
+More cars. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.

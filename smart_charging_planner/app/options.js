@@ -10,6 +10,7 @@ const DATA_DIR = process.env.DATA_DIR || '/data';
 const DEFAULTS = {
   log_level: 'info',
   allow_control: false,
+  allow_battery_control: false,
   refresh_minutes: 5,
   allow_calendar_write: false,
   loss_percent: 10,
@@ -34,6 +35,7 @@ function load() {
     merged.use_house_load = merged.use_house_load !== false;
     merged.notify_start_stop = merged.notify_start_stop !== false;
     merged.publish_sensors = merged.publish_sensors === true;
+    merged.allow_battery_control = merged.allow_battery_control === true;
     return merged;
   } catch {
     return { ...DEFAULTS };
