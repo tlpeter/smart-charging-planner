@@ -76,10 +76,14 @@ function localDate(ms, tz) {
   return isoLocal(ms, tz).slice(0, 10);
 }
 
-function parseTime(v) {
+// With a time zone, a string without an offset ("2026-10-03 13:00:00") is
+// read as local time in that zone, not in the container's time zone.
+function parseTime(v, tz) {
   if (v == null) return NaN;
   if (typeof v === 'number') return v < 1e12 ? v * 1000 : v;
-  return Date.parse(String(v).trim().replace(' ', 'T'));
+  const str = String(v).trim();
+  if (tz && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(str) && !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(str)) return parseLocal(str, tz);
+  return Date.parse(str.replace(' ', 'T'));
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +182,12 @@ const PRICE_KEYS = ['price', 'value', 'price_per_kwh', 'electricity_price', 'tot
 // Integrations whose attribute prices are known to be all-in.
 const ALL_IN_DOMAINS = new Set(['frank_energie', 'zonneplan_one']);
 
-function parseList(list) {
+// Entries marked as a forecast, e.g. { time, price, source: 'forecast' }.
+const MARK_KEYS = ['source', 'type', 'kind', 'status', 'price_type', 'origin'];
+const FORECAST_RE = /forecast|predict|voorspel|estimat|expected/i;
+const isForecast = (x) => MARK_KEYS.some((k) => typeof x[k] === 'string' && FORECAST_RE.test(x[k])) || x.forecast === true || x.is_forecast === true;
+
+function parseList(list, tz) {
   if (!Array.isArray(list) || list.length < 4) return null;
   const first = list.find((x) => x && typeof x === 'object');
   if (!first) return null;
@@ -189,19 +198,21 @@ function parseList(list) {
   const out = [];
   for (const x of list) {
     if (!x || typeof x !== 'object') continue;
-    const start = parseTime(x[tKey]);
+    const start = parseTime(x[tKey], tz);
     const price = Number(x[pKey]);
     if (!Number.isFinite(start) || !Number.isFinite(price)) continue;
-    out.push({ start, end: eKey ? parseTime(x[eKey]) : undefined, price });
+    const item = { start, end: eKey ? parseTime(x[eKey], tz) : undefined, price };
+    if (isForecast(x)) item.forecast = true;
+    out.push(item);
   }
   return out.length >= 4 ? out : null;
 }
 
-function pricesFromAttributes(attributes) {
+function pricesFromAttributes(attributes, tz) {
   const merged = new Map();
   const keys = [];
   for (const [key, value] of Object.entries(attributes || {})) {
-    const parsed = parseList(value);
+    const parsed = parseList(value, tz);
     if (!parsed) continue;
     keys.push(key);
     for (const p of parsed) if (!merged.has(p.start)) merged.set(p.start, p);
@@ -213,7 +224,7 @@ function pricesFromAttributes(attributes) {
 // Detection
 // ---------------------------------------------------------------------------
 
-function detectPriceSources(entities, devices, states) {
+function detectPriceSources(entities, devices, states, tz) {
   const candidates = [];
   const deviceById = new Map(devices.map((d) => [d.id, d]));
 
@@ -240,8 +251,10 @@ function detectPriceSources(entities, devices, states) {
   for (const s of states) {
     if (!s.entity_id.startsWith('sensor.')) continue;
     if (/gas/.test(s.entity_id)) continue;
-    const { keys, prices } = pricesFromAttributes(s.attributes);
+    const { keys, prices } = pricesFromAttributes(s.attributes, tz);
     if (!keys.length) continue;
+    const forecastCount = prices.filter((p) => p.forecast).length;
+    const lastStart = prices.reduce((m, p) => Math.max(m, p.start), 0);
     const reg = regById.get(s.entity_id);
     const domain = reg ? reg.platform : null;
     if (domain && ACTION_SOURCES[domain]) continue; // already offered as action
@@ -251,8 +264,11 @@ function detectPriceSources(entities, devices, states) {
       domain,
       entity_id: s.entity_id,
       name: (s.attributes && s.attributes.friendly_name) || s.entity_id,
-      detail: `${s.entity_id} · ${keys.join(', ')} · ${prices.length} prices`,
+      detail: `${s.entity_id} · ${keys.join(', ')} · ${prices.length} prices${forecastCount ? ` (${forecastCount} marked as forecast)` : ''}`,
       price_type: domain && ALL_IN_DOMAINS.has(domain) ? 'all_in' : 'market_excl_vat',
+      // Prices for more than today and tomorrow: usable as a forecast.
+      forecast_capable: lastStart >= localMidnight(tz, 2),
+      forecast_marked: forecastCount,
     });
   }
   return candidates;
@@ -356,7 +372,11 @@ async function fetchPrices(source, tz) {
     const states = await ha.call({ type: 'get_states' });
     const s = states.find((x) => x.entity_id === source.entity_id);
     if (!s) throw new Error(`Sensor ${source.entity_id} not found`);
-    raw = pricesFromAttributes(s.attributes).prices;
+    const all = pricesFromAttributes(s.attributes, tz).prices;
+    // Entries marked as a forecast are not real prices; the forecast
+    // setting decides whether they are used.
+    raw = all.filter((p) => !p.forecast);
+    if (raw.length < all.length) ha.debug('Price source', source.id, 'skipped', all.length - raw.length, 'forecast entries');
     unit = s.attributes && s.attributes.unit_of_measurement;
   } else {
     throw new Error('Unknown source type');
@@ -370,6 +390,21 @@ async function fetchPrices(source, tz) {
     ha.warn('Could not store price history:', err.message);
   }
   return { prices, interval_minutes, window: win, warnings };
+}
+
+// Forecast: a sensor with expected prices for the coming days. Only the part
+// after the last real price is used (fromMs), up to 7 days ahead. Nothing is
+// stored in the price history: these are not real prices.
+async function fetchForecast(forecast, tz, fromMs) {
+  const states = await ha.call({ type: 'get_states' });
+  const s = states.find((x) => x.entity_id === forecast.entity_id);
+  if (!s) throw new Error(`Forecast sensor ${forecast.entity_id} not found`);
+  const warnings = [];
+  const raw = pricesFromAttributes(s.attributes, tz).prices;
+  const unit = s.attributes && s.attributes.unit_of_measurement;
+  const win = { start: fromMs, end: localMidnight(tz, 8) };
+  const { prices } = finalise(toPerKwh(raw, unit, warnings), win);
+  return { prices, warnings };
 }
 
 // Past days for action sources (they can look back); stored in the history.
@@ -427,7 +462,7 @@ function summarise(result, cfg, now = Date.now()) {
 }
 
 module.exports = {
-  fixedTariff,
+  fixedTariff, fetchForecast,
   detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES,

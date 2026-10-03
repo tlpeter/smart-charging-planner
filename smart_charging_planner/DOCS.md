@@ -56,6 +56,16 @@ Choose **Fixed or day/night tariff** in Settings › Prices and enter your price
 - **Day and night**: a normal and a low price, the low tariff hours (for example 23:00–07:00) and whether the weekend is low too. The plan charges in the low hours before your departure, as much as fits.
 - **One price all day**: the plan cannot save money, so it charges right away and the car is ready as soon as possible. Everything else (departures, the car's limit, Charge now, notifications) works as usual.
 
+## Price forecast
+
+Real day-ahead prices are only known for today and, from about 13:00, tomorrow. If you have a sensor with expected prices for the coming days, choose it under **Settings › Prices › Price forecast**. The sensor needs a list of `{time, price}` (or similar) in its attributes, like the price sensors the app already reads.
+
+- Only the hours after the last real price are used, up to the departure. Without a departure the forecast is not used.
+- If a later day is expected to be cheaper, the plan waits. The app never charges on a forecast price; when the real prices come out the plan is recalculated, so a wrong forecast only costs the difference, never a late car.
+- The **safety margin** is added to every forecast price, so the app only waits when the forecast is clearly cheaper.
+- Choose whether the forecast is a market price or all-in. The fees, tax and VAT of the main source are used.
+- A sensor that combines real prices and a forecast can be used for both: entries marked as a forecast (for example `source: forecast`) are skipped as real prices.
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.

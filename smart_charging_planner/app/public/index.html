@@ -412,6 +412,27 @@
           </div>
           <div class="error form-error" hidden></div>
         </div>
+        <div class="card" id="forecast-card">
+          <h2>Price forecast (optional)</h2>
+          <p class="muted small">Real prices are only known for today and, from about 13:00, tomorrow. With a sensor that has expected prices for the coming days, the app can wait for a cheaper day before your departure. It never charges on a forecast price: the plan is recalculated when the real prices come out.</p>
+          <div class="field"><label>Forecast sensor</label><select name="forecast_entity" id="forecast-entity"></select></div>
+          <p class="muted small" id="forecast-detail"></p>
+          <div class="fc-on">
+            <div class="field"><label>The forecast price is</label>
+              <select name="forecast_price_type">
+                <option value="market_excl_vat">Market price, excluding VAT</option>
+                <option value="market_incl_vat">Market price, including VAT</option>
+                <option value="all_in">All-in price (taxes and fees included)</option>
+              </select></div>
+            <div class="field"><label>Safety margin per kWh</label>
+              <input name="forecast_margin" type="number" step="0.005" min="0" max="0.5" value="0.02"></div>
+            <p class="muted small">Added to every forecast price, so the app only waits when the forecast is clearly cheaper. 0 = trust the forecast fully.</p>
+          </div>
+          <div class="buttons">
+            <button class="secondary" type="button" id="prices-test-fc">Test</button>
+            <button class="primary" type="submit">Save</button>
+          </div>
+        </div>
         <div id="prices-test-result"></div>
       </form>
     </section>
@@ -861,6 +882,8 @@
       fixed_waiting: 'Waiting for the car to be plugged in. The plan starts when charging a new session.',
       no_departure: 'No departure planned. The plan uses the cheapest known blocks and the default battery level, without a deadline.',
       calendar_error: 'The calendar could not be read; other departure sources are still used.',
+      uses_forecast: 'Part of the plan is in hours with only a forecast price (striped bars). The app never charges on a forecast: the plan is recalculated as soon as the real prices are published (usually around 13:00 for the next day). Forecast prices include the safety margin set in Settings › Prices.',
+      forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
     };
 
     function tzFmt(ms, opts) {
@@ -906,15 +929,18 @@
       const Y = (v) => m.t + ih - ((v - y0v) / (y1v - y0v)) * ih;
       const planned = new Set(d.plan.blocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
 
-      const slot = iw / d.prices.length;
-      const gap = slot > 4 ? 2 : slot > 2 ? 1 : 0;
-      const bw = Math.min(24, slot - gap);
+      // Bar width per block: real prices can be per 15 minutes, a forecast per hour.
       let bars = '';
       d.prices.forEach((p, i) => {
+        const slot = X(p.end) - X(p.start);
+        const gap = slot > 4 ? 2 : slot > 2 ? 1 : 0;
+        const bw = Math.max(0.5, Math.min(24, slot - gap));
         const x = X(p.start) + (slot - bw) / 2;
         const top = Math.min(Y(p.total), Y(0));
         const h = Math.max(1, Math.abs(Y(p.total) - Y(0)));
-        const fill = planned.has(p.start) ? 'var(--accent)' : 'var(--bar)';
+        const isPlanned = planned.has(p.start);
+        // Forecast prices are striped, so they differ from the (faded) past.
+        const fill = p.forecast ? (isPlanned ? 'url(#fc-plan)' : 'url(#fc-bar)') : isPlanned ? 'var(--accent)' : 'var(--bar)';
         const past = p.end <= Date.now() ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
@@ -922,21 +948,24 @@
         const path = up
           ? `M${x},${top + h} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${top + h} Z`
           : `M${x},${top} V${top + h - r} Q${x},${top + h} ${x + r},${top + h} H${x + bw - r} Q${x + bw},${top + h} ${x + bw},${top + h - r} V${top} Z`;
-        bars += `<path d="${path}" fill="${fill}"${past}/>`;
+        const outline = p.forecast ? ` stroke="${isPlanned ? 'var(--accent)' : 'var(--bar)'}" stroke-width="1"` : '';
+        bars += `<path d="${path}" fill="${fill}"${past}${outline}/>`;
         bars += `<rect class="hit" data-i="${i}" x="${X(p.start)}" y="${m.t}" width="${slot}" height="${ih}" fill="transparent"/>`;
       });
 
       const grid = ticks.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/>
         <text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v.toFixed(2)}</text>`).join('');
 
-      // X labels every 3 hours (6 when showing two days), on local time.
-      const hours = (t1 - t0) / 3600000 > 30 ? 6 : 3;
+      // X labels every 3 hours (6 for two days, only days for longer), on local time.
+      const spanH = (t1 - t0) / 3600000;
+      const hours = spanH > 60 ? 24 : spanH > 30 ? 6 : 3;
       let xl = '';
       for (let t = t0; t <= t1; t += 3600000) {
         const h = Number(tzFmt(t, { hour: '2-digit', hourCycle: 'h23' }));
-        if (h % hours !== 0 || tzFmt(t, { minute: '2-digit' }) !== '00') continue;
+        // (A minute-only format gives "0", not "00"; check the full time.)
+        if (h % hours !== 0 || !tzFmt(t, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).endsWith(':00')) continue;
         const label = h === 0 ? tzFmt(t, { weekday: 'short' }) : `${String(h).padStart(2, '0')}:00`;
-        xl += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)"${h === 0 ? ' font-weight="600"' : ''}>${label}</text>`;
+        xl += `<text x="${X(t)}" y="${H - 8}" text-anchor="${X(t) > W - m.r - 18 ? 'end' : 'middle'}" font-size="11" fill="var(--muted)"${h === 0 ? ' font-weight="600"' : ''}>${label}</text>`;
         if (h === 0 && t > t0) xl += `<line x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--border)"/>`;
       }
 
@@ -955,6 +984,10 @@
 
       wrap.innerHTML = `
         <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Electricity price per interval with planned charging highlighted">
+          <defs>
+            <pattern id="fc-bar" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--bar)"/></pattern>
+            <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
+          </defs>
           ${grid}${bars}
           <line x1="${m.l}" x2="${W - m.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>
           ${xl}${marks.join('')}
@@ -967,7 +1000,8 @@
           const p = d.prices[Number(el.dataset.i)];
           const blk = d.plan.blocks.find((b) => p.start <= b.start && b.start < p.end);
           const room = p.amps != null ? `<br><span class="src">Room for charger: ${p.amps ? `${Math.floor(p.amps)} A (${p.power_kw.toFixed(1)} kW)` : 'too little'}</span>` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${room}${blk ? `<br><span style="color:var(--accent)">■</span> Charge ${blk.kwh.toFixed(1)} kWh` : ''}`;
+          const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${room}${blk ? `<br><span style="color:var(--accent)">■</span> Charge ${blk.kwh.toFixed(1)} kWh` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -1002,7 +1036,7 @@
       else if (p.notes.includes('already_at_target')) headline = v.mode === 'fixed_kwh' ? 'The fixed amount has been charged' : 'No charging needed';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
-      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}`;
+      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}${p.periods.some((x) => x.forecast) ? ' (partly on forecast prices)' : ''}`;
       if (d.boost && p.blocks.length) headline = `Charge now: ${p.planned_kwh.toFixed(1)} kWh, ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
 
       const pw = d.power || null;
@@ -1055,12 +1089,12 @@
           <h2>Prices and plan</h2>
           <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
           <div class="chart-wrap" id="chart"></div>
-          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span></div>
+          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.prices.some((x) => x.forecast) ? '<span><i style="background:repeating-linear-gradient(45deg,var(--bar) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--bar)"></i>Forecast (striped)</span>' : ''}</div>
           ${houseLoadHtml(d)}
           ${p.periods.length ? `
           <details><summary class="small muted" style="margin-top:12px;cursor:pointer">Show plan as table</summary>
             <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
-            ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
+            ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>
         <div class="card">
@@ -1860,6 +1894,18 @@
       timeZone: priceTz, weekday: 'short', hour: '2-digit', minute: '2-digit',
     }).format(new Date(ms));
 
+    function forecastHtml(f) {
+      if (!f) return '';
+      const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
+      if (f.error) return row('Forecast', `<span class="fail">${esc(f.error)}</span>`);
+      if (!f.count) return row('Forecast', '<span class="muted">No forecast prices after the real prices</span>');
+      return `
+        ${row('Forecast', `<span class="ok">${f.count}</span> prices, ${esc(fmtTime(f.from))} – ${esc(fmtTime(f.until))}`)}
+        ${row('Forecast average (all-in)', `${fmtPrice(f.average)} <span class="muted small">+ margin ${Number(f.margin).toFixed(3)}</span>`)}
+        ${row('Forecast lowest', f.lowest ? `${fmtPrice(f.lowest.total)} <span class="muted small">at ${esc(fmtTime(f.lowest.start))}</span>` : '–')}
+        ${(f.warnings || []).map((w) => `<div class="note">${esc(w)}</div>`).join('')}`;
+    }
+
     function summaryHtml(s) {
       const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
       const at = (p) => (p ? `${fmtPrice(p.total)} <span class="muted small">at ${esc(fmtTime(p.start))}</span>` : '–');
@@ -1898,12 +1944,34 @@
       const f = $('prices-form');
       $('fixed-card').hidden = !fixed;
       $('price-costs').hidden = fixed;
+      $('forecast-card').hidden = fixed;
+      syncForecast();
       const dn = f.fx_mode.value === 'day_night';
       f.querySelectorAll('.fx-dn').forEach((el) => { el.hidden = !dn; });
       $('fx-normal-label').textContent = dn ? 'Normal (day) price per kWh' : 'Price per kWh';
       $('fx-note').textContent = dn
         ? 'The plan charges in the low tariff hours before your departure, as much as fits.'
         : 'With one price all day, the plan cannot save money: it charges right away, so the car is ready as soon as possible. Departures, the car\'s limit, Charge now and notifications all work as usual.';
+    }
+
+    // The forecast list: attribute sensors, the ones with more than two days first.
+    function fillForecast(selected) {
+      const list = priceSources.filter((c) => c.type === 'attribute')
+        .sort((a, b) => (b.forecast_capable ? 1 : 0) - (a.forecast_capable ? 1 : 0));
+      $('forecast-entity').innerHTML = '<option value="">No forecast</option>' + list.map((c) =>
+        `<option value="${esc(c.entity_id)}">${esc(c.name)}${c.forecast_capable ? ' – more than 2 days' : ''}</option>`).join('');
+      if (selected && list.some((c) => c.entity_id === selected)) $('forecast-entity').value = selected;
+      syncForecast();
+    }
+
+    function syncForecast() {
+      const f = $('prices-form');
+      const id = f.forecast_entity.value;
+      f.querySelectorAll('.fc-on').forEach((el) => { el.hidden = !id; });
+      const c = priceSources.find((x) => x.entity_id === id);
+      $('forecast-detail').textContent = c
+        ? `${c.detail}${c.forecast_capable ? '' : ' · this sensor does not seem to have prices after tomorrow'}${c.forecast_marked ? ' · only the hours after the last real price are used' : ''}`
+        : '';
     }
 
     function showSourceDetail() {
@@ -1915,6 +1983,7 @@
           ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
           : `Sensor attributes · ${src.detail}`;
       $('prices-form').price_type.value = src.price_type;
+      $('prices-form').forecast_price_type.value = src.price_type;
       syncFixed();
     }
 
@@ -1933,6 +2002,11 @@
         $('prices-source').innerHTML = candidates.map((c) =>
           `<option value="${esc(c.id)}">${esc(c.name)}${c.detail && c.type === 'action' && c.detail !== c.name ? ' – ' + esc(c.detail) : ''}${c.type === 'attribute' ? ' (sensor)' : ''}</option>`).join('');
         $('prices-form').hidden = false;
+        fillForecast(preselect && preselect.forecast ? preselect.forecast.entity_id : '');
+        if (preselect && preselect.forecast) {
+          $('prices-form').forecast_price_type.value = preselect.forecast.price_type;
+          $('prices-form').forecast_margin.value = preselect.forecast.margin;
+        }
         if (preselect) {
           $('prices-source').value = preselect.source.id;
           const f = $('prices-form');
@@ -1974,7 +2048,7 @@
       try {
         const r = await api('POST', 'api/prices/test', priceFormData());
         priceTz = r.time_zone;
-        box.innerHTML = `<div class="card"><h2>Test result</h2>${summaryHtml(r.summary)}</div>`;
+        box.innerHTML = `<div class="card"><h2>Test result</h2>${summaryHtml(r.summary)}${forecastHtml(r.forecast)}</div>`;
       } catch (err) {
         box.innerHTML = `<div class="card"><h2>Test result</h2><div class="error">${esc(err.message)}</div></div>`;
       } finally {
@@ -2014,12 +2088,12 @@
           ? (fx.mode === 'day_night'
             ? `Normal ${esc(fx.normal)} · low ${esc(fx.low)} from ${esc(fx.low_from)} until ${esc(fx.low_to)}${fx.weekend_low ? ', and all weekend' : ''} · all-in per kWh`
             : `${esc(fx.normal)} per kWh, all-in`)
-          : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%`;
+          : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%${r.prices.forecast ? ` · forecast from ${esc(r.prices.forecast.entity_id)}` : ''}`;
         box.innerHTML = `
           <div class="card">
             <h2>${esc(r.prices.source.name)}</h2>
             <p class="muted small">${detailLine}</p>
-            ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary)}
+            ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary) + forecastHtml(r.forecast)}
             <div class="buttons">
               <button class="secondary" data-act="change">Change</button>
               <button class="secondary" data-act="remove">Remove</button>
@@ -2041,6 +2115,8 @@
     $('prices-source').addEventListener('change', showSourceDetail);
     $('prices-test').addEventListener('click', testPrices);
     $('prices-test-fixed').addEventListener('click', testPrices);
+    $('prices-test-fc').addEventListener('click', testPrices);
+    $('forecast-entity').addEventListener('change', syncForecast);
     $('prices-form').fx_mode.addEventListener('change', syncFixed);
     $('prices-form').addEventListener('submit', savePrices);
 
