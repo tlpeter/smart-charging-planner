@@ -165,6 +165,19 @@ function decide(ctx) {
     return charge('Charge now, started by you', 'boost', { amps: blk ? ampsFor(blk.power_kw, phases, maxAmps) : maxAmps, clear_lock: true });
   }
 
+  // Solar: charge on surplus (live, ctx.solar from solarctl). In "plan and
+  // solar" a planned block with grid power goes first (full power); in
+  // "solar only" nothing is charged from the grid by the plan.
+  const sol = ctx.solar;
+  const solarOnlyBlock = (b) => b.solar_kwh > 0.001 && !(b.grid_kwh > 0.01);
+  const gridBlockNow = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast && !solarOnlyBlock(b));
+  if (sol && (sol.mode === 'plan_solar' || sol.mode === 'solar')) {
+    if (sol.charge && !(sol.mode === 'plan_solar' && gridBlockNow)) {
+      return charge(sol.reason, 'solar', { amps: sol.amps, phases: sol.phases, solar: true });
+    }
+    if (sol.mode === 'solar') return pause(sol.reason || 'Waiting for solar surplus', 'solar_wait', { clear_lock: true });
+  }
+
   // 5. At the target.
   if (p.notes.includes('already_at_target') || (Number.isFinite(soc) && Number.isFinite(target) && soc >= target)) {
     return pause('Battery is at the target', 'at_target', { clear_lock: true });
@@ -183,7 +196,7 @@ function decide(ctx) {
 
   // 8. Inside a planned block: charge, and lock the whole period. Never on a
   // forecast price: by then the real price should be known.
-  const block = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast);
+  const block = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast && !solarOnlyBlock(b));
   if (block) {
     const period = (p.periods || []).find((x) => x.start <= now && now < x.end) || { start: block.start, end: block.end };
     const amps = ampsFor(block.power_kw, phases, maxAmps);
@@ -192,7 +205,9 @@ function decide(ctx) {
 
   // 9. Hysteresis: already charging and the price is close to the planned ones.
   const hyst = Number(rules.hysteresis) || 0;
-  if (actual.charging === true && hyst > 0 && Number.isFinite(priceNow) && p.blocks.length) {
+  // Only to keep a planned session going, not after charging on solar.
+  const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window'].includes(ctx.prevCode);
+  if (actual.charging === true && hyst > 0 && keepGoing && Number.isFinite(priceNow) && p.blocks.length) {
     const maxPlanned = Math.max(...p.blocks.map((b) => b.price));
     if (priceNow <= maxPlanned + hyst) return charge(`Already charging and the price is within ${hyst.toFixed(2)} of the planned price`, 'hysteresis');
   }
@@ -225,8 +240,35 @@ function allowedFor(m) {
     case 'buttons': return [{ service: 'button.press', entity_id: m.start_entity }, { service: 'button.press', entity_id: m.stop_entity }];
     case 'switch': return [{ service: 'switch.turn_on', entity_id: m.entity_id }, { service: 'switch.turn_off', entity_id: m.entity_id }];
     case 'select': return [{ service: 'select.select_option', entity_id: m.entity_id }];
+    // Charging current (solar) and phase switching.
+    case 'number': return [{ service: 'number.set_value', entity_id: m.entity_id }];
+    case 'action_current': return [{ service: `${m.domain}.${m.service}` }];
+    case 'action_phase': return [{ service: `${m.domain}.${m.service}` }];
+    case 'select_phase': return [{ service: 'select.select_option', entity_id: m.entity_id }];
+    case 'switch_phase': return [{ service: 'switch.turn_on', entity_id: m.entity_id }, { service: 'switch.turn_off', entity_id: m.entity_id }];
     default: return [];
   }
+}
+
+// The command for a charging current (A).
+function currentCommand(m, amps, deviceId) {
+  if (!m || !Number.isFinite(amps)) return null;
+  if (m.type === 'number') return { what: `set current to ${amps} A`, service: 'number.set_value', data: { value: amps }, target: { entity_id: m.entity_id } };
+  if (m.type === 'action_current') {
+    return { what: `set current to ${amps} A`, service: `${m.domain}.${m.service}`, data: { [m.field]: amps, ...(m.ttl_field ? { [m.ttl_field]: 30 } : {}) }, target: deviceId ? { device_id: deviceId } : null };
+  }
+  return null;
+}
+
+// The command to switch to one or three phases.
+function phaseCommand(m, phases, deviceId) {
+  if (!m) return null;
+  const one = phases === 1;
+  const what = `switch to ${one ? 'one phase' : 'three phases'}`;
+  if (m.type === 'action_phase') return { what, service: `${m.domain}.${m.service}`, data: { [m.field]: one ? m.one_value : m.three_value }, target: deviceId ? { device_id: deviceId } : null };
+  if (m.type === 'select_phase') return { what, service: 'select.select_option', data: { option: one ? m.one_value : m.three_value }, target: { entity_id: m.entity_id } };
+  if (m.type === 'switch_phase') return { what, service: `switch.turn_${one ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
+  return null;
 }
 
 // Log a command that was really sent (or refused / failed).
@@ -261,11 +303,12 @@ function commandsFor(decision, actual, methods, deviceId) {
 }
 
 // One dry-run step. Logs only when something changes.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
-  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive });
+  const prev = loadLog().slice(-1)[0];
+  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
 
   // Keep the lock up to date.
   let lock = st.lock && st.lock.end > now ? st.lock : null;
@@ -304,6 +347,8 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     want: decision.want,
     code: decision.code,
     amps: decision.amps || null,
+    phases: decision.phases || null,
+    solar: !!decision.solar,
     reason: decision.reason,
     next_start: decision.next_start || null,
     block_end: decision.block_end || null,
@@ -342,4 +387,4 @@ function clearLock() {
   writeJson(STATE_FILE, st);
 }
 
-module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, logSent, clearLog, clearLock, DEFAULT_RULES };
+module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };

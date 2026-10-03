@@ -8,9 +8,10 @@ configuration:
       Master switch, off by default. When off, the app only shows advice and
       never changes your charger, vehicle or home battery. When on, the app
       starts and pauses the charger itself, following the plan, Charge now and
-      the rules on the Control tab, with the start/stop method chosen there.
-      The charging current is not changed. Turn off your own charging
-      automation, or the two will fight.
+      the rules in Settings › Rules, with the start/stop method chosen in
+      Settings › Charger. The charging current (and phases) only change when
+      charging on solar. Turn off your own charging automation, or the two
+      will fight.
   refresh_minutes:
     name: Refresh interval (minutes)
     description: >-

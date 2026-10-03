@@ -46,6 +46,8 @@ const READ_ONLY_COMMANDS = new Set([
   'history/history_during_period',
   'get_services',
   'search/related', // which automations and scripts use an entity (to warn about conflicts)
+  'energy/solar_forecast', // the solar forecast of the Energy dashboard
+  'energy/get_prefs', // which solar forecasts are in the Energy dashboard
 ]);
 const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
