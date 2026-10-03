@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.22.3). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
+> Status: early development (v0.23.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
 
 ## Installation
 
@@ -22,13 +22,16 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 - [x] Charge now and manual start/stop (only when "Allow control" is on)
 - [x] Charger control by the plan (only when "Allow control" is on)
 - [x] Notifications and dashboard sensors
-- [ ] Charging current control
-- [ ] Home battery and solar forecast
+- [x] Price forecast, Ready for tomorrow / the day after tomorrow, the car's charge limit follows every choice
+- [x] Solar: forecast in the plan, charging on surplus with current control and one/three-phase switching
+- [ ] Home battery
 - [ ] Multiple vehicles
 
 ## Tests
 
 `node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox. See `tests/TESTPLAN.md` for the test plan and the last result.
+
+`node tests/solar.test.js` checks solar brand by brand: inverters, forecasts, the value of own solar power and charging on surplus.
 
 `node tests/forecast.test.js` checks the price forecast (forecast entries, time zone, planner) and the planner with two goals.
 

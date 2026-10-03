@@ -13,6 +13,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 - **Home**: the charging plan with a price chart up to your departure, the expected cost compared with charging right away, and **Quick choices**:
   - **Charge now**: charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged.
   - **Quickly to a minimum**: charge right away up to 20–45 %, then the plan takes over.
+  - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready for tomorrow / the day after tomorrow**: see below.
 - **Planning**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
 - **History**: **Savings** per charging session in the last 30 days, and the **Log** of what the app wanted and every command it sent.
@@ -20,7 +21,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 **⚙ Settings**
 
 - **Overview**: a checklist "is everything set up well?" with a link to fix each point, and the planning settings from Home Assistant.
-- **Vehicle**, **Charger**, **Grid**, **Prices**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
+- **Vehicle**, **Charger**, **Grid**, **Prices**, **Solar**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
 - **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis and preconditioning.
 - **Notifications**: where notifications go, and the sensors in Home Assistant.
 - **Diagnostics**: the connection to Home Assistant, the **Manual test** and the setup wizard.
@@ -79,6 +80,24 @@ Real day-ahead prices are only known for today and, from about 13:00, tomorrow. 
 - The **safety margin** is added to every forecast price, so the app only waits when the forecast is clearly cheaper.
 - Choose whether the forecast is a market price or all-in. The fees, tax and VAT of the main source are used.
 - A sensor that combines real prices and a forecast can be used for both: entries marked as a forecast (for example `source: forecast`) are skipped as real prices.
+
+## Solar
+
+Set up in **Settings › Solar** (needs the grid meter in Settings › Grid: the app sees the surplus there). On Home you choose how to charge:
+
+- **Price plan**: as without solar.
+- **Plan + solar** (default once solar is on): the plan counts on the expected sun, and the app also charges on surplus whenever there is some.
+- **Solar only**: only on surplus. Charge now, the minimum battery level and preconditioning still work.
+
+**Forecast.** From the Energy dashboard (Forecast.Solar, Solcast, Open-Meteo Solar Forecast: whatever is chosen under Settings → Dashboards → Energy → Solar production forecast), or from a sensor with an hourly list (Solcast `detailedHourly`, Open-Meteo `watts`). The plan counts on a part of it (default 80 %) and subtracts the house use (from the grid meter history, otherwise a fixed amount).
+
+**Value of your own solar power.** From 1 January 2027 "salderen" stops in the Netherlands: an exported kWh earns the feed-in compensation, not what you pay for a kWh. The plan therefore values a kWh of sun at the feed-in compensation: dynamic (the market price of that hour minus feed-in costs, optionally with VAT) or a fixed amount. With an all-in price source the market price is not known, so the fixed amount is used. The plan uses the sun for the car when that is cheaper than buying from the grid at another time; charging on the sun is never held back by "one continuous period".
+
+**Charging on surplus.** Every minute (with Allow control on) the app looks at the grid meter: surplus = what you export + what the car uses now. It starts when the surplus is enough for 6 A for a few minutes, follows it with the charging current, and stops when it has been too low for a few minutes. Up to "Charge with solar up to" (default 90 %; the car's charge limit follows). A planned block with grid power in "Plan + solar" goes first, at full power. Without a way to set the current, charging on solar only starts when the surplus covers the full power.
+
+**One or three phases.** Below 6 A on three phases (about 4.1 kW) the charger can switch to one phase (from about 1.4 kW), and back with enough sun, at most every 10 minutes. Possible with Easee (`easee.set_charger_phase_mode`), go-e (phase switch mode `psm`) and Peblar (`Force single phase`). Wallbox, Zaptec, Alfen, OCPP and Ohme cannot switch phases from Home Assistant.
+
+**Current back to normal.** When the app charges at full power again (plan, Charge now), it sets the current back to the maximum and the phases back to three. A current the app never changed is left alone.
 
 ## Departure priority
 
@@ -165,7 +184,7 @@ If you already control your charger with your own automation, keep it running wh
 
 These are set in Home Assistant: Settings → Apps → Smart Charging Planner → **Configuration**. Saving restarts the app.
 
-- **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, the app starts and pauses the charger itself, following the plan, Charge now and the rules in Settings › Rules, with the start/stop method chosen in Settings › Charger. Only start/stop is sent; the charging current is not changed. Automations, scripts and helpers are never touched.
+- **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, the app starts and pauses the charger itself, following the plan, Charge now and the rules in Settings › Rules, with the start/stop method chosen in Settings › Charger. Only start/stop is sent, plus the charging current and phases when charging on solar (Settings › Solar). Automations, scripts and helpers are never touched.
 - **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Planning tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Planning tab. This does not allow any charger control.
 - **Publish sensors**: write the app's own sensors to Home Assistant (default off). See Notifications and sensors.
 - **Notify every start and pause**: also notify each start and pause, not only problems (default on).
@@ -178,4 +197,4 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 ## Planned
 
-Charging current control, home battery and solar forecast. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.
+Home battery (Sigenergy and others) and more cars. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.

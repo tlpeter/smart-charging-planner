@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.23.0
+
+**Solar**: charge with your own solar power.
+
+- **Settings › Solar**: forecast (Energy dashboard: Forecast.Solar, Solcast, Open-Meteo; or a sensor), how much of it to count on, house use, the value of your own solar power, charging on surplus (start/stop delay, allowed grid power, "charge with solar up to"), the grid meter's sign, following the surplus with the charging current, switching to one phase, and an optional solar power sensor
+- **Home › Quick choices › How to charge**: Price plan, Plan + solar or Solar only, with what happens now ("exporting 1.2 kW · charging on solar at 7 A")
+- **No more salderen from 2027**: a kWh of sun is valued at the feed-in compensation (dynamic market price minus feed-in costs, or a fixed amount). The plan only uses the sun for the car when that is cheaper than buying at another time, with taxes included
+- **Plan**: per block a solar part (expected surplus at its value) and a grid part. The chart shows the expected sun for the car (dashed line) and blocks on solar in yellow. "One continuous period" never holds back charging on the sun
+- **Live**: every minute; starts on enough surplus for 6 A, follows it with the current, stops after too little surplus; phases switch at most every 10 minutes; current and phases go back to the maximum at full-power charging (only what the app changed itself)
+- **Chargers, current and phases**: Easee (dynamic limit, phase mode), go-e (amp, psm), Peblar (charge limit, force single phase), Wallbox, Zaptec, Alfen, OCPP (current only); Ohme and go-e (cathiele) start/stop only
+- **Inverters** found for the solar power now: SolarEdge, Enphase, SMA, Fronius, GoodWe, Huawei, Sigenergy, APsystems and more
+- The car's charge limit follows "charge with solar up to" in the solar modes
+- Fix: keeping charging when the price is close to the planned price (hysteresis) only continues a planned session, not charging that started on solar
+- Settings › Overview: a line for solar
+- Tests: `tests/solar.test.js` (inverters, forecasts, feed-in value, surplus logic, brand by brand), charger brands with current and phase switching, and a Solar group in the settings test for both set-ups
+
 ## 0.22.3
 
 - Settings test with a second set-up: **Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus** (`SCP_PROFILE=skoda_wallbox node tests/settings.test.js`), next to Renault + Easee. Entity names from the integrations' own source code. All checks pass for both; `tests/TESTPLAN.md` shows both side by side

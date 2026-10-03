@@ -47,9 +47,15 @@ function targetKind(service) {
 }
 
 // Actions of the charger's integration(s).
+// Options that mean one phase / three phases, e.g. Easee "1_phase" / "3_phase",
+// go-e phase switch mode (psm) "1" / "2".
+const ONE_PHASE = /^(1|1_phase|one_phase|single|single_phase|1p|phase_1)$/i;
+const THREE_PHASE = /^(3|3_phase|three_phase|three|3p|phase_3)$/i;
+
 function actionMethods(domains, services) {
   const startStop = [];
   const current = [];
+  const phase = [];
   for (const domain of domains) {
     const svcs = services[domain] || {};
     for (const [name, svc] of Object.entries(svcs)) {
@@ -83,6 +89,18 @@ function actionMethods(domains, services) {
         }
       }
 
+      // An action that switches between one and three phases.
+      if (/phase/.test(name)) {
+        for (const f of fields) {
+          const opts = selectOptions(f);
+          const one = opts.find((o) => ONE_PHASE.test(o));
+          const three = opts.find((o) => THREE_PHASE.test(o));
+          if (one && three) {
+            phase.push({ type: 'action_phase', domain, service: name, label, field: f.key, one_value: one, three_value: three, target: targetKind(svc), score: 90 });
+          }
+        }
+      }
+
       // An action with a current field.
       const text = words(name, svc.name, svc.description);
       if (/circuit|offline|surplus|cost|access|phase_mode|ocpp|operator|plan/.test(name)) continue;
@@ -104,7 +122,7 @@ function actionMethods(domains, services) {
       }
     }
   }
-  return { startStop, current };
+  return { startStop, current, phase };
 }
 
 // A select (choice list) that starts and stops charging, e.g.
@@ -149,6 +167,7 @@ function entityMethods(deviceEntities, states, domains = []) {
   const byId = new Map(states.map((s) => [s.entity_id, s]));
   const startStop = [];
   const current = [];
+  const phase = [];
   const warnings = [];
   const buttons = deviceEntities.filter((e) => e.entity_id.startsWith('button.'));
   // Whole words only, so "restart" is not "start".
@@ -174,12 +193,24 @@ function entityMethods(deviceEntities, states, domains = []) {
       if (has('smart', 'schedule', 'plan', 'eco', 'solar', 'pv', 'surplus', 'fup') && s && s.state === 'on' && !easeeLed) {
         warnings.push({ code: 'own_smart_charging_on', entity_id: e.entity_id, name: a.friendly_name || e.entity_id });
       }
+      // Peblar "Force single phase": on = one phase, off = three phases.
+      if ((has('single') && has('phase')) || /1.?phase|one.?phase/.test(name)) {
+        phase.push({ type: 'switch_phase', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, score: 70 });
+      }
       const other = has('smart', 'schedule', 'plan', 'eco', 'cable', 'lock', 'light', 'led', 'idle', 'current', 'phase', 'ocpp');
       if (!other && has('charging', 'charger', 'charge', 'enabled', 'enable', 'pause', 'start')) {
         // A switch that turns the whole charger off is a blunt tool.
         const blunt = has('enabled', 'enable');
         startStop.push({ type: 'switch', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, blunt, score: blunt ? 30 : 60 });
       }
+    }
+    if (e.entity_id.startsWith('select.') && /\bpsm\b|_psm\b|phase/.test(name)) {
+      const opts = Array.isArray(a.options) ? a.options.map(String) : [];
+      // go-e psm: 0 = auto, 1 = one phase, 2 = three phases.
+      const goe = /\bpsm\b|_psm\b/.test(name) && opts.includes('1') && opts.includes('2');
+      const one = goe ? '1' : opts.find((o) => ONE_PHASE.test(o));
+      const three = goe ? '2' : opts.find((o) => THREE_PHASE.test(o));
+      if (one && three) phase.push({ type: 'select_phase', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, one_value: one, three_value: three, score: 80 });
     }
     if (e.entity_id.startsWith('select.')) {
       const m = selectMethod(e, s);
@@ -188,7 +219,7 @@ function entityMethods(deviceEntities, states, domains = []) {
       if (w) warnings.push(w);
     }
   }
-  return { startStop, current, warnings };
+  return { startStop, current, phase, warnings };
 }
 
 function checkControl({ charger, entities, states, services }) {
@@ -201,6 +232,7 @@ function checkControl({ charger, entities, states, services }) {
   const withId = (m) => ({ ...m, id: `${m.type}:${m.service || m.start_service || m.entity_id || m.start_entity}${m.domain ? '@' + m.domain : ''}` });
   const startStop = [...a.startStop, ...e.startStop].map(withId).sort((x, y) => y.score - x.score);
   const current = [...a.current, ...e.current].map(withId).sort((x, y) => y.score - x.score);
+  const phase = [...a.phase, ...e.phase].map(withId).sort((x, y) => y.score - x.score);
 
   const warnings = [...e.warnings];
   if (!startStop.length) warnings.push({ code: 'no_start_stop' });
@@ -218,7 +250,8 @@ function checkControl({ charger, entities, states, services }) {
     device_id: charger.device_id || null,
     start_stop: startStop,
     current,
-    recommended: { start_stop: startStop[0] || null, current: current[0] || null },
+    phase,
+    recommended: { start_stop: startStop[0] || null, current: current[0] || null, phase: phase[0] || null },
     warnings,
   };
 }

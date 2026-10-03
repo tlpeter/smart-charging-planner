@@ -47,9 +47,10 @@ const BRANDS = [
       easee: {
         action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } },
         set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } } },
+        set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
       },
     },
-    expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'action_choice', start: 'resume', noWarning: 'own_smart_charging_on' },
+    expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'action_choice', start: 'resume', noWarning: 'own_smart_charging_on', current: 'action_current:set_charger_dynamic_limit', phase: 'action_phase:1_phase/3_phase' },
     statuses: { awaiting_start: [true, false], charging: [true, true], disconnected: [false, null], completed: [true, false], ready_to_charge: [true, false] },
   },
   {
@@ -63,7 +64,7 @@ const BRANDS = [
       ['number.zaptec_go_charger_max_current', '32', A(0, 32)],
     ]),
     services: {},
-    expect: { status: 'sensor.zaptec_go_charger_mode', power: 'sensor.zaptec_go_charge_power', startStop: 'buttons' },
+    expect: { status: 'sensor.zaptec_go_charger_mode', power: 'sensor.zaptec_go_charge_power', startStop: 'buttons', current: 'number:number.zaptec_go_charger_max_current', phase: null },
     statuses: { disconnected: [false, null], connected_requesting: [true, false], connected_charging: [true, true], connected_finished: [true, false] },
   },
   {
@@ -77,7 +78,7 @@ const BRANDS = [
       ['number.alfen_eve_power_connector_max_current_socket_1', '16', A(0, 16)],
     ]),
     services: {},
-    expect: { status: 'sensor.alfen_eve_status_code_socket_1', power: 'sensor.alfen_eve_active_power_total_socket_1', startStop: 'switch', warning: 'own_mode_on', warning2: 'alfen_single_login' },
+    expect: { status: 'sensor.alfen_eve_status_code_socket_1', power: 'sensor.alfen_eve_active_power_total_socket_1', startStop: 'switch', warning: 'own_mode_on', warning2: 'alfen_single_login', current: 'number:number.alfen_eve_power_connector_max_current_socket_1', phase: null },
     statuses: { Available: [false, null], 'Charging Normal': [true, true], 'Suspended Over Current': [true, false], 'Finish Wait Disconnect': [true, false] },
   },
   {
@@ -90,7 +91,7 @@ const BRANDS = [
       ['select.wallbox_pulsar_plus_ecosmart', 'eco_mode', { options: ['off', 'eco_mode', 'full_solar'] }],
     ]),
     services: {},
-    expect: { status: 'sensor.wallbox_pulsar_plus_status_description', power: 'sensor.wallbox_pulsar_plus_charging_power', startStop: 'switch', warning: 'own_mode_on' },
+    expect: { status: 'sensor.wallbox_pulsar_plus_status_description', power: 'sensor.wallbox_pulsar_plus_charging_power', startStop: 'switch', warning: 'own_mode_on', current: 'number:number.wallbox_pulsar_plus_maximum_charging_current', phase: null },
     statuses: { Charging: [true, true], Paused: [true, false], Ready: [false, null], Disconnected: [false, null], 'Waiting for car demand': [true, false] },
   },
   {
@@ -103,9 +104,10 @@ const BRANDS = [
       ['select.goe_123456_frc', '0', { options: ['0', '1', '2'], friendly_name: 'Force state' }],
       ['select.goe_123456_lmo', '3', { options: ['3', '4', '5'], friendly_name: 'Logic mode' }],
       ['number.goe_123456_amp', '16', { ...A(6, 32), friendly_name: 'Requested current' }],
+      ['select.goe_123456_psm', '0', { options: ['0', '1', '2'], friendly_name: 'Phase switch mode' }],
     ]),
     services: {},
-    expect: { status: 'sensor.goe_123456_car_value', power: 'sensor.goe_123456_nrg_11', startStop: 'select', start: '2', stop: '1' },
+    expect: { status: 'sensor.goe_123456_car_value', power: 'sensor.goe_123456_nrg_11', startStop: 'select', start: '2', stop: '1', current: 'number:number.goe_123456_amp', phase: 'select_phase:1/2' },
     statuses: { Idle: [false, null], Charging: [true, true], 'Wait for car': [true, false], Complete: [true, false] },
   },
   {
@@ -116,7 +118,7 @@ const BRANDS = [
       ['switch.goecharger_home_allow_charging', 'on'],
     ]),
     services: {},
-    expect: { status: 'sensor.goecharger_home_car_status', startStop: 'switch' },
+    expect: { status: 'sensor.goecharger_home_car_status', startStop: 'switch', current: null, phase: null },
     statuses: { 'Charger ready, no vehicle': [false, null], charging: [true, true], 'Waiting for vehicle': [true, false], 'charging finished, vehicle still connected': [true, false] },
   },
   {
@@ -127,9 +129,10 @@ const BRANDS = [
       ['switch.peblar_ev_charger_charge', 'on'],
       ['number.peblar_ev_charger_charge_limit', '16', A(6, 32)],
       ['select.peblar_ev_charger_smart_charging', 'default', { options: ['default', 'fast_solar', 'pure_solar', 'smart_solar', 'scheduled'] }],
+      ['switch.peblar_ev_charger_force_single_phase', 'off'],
     ]),
     services: {},
-    expect: { status: 'sensor.peblar_ev_charger_state', power: 'sensor.peblar_ev_charger_power', startStop: 'switch', noWarning: 'own_mode_on' },
+    expect: { status: 'sensor.peblar_ev_charger_state', power: 'sensor.peblar_ev_charger_power', startStop: 'switch', noWarning: 'own_mode_on', current: 'number:number.peblar_ev_charger_charge_limit', phase: 'switch_phase:on/off', switchEntity: 'switch.peblar_ev_charger_charge' },
     statuses: { no_ev_connected: [false, null], charging: [true, true], suspended: [true, false] },
   },
   {
@@ -142,7 +145,7 @@ const BRANDS = [
       ['number.charger_maximum_current', '32', A(0, 32)],
     ]),
     services: { ocpp: { set_charge_rate: { name: 'Set charge rate', fields: { limit_amps: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } } } } } },
-    expect: { status: 'sensor.charger_status_connector', power: 'sensor.charger_power_active_import', startStop: 'switch', switchEntity: 'switch.charger_charge_control', warning: 'ocpp_backend' },
+    expect: { status: 'sensor.charger_status_connector', power: 'sensor.charger_power_active_import', startStop: 'switch', switchEntity: 'switch.charger_charge_control', warning: 'ocpp_backend', current: 'number:number.charger_maximum_current', phase: null },
     statuses: { Available: [false, null], Preparing: [true, false], Charging: [true, true], SuspendedEV: [true, false], SuspendedEVSE: [true, false], Finishing: [true, false] },
   },
   {
@@ -153,7 +156,7 @@ const BRANDS = [
       ['select.ohme_home_pro_charge_mode', 'smart_charge', { options: ['smart_charge', 'max_charge', 'paused'] }],
     ]),
     services: {},
-    expect: { status: 'sensor.ohme_home_pro_status', power: 'sensor.ohme_home_pro_power', startStop: 'select', start: 'max_charge', stop: 'paused', warning: 'own_mode_on' },
+    expect: { status: 'sensor.ohme_home_pro_status', power: 'sensor.ohme_home_pro_power', startStop: 'select', start: 'max_charge', stop: 'paused', warning: 'own_mode_on', current: null, phase: null },
     statuses: { unplugged: [false, null], plugged_in: [true, false], charging: [true, true], paused: [true, false], finished: [true, false] },
   },
 ];
@@ -190,6 +193,35 @@ for (const b of BRANDS) {
       assert.ok(ok, `${cmd.service} not allowed`);
     }
   });
+
+  // Solar: charging current and switching between one and three phases.
+  if ('current' in b.expect) {
+    const cur = r.recommended.current;
+    const got = cur ? `${cur.type}:${cur.type === 'number' ? cur.entity_id : cur.service}` : null;
+    check(`solar current: ${b.expect.current || 'not possible'}`, () => assert.strictEqual(got, b.expect.current));
+    if (cur) {
+      const cmd = controller.currentCommand(cur, 10, 'd');
+      const allowedCur = controller.allowedFor(cur);
+      check('current command 10 A allowed', () => {
+        assert.ok(cmd && allowedCur.some((a) => a.service === cmd.service && (!a.entity_id || cmd.target.entity_id === a.entity_id)), JSON.stringify(cmd));
+        assert.ok(Object.values(cmd.data).includes(10), JSON.stringify(cmd.data));
+      });
+    }
+  }
+  if ('phase' in b.expect) {
+    const ph = r.recommended.phase;
+    const one = ph ? controller.phaseCommand(ph, 1, 'd') : null;
+    const three = ph ? controller.phaseCommand(ph, 3, 'd') : null;
+    const val = (c) => (c ? (c.data.option ?? Object.values(c.data)[0] ?? c.service.split('_').pop()) : null);
+    const got = ph ? `${ph.type}:${val(one)}/${val(three)}` : null;
+    check(`phase switching: ${b.expect.phase || 'not possible'}`, () => assert.strictEqual(got, b.expect.phase));
+    if (ph) {
+      const allowedPh = controller.allowedFor(ph);
+      check('phase commands allowed', () => {
+        for (const c of [one, three]) assert.ok(allowedPh.some((a) => a.service === c.service && (!a.entity_id || c.target.entity_id === a.entity_id)), JSON.stringify(c));
+      });
+    }
+  }
 
   // Status texts: [plugged, charging]
   for (const [text, [plugged, charging]] of Object.entries(b.statuses)) {

@@ -14,6 +14,11 @@ const WebSocket = require(path.join(__dirname, '..', 'smart_charging_planner', '
 const { localMidnight, isoLocal } = require(path.join(__dirname, '..', 'smart_charging_planner', 'app', 'prices.js'));
 
 const TZ = 'Europe/Amsterdam';
+
+// The car's charging power: current × phases × 230 V while charging.
+const carKw = (w) => (w.charging ? Math.round((w.amps ?? 16) * (w.phases ?? 3) * 230) / 1000 : 0);
+// Grid power (positive = import): house + car - solar.
+const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 - (w.pvW ?? 0));
 const PCT = { unit_of_measurement: '%' };
 const KW = { unit_of_measurement: 'kW', device_class: 'power' };
 
@@ -40,11 +45,15 @@ const PROFILES = {
       status: 'sensor.laadpaal_status', power: 'sensor.laadpaal_power', switch: 'switch.laadpaal_charger_enabled',
       text: { unplugged: 'disconnected', paused: 'awaiting_start', charging: 'charging' },
       services: {
-        easee: { action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } } },
+        easee: {
+          action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } },
+          set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } }, target: { device: {} } },
+          set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } }, target: { device: {} } },
+        },
       },
       states: (w, status) => [
         ['sensor.laadpaal_status', status, { friendly_name: 'Laadpaal Status', device_class: 'enum' }],
-        ['sensor.laadpaal_power', w.powerKw, { friendly_name: 'Laadpaal Power', ...KW }],
+        ['sensor.laadpaal_power', carKw(w), { friendly_name: 'Laadpaal Power', ...KW }],
         ['switch.laadpaal_charger_enabled', 'on', { friendly_name: 'Laadpaal Charger enabled' }],
         ['switch.laadpaal_smart_charging', 'off', { friendly_name: 'Laadpaal Smart charging' }],
       ],
@@ -55,8 +64,11 @@ const PROFILES = {
         return ['resume', 'start'].includes(c) ? 'start' : ['pause', 'stop'].includes(c) ? 'stop' : null;
       },
       isStart: (c) => c.domain === 'easee' && ['resume', 'start'].includes(c.data.action_command),
-      isControl: (c) => c.domain === 'easee',
-      describe: (c) => `easee.action_command ${c.data.action_command}`,
+      isControl: (c) => c.domain === 'easee' && c.service === 'action_command',
+      describe: (c) => `easee.${c.service} ${JSON.stringify(c.data)}`,
+      // Current and phases (solar)
+      currentOf: (c) => (c.domain === 'easee' && c.service === 'set_charger_dynamic_limit' ? c.data.current : null),
+      phasesOf: (c) => (c.domain === 'easee' && c.service === 'set_charger_phase_mode' ? (c.data.phase_mode === '1_phase' ? 1 : 3) : null),
     },
   },
   skoda_wallbox: {
@@ -70,7 +82,7 @@ const PROFILES = {
         ['sensor.enyaq_battery_percentage', w.soc, { friendly_name: 'Enyaq Battery Percentage', ...PCT, device_class: 'battery' }],
         ['sensor.enyaq_range', '210', { friendly_name: 'Enyaq Range', unit_of_measurement: 'km', device_class: 'distance' }],
         ['sensor.enyaq_charging_state', w.charging ? 'charging' : w.plugged ? 'ready_for_charging' : 'connect_cable', { friendly_name: 'Enyaq Charging State', device_class: 'enum' }],
-        ['sensor.enyaq_charging_power', w.powerKw, { friendly_name: 'Enyaq Charging Power', ...KW }],
+        ['sensor.enyaq_charging_power', carKw(w), { friendly_name: 'Enyaq Charging Power', ...KW }],
         ['binary_sensor.enyaq_charger_connected', w.plugged ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
         ['binary_sensor.enyaq_charge_lock', 'on', { friendly_name: 'Enyaq Charge Lock', device_class: 'lock' }],
         ['number.enyaq_charge_limit', w.limit, { friendly_name: 'Enyaq Charge Limit', ...PCT, min: 50, max: 100, step: 10 }],
@@ -90,7 +102,7 @@ const PROFILES = {
       services: {},
       states: (w, status) => [
         ['sensor.wallbox_pulsar_plus_status_description', status, { friendly_name: 'Wallbox Pulsar Plus Status Description' }],
-        ['sensor.wallbox_pulsar_plus_charging_power', w.powerKw, { friendly_name: 'Wallbox Pulsar Plus Charging Power', ...KW }],
+        ['sensor.wallbox_pulsar_plus_charging_power', carKw(w), { friendly_name: 'Wallbox Pulsar Plus Charging Power', ...KW }],
         ['sensor.wallbox_pulsar_plus_added_energy', '12.3', { friendly_name: 'Wallbox Pulsar Plus Added Energy', unit_of_measurement: 'kWh', device_class: 'energy' }],
         ['sensor.wallbox_pulsar_plus_charging_speed', '0', { friendly_name: 'Wallbox Pulsar Plus Charging Speed' }],
         ['switch.wallbox_pulsar_plus_pause_resume', w.charging ? 'on' : 'off', { friendly_name: 'Wallbox Pulsar Plus Pause/Resume' }],
@@ -104,7 +116,9 @@ const PROFILES = {
       },
       isStart: (c) => c.domain === 'switch' && c.service === 'turn_on' && c.target && c.target.entity_id === 'switch.wallbox_pulsar_plus_pause_resume',
       isControl: (c) => c.domain === 'switch' && c.target && c.target.entity_id === 'switch.wallbox_pulsar_plus_pause_resume',
-      describe: (c) => `switch.${c.service} ${c.target.entity_id}`,
+      describe: (c) => `${c.domain}.${c.service} ${c.target.entity_id}${c.data && c.data.value != null ? ' ' + c.data.value : ''}`,
+      currentOf: (c) => (c.domain === 'number' && c.target && c.target.entity_id === 'number.wallbox_pulsar_plus_maximum_charging_current' ? c.data.value : null),
+      phasesOf: () => null,
     },
   },
 };
@@ -157,19 +171,22 @@ function entityList(w) {
   return [
     ...car,
     ...charger,
-    ['sensor.p1_power', '850', { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
+    ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto' }, null],
+    // Inverter (Fronius): solar power now.
+    ['sensor.solarnet_power_photovoltaics', String(w.pvW ?? 0), { friendly_name: 'SolarNet Power photovoltaics', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
+    ['sensor.solarnet_power_grid', String(gridW(w)), { friendly_name: 'SolarNet Power grid', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
   ];
 }
 
-const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero' };
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius' };
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
@@ -193,6 +210,7 @@ function devices(w) {
     { id: p.charger.device, name: p.charger.name, manufacturer: p.charger.manufacturer, model: p.charger.model },
     { id: 'p1', name: 'P1 meter', manufacturer: 'DSMR', model: 'P1' },
     { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
+    { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
   ];
 }
 
@@ -217,6 +235,17 @@ function start(w, wsPort, restPort) {
         case 'config/entity_registry/list': return ok(registry(w));
         case 'config/device_registry/list': return ok(devices(w));
         case 'search/related': return ok({});
+        // Energy dashboard: one solar forecast (Forecast.Solar), 3 kWh per hour
+        // from 10:00 to 16:00 today and tomorrow.
+        case 'energy/get_prefs': return ok({ energy_sources: [{ type: 'solar', stat_energy_from: 'sensor.pv_energy', config_entry_solar_forecast: w.noForecast ? [] : ['fs1'] }] });
+        case 'energy/solar_forecast': {
+          if (w.noForecast) return ok({});
+          const wh = {};
+          for (const day of [0, 1, 2]) {
+            for (let h = 10; h < 16; h++) wh[new Date(localMidnight(TZ, day) + h * 3600000).toISOString()] = w.solarWh ?? 3000;
+          }
+          return ok({ fs1: { wh_hours: wh } });
+        }
         case 'recorder/statistics_during_period': {
           const out = {};
           for (const id of m.statistic_ids) out[id] = [];
@@ -230,9 +259,13 @@ function start(w, wsPort, restPort) {
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
           w.calls.push(call);
           if (m.domain === 'number' && m.service === 'set_value') w.limit = call.data.value;
+          const amps = w.profile.charger.currentOf && w.profile.charger.currentOf(call);
+          if (amps != null) w.amps = amps;
+          const ph = w.profile.charger.phasesOf && w.profile.charger.phasesOf(call);
+          if (ph != null) w.phases = ph;
           const r = w.profile.charger.react(call);
-          if (r === 'start') { w.charging = true; w.powerKw = 11; }
-          if (r === 'stop') { w.charging = false; w.powerKw = 0; }
+          if (r === 'start') w.charging = true;
+          if (r === 'stop') w.charging = false;
           return ok({ context: {} });
         }
         default: return fail(`not supported in the fake: ${m.type}`);

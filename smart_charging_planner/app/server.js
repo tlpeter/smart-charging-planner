@@ -22,6 +22,9 @@ const session = require('./session');
 const { learnedPower } = require('./chargepower');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
+const solar = require('./solar');
+const solarctl = require('./solarctl');
+const chargeMode = require('./mode');
 const notifier = require('./notify');
 
 const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
@@ -563,6 +566,32 @@ const routes = {
         });
       }
     }
+    // Solar: the expected surplus per block, at the value of your own solar
+    // power (what exporting would earn).
+    const sol = s.solar && s.solar.enabled ? s.solar : null;
+    const cm = chargeMode.current(!!sol);
+    let solarInfo = sol ? { enabled: true, mode: cm, max_soc: sol.max_soc } : { enabled: false, mode: 'plan' };
+    if (sol && cm !== 'plan' && prices.length) {
+      try {
+        const fc = await solarForecastCached(sol, states);
+        const factor = Number(sol.forecast_factor) || 0.8;
+        const baseW = Number(sol.house_base_w) || 0;
+        const typeOf = (p) => (p.forecast && s.prices.forecast ? s.prices.forecast.price_type || s.prices.price_type : s.prices.price_type);
+        let todayKwh = 0;
+        const dayEnd = prices[0] ? prices[0].start + 24 * 3600000 : now;
+        prices = prices.map((p) => {
+          const wh = fc.hours.get(Math.floor(p.start / 3600000) * 3600000) || 0;
+          const pvKw = (wh / 1000) * factor;
+          if (p.start < dayEnd && p.end > now) todayKwh += pvKw * ((p.end - p.start) / 3600000);
+          const houseW = houseLoad.available ? houseLoad.profile[tzParts(p.start, tz).h] || 0 : baseW;
+          const surplus = Math.max(0, pvKw - houseW / 1000);
+          return { ...p, solar_kw: surplus, solar_price: solar.feedInValue(p.price, typeOf(p), sol.feed_in), pv_kw: pvKw };
+        });
+        solarInfo = { ...solarInfo, forecast_source: fc.source, forecast_hours: fc.hours.size, expected_kwh_left_today: todayKwh };
+      } catch (err) {
+        solarInfo = { ...solarInfo, forecast_error: err.message };
+      }
+    }
     const wantedSoc = departure ? departure.soc : dep.default_soc;
     // The car stops at its own charge limit; planning above it is pointless.
     const carLimit = vehicle && mode !== 'fixed_kwh' ? await carChargeLimit(vehicle, states) : null;
@@ -580,17 +609,22 @@ const routes = {
     const deadline = departure ? departure.time : (realEnd || now);
     const minKwh = interim && vehicle && mode !== 'fixed_kwh'
       ? energyNeededKwh(soc, Math.min(cf.min_soc, targetSoc), vehicle.capacity_kwh, planning.loss_percent) : 0;
+    const solarOnly = cm === 'solar';
     const plan = interim && minKwh > 0.01
       ? planStaged({
         prices, now, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
+        solarOnly,
       })
       : planCharging({
         prices, now, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
+        solarOnly,
       });
+    if (solarInfo.forecast_error) plan.notes.push('solar_forecast_error');
+    if (solarOnly) plan.notes.push('solar_only');
     if (!departure) plan.notes.unshift('no_departure');
     if (vehicle && mode === 'manual_soc' && !(sessionInfo && sessionInfo.manual_soc)) {
       plan.notes = ['enter_soc', ...plan.notes.filter((n) => n !== 'missing_data')];
@@ -676,8 +710,10 @@ const routes = {
       prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline)).map((p) => ({
         start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
         ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
+        ...(Number.isFinite(p.pv_kw) ? { pv_kw: p.pv_kw, solar_kw: p.solar_kw, solar_price: p.solar_price } : {}),
       })),
       forecast: forecastInfo,
+      solar: solarInfo,
       house_load: houseLoad.available ? {
         available: true,
         profile: houseLoad.profile.map((w) => Math.round(w)),
@@ -1165,6 +1201,146 @@ routes['DELETE /api/chargefor'] = async () => {
 };
 
 // ---------------------------------------------------------------------------
+// Solar (Settings › Solar) and the charging mode (Home)
+// ---------------------------------------------------------------------------
+
+const SOLAR_DEFAULTS = {
+  enabled: false,
+  forecast: 'energy', // 'energy' | 'sensor' | 'none'
+  forecast_entity: null,
+  forecast_factor: 0.8,
+  house_base_w: 400,
+  pv_entity: null,
+  grid_sign: 'import_positive',
+  start_delay_min: 5,
+  stop_delay_min: 5,
+  grid_allow_w: 0,
+  max_soc: 90,
+  current_control: true,
+  phase_switching: false,
+  phase_method_id: null,
+  feed_in: { mode: 'market', fee: 0.02, fixed: 0.05, vat_percent: 0 },
+};
+
+function solarSettings(s) {
+  const x = s.solar || {};
+  return { ...SOLAR_DEFAULTS, ...x, feed_in: { ...SOLAR_DEFAULTS.feed_in, ...(x.feed_in || {}) } };
+}
+
+routes['GET /api/solar'] = async () => {
+  const s = settings.load();
+  const cfg = solarSettings(s);
+  const { entities, states } = await loadRegistries();
+  const charger = s.chargers[0] || null;
+  const methods = charger ? await currentControlMethods(charger).catch(() => null) : null;
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const chosen = chosenMethods(methods, rules);
+  const prefs = await solar.energyPrefs();
+  let fc = null;
+  try {
+    const f = await solar.forecast({ ...cfg, forecast: cfg.forecast === 'none' ? 'energy' : cfg.forecast }, states);
+    const tz = ha.state.timeZone;
+    const day = (offset) => {
+      const a = dayStart(tz, offset, Date.now());
+      const b = dayStart(tz, offset + 1, Date.now());
+      let wh = 0;
+      for (const [t, v] of f.hours) if (t >= a && t < b) wh += v;
+      return wh / 1000;
+    };
+    fc = { source: f.source, entries: f.entries, hours: f.hours.size, today_kwh: day(0), tomorrow_kwh: day(1) };
+  } catch (err) {
+    fc = { error: err.message };
+  }
+  const grid = s.grid[0] || null;
+  const pv = solar.detectPvSensors(entities, states);
+  const pvNow = cfg.pv_entity ? solar.powerW(states.find((x) => x.entity_id === cfg.pv_entity)) : null;
+  const sensorCandidates = states
+    .filter((x) => x.entity_id.startsWith('sensor.') && solar.sensorForecast(x).hours.size > 0)
+    .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id }));
+  return {
+    settings: cfg,
+    mode: chargeMode.current(cfg.enabled),
+    energy: prefs,
+    forecast: fc,
+    forecast_sensors: sensorCandidates,
+    pv_sensors: pv.slice(0, 8),
+    pv_now_w: pvNow,
+    grid: grid ? { name: grid.name, net_w: solar.gridNetW(grid, states, cfg.grid_sign) } : null,
+    price_type: s.prices ? s.prices.price_type : null,
+    current_method: chosen && chosen.current ? { id: chosen.current.id, label: chosen.current.label } : null,
+    phase_methods: methods && methods.available ? (methods.phase || []).map((m) => ({ id: m.id, label: m.label, type: m.type })) : [],
+    control_allowed: options.allow_control,
+    now: lastDryRun && lastDryRun.solar_now ? lastDryRun.solar_now : null,
+  };
+};
+
+routes['POST /api/solar'] = async (req) => {
+  const b = await readBody(req);
+  const num = (v, name, min, max) => {
+    const n = Number(v);
+    if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
+    return n;
+  };
+  const f = b.feed_in || {};
+  const cfg = {
+    enabled: b.enabled === true,
+    forecast: ['energy', 'sensor', 'none'].includes(b.forecast) ? b.forecast : 'energy',
+    forecast_entity: null,
+    forecast_factor: num(b.forecast_factor ?? 0.8, 'Forecast factor', 0.3, 1.2),
+    house_base_w: num(b.house_base_w ?? 400, 'House use', 0, 10000),
+    pv_entity: null,
+    grid_sign: b.grid_sign === 'export_positive' ? 'export_positive' : 'import_positive',
+    start_delay_min: num(b.start_delay_min ?? 5, 'Start delay', 0, 30),
+    stop_delay_min: num(b.stop_delay_min ?? 5, 'Stop delay', 0, 30),
+    grid_allow_w: num(b.grid_allow_w ?? 0, 'Allowed grid power', 0, 5000),
+    max_soc: num(b.max_soc ?? 90, 'Solar charging up to', 50, 100),
+    current_control: b.current_control !== false,
+    phase_switching: b.phase_switching === true,
+    phase_method_id: b.phase_method_id ? String(b.phase_method_id).slice(0, 200) : null,
+    feed_in: {
+      mode: f.mode === 'fixed' ? 'fixed' : 'market',
+      fee: num(f.fee ?? 0.02, 'Feed-in costs', -1, 1),
+      fixed: num(f.fixed ?? 0.05, 'Fixed feed-in compensation', -1, 1),
+      vat_percent: num(f.vat_percent ?? 0, 'VAT on feed-in', 0, 50),
+    },
+  };
+  if (cfg.forecast === 'sensor') {
+    if (!/^sensor\.[a-z0-9_]+$/.test(String(b.forecast_entity || ''))) throw badRequest('Choose a forecast sensor');
+    cfg.forecast_entity = b.forecast_entity;
+  }
+  if (b.pv_entity) {
+    if (!/^sensor\.[a-z0-9_]+$/.test(String(b.pv_entity))) throw badRequest('Invalid solar power sensor');
+    cfg.pv_entity = b.pv_entity;
+  }
+  const s = settings.load();
+  if (cfg.enabled && !(s.grid && s.grid[0])) throw badRequest('Set up the grid meter first (Settings › Grid): the app sees the solar surplus there');
+  s.solar = cfg;
+  settings.save(s);
+  solarFcCache = null;
+  planCache = null;
+  ha.log(`Solar settings saved (${cfg.enabled ? 'on' : 'off'})`);
+  return { ok: true, settings: cfg };
+};
+
+routes['GET /api/chargemode'] = async () => {
+  const s = settings.load();
+  const cfg = solarSettings(s);
+  return { mode: chargeMode.current(cfg.enabled), solar_enabled: cfg.enabled, modes: chargeMode.MODES };
+};
+
+routes['POST /api/chargemode'] = async (req) => {
+  const b = await readBody(req);
+  const s = settings.load();
+  if (!solarSettings(s).enabled && b.mode !== 'plan') throw badRequest('Set up solar first (Settings › Solar)');
+  if (!chargeMode.MODES.includes(b.mode)) throw badRequest('Choose a charging mode');
+  chargeMode.set(b.mode);
+  controller.clearLock();
+  planCache = null;
+  await refreshPlan('charging mode changed', { fresh: true });
+  return { ok: true, mode: b.mode };
+};
+
+// ---------------------------------------------------------------------------
 // Settings check: is everything set up well?
 // ---------------------------------------------------------------------------
 
@@ -1204,7 +1380,23 @@ routes['GET /api/checklist'] = async () => {
   const n = conflicts ? conflicts.items.filter((x) => !x.dismissed).length : 0;
   add('conflicts', n ? 'warn' : 'ok', 'Your own automations', n ? `${n} automation(s) use the same charger or car limit` : 'No conflicts found', 'ctlset');
   add('notify', s.notify && s.notify.service ? 'ok' : 'optional', 'Notifications', s.notify && s.notify.service ? s.notify.service : 'Optional: choose where to send them', 'status');
-  add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load', 'grid');
+  add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load and solar', 'grid');
+  const sc = solarSettings(s);
+  if (!sc.enabled) add('solar', 'optional', 'Solar', 'Optional: charge with your own solar power', 'solar');
+  else {
+    let detail = `On · forecast ${sc.forecast === 'none' ? 'off' : sc.forecast === 'energy' ? 'from the Energy dashboard' : sc.forecast_entity}`;
+    let state = 'ok';
+    if (sc.forecast === 'energy') {
+      const p = await solar.energyPrefs();
+      if (!p.forecast_entries.length) { state = 'warn'; detail = 'On, but the Energy dashboard has no solar forecast; add Forecast.Solar, Solcast or Open-Meteo there'; }
+    }
+    if (state === 'ok' && sc.current_control) {
+      const m = c ? await currentControlMethods(c).catch(() => null) : null;
+      const ch = chosenMethods(m, { ...controller.DEFAULT_RULES, ...(s.control || {}) });
+      if (!(ch && ch.current)) { state = 'warn'; detail = 'On, but the charger has no way to set the current: solar charging only starts with enough surplus for full power'; }
+    }
+    add('solar', state, 'Solar', detail, 'solar');
+  }
   return { items, ready: !items.some((i) => i.state === 'missing') };
 };
 
@@ -1222,6 +1414,12 @@ function limitGoal(planResult, b) {
   let reason = planResult && planResult.charge_for ? 'Ready-for choice' : 'Planned target';
   if (!Number.isFinite(wanted)) wanted = NaN;
   if (b && b.mode === 'soc' && !(b.value <= wanted)) { wanted = b.value; reason = 'Charge now'; }
+  // Charging on solar surplus goes up to its own maximum.
+  const sol = planResult && planResult.solar;
+  if (sol && sol.enabled && sol.mode !== 'plan' && Number.isFinite(Number(sol.max_soc)) && !(Number(sol.max_soc) <= wanted)) {
+    wanted = Number(sol.max_soc);
+    reason = 'Solar charging';
+  }
   if (b && b.mode === 'kwh') {
     const v = planResult && planResult.vehicle;
     const left = planResult && planResult.boost ? planResult.boost.remaining_kwh : b.value;
@@ -1405,6 +1603,7 @@ routes['GET /api/plan'] = async (req) => {
   if (!planCache) throw new Error('The plan could not be calculated yet; see the app log');
   return {
     ...planCache.result,
+    solar_now: lastDryRun && lastDryRun.solar_now ? { ...lastDryRun.solar_now, code: lastDryRun.code, amps: lastDryRun.amps, phases: lastDryRun.phases } : null,
     computed_at: planCache.at,
     next_refresh: planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,
@@ -1439,12 +1638,114 @@ async function currentControlMethods(charger) {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Solar: forecast cache, the live surplus step, current and phases
+// ---------------------------------------------------------------------------
+
+let solarFcCache = null; // { key, at, result }
+async function solarForecastCached(sol, states) {
+  const key = JSON.stringify([sol.forecast, sol.forecast_entity]);
+  if (solarFcCache && solarFcCache.key === key && Date.now() - solarFcCache.at < 15 * 60000) return solarFcCache.result;
+  const result = await solar.forecast(sol, states);
+  solarFcCache = { key, at: Date.now(), result };
+  return result;
+}
+
+function phaseMethodFor(methods, sol) {
+  if (!methods || !methods.available || !sol || !sol.phase_switching) return null;
+  const list = methods.phase || [];
+  return (sol.phase_method_id && list.find((m) => m.id === sol.phase_method_id)) || list[0] || null;
+}
+
+let solarState = solarctl.initialState();
+function solarStep(s, planResult, states, methods, rules, charger) {
+  const sol = s.solar && s.solar.enabled ? s.solar : null;
+  const cm = chargeMode.current(!!sol);
+  if (!sol || cm === 'plan' || !planResult) { solarState = solarctl.initialState(); return null; }
+  const grid = s.grid[0] || null;
+  const net = solar.gridNetW(grid, states, sol.grid_sign);
+  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
+  const carW = Number.isFinite(actual.power_w) ? actual.power_w : 0;
+  const available = net == null ? null : carW - net + (Number(sol.grid_allow_w) || 0);
+  const chosen = chosenMethods(methods, rules);
+  const currentControl = sol.current_control !== false && !!(chosen && chosen.current);
+  const maxAmps = (planResult.charger && planResult.charger.max_current) || 16;
+  const r = solarctl.step(solarState, {
+    now: Date.now(),
+    available_w: available,
+    soc: planResult.vehicle ? planResult.vehicle.soc : null,
+    max_soc: Number(sol.max_soc) || 100,
+    phases_now: charger ? charger.phases : 3,
+    max_amps: maxAmps,
+    // Without control over the current the charger takes its maximum, so
+    // only start when the surplus covers that.
+    min_amps: currentControl ? solarctl.MIN_AMPS : maxAmps,
+    can_switch_phases: !!phaseMethodFor(methods, sol) && currentControl,
+    start_delay_ms: (Number(sol.start_delay_min) || 0) * 60000,
+    stop_delay_ms: (Number(sol.stop_delay_min) || 0) * 60000,
+  });
+  solarState = r.state;
+  return { ...r, mode: cm, available_w: available, grid_w: net };
+}
+
+// Set the charging current (and phases) for solar charging, and back to the
+// maximum (and three phases) when charging at full power again. Only what the
+// app changed itself is changed back; a current the app never touched is
+// left alone. At most once a minute, phases at most every 10 minutes.
+let lastCurrent = null; // { amps, at }
+let lastPhases = null; // { phases, at }
+const CURRENT_GAP_MS = Number(process.env.SCP_CURRENT_GAP_MS) || 60000;
+const PHASE_RESTORE_MS = Number(process.env.SCP_PHASE_GAP_MS) || 2 * 60000;
+async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
+  const sol = s.solar && s.solar.enabled ? s.solar : null;
+  if (!sol || entry.want !== 'charge' || entry.plugged === false) return;
+  const chosen = chosenMethods(methods, rules);
+  const curM = sol.current_control !== false && chosen ? chosen.current : null;
+  const phaseM = phaseMethodFor(methods, sol);
+  const charger = s.chargers[0] || {};
+  const maxAmps = (planResult && planResult.charger && planResult.charger.max_current) || 16;
+  const wantAmps = entry.solar ? entry.amps : maxAmps;
+  const wantPhases = entry.solar ? entry.phases : (charger.phases === 1 ? 1 : 3);
+  const now = Date.now();
+  const send = async (command, method, what) => {
+    const line = { ...entry, time: now, live: true, commands: [command], sent: false };
+    try {
+      await ha.sendControl(command, controller.allowedFor(method));
+      line.sent = true;
+    } catch (err) {
+      line.error = err.message;
+      ha.warn('Could not', command.what, '-', err.message);
+      await notifier.notify('problem', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
+    }
+    controller.logSent(line);
+    return line.sent;
+  };
+  if (phaseM && wantPhases && (!lastPhases || lastPhases.phases !== wantPhases)) {
+    // Unknown and three phases wanted: leave the charger as it is.
+    const needed = lastPhases ? true : wantPhases === 1;
+    if (needed && (!lastPhases || now - lastPhases.at >= PHASE_RESTORE_MS)) {
+      const c = controller.phaseCommand(phaseM, wantPhases, methods.device_id);
+      if (c && await send(c, phaseM, 'phase')) lastPhases = { phases: wantPhases, at: now };
+    }
+  }
+  if (curM && Number.isFinite(wantAmps)) {
+    const changedByApp = lastCurrent != null;
+    if (!entry.solar && !changedByApp) return; // never touched: leave it
+    if (!lastCurrent || lastCurrent.amps !== wantAmps) {
+      if (lastCurrent && now - lastCurrent.at < CURRENT_GAP_MS && wantAmps !== maxAmps) return;
+      const c = controller.currentCommand(curM, wantAmps, methods.device_id);
+      if (c && await send(c, curM, 'current')) lastCurrent = wantAmps === maxAmps && !entry.solar ? null : { amps: wantAmps, at: now };
+    }
+  }
+}
+
 async function runDryRun(planResult) {
   const s = settings.load();
   const charger = s.chargers[0] || null;
   if (!charger) return null;
   const [states, methods] = await Promise.all([ha.call({ type: 'get_states' }), currentControlMethods(charger)]);
   const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
   lastDryRun = controller.dryRun({
     plan: planResult,
     vehicle: s.vehicles[0] || null,
@@ -1456,11 +1757,14 @@ async function runDryRun(planResult) {
     controlAllowed: options.allow_control,
     live: options.allow_control === true,
     boostActive: !!boost.current(),
+    solar: solarCtx,
   });
+  if (solarCtx) lastDryRun.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason };
   ha.debug('Control:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
   if (options.allow_control === true) {
     await checkReaction(lastDryRun);
     await sendLive(lastDryRun, chosenMethods(methods, rules));
+    await sendCurrentAndPhases(lastDryRun, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
     await manageCarLimit(planResult, lastDryRun, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
   }
   await notifier.publishSensors(planResult, lastDryRun, { lastCommand: lastCommandInfo });

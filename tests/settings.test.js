@@ -100,6 +100,8 @@ async function startApp(options = {}) {
       SUPERVISOR_TOKEN: 'test',
       SCP_CHECK_AFTER_MS: '2000',
       SCP_LIMIT_GAP_MS: '2000',
+      SCP_PHASE_GAP_MS: '1000',
+      SCP_CURRENT_GAP_MS: '1000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -550,7 +552,7 @@ async function run() {
   });
   await test('J6', 'Charge now 100 %: limit up, charger started; stop: limit back', async () => {
     world.charging = false;
-    world.powerKw = 0;
+    world.amps = null;
     const n0 = world.calls.length;
     await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
     await sleep(800);
@@ -621,7 +623,7 @@ async function run() {
     await startApp({ allow_control: true, notify_start_stop: false });
     world.soc = 20;
     world.charging = false;
-    world.powerKw = 0;
+    world.amps = null;
     const n0 = world.calls.length;
     await ok('POST', 'api/boost', { mode: 'soc', value: 30 });
     await sleep(800);
@@ -630,6 +632,130 @@ async function run() {
     assert(!titles.includes('Charging started'), `notified: ${titles}`);
     return titles.length ? `only: ${titles.join(', ')}` : 'no notifications';
   });
+
+  // ----- S. Solar (Allow control on) ---------------------------------------
+  group = 'S. Solar';
+  const solarBody = (o = {}) => ({
+    enabled: true, forecast: 'energy', forecast_factor: 0.8, house_base_w: 400, grid_sign: 'import_positive',
+    start_delay_min: 0, stop_delay_min: 0, grid_allow_w: 0, max_soc: 90, current_control: true,
+    phase_switching: true, feed_in: { mode: 'fixed', fee: 0.02, fixed: 0.03, vat_percent: 0 }, ...o,
+  });
+  const solarKwh = (p) => p.plan.blocks.reduce((a, b) => a + (b.solar_kwh || 0), 0);
+  // The charger's current is set through the recommended method (Settings › Charger).
+  await ok('POST', 'api/control/settings', rules({ current_id: '' }));
+  await test('S1', 'Refused: solar up to 30 %, forecast sensor without a sensor, factor 2', async () => {
+    await refused('POST', 'api/solar', solarBody({ max_soc: 30 }), 'between 50 and 100');
+    await refused('POST', 'api/solar', solarBody({ forecast: 'sensor' }), 'forecast sensor');
+    await refused('POST', 'api/solar', solarBody({ forecast_factor: 2 }), 'forecast factor');
+  });
+  await test('S2', 'Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger', async () => {
+    const r = await ok('GET', 'api/solar');
+    assert(r.forecast && near(r.forecast.tomorrow_kwh, 18, 0.01), `forecast ${JSON.stringify(r.forecast)}`);
+    assert(r.pv_sensors[0] && r.pv_sensors[0].entity_id === 'sensor.solarnet_power_photovoltaics', `pv ${JSON.stringify(r.pv_sensors[0])}`);
+    return `forecast tomorrow ${r.forecast.tomorrow_kwh} kWh, inverter ${r.pv_sensors[0].brand}, phase switching: ${r.phase_methods.map((m) => m.label).join(', ') || 'not possible'}, current: ${r.current_method ? r.current_method.label : 'none'}`;
+  });
+  await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(2)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+  world.soc = 20;
+  await test('S3', 'Plan + solar, feed-in 0.03: the plan charges on tomorrow\'s sun (cheaper than the night at 0.05)', async () => {
+    await ok('POST', 'api/solar', solarBody());
+    const m = await ok('GET', 'api/chargemode');
+    assert(m.mode === 'plan_solar', `mode ${m.mode}`);
+    const p = await plan();
+    const sk = solarKwh(p);
+    assert(sk > 11 && sk < 13, `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
+    return `${sk.toFixed(1)} kWh on solar, ${(p.plan.planned_kwh - sk).toFixed(1)} kWh from the grid`;
+  });
+  await test('S4', 'Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen', async () => {
+    await ok('POST', 'api/solar', solarBody({ feed_in: { mode: 'market', fee: 0.02, fixed: 0, vat_percent: 0 } }));
+    await ok('POST', 'api/prices', { source: ez, price_type: 'market_excl_vat', purchase_fee: 0.02, energy_tax: 0.10, vat_percent: 21 });
+    const p = await plan();
+    const sk = solarKwh(p);
+    await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    assert(sk > 11, `solar ${sk} kWh`);
+    return `${sk.toFixed(1)} kWh on solar`;
+  });
+  await test('S4b', 'Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39)', async () => {
+    await ok('POST', 'api/solar', solarBody({ feed_in: { mode: 'fixed', fee: 0, fixed: 0.25, vat_percent: 0 } }));
+    await ok('POST', 'api/prices', { source: ez, price_type: 'market_excl_vat', purchase_fee: 0.02, energy_tax: 0.10, vat_percent: 21 });
+    const p = await plan();
+    const sk = solarKwh(p);
+    await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    const night = p.plan.blocks.filter((b) => !b.solar_kwh).reduce((a, b) => a + b.kwh, 0);
+    assert(night > 32 && sk <= p.plan.planned_kwh - night + 0.1, `solar ${sk} kWh, night ${night} kWh`);
+    return `${night.toFixed(1)} kWh at night, ${sk.toFixed(1)} kWh on solar`;
+  });
+  await test('S5', 'Solar only: the plan uses only the sun', async () => {
+    await ok('POST', 'api/solar', solarBody());
+    await ok('POST', 'api/chargemode', { mode: 'solar' });
+    const p = await plan();
+    assert(p.plan.notes.includes('solar_only') && p.plan.blocks.every((b) => b.solar_kwh && !(b.grid_kwh > 0.01)), `blocks ${JSON.stringify(p.plan.blocks.map((b) => [b.solar_kwh, b.grid_kwh]))}`);
+    return `${solarKwh(p).toFixed(1)} kWh, notes: ${p.plan.notes.join(', ')}`;
+  });
+  await test('S6', 'Live: 6 kW sun, car not charging → start on solar with a matching current', async () => {
+    await ok('POST', 'api/chargemode', { mode: 'plan_solar' });
+    world.charging = false; world.amps = null; world.phases = null;
+    world.pvW = 6000;
+    const n0 = world.calls.length;
+    await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    const n = (await ok('GET', 'api/control')).now;
+    const calls = callsSince(n0).filter((c) => c.domain !== 'notify').map((c) => CH.describe(c));
+    assert(n.code === 'solar' && world.charging === true, `decision ${n.code}, charging ${world.charging}, sent ${calls}`);
+    assert(Number.isFinite(world.amps) && world.amps >= 6 && world.amps <= 8, `current ${world.amps}`);
+    return `${world.amps} A, sent: ${calls.join(' · ')}`;
+  });
+  await test('S7', 'Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop', async () => {
+    world.pvW = 2500;
+    const n0 = world.calls.length;
+    for (let i = 0; i < 3; i++) { await plan(); await sleep(1100); }
+    const calls = callsSince(n0).filter((c) => c.domain !== 'notify').map((c) => CH.describe(c));
+    if (CH.phasesOf && CH.phasesOf({ domain: 'easee', service: 'set_charger_phase_mode', data: { phase_mode: '1_phase' } }) === 1) {
+      assert(world.phases === 1 && world.charging, `phases ${world.phases}, charging ${world.charging}, sent ${calls}`);
+      return `one phase, ${world.amps} A · ${calls.join(' · ')}`;
+    }
+    assert(world.charging === false, `still charging, sent ${calls}`);
+    return `paused (no phase switching) · ${calls.join(' · ')}`;
+  });
+  await test('S8', 'Charge now after solar: current back to the maximum (and three phases)', async () => {
+    world.pvW = 0;
+    world.charging = false;
+    const n0 = world.calls.length;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+    await plan();
+    await sleep(1200);
+    await plan();
+    await sleep(600);
+    const calls = callsSince(n0).filter((c) => c.domain !== 'notify').map((c) => CH.describe(c));
+    await ok('DELETE', 'api/boost');
+    assert(world.amps === 16, `current ${world.amps}, sent ${calls}`);
+    assert(world.phases == null || world.phases === 3, `phases ${world.phases}`);
+    return calls.join(' · ');
+  });
+  await test('S9', 'Solar modes raise the car limit to "solar up to" (90 %)', async () => {
+    world.limit = 80;
+    await plan();
+    await sleep(2200);
+    await plan();
+    await sleep(600);
+    assert(world.limit === lim(90), `limit ${world.limit}`);
+  });
+  await test('S10', 'Grid meter sign "delivering is positive": the reading is turned around', async () => {
+    world.pvW = 3000;
+    await ok('POST', 'api/solar', solarBody({ grid_sign: 'export_positive' }));
+    const r = await ok('GET', 'api/solar');
+    const real = (world.houseW ?? 850) + (world.charging ? (world.amps ?? 16) * (world.phases ?? 3) * 230 : 0) - 3000;
+    assert(near(r.grid.net_w, -real, 1), `${r.grid.net_w} vs ${-real}`);
+  });
+  await test('S11', 'Mode buttons refused without solar; solar off → back to the price plan', async () => {
+    await ok('POST', 'api/solar', solarBody({ enabled: false }));
+    await refused('POST', 'api/chargemode', { mode: 'solar' }, 'set up solar');
+    const m = await ok('GET', 'api/chargemode');
+    assert(m.mode === 'plan', `mode ${m.mode}`);
+    world.pvW = 0;
+  });
+  await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 } }) }));
 
   // ----- K. Forecast and checklist -----------------------------------------
   group = 'K. Price forecast and checklist';
