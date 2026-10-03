@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.2
+
+- New test of every setting: `node tests/settings.test.js` starts the real app against a fake Home Assistant (car, charger, P1 meter, prices with forecast, calendar, helpers, notifications) and checks what is saved, what is refused, what the plan does and what is sent. 77 checks; the plan and results are in `tests/TESTPLAN.md`
+- The app port can be changed for tests (`SCP_PORT`); in Home Assistant it stays 8099
+
 ## 0.22.1
 
 - Planning: the next-departure card shows an active **Ready for** choice from Home (ready when, at what level, and the minimum for departures before then)
