@@ -755,6 +755,7 @@ const routes = {
       now,
       departures: dep,
       next: days.length ? days[0].winner : null,
+      charge_for: chargefor.current(),
       upcoming: days,
       calendar_error: error,
       calendar_trips: calendarTrips(dep, events, tz, now).filter((t) => t.time < now + 14 * 86400000),

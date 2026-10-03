@@ -1679,6 +1679,7 @@
         $('dep-next').innerHTML = `
           <h2>Next departure</h2>
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
+          ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>Your choice on <a href="#" data-goto="overview">Home</a>:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. Ends by itself after that time.</div>` : ''}
           ${d.calendar_error ? `<div class="error">Calendar could not be read: ${esc(d.calendar_error)}</div>` : ''}
           ${d.upcoming.length > 1 ? `
           <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>

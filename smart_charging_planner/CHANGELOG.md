@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.1
+
+- Planning: the next-departure card shows an active **Ready for** choice from Home (ready when, at what level, and the minimum for departures before then)
+
 ## 0.22.0
 
 New layout: what you use day to day is apart from what you set once.
