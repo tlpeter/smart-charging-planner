@@ -98,7 +98,7 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = 
       const start = Math.max(p.start, now);
       const end = Math.min(p.end, deadline);
       const power = Number.isFinite(p.power_kw) ? p.power_kw : powerKw;
-      return { start, end, total: p.total, power, hours: (end - start) / 3600000 };
+      return { start, end, total: p.total, power, hours: (end - start) / 3600000, forecast: !!p.forecast };
     })
     .filter((b) => b.hours > 0 && b.power > 0);
 
@@ -151,7 +151,7 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = 
     const duration = (b.kwh / (b.hours * b.power)) * (b.end - b.start);
     const nextPlanned = starts.has(b.end);
     const start = nextPlanned ? b.end - duration : b.start;
-    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power };
+    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power, ...(b.forecast ? { forecast: true } : {}) };
   });
   result.planned_kwh = planned.reduce((s, b) => s + b.kwh, 0);
   result.cost = cost(planned);
@@ -169,11 +169,12 @@ function periods(blocks) {
       last.end = b.end;
       last.kwh += b.kwh;
       last.cost += b.kwh * b.price;
+      last.forecast = last.forecast || !!b.forecast;
     } else {
-      out.push({ start: b.start, end: b.end, kwh: b.kwh, cost: b.kwh * b.price });
+      out.push({ start: b.start, end: b.end, kwh: b.kwh, cost: b.kwh * b.price, forecast: !!b.forecast });
     }
   }
-  return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh }));
+  return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh, ...(p.forecast ? { forecast: true } : {}) }));
 }
 
 module.exports = { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, periods };

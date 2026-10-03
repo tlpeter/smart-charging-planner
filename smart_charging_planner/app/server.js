@@ -10,7 +10,7 @@ const settings = require('./settings');
 const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
@@ -417,14 +417,14 @@ const routes = {
     const { entities, devices, states } = await loadRegistries();
     // Always offered: a fixed or day/night tariff, for contracts without dynamic prices.
     const fixed = { id: 'fixed', type: 'fixed', name: 'Fixed or day/night tariff (no dynamic contract)', price_type: 'all_in' };
-    return { candidates: [...detectPriceSources(entities, devices, states), fixed] };
+    return { candidates: [...detectPriceSources(entities, devices, states, ha.state.timeZone), fixed] };
   },
 
   // Fetch prices with the given (unsaved) settings and summarise them.
   'POST /api/prices/test': async (req) => {
     const cfg = priceConfigFrom(await readBody(req));
     const result = await fetchPrices(cfg.source, ha.state.timeZone);
-    return { summary: summarise(result, cfg), time_zone: ha.state.timeZone };
+    return { summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), time_zone: ha.state.timeZone };
   },
 
   'GET /api/prices': async () => {
@@ -432,7 +432,7 @@ const routes = {
     if (!cfg) return { prices: null };
     try {
       const result = await fetchPrices(cfg.source, ha.state.timeZone);
-      return { prices: cfg, summary: summarise(result, cfg), time_zone: ha.state.timeZone };
+      return { prices: cfg, summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), time_zone: ha.state.timeZone };
     } catch (err) {
       return { prices: cfg, error: err.message, time_zone: ha.state.timeZone };
     }
@@ -473,6 +473,18 @@ const routes = {
         prices = result.prices.map((p) => ({ ...p, total: totalPrice(p.price, s.prices) }));
       } catch (err) {
         priceError = err.message;
+      }
+    }
+    // The end of the real prices; a forecast only fills the time after it.
+    const realEnd = prices.length ? prices[prices.length - 1].end : null;
+    let forecastInfo = null;
+    if (s.prices && s.prices.forecast && realEnd) {
+      try {
+        const fc = await forecastPrices(s.prices, tz, realEnd);
+        prices = prices.concat(fc.prices);
+        forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null };
+      } catch (err) {
+        forecastInfo = { entity_id: s.prices.forecast.entity_id, error: err.message };
       }
     }
 
@@ -553,8 +565,9 @@ const routes = {
       // Nothing to plan while unplugged; otherwise the rest of the fixed amount.
       neededKwh = sessionInfo && sessionInfo.plugged ? Math.max(0, vehicle.fixed_kwh - sessionInfo.kwh_since) : null;
     }
-    // Without a departure: plan in the cheapest known blocks, no deadline.
-    const deadline = departure ? departure.time : (prices.length ? prices[prices.length - 1].end : now);
+    // Without a departure: plan in the cheapest real prices, no deadline
+    // (a forecast could otherwise make the app wait for days).
+    const deadline = departure ? departure.time : (realEnd || now);
     const plan = planCharging({
       prices, now, deadline, neededKwh, powerKw,
       continuous: planning.continuous !== false,
@@ -568,6 +581,8 @@ const routes = {
       plan.notes = ['fixed_waiting', ...plan.notes.filter((n) => n !== 'missing_data')];
     }
     if (calendarError) plan.notes.push('calendar_error');
+    if (plan.blocks.some((b) => b.forecast)) plan.notes.push('uses_forecast');
+    if (forecastInfo && forecastInfo.error) plan.notes.push('forecast_error');
     if (limited) plan.notes.push('car_limit');
 
     // "Charge now": replaces the plan with charging right away.
@@ -593,7 +608,7 @@ const routes = {
       else {
         boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
         if (kwh != null) {
-          const lastEnd = prices.length ? prices[prices.length - 1].end : now;
+          const lastEnd = Math.max(realEnd || now, prices.length ? prices[prices.length - 1].end : now);
           activePlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
           boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
         }
@@ -634,7 +649,12 @@ const routes = {
         now_w: actualNow.power_w,
         charging_now: actualNow.charging,
       },
-      prices: prices.map((p) => ({ start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps })),
+      // The chart shows the prices up to the departure (forecast included).
+      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline)).map((p) => ({
+        start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
+        ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
+      })),
+      forecast: forecastInfo,
       house_load: houseLoad.available ? {
         available: true,
         profile: houseLoad.profile.map((w) => Math.round(w)),
@@ -1610,6 +1630,49 @@ function effectiveMaxCurrent(charger, states) {
   return values[0];
 }
 
+// Forecast prices after the real ones, as all-in prices plus the margin.
+// The margin makes the app only wait for a forecast that is clearly cheaper.
+async function forecastPrices(cfg, tz, fromMs) {
+  const f = cfg.forecast;
+  const fc = await fetchForecast(f, tz, fromMs);
+  const margin = Number(f.margin) || 0;
+  const costs = { ...cfg, price_type: f.price_type || cfg.price_type };
+  return {
+    margin,
+    warnings: fc.warnings,
+    prices: fc.prices.map((p) => {
+      const expected = totalPrice(p.price, costs);
+      return { ...p, forecast: true, expected, total: expected + margin };
+    }),
+  };
+}
+
+// For the Prices page: what the forecast adds after the real prices.
+async function forecastSummary(cfg, result) {
+  if (!cfg.forecast) return null;
+  const tz = ha.state.timeZone;
+  const realEnd = result.prices.length ? result.prices[result.prices.length - 1].end : null;
+  if (!realEnd) return { entity_id: cfg.forecast.entity_id, error: 'No real prices, so the forecast is not used' };
+  try {
+    const fc = await forecastPrices(cfg, tz, realEnd);
+    const list = fc.prices;
+    const avg = list.length ? list.reduce((a, p) => a + p.expected, 0) / list.length : null;
+    const low = list.length ? list.reduce((a, p) => (p.expected < a.expected ? p : a)) : null;
+    return {
+      entity_id: cfg.forecast.entity_id,
+      margin: fc.margin,
+      count: list.length,
+      from: list.length ? list[0].start : null,
+      until: list.length ? list[list.length - 1].end : null,
+      average: avg,
+      lowest: low ? { start: low.start, end: low.end, total: low.expected } : null,
+      warnings: fc.warnings,
+    };
+  } catch (err) {
+    return { entity_id: cfg.forecast.entity_id, error: err.message };
+  }
+}
+
 function badRequest(message) {
   const err = new Error(message);
   err.status = 400;
@@ -1658,12 +1721,25 @@ function priceConfigFrom(body) {
     if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
     return n;
   };
+  const priceType = types.includes(body.price_type) ? body.price_type : 'market_excl_vat';
+  // Optional forecast sensor for the days after tomorrow.
+  let forecast = null;
+  const fcEntity = String(body.forecast_entity || '');
+  if (fcEntity) {
+    if (!/^sensor\.[a-z0-9_]+$/.test(fcEntity)) throw badRequest('Invalid forecast sensor');
+    forecast = {
+      entity_id: fcEntity,
+      price_type: types.includes(body.forecast_price_type) ? body.forecast_price_type : priceType,
+      margin: num(body.forecast_margin ?? 0.02, 'Forecast margin', 0, 0.5),
+    };
+  }
   return {
     source,
-    price_type: types.includes(body.price_type) ? body.price_type : 'market_excl_vat',
+    price_type: priceType,
     purchase_fee: num(body.purchase_fee, 'Purchase fee', -1, 1),
     energy_tax: num(body.energy_tax, 'Energy tax', 0, 1),
     vat_percent: num(body.vat_percent ?? 21, 'VAT', 0, 50),
+    forecast,
   };
 }
 

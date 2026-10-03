@@ -180,8 +180,9 @@ function decide(ctx) {
   // new calculation would move it.
   if (lock) return charge('Finishing the planned period that already started', 'locked_block', { amps: lock.amps || maxAmps, block_end: lock.end });
 
-  // 8. Inside a planned block: charge, and lock the whole period.
-  const block = p.blocks.find((b) => b.start <= now && now < b.end);
+  // 8. Inside a planned block: charge, and lock the whole period. Never on a
+  // forecast price: by then the real price should be known.
+  const block = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast);
   if (block) {
     const period = (p.periods || []).find((x) => x.start <= now && now < x.end) || { start: block.start, end: block.end };
     const amps = ampsFor(block.power_kw, phases, maxAmps);

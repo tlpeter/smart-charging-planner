@@ -77,6 +77,7 @@ function sensorsFor(d, n, extra = {}) {
       friendly_name: 'Smart Charging next start', device_class: 'timestamp', icon: 'mdi:clock-start',
       end: next ? iso(next.end) : null,
       energy_kwh: next ? round(next.kwh, 1) : null,
+      forecast: next ? !!next.forecast : null,
     }],
     ['sensor.smart_charging_next_end', next ? iso(next.end) : 'unknown', {
       friendly_name: 'Smart Charging next end', device_class: 'timestamp', icon: 'mdi:clock-end',

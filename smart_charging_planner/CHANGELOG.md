@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.0
+
+- **Price forecast** (optional, Settings › Prices): choose a sensor with expected prices for the coming days, for example a template that combines the real prices with a weekly forecast. Only the hours after the last real price are used, up to your departure
+  - When a later day is expected to be cheaper, the plan waits for it instead of charging today. The app never charges on a forecast price: as soon as the real prices come out (around 13:00 for the next day) the plan is recalculated
+  - **Safety margin** (default 0.02 per kWh) is added to every forecast price, so the app only waits when the forecast is clearly cheaper. 0 = trust the forecast fully
+  - The forecast can be market or all-in; the same fees, tax and VAT as the main source are used
+  - Without a departure the forecast is not used, so the app never waits days for a cheap hour
+- Overview: forecast prices are striped in the chart, forecast periods are marked in the plan table and headline, with a note that explains it. The chart's time labels are shown again, also for several days
+- Price sensors whose list marks entries as a forecast (e.g. `source: forecast`) are recognised: as the main price source only the real prices are used
+- Price times without a time zone (e.g. "2026-10-03 13:00:00") are now always read in Home Assistant's time zone
+- Sensor `sensor.smart_charging_next_start` has an attribute `forecast`
+
 ## 0.20.0
 
 New look, in the style of Home Assistant's default theme and Mushroom cards:
