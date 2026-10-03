@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.21.2). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
+> Status: early development (v0.22.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself.
 
 ## Installation
 
@@ -28,7 +28,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Tests
 
-`node tests/forecast.test.js` checks the price forecast (forecast entries, time zone, planner).
+`node tests/forecast.test.js` checks the price forecast (forecast entries, time zone, planner) and the planner with two goals.
 
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
 

@@ -189,7 +189,7 @@ function normaliseNotify(v) {
   return x.startsWith('notify.') ? x : `notify.${x}`;
 }
 
-// The one notify action the app may use, chosen in the app (Settings › Status).
+// The one notify action the app may use, chosen in the app (Settings › Notifications).
 let notifyTarget = '';
 function setNotifyTarget(v) {
   notifyTarget = normaliseNotify(v);

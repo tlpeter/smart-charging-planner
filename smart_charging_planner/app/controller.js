@@ -52,7 +52,8 @@ const DEFAULT_RULES = {
   preheat_entity: null,
   force_minutes: 0,
   hysteresis: 0.03,
-  manage_car_limit: false, // set the car's own charge limit to the goal
+  car_limit_off: false, // true: never change the car's own charge limit
+  min_choice: 30, // default minimum (%) for the quick choices on Home
 };
 
 let log = null;

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.22.0
+
+New layout: what you use day to day is apart from what you set once.
+
+- **Tabs**: **Home** (plan and quick choices), **Planning** (departures), **History** (Savings and Log) and **⚙ Settings**
+- **Settings › Overview**: a checklist "is everything set up well?" with a link to fix each point (vehicle, battery capacity, charger, start/stop, prices, forecast, departures, Allow control, the car's charge limit, your own automations, notifications, grid), plus the planning settings from Home Assistant
+- **Vehicle, Charger and Grid** are shown directly as filled-in forms, like Prices. Another device or choosing manually is under "Use a different …"; **Search again** keeps your settings
+- How the app starts and stops charging moved to **Settings › Charger**; **Rules** keeps the rules; the **Manual test** and the status of the connection moved to **Settings › Diagnostics**; **Notifications** has its own page
+- **Quick choices** on Home:
+  - **Charge now** (as before)
+  - **Quickly to a minimum**: 20–45 %, then the plan takes over
+  - **Ready for tomorrow / the day after tomorrow**: time and battery level from your schedule or calendar, adjustable. Departures before then get a minimum (20–45 %), charged first in the cheapest hours before that departure; the rest before the chosen day. Shows whether the prices up to then are known or come from the forecast. Ends by itself, or with **Back to normal**
+- **The car's charge limit follows every choice**, automatically when the car supports it (no more option to turn on, no more button): the highest active goal (departure, Charge now as a level or as kWh, Ready for), and back down when it ends. Every choice shows beforehand what happens with the limit. Turn it off only in Settings › Rules (**Don't change the car's charge limit**)
+- New rule: the default minimum for the quick choices
+- Planner: two goals (a minimum before a departure in between, the full target later)
+- A started planned period is not finished when you make a new Ready-for choice
+- Small screens: the main tabs wrap instead of scrolling
+
 ## 0.21.2
 
 - Settings › Prices shows the settings right away as a form, filled with what is saved: source, costs and forecast. No more **Change** button; adjust a field and press Save. "Saved." confirms it

@@ -37,5 +37,18 @@ check('period marked as forecast', periods(plan.blocks)[0].forecast === true);
 const real = planCharging({ prices: blocks.slice(0, 2), now: t0, deadline: t0 + 4 * H, neededKwh: 10, powerKw: 10 });
 check('without forecast: real hour, no flag', real.blocks.length === 1 && !real.blocks[0].forecast);
 
+// Two goals: a minimum before a departure in between, the rest before the final one.
+const { planStaged } = require(path.join(app, 'planner.js'));
+const day = [];
+for (let h = 0; h < 48; h++) day.push({ start: t0 + h * H, end: t0 + (h + 1) * H, total: h >= 30 && h < 34 ? 0.15 : h < 6 ? 0.25 : 0.35 });
+const staged = planStaged({ prices: day, now: t0, firstDeadline: t0 + 7 * H, minKwh: 8, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10 });
+const before = staged.blocks.filter((b) => b.start < t0 + 7 * H).reduce((a, b) => a + b.kwh, 0);
+check('staged: minimum charged before the first departure', Math.abs(before - 8) < 0.01);
+check('staged: total energy planned', Math.abs(staged.planned_kwh - 40) < 0.01);
+check('staged: the rest in the cheap hours', staged.blocks.filter((b) => b.price === 0.15).reduce((a, b) => a + b.kwh, 0) > 39.9 - 8);
+check('staged: cheaper than charging right away', staged.savings > 0);
+const noMin = planStaged({ prices: day, now: t0, firstDeadline: t0 + 7 * H, minKwh: 0, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10 });
+check('staged without minimum = normal plan', !noMin.stage && noMin.blocks.every((b) => b.start >= t0 + 30 * H));
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);
