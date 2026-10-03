@@ -364,6 +364,7 @@
           <h2>Price source</h2>
           <div class="field"><label>Source</label><select name="source" id="prices-source"></select></div>
           <p class="muted small" id="prices-source-detail"></p>
+          <div class="buttons"><button class="secondary" type="button" id="prices-redetect">Search for price sources again</button></div>
         </div>
         <div class="card" id="fixed-card" hidden>
           <h2>Your tariff</h2>
@@ -2083,8 +2084,9 @@
           $('prices-source').value = preselect.source.id;
           const f = $('prices-form');
           f.price_type.value = preselect.price_type;
-          f.purchase_fee.value = preselect.purchase_fee || '';
-          f.energy_tax.value = preselect.energy_tax || '';
+          // 0 is a real value; an empty field would show the grey example instead.
+          f.purchase_fee.value = preselect.purchase_fee ?? '';
+          f.energy_tax.value = preselect.energy_tax ?? '';
           f.vat_percent.value = preselect.vat_percent;
           if (preselect.source.type === 'fixed') {
             const x = preselect.source;
@@ -2135,13 +2137,23 @@
       errBox.hidden = true;
       try {
         await api('POST', 'api/prices', priceFormData());
-        $('prices-form').hidden = true;
-        loadPrices();
+        await loadPrices();
+        const btns = e.submitter && e.submitter.closest('.buttons');
+        if (btns) {
+          const ok = document.createElement('p');
+          ok.className = 'ok small';
+          ok.textContent = 'Saved.';
+          btns.after(ok);
+          setTimeout(() => ok.remove(), 3000);
+        }
       } catch (err) {
         errBox.textContent = err.message;
         errBox.hidden = false;
       }
     }
+
+    let savedPrices = null;
+    let pricesFormFilled = false;
 
     async function loadPrices() {
       const box = $('prices-saved');
@@ -2163,19 +2175,25 @@
           : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%${r.prices.forecast ? ` · forecast from ${esc(r.prices.forecast.entity_id)}` : ''}`;
         box.innerHTML = `
           <div class="card">
-            <h2>${esc(r.prices.source.name)}</h2>
+            <h2>Prices now · ${esc(r.prices.source.name)}</h2>
             <p class="muted small">${detailLine}</p>
             ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary) + forecastHtml(r.forecast)}
             <div class="buttons">
-              <button class="secondary" data-act="change">Change</button>
-              <button class="secondary" data-act="remove">Remove</button>
+              <button class="secondary" data-act="remove">Remove price settings</button>
             </div>
           </div>`;
-        box.querySelector('[data-act=change]').onclick = () => { $('prices-intro').hidden = false; detectPrices(r.prices); };
+        // The settings are shown as a form right away, filled with what is saved.
+        savedPrices = r.prices;
+        if (!pricesFormFilled) {
+          pricesFormFilled = true;
+          await detectPrices(r.prices);
+        }
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm('Remove this price source from the app?')) return;
           await api('DELETE', 'api/prices');
           $('prices-form').hidden = true;
+          pricesFormFilled = false;
+          savedPrices = null;
           loadPrices();
         };
       } catch (err) {
@@ -2184,6 +2202,16 @@
     }
 
     $('prices-detect').addEventListener('click', () => detectPrices());
+    // Search again, but keep what is filled in now.
+    $('prices-redetect').addEventListener('click', async () => {
+      const keep = priceFormData();
+      const src = keep.source;
+      await detectPrices(src ? {
+        source: src.type === 'fixed' ? { ...src, ...keep.fixed } : src,
+        price_type: keep.price_type, purchase_fee: keep.purchase_fee, energy_tax: keep.energy_tax, vat_percent: keep.vat_percent,
+        forecast: keep.forecast_entity ? { entity_id: keep.forecast_entity, price_type: keep.forecast_price_type, margin: keep.forecast_margin } : null,
+      } : savedPrices);
+    });
     $('prices-source').addEventListener('change', showSourceDetail);
     $('prices-test').addEventListener('click', testPrices);
     $('prices-test-fixed').addEventListener('click', testPrices);
