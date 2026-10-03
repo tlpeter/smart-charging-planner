@@ -801,7 +801,7 @@
         box.querySelector('[data-act=change]').onclick = () => {
           $(`${kind}-intro`).hidden = false;
           if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = false;
-          detect(kind);
+          detect(kind, item);
         };
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
@@ -814,7 +814,65 @@
       }
     }
 
-    async function detect(kind) {
+    // "Change": fill the forms with what is saved now, so nothing has to be
+    // entered again. Nothing is saved until you press the save button.
+    function setValue(form, name, value) {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (!el || value == null || value === '') return;
+      if (el.tagName === 'SELECT' && ![...el.options].some((o) => o.value === String(value))) {
+        el.insertAdjacentHTML('beforeend', `<option value="${esc(value)}">${esc(value)} (saved)</option>`);
+      }
+      el.value = String(value);
+    }
+
+    function prefill(kind, saved) {
+      const cfg = SECTIONS[kind];
+      const box = $(`${kind}-results`);
+      if (kind === 'vehicle' && saved.mode && saved.mode !== 'sensor') {
+        const f = $('noint-form');
+        if (!f) return;
+        f.querySelector(`input[name=mode][value="${saved.mode}"]`).checked = true;
+        setValue(f, 'name', saved.name);
+        setValue(f, 'capacity_kwh', saved.capacity_kwh);
+        setValue(f, 'fixed_kwh', saved.fixed_kwh);
+        f.dispatchEvent(new Event('change'));
+        f.insertAdjacentHTML('afterbegin', '<div class="note">Your current settings are filled in.</div>');
+        f.scrollIntoView({ block: 'start' });
+        return;
+      }
+      const cands = (lastDetect[kind] && lastDetect[kind].candidates) || [];
+      const idx = saved.device_id ? cands.findIndex((c) => c.device_id === saved.device_id) : -1;
+      let form = idx >= 0 ? box.querySelector(`form[data-index="${idx}"]`) : null;
+      if (!form) {
+        form = box.querySelector('form[data-index="manual"]');
+        if (!form) return;
+        form.closest('details').open = true;
+        setValue(form, 'name', saved.name);
+      }
+      for (const f of cfg.fields) {
+        const el = form.querySelector(`[name="${f.key}"]`);
+        if (el) el.value = '';
+        else if (saved[f.key]) {
+          // Not found now; keep the saved entity as a choice.
+          form.querySelector('.buttons').insertAdjacentHTML('beforebegin', `<div class="field"><label>${esc(f.label)}</label><select name="${f.key}"><option value="">— none —</option></select></div>`);
+        }
+        setValue(form, f.key, saved[f.key]);
+      }
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse']) setValue(form, name, saved[name]);
+      const follow = form.querySelector('input[name=follow_limits]');
+      if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
+      if (kind === 'grid') {
+        const lb = saved.load_balancer;
+        setValue(form, 'load_balancer', lb ? (lb.type === 'other' ? 'other' : lb.device_id) : '');
+        if (!lb) form.querySelector('select[name=load_balancer]').value = '';
+      }
+      // Put the form with your settings first.
+      if (idx > 0) box.insertBefore(form, box.querySelector('form'));
+      form.insertAdjacentHTML('afterbegin', '<div class="note">Your current settings are filled in. Change what you want and save; nothing changes until you do.</div>');
+      form.scrollIntoView({ block: 'start' });
+    }
+
+    async function detect(kind, saved) {
       const cfg = SECTIONS[kind];
       const btn = $(`${kind}-detect`);
       btn.disabled = true;
@@ -831,6 +889,15 @@
           data.candidates.map((c, i) => candidateCard(kind, c, i, data)).join('') +
           `<details class="card" ${n ? '' : 'open'}><summary>Not listed? Choose manually</summary>${manualCard(kind, data)}</details>`;
         $(`${kind}-results`).querySelectorAll('form').forEach((f) => f.addEventListener('submit', save));
+        if (saved) {
+          prefill(kind, saved);
+          $(`${kind}-results`).insertAdjacentHTML('afterbegin', `<div class="buttons" style="margin-bottom:12px"><button class="secondary" type="button" data-act="cancel-change">Cancel, keep the current settings</button></div>`);
+          $(`${kind}-results`).querySelector('[data-act=cancel-change]').onclick = () => {
+            $(`${kind}-results`).innerHTML = '';
+            $(`${kind}-intro`).hidden = true;
+            if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = true;
+          };
+        }
       } catch (err) {
         $(`${kind}-error`).textContent = err.message;
         $(`${kind}-error`).hidden = false;
@@ -2008,6 +2075,11 @@
           $('prices-form').forecast_margin.value = preselect.forecast.margin;
         }
         if (preselect) {
+          if (!candidates.some((c) => c.id === preselect.source.id)) {
+            // Not found now (renamed, offline): keep it as an option, so it is not lost.
+            priceSources.push(preselect.source);
+            $('prices-source').insertAdjacentHTML('afterbegin', `<option value="${esc(preselect.source.id)}">${esc(preselect.source.name)} (saved)</option>`);
+          }
           $('prices-source').value = preselect.source.id;
           const f = $('prices-form');
           f.price_type.value = preselect.price_type;
