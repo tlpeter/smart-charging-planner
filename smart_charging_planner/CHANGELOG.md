@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.24.0
+
+**Home battery**: the app plans and steers the home battery next to the car.
+
+- **Settings › Battery**: battery (found automatically), capacity, charging and discharging power, never below / never above, round-trip efficiency, wear per kWh, sign of the power sensor, charging from the grid on/off, "May the home battery charge the car?" (never / only stored solar power / always) and "Who gets the sun first?" (smart / car / battery)
+- **Plan**: per price block normal, charge from the grid, hold or no discharging, chosen over the whole period (dynamic programming over the battery level). Charging from the grid only when the difference covers losses and wear. Shown on Home with the expected saving, and in the chart
+- **Smart sun**: while the car needs energy, the sun the battery would take counts for the car; the battery holds while the car charges on solar
+- **Brands**, tested one by one against the integrations' own entity and action names: Sigenergy, Huawei, SolarEdge, Victron, GoodWe, Tesla (Teslemetry, Fleet), HomeWizard, Marstek (Modbus, Local API), Sessy. Read only: Zonneplan Nexus, Growatt, Anker Solix, EcoFlow, local Powerwall
+- **New option Allow home battery control** (off by default): steering only with this and Allow control both on; a separate guard only lets through the battery's own entities and actions
+- Diagnostics: battery status and a test button per action; Settings › Overview: a line for the battery
+- Tests: `tests/battery.test.js` (15 brands and the plan) and a Home battery group in the settings test for both set-ups
+
 ## 0.23.0
 
 **Solar**: charge with your own solar power.

@@ -18,7 +18,17 @@ const TZ = 'Europe/Amsterdam';
 // The car's charging power: current × phases × 230 V while charging.
 const carKw = (w) => (w.charging ? Math.round((w.amps ?? 16) * (w.phases ?? 3) * 230) / 1000 : 0);
 // Grid power (positive = import): house + car - solar.
-const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 - (w.pvW ?? 0));
+// Home battery (Sigenergy): kW, positive = charging.
+const batKw = (w) => {
+  if (!w.hasBattery) return 0;
+  const b = w.bat;
+  if (b.ems !== 'on') return b.autoKw || 0;
+  if (b.mode === 'Command Charging (Grid First)') return Math.min(5, b.chg);
+  if (b.mode === 'Command Discharging (ESS First)') return -Math.min(5, b.dis);
+  if (b.mode === 'Standby') return 0;
+  return b.autoKw || 0;
+};
+const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 + batKw(w) * 1000 - (w.pvW ?? 0));
 const PCT = { unit_of_measurement: '%' };
 const KW = { unit_of_measurement: 'kW', device_class: 'power' };
 
@@ -181,12 +191,21 @@ function entityList(w) {
     // Inverter (Fronius): solar power now.
     ['sensor.solarnet_power_photovoltaics', String(w.pvW ?? 0), { friendly_name: 'SolarNet Power photovoltaics', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
     ['sensor.solarnet_power_grid', String(gridW(w)), { friendly_name: 'SolarNet Power grid', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
+    ...(w.hasBattery ? [
+      ['sensor.sigen_plant_battery_state_of_charge', String(w.bat.soc), { friendly_name: 'Sigen Plant Battery State of Charge', unit_of_measurement: '%', device_class: 'battery' }, 'plant'],
+      ['sensor.sigen_plant_battery_power', String(batKw(w)), { friendly_name: 'Sigen Plant Battery Power', unit_of_measurement: 'kW', device_class: 'power' }, 'plant'],
+      ['sensor.sigen_plant_rated_energy_capacity', '16.12', { friendly_name: 'Sigen Plant Rated Energy Capacity', unit_of_measurement: 'kWh' }, 'plant'],
+      ['switch.sigen_plant_remote_ems_controlled_by_home_assistant', w.bat.ems, { friendly_name: 'Sigen Plant Remote EMS (Controlled by Home Assistant)' }, 'plant'],
+      ['select.sigen_plant_remote_ems_control_mode', w.bat.mode, { friendly_name: 'Sigen Plant Remote EMS control mode', options: ['PCS Remote Control', 'Standby', 'Maximum Self Consumption', 'Command Charging (Grid First)', 'Command Charging (PV First)', 'Command Discharging (PV First)', 'Command Discharging (ESS First)', 'V2G'] }, 'plant'],
+      ['number.sigen_plant_ess_max_charging_limit', String(w.bat.chg), { friendly_name: 'Sigen Plant ESS Max Charging Limit', unit_of_measurement: 'kW', min: 0, max: 100 }, 'plant'],
+      ['number.sigen_plant_ess_max_discharging_limit', String(w.bat.dis), { friendly_name: 'Sigen Plant ESS Max Discharging Limit', unit_of_measurement: 'kW', min: 0, max: 100 }, 'plant'],
+    ] : []),
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
   ];
 }
 
-const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius' };
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen' };
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
@@ -211,6 +230,7 @@ function devices(w) {
     { id: 'p1', name: 'P1 meter', manufacturer: 'DSMR', model: 'P1' },
     { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
     { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
+    { id: 'plant', name: 'Sigen Plant', manufacturer: 'Sigenergy', model: 'SigenStor' },
   ];
 }
 
@@ -258,7 +278,14 @@ function start(w, wsPort, restPort) {
           }
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
           w.calls.push(call);
-          if (m.domain === 'number' && m.service === 'set_value') w.limit = call.data.value;
+          const tid = call.target && call.target.entity_id;
+          if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) w.limit = call.data.value;
+          if (w.hasBattery && tid) {
+            if (tid === 'switch.sigen_plant_remote_ems_controlled_by_home_assistant') w.bat.ems = m.service === 'turn_on' ? 'on' : 'off';
+            if (tid === 'select.sigen_plant_remote_ems_control_mode') w.bat.mode = call.data.option;
+            if (tid === 'number.sigen_plant_ess_max_charging_limit') w.bat.chg = call.data.value;
+            if (tid === 'number.sigen_plant_ess_max_discharging_limit') w.bat.dis = call.data.value;
+          }
           const amps = w.profile.charger.currentOf && w.profile.charger.currentOf(call);
           if (amps != null) w.amps = amps;
           const ph = w.profile.charger.phasesOf && w.profile.charger.phasesOf(call);

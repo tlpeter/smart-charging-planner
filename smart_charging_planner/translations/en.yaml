@@ -12,6 +12,14 @@ configuration:
       Settings › Charger. The charging current (and phases) only change when
       charging on solar. Turn off your own charging automation, or the two
       will fight.
+  allow_battery_control:
+    name: Allow home battery control
+    description: >-
+      Off by default. When on (and Allow control is on), the app steers the
+      home battery chosen in Settings › Battery: charging from the grid in
+      cheap hours, holding the energy for expensive hours, and not
+      discharging into the car when you chose that. Only the battery's own
+      controls are used; when off, the battery plan is advice only.
   refresh_minutes:
     name: Refresh interval (minutes)
     description: >-

@@ -757,6 +757,118 @@ async function run() {
   });
   await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 } }) }));
 
+  // ----- T. Home battery (Sigenergy) ---------------------------------------
+  group = 'T. Home battery (Sigenergy)';
+  world.hasBattery = true;
+  world.bat = { soc: 50, ems: 'off', mode: 'Maximum Self Consumption', chg: 10, dis: 10, autoKw: 0 };
+  const batBody = (o = {}) => ({
+    soc_entity: 'sensor.sigen_plant_battery_state_of_charge', platform: 'sigen', enabled: true, capacity_kwh: 16, efficiency: 0.9,
+    charge_kw: 5, discharge_kw: 5, min_pct: 10, max_pct: 100, wear: 0.03, power_sign: 'charge_positive', arbitrage: true,
+    ev_discharge: 'never', solar_priority: 'smart', ...o,
+  });
+  const batCalls = (n0) => callsSince(n0).filter((c) => c.target && /sigen/.test(c.target.entity_id || '')).map((c) => `${c.service}${c.data.option ? ' ' + c.data.option : c.data.value != null ? ' ' + c.data.value : ''}`);
+  await test('T1', 'Battery page finds the Sigenergy: level, power, capacity, what the app can do', async () => {
+    const r = await ok('GET', 'api/battery');
+    const c = r.candidates.find((x) => x.platform === 'sigen');
+    assert(c && c.soc === 50 && near(c.capacity_kwh, 16.12), JSON.stringify(c));
+    assert(['auto', 'charge', 'discharge', 'hold'].every((a) => c.control.supported.includes(a)), `can ${c.control.supported}`);
+    return `can: ${c.control.supported.join(', ')}`;
+  });
+  await test('T2', 'Refused: minimum above maximum, a battery that does not exist, capacity 0', async () => {
+    await refused('POST', 'api/battery', batBody({ min_pct: 95, max_pct: 90 }), 'minimum');
+    await refused('POST', 'api/battery', batBody({ soc_entity: 'sensor.something_else' }), 'not found');
+    await refused('POST', 'api/battery', batBody({ capacity_kwh: 0 }), 'capacity');
+  });
+  await test('T3', 'Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving', async () => {
+    await ok('POST', 'api/battery', batBody());
+    const p = await plan();
+    const acts = p.battery.actions;
+    const charge = acts.filter((a) => a.action === 'charge');
+    assert(charge.length && charge.every((a) => a.price <= 0.10 + 1e-9), `charge in ${charge.map((a) => a.price)}`);
+    assert(p.battery.saving > 0.1, `saving ${p.battery.saving}`);
+    return `charges in ${charge.length} block(s), saving €${p.battery.saving.toFixed(2)}`;
+  });
+  await test('T4', 'Allow control on, home battery control off: nothing is sent to the battery', async () => {
+    const n0 = world.calls.length;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+    await plan();
+    await sleep(800);
+    await ok('DELETE', 'api/boost');
+    assert(!batCalls(n0).length, `sent ${batCalls(n0)}`);
+    const p = await plan();
+    assert(p.battery_now && p.battery_now.live === false, JSON.stringify(p.battery_now));
+  });
+  await startApp({ allow_control: true, allow_battery_control: true, notify_start_stop: false });
+  await test('T5', 'Car charges, "never into the car": the battery holds (Remote EMS on, Standby)', async () => {
+    world.charging = false;
+    const n0 = world.calls.length;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+    await plan();
+    await sleep(800);
+    const sent = batCalls(n0);
+    assert(world.bat.ems === 'on' && world.bat.mode === 'Standby', `ems ${world.bat.ems}, mode ${world.bat.mode}, sent ${sent}`);
+    return sent.join(' · ');
+  });
+  await test('T6', 'Car stops: the battery goes back to its plan', async () => {
+    const n0 = world.calls.length;
+    await ok('DELETE', 'api/boost');
+    world.charging = false;
+    await plan();
+    await sleep(800);
+    const p = await plan();
+    const want = p.battery_now && p.battery_now.action;
+    const sent = batCalls(n0);
+    assert(want && want !== 'hold', `battery now ${JSON.stringify(p.battery_now)}`);
+    assert(want !== 'auto' || world.bat.ems === 'off', `auto wanted but ems ${world.bat.ems}`);
+    return `now: ${want} · ${sent.join(' · ') || 'nothing sent'}`;
+  });
+  await test('T7', '"Only stored solar into the car": no solar in the battery → no discharging into the car', async () => {
+    await ok('POST', 'api/battery', batBody({ ev_discharge: 'solar_only' }));
+    const n0 = world.calls.length;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+    await plan();
+    await sleep(800);
+    const ok7 = world.bat.mode === 'Standby' && world.bat.ems === 'on';
+    const sent7 = batCalls(n0);
+    await ok('DELETE', 'api/boost');
+    assert(ok7, `mode ${world.bat.mode}, sent ${sent7}`);
+  });
+  await test('T8', 'Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits', async () => {
+    await ok('POST', 'api/battery', batBody({ ev_discharge: 'never', arbitrage: false }));
+    await ok('POST', 'api/solar', solarBody());
+    await ok('POST', 'api/chargemode', { mode: 'plan_solar' });
+    await ok('POST', 'api/battery/test', { action: 'auto' }); // start from the battery's own mode
+    world.bat = { ...world.bat, autoKw: 2 };
+    world.pvW = 6500;
+    world.charging = false;
+    world.soc = 40;
+    const n0 = world.calls.length;
+    for (let i = 0; i < 3; i++) { await plan(); await sleep(1100); }
+    const n = (await ok('GET', 'api/control')).now;
+    const sent = batCalls(n0);
+    assert(n.code === 'solar' && world.charging, `car: ${n.code}`);
+    const bn = (await ok('GET', 'api/plan')).battery_now;
+    assert(world.bat.mode === 'Standby', `battery ${world.bat.mode}, sent ${sent}, battery now ${JSON.stringify(bn)}`);
+    return `car on solar at ${world.amps} A · battery: ${sent.join(' · ')}`;
+  });
+  await test('T9', 'Diagnostics: battery test "charge" sends the Sigenergy commands', async () => {
+    const n0 = world.calls.length;
+    const r = await ok('POST', 'api/battery/test', { action: 'charge' });
+    const sent = batCalls(n0);
+    assert(world.bat.mode === 'Command Charging (Grid First)' && world.bat.chg === 5, `mode ${world.bat.mode}, limit ${world.bat.chg}`);
+    return sent.join(' · ');
+  });
+  await test('T10', 'Battery planning off: the battery goes back to normal (Remote EMS off)', async () => {
+    await ok('POST', 'api/battery', batBody({ enabled: false }));
+    world.pvW = 0;
+    await ok('POST', 'api/solar', solarBody({ enabled: false }));
+    await plan();
+    await sleep(800);
+    assert(world.bat.ems === 'off', `ems ${world.bat.ems}`);
+  });
+  world.hasBattery = false;
+  await startApp({ allow_control: true, notify_start_stop: false });
+
   // ----- K. Forecast and checklist -----------------------------------------
   group = 'K. Price forecast and checklist';
   await test('K1', 'Forecast on: plan waits for the cheap forecast day, never charges on it now', async () => {

@@ -25,6 +25,8 @@ const chargefor = require('./chargefor');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
+const battery = require('./battery');
+const { planBattery } = require('./batteryplan');
 const notifier = require('./notify');
 
 const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
@@ -167,6 +169,7 @@ const routes = {
       refresh_minutes: options.refresh_minutes,
       last_refresh: planCache ? planCache.at : null,
       allow_control: options.allow_control,
+      allow_battery_control: options.allow_battery_control === true,
       allow_calendar_write: options.allow_calendar_write === true,
       error: ha.state.lastError,
     };
@@ -667,11 +670,23 @@ const routes = {
       }
     }
 
+    // Home battery: its own plan next to the car's.
+    let batteryInfo = null;
+    const bcfg = batterySettings(s);
+    if (bcfg.enabled && bcfg.soc_entity) {
+      try {
+        batteryInfo = await batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol });
+      } catch (err) {
+        batteryInfo = { enabled: true, error: err.message };
+      }
+    }
+
     return {
       time_zone: tz,
       currency: ha.state.currency,
       now,
       missing,
+      battery: batteryInfo,
       price_error: priceError,
       calendar_error: calendarError,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
@@ -1201,6 +1216,279 @@ routes['DELETE /api/chargefor'] = async () => {
 };
 
 // ---------------------------------------------------------------------------
+// Home battery (Settings › Battery)
+// ---------------------------------------------------------------------------
+
+const BATTERY_DEFAULTS = {
+  enabled: false,
+  platform: null,
+  device_id: null,
+  name: null,
+  soc_entity: null,
+  power_entity: null,
+  power_sign: 'charge_positive',
+  capacity_kwh: 10,
+  charge_kw: 3,
+  discharge_kw: 3,
+  min_pct: 10,
+  max_pct: 100,
+  efficiency: 0.9,
+  wear: 0.03,
+  arbitrage: true,
+  ev_discharge: 'never', // 'never' | 'solar_only' | 'always'
+  solar_priority: 'smart',
+  saved: null, // values to put back (Tesla backup reserve, Sessy strategy)
+};
+
+function batterySettings(s) {
+  return { ...BATTERY_DEFAULTS, ...(s.battery || {}) };
+}
+
+async function batteryControl(bcfg) {
+  const { entities, states } = await loadRegistries();
+  return { control: battery.controlFor(bcfg, entities, states, bcfg.saved), states };
+}
+
+function socNow(bcfg, states) {
+  const st = (states || []).find((x) => x.entity_id === bcfg.soc_entity);
+  const n = Number(st && st.state);
+  return Number.isFinite(n) ? n : null;
+}
+
+// The battery plan from the price blocks, the expected sun, the house and the car.
+async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol }) {
+  const soc = socNow(bcfg, states);
+  if (soc == null) return { enabled: true, error: `Battery level ${bcfg.soc_entity} not readable` };
+  const { control } = await batteryControl(bcfg);
+  const baseW = sol ? Number(sol.house_base_w) || 400 : 400;
+  const typeOf = (p) => (p.forecast && s.prices && s.prices.forecast ? s.prices.forecast.price_type || s.prices.price_type : s.prices && s.prices.price_type);
+  const now = Date.now();
+  const evBlocks = (activePlan && activePlan.blocks) || [];
+  const blocks = prices.filter((p) => p.end > now).map((p) => {
+    const h = (p.end - Math.max(p.start, now)) / 3600000;
+    const evKwh = evBlocks.filter((b) => b.start < p.end && b.end > p.start).reduce((a, b) => a + (b.kwh - (b.solar_kwh || 0)), 0);
+    return {
+      start: Math.max(p.start, now),
+      end: p.end,
+      buy: Number.isFinite(p.expected) ? p.expected : p.total,
+      sell: sol ? solar.feedInValue(p.price, typeOf(p), sol.feed_in) : 0,
+      house_kw: (houseLoad && houseLoad.available ? houseLoad.profile[tzParts(p.start, tz).h] || 0 : baseW) / 1000,
+      pv_kw: Number.isFinite(p.pv_kw) ? p.pv_kw : 0,
+      ev_kw: h > 0 ? evKwh / h : 0,
+    };
+  });
+  const actions = control.available ? control.supported.filter((a) => a !== 'discharge') : ['auto'];
+  const plan = planBattery(blocks, {
+    ...bcfg,
+    soc_pct: soc,
+    actions: bcfg.arbitrage ? actions : actions.filter((a) => a !== 'charge'),
+  });
+  return {
+    enabled: true,
+    name: bcfg.name,
+    soc,
+    power_kw: bcfg.power_entity ? battery.powerKw(bcfg, states) : null,
+    control: control.available ? { supported: control.supported, note: control.note || null } : { supported: [], note: control.note || null, reason: control.reason },
+    control_allowed: options.allow_control === true && options.allow_battery_control === true,
+    actions: plan.actions,
+    saving: plan.saving,
+    notes: plan.notes,
+    ev_discharge: bcfg.ev_discharge,
+    solar_kwh: batteryLedger.solar_kwh,
+  };
+}
+
+// Where the energy in the battery came from (for "only stored solar into the car").
+const batteryLedger = { solar_kwh: 0, grid_kwh: 0, at: null };
+function updateLedger(bcfg, states, gridW) {
+  const now = Date.now();
+  const kw = battery.powerKw(bcfg, states);
+  const dt = batteryLedger.at ? Math.min(10 * 60000, now - batteryLedger.at) / 3600000 : 0;
+  batteryLedger.at = now;
+  if (kw == null || !(dt > 0)) return;
+  if (kw > 0.05) {
+    const fromGrid = Number.isFinite(gridW) ? Math.min(kw, Math.max(0, gridW / 1000)) : 0;
+    batteryLedger.grid_kwh += fromGrid * dt;
+    batteryLedger.solar_kwh += (kw - fromGrid) * dt;
+  } else if (kw < -0.05) {
+    const total = batteryLedger.solar_kwh + batteryLedger.grid_kwh;
+    const out = -kw * dt;
+    if (total > 0) {
+      batteryLedger.solar_kwh = Math.max(0, batteryLedger.solar_kwh - out * (batteryLedger.solar_kwh / total));
+      batteryLedger.grid_kwh = Math.max(0, batteryLedger.grid_kwh - out * (batteryLedger.grid_kwh / total));
+    }
+  }
+  const cap = Number(bcfg.capacity_kwh) || 0;
+  const soc = socNow(bcfg, states);
+  // Never more than what is in the battery.
+  if (cap > 0 && soc != null) {
+    const inside = Math.max(0, (soc / 100) * cap);
+    const sum = batteryLedger.solar_kwh + batteryLedger.grid_kwh;
+    if (sum > inside && sum > 0) {
+      batteryLedger.solar_kwh *= inside / sum;
+      batteryLedger.grid_kwh *= inside / sum;
+    }
+  }
+}
+
+// What the battery should do now: the plan, then the car.
+function batteryWanted(bcfg, planResult, entry) {
+  const b = planResult && planResult.battery;
+  const now = Date.now();
+  const blk = b && b.actions ? b.actions.find((a) => a.start <= now && now < a.end) : null;
+  let action = blk ? blk.action : 'auto';
+  let reason = blk ? `Battery plan: ${action.replace('_', ' ')}` : 'No battery plan: normal mode';
+  const evCharging = entry && entry.want === 'charge' && entry.plugged !== false;
+  if (evCharging && entry.code === 'solar' && bcfg.solar_priority === 'smart' && ['auto', 'no_discharge'].includes(action)) {
+    action = 'hold';
+    reason = 'The car is charging on solar: the battery waits, so the sun goes to the car';
+  } else if (evCharging && action === 'auto') {
+    if (bcfg.ev_discharge === 'never') { action = 'no_discharge'; reason = 'The car is charging: the battery does not discharge into it'; }
+    if (bcfg.ev_discharge === 'solar_only' && batteryLedger.solar_kwh < 0.3) { action = 'no_discharge'; reason = 'The car is charging and the battery holds no stored solar power: no discharging into the car'; }
+  }
+  return { action, reason };
+}
+
+let lastBattery = null; // { action, at, sent }
+async function batteryStep(s, planResult, entry, states) {
+  const bcfg = batterySettings(s);
+  if (!bcfg.soc_entity) return null;
+  const grid = s.grid[0] || null;
+  const sol = s.solar && s.solar.enabled ? s.solar : null;
+  updateLedger(bcfg, states, solar.gridNetW(grid, states, sol ? sol.grid_sign : 'import_positive'));
+  const want = bcfg.enabled ? batteryWanted(bcfg, planResult, entry) : { action: 'auto', reason: 'Battery planning is off' };
+  const info = { ...want, sent: false, live: options.allow_control === true && options.allow_battery_control === true };
+  if (!info.live) return info;
+  // Nothing changed by the app yet and "auto" wanted: leave the battery alone.
+  if (!lastBattery && want.action === 'auto') return info;
+  const { control } = await batteryControl(bcfg);
+  if (!control.available) return { ...info, error: control.note };
+  // Sent again every 15 minutes (30 for timed commands such as Huawei), in
+  // case the battery or someone else changed it meanwhile.
+  const refresh = (control.refresh_minutes || 15) * 60000;
+  const same = lastBattery && lastBattery.action === want.action;
+  if (same && !(refresh && Date.now() - lastBattery.at >= refresh)) return info;
+  const soc = socNow(bcfg, states);
+  const c = battery.commandsFor(control, want.action, Number(bcfg.charge_kw) || 3, soc);
+  if (!c) return { ...info, error: `${want.action} is not possible with this battery` };
+  // Remember values to put back later (before the first change).
+  if (!lastBattery && control.remember) {
+    const st = settings.load();
+    st.battery = { ...batterySettings(st), saved: { ...(batterySettings(st).saved || {}), ...control.remember } };
+    settings.save(st);
+  }
+  const allowed = battery.allowedFor(control);
+  const line = { time: Date.now(), live: true, manual: false, want: 'battery', code: `battery_${c.action}`, reason: want.reason, commands: [], sent: false, agrees: true };
+  try {
+    for (const cmd of c.commands) {
+      await ha.sendBattery(cmd, allowed);
+      line.commands.push({ what: `battery: ${c.action}`, service: cmd.service, data: cmd.data, target: cmd.target });
+    }
+    line.sent = true;
+    lastBattery = c.action === 'auto' ? null : { action: want.action, at: Date.now() };
+    await notifier.notify('startstop', 'Home battery', `${want.reason}.`);
+  } catch (err) {
+    line.error = err.message;
+    lastBattery = { action: want.action, at: Date.now(), failed: true };
+    await notifier.notify('problem', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
+  }
+  controller.logSent(line);
+  return { ...info, action: c.action, sent: line.sent, error: line.error || null };
+}
+
+routes['GET /api/battery'] = async () => {
+  const s = settings.load();
+  const cfg = batterySettings(s);
+  const { entities, devices, states } = await loadRegistries();
+  const candidates = battery.detectBatteries(entities, devices, states).map((c) => {
+    const ctl = battery.controlFor(c, entities, states, null);
+    const cap = c.capacity_entity ? states.find((x) => x.entity_id === c.capacity_entity) : null;
+    let capKwh = cap ? Number(cap.state) : null;
+    if (cap && cap.attributes && cap.attributes.unit_of_measurement === 'Wh' && Number.isFinite(capKwh)) capKwh /= 1000;
+    return {
+      ...c,
+      soc: socNow(c, states),
+      power_kw: c.power_entity ? battery.powerKw(c, states) : null,
+      capacity_kwh: Number.isFinite(capKwh) && capKwh > 0 ? capKwh : null,
+      control: ctl.available ? { supported: ctl.supported, note: ctl.note || null } : { supported: [], note: ctl.note || null, reason: ctl.reason },
+    };
+  });
+  const cur = cfg.soc_entity ? { soc: socNow(cfg, states), power_kw: cfg.power_entity ? battery.powerKw(cfg, states) : null } : null;
+  return {
+    settings: cfg,
+    candidates,
+    now: cur,
+    brands: Object.entries(battery.BRANDS).map(([k, v]) => ({ platform: k, name: v.name, integration: v.integration, read_only: !!battery.READ_ONLY_REASON[k] || !battery.ADAPTERS[k] })),
+    control_allowed: options.allow_control === true,
+    battery_control_allowed: options.allow_battery_control === true,
+    ledger: { ...batteryLedger },
+    last: lastBattery,
+  };
+};
+
+routes['POST /api/battery'] = async (req) => {
+  const b = await readBody(req);
+  const num = (v, name, min, max) => {
+    const n = Number(v);
+    if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
+    return n;
+  };
+  const s = settings.load();
+  const prev = batterySettings(s);
+  const cfg = {
+    ...prev,
+    enabled: b.enabled === true,
+    capacity_kwh: num(b.capacity_kwh, 'Capacity', 0.5, 200),
+    charge_kw: num(b.charge_kw, 'Charging power', 0.1, 50),
+    discharge_kw: num(b.discharge_kw, 'Discharging power', 0.1, 50),
+    min_pct: num(b.min_pct, 'Minimum level', 0, 90),
+    max_pct: num(b.max_pct, 'Maximum level', 50, 100),
+    efficiency: num(b.efficiency, 'Round-trip efficiency', 0.5, 1),
+    wear: num(b.wear, 'Wear', 0, 0.5),
+    arbitrage: b.arbitrage !== false,
+    ev_discharge: ['never', 'solar_only', 'always'].includes(b.ev_discharge) ? b.ev_discharge : 'never',
+    solar_priority: b.solar_priority === 'battery' ? 'battery' : b.solar_priority === 'car' ? 'car' : 'smart',
+    power_sign: b.power_sign === 'discharge_positive' ? 'discharge_positive' : 'charge_positive',
+  };
+  if (cfg.min_pct >= cfg.max_pct) throw badRequest('The minimum level must be below the maximum level');
+  if (b.platform !== undefined || b.soc_entity !== undefined) {
+    // SAFETY: the battery must be one that the app detected itself.
+    const { entities, devices, states } = await loadRegistries();
+    const found = battery.detectBatteries(entities, devices, states).find((c) => c.soc_entity === b.soc_entity && c.platform === b.platform);
+    if (b.soc_entity && !found) throw badRequest('That battery was not found in Home Assistant');
+    if (found) Object.assign(cfg, { platform: found.platform, device_id: found.device_id, name: found.name, soc_entity: found.soc_entity, power_entity: found.power_entity });
+    if (!b.soc_entity) Object.assign(cfg, { platform: null, device_id: null, name: null, soc_entity: null, power_entity: null, enabled: false });
+  }
+  if (cfg.enabled && !cfg.soc_entity) throw badRequest('Choose a battery first');
+  s.battery = cfg;
+  settings.save(s);
+  planCache = null;
+  ha.log(`Battery settings saved (${cfg.enabled ? 'on' : 'off'})`);
+  return { ok: true, settings: cfg };
+};
+
+// Diagnostics: one battery action by hand, to check that the commands work.
+routes['POST /api/battery/test'] = async (req) => {
+  const b = await readBody(req);
+  const s = settings.load();
+  const cfg = batterySettings(s);
+  if (!cfg.soc_entity) throw badRequest('Choose a battery first');
+  const { control, states } = await batteryControl(cfg);
+  if (!control.available) throw badRequest(control.note || 'This battery cannot be steered');
+  const c = battery.commandsFor(control, String(b.action || ''), Number(cfg.charge_kw) || 3, socNow(cfg, states));
+  if (!c) throw badRequest('That action is not possible with this battery');
+  const allowed = battery.allowedFor(control);
+  const sent = [];
+  for (const cmd of c.commands) {
+    await ha.sendBattery(cmd, allowed);
+    sent.push(`${cmd.service} ${JSON.stringify(cmd.data)}`);
+  }
+  lastBattery = c.action === 'auto' ? null : { action: c.action, at: Date.now(), manual: true };
+  controller.logSent({ time: Date.now(), live: true, manual: true, want: 'battery', code: `battery_${c.action}`, reason: `Battery test: ${c.action}`, commands: c.commands.map((x) => ({ what: `battery: ${c.action}`, service: x.service, data: x.data, target: x.target })), sent: true, agrees: true });
+  return { ok: true, action: c.action, sent };
+};
+
+// ---------------------------------------------------------------------------
 // Solar (Settings › Solar) and the charging mode (Home)
 // ---------------------------------------------------------------------------
 
@@ -1381,6 +1669,14 @@ routes['GET /api/checklist'] = async () => {
   add('conflicts', n ? 'warn' : 'ok', 'Your own automations', n ? `${n} automation(s) use the same charger or car limit` : 'No conflicts found', 'ctlset');
   add('notify', s.notify && s.notify.service ? 'ok' : 'optional', 'Notifications', s.notify && s.notify.service ? s.notify.service : 'Optional: choose where to send them', 'status');
   add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load and solar', 'grid');
+  const bc = batterySettings(s);
+  if (!bc.enabled) add('battery', 'optional', 'Home battery', 'Optional: plan the home battery next to the car', 'battery');
+  else {
+    const { control } = await batteryControl(bc).catch(() => ({ control: { available: false, note: 'Could not be checked' } }));
+    if (!control.available) add('battery', 'warn', 'Home battery', `${bc.name}: the plan is advice only. ${control.note || ''}`.trim(), 'battery');
+    else if (!(options.allow_control && options.allow_battery_control)) add('battery', 'warn', 'Home battery', `${bc.name}: advice only. Turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration`, 'battery');
+    else add('battery', 'ok', 'Home battery', `${bc.name}: steered by the app (${control.supported.join(', ')})`, 'battery');
+  }
   const sc = solarSettings(s);
   if (!sc.enabled) add('solar', 'optional', 'Solar', 'Optional: charge with your own solar power', 'solar');
   else {
@@ -1604,6 +1900,7 @@ routes['GET /api/plan'] = async (req) => {
   return {
     ...planCache.result,
     solar_now: lastDryRun && lastDryRun.solar_now ? { ...lastDryRun.solar_now, code: lastDryRun.code, amps: lastDryRun.amps, phases: lastDryRun.phases } : null,
+    battery_now: lastDryRun && lastDryRun.battery_now ? lastDryRun.battery_now : null,
     computed_at: planCache.at,
     next_refresh: planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,
@@ -1666,7 +1963,16 @@ function solarStep(s, planResult, states, methods, rules, charger) {
   const net = solar.gridNetW(grid, states, sol.grid_sign);
   const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
   const carW = Number.isFinite(actual.power_w) ? actual.power_w : 0;
-  const available = net == null ? null : carW - net + (Number(sol.grid_allow_w) || 0);
+  let available = net == null ? null : carW - net + (Number(sol.grid_allow_w) || 0);
+  // Smart solar priority: while the car still needs energy, what the home
+  // battery takes from the sun counts as available for the car.
+  const bcfg = batterySettings(s);
+  if (available != null && bcfg.enabled && bcfg.power_entity && bcfg.solar_priority !== 'battery') {
+    const v = planResult.vehicle;
+    const needs = v && Number.isFinite(v.soc) && planResult.planning && v.soc < planResult.planning.target_soc;
+    const bkw = battery.powerKw(bcfg, states);
+    if ((needs || bcfg.solar_priority === 'car') && bkw > 0) available += bkw * 1000;
+  }
   const chosen = chosenMethods(methods, rules);
   const currentControl = sol.current_control !== false && !!(chosen && chosen.current);
   const maxAmps = (planResult.charger && planResult.charger.max_current) || 16;
@@ -1742,7 +2048,17 @@ async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
 async function runDryRun(planResult) {
   const s = settings.load();
   const charger = s.chargers[0] || null;
-  if (!charger) return null;
+  if (!charger) {
+    // No charger: the home battery can still follow its plan.
+    try {
+      const states = await ha.call({ type: 'get_states' });
+      const bn = await batteryStep(s, planResult, null, states);
+      if (bn) lastDryRun = { time: Date.now(), want: 'none', code: 'no_charger', reason: 'No charger set up', commands: [], battery_now: bn };
+    } catch (err) {
+      ha.warn('Home battery step failed:', err.message);
+    }
+    return null;
+  }
   const [states, methods] = await Promise.all([ha.call({ type: 'get_states' }), currentControlMethods(charger)]);
   const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
   const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
@@ -1766,6 +2082,11 @@ async function runDryRun(planResult) {
     await sendLive(lastDryRun, chosenMethods(methods, rules));
     await sendCurrentAndPhases(lastDryRun, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
     await manageCarLimit(planResult, lastDryRun, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+  }
+  try {
+    lastDryRun.battery_now = await batteryStep(s, planResult, lastDryRun, states);
+  } catch (err) {
+    ha.warn('Home battery step failed:', err.message);
   }
   await notifier.publishSensors(planResult, lastDryRun, { lastCommand: lastCommandInfo });
   return lastDryRun;
