@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.3
+
+- Settings test with a second set-up: **Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus** (`SCP_PROFILE=skoda_wallbox node tests/settings.test.js`), next to Renault + Easee. Entity names from the integrations' own source code. All checks pass for both; `tests/TESTPLAN.md` shows both side by side
+- New checks: the charger's own smart mode is warned about (Wallbox Eco-smart), and a target the car cannot set exactly (Enyaq: steps of 10 %) is rounded up for the car's limit while the plan still stops at the target
+- No changes to the app itself
+
 ## 0.22.2
 
 - New test of every setting: `node tests/settings.test.js` starts the real app against a fake Home Assistant (car, charger, P1 meter, prices with forecast, calendar, helpers, notifications) and checks what is saved, what is refused, what the plan does and what is sent. 77 checks; the plan and results are in `tests/TESTPLAN.md`

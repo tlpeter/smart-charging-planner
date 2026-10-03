@@ -6,8 +6,10 @@
 // saved, what is refused, what the plan does and what is sent to Home
 // Assistant.
 //
-// Run: node tests/settings.test.js   (from the repository root; needs
-// `npm install` in smart_charging_planner/app). Takes about a minute.
+// Run from the repository root (needs `npm install` in smart_charging_planner/app),
+// about a minute per car and charger:
+//   node tests/settings.test.js                              Renault + Easee
+//   SCP_PROFILE=skoda_wallbox node tests/settings.test.js    Skoda Enyaq + Wallbox
 
 const fs = require('fs');
 const os = require('os');
@@ -25,7 +27,11 @@ const results = [];
 let group = '';
 let app = null;
 let dataDir = null;
-const world = fake.createWorld();
+const world = fake.createWorld(process.env.SCP_PROFILE || 'renault_easee');
+const CAR = world.profile.car;
+const CH = world.profile.charger;
+// The value the car accepts for a wanted limit (rounded up to its step).
+const lim = (v) => Math.max(CAR.limit_min, 50, Math.min(CAR.limit_max, Math.ceil((v - CAR.limit_min) / CAR.limit_step - 1e-9) * CAR.limit_step + CAR.limit_min));
 const ha = fake.start(world, WS_PORT, REST_PORT);
 
 // ---------------------------------------------------------------------------
@@ -112,6 +118,7 @@ async function startApp(options = {}) {
 
 async function stopApp() {
   if (!app) return;
+  if (process.env.SCP_APPLOG) fs.appendFileSync(process.env.SCP_APPLOG, app.log);
   const p = app;
   app = null;
   p.kill();
@@ -126,6 +133,7 @@ const callsSince = (n) => world.calls.slice(n);
 // ---------------------------------------------------------------------------
 
 async function run() {
+  console.log(`Profile: ${world.profile.label}`);
   // ----- A. Start with nothing set up --------------------------------------
   group = 'A. Fresh install and checklist';
   await startApp();
@@ -148,46 +156,47 @@ async function run() {
   // ----- B. Vehicle ---------------------------------------------------------
   group = 'B. Vehicle';
   let vehicleCandidate;
-  await test('B1', 'Detect finds the Renault with battery, plugged-in and charge limit', async () => {
+  await test('B1', 'Detect finds the car with battery, plugged-in and charge limit', async () => {
     const d = await ok('GET', 'api/vehicles/detect');
     vehicleCandidate = d.candidates.find((c) => c.device_id === 'car');
     assert(vehicleCandidate, 'car not found');
-    assert(vehicleCandidate.suggested.soc === 'sensor.jlz03x_battery', `soc ${vehicleCandidate.suggested.soc}`);
-    assert(vehicleCandidate.suggested.charge_limit === 'number.jlz03x_target_charge_level', `limit ${vehicleCandidate.suggested.charge_limit}`);
-    return `plugged: ${vehicleCandidate.suggested.plugged || 'none'}`;
+    assert(vehicleCandidate.suggested.soc === CAR.soc, `soc ${vehicleCandidate.suggested.soc}`);
+    assert(vehicleCandidate.suggested.charge_limit === CAR.limit, `limit ${vehicleCandidate.suggested.charge_limit}`);
+    return `${vehicleCandidate.name}: plugged ${vehicleCandidate.suggested.plugged || 'none'}, limit ${vehicleCandidate.suggested.charge_limit}`;
   });
-  await test('B2', 'Refused: no battery sensor', () => refused('POST', 'api/vehicles', { device_id: 'car', capacity_kwh: 52 }, 'battery'));
-  await test('B3', 'Refused: battery capacity 500 kWh', () => refused('POST', 'api/vehicles', { device_id: 'car', soc_entity: 'sensor.jlz03x_battery', capacity_kwh: 500 }, 'capacity'));
+  await test('B2', 'Refused: no battery sensor', () => refused('POST', 'api/vehicles', { device_id: 'car', capacity_kwh: CAR.capacity }, 'battery'));
+  await test('B3', 'Refused: battery capacity 500 kWh', () => refused('POST', 'api/vehicles', { device_id: 'car', soc_entity: CAR.soc, capacity_kwh: 500 }, 'capacity'));
   await test('B4', "Refused: a charge limit that is not on the car's device", () => refused('POST', 'api/vehicles',
-    { device_id: 'car', soc_entity: 'sensor.jlz03x_battery', capacity_kwh: 52, charge_limit_entity: 'switch.laadpaal_charger_enabled' }, 'charge limit'));
+    { device_id: 'car', soc_entity: CAR.soc, capacity_kwh: CAR.capacity, charge_limit_entity: CH.switch }, 'charge limit'));
   await test('B5', 'Refused: battery level 120 % entered by hand', () => refused('POST', 'api/vehicle/soc', { soc: 120 }, 'between'));
   await test('B6', 'No car integration: "enter level" needs a capacity', () => refused('POST', 'api/vehicles', { mode: 'manual_soc', name: 'X' }, 'capacity'));
   await test('B7', 'No car integration: fixed amount must be 1–150 kWh', () => refused('POST', 'api/vehicles', { mode: 'fixed_kwh', fixed_kwh: 300 }, 'between 1 and 150'));
-  await test('B8', 'Save the Renault (sensor mode, 52 kWh, plugged-in sensor, charge limit)', async () => {
+  await test('B8', 'Save the car (sensor mode, capacity, plugged-in sensor, charge limit)', async () => {
     await ok('POST', 'api/vehicles', {
-      name: 'JLZ03X', device_id: 'car', integration: 'renault', soc_entity: 'sensor.jlz03x_battery',
-      plugged_entity: 'binary_sensor.jlz03x_plugged_in', charge_limit_entity: 'number.jlz03x_target_charge_level', capacity_kwh: 52,
+      name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc,
+      plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity,
     });
     const v = (await ok('GET', 'api/vehicles')).vehicles[0];
-    assert(v.capacity_kwh === 52 && v.live.soc.state === '40' && v.live.charge_limit.state === '80', 'saved values or live values wrong');
+    assert(v.capacity_kwh === CAR.capacity && v.live.soc.state === '40' && v.live.charge_limit.state === '80', 'saved values or live values wrong');
   });
 
   // ----- C. Charger ---------------------------------------------------------
   group = 'C. Charger';
-  await test('C1', 'Detect finds the Easee with status, power and switch', async () => {
+  await test('C1', 'Detect finds the charger with status and power, and not the car', async () => {
     const d = await ok('GET', 'api/chargers/detect');
     const c = d.candidates.find((x) => x.device_id === 'ch');
     assert(c, 'charger not found');
-    assert(c.suggested.status === 'sensor.laadpaal_status' && c.suggested.power === 'sensor.laadpaal_power', JSON.stringify(c.suggested));
+    assert(c.suggested.status === CH.status && c.suggested.power === CH.power, JSON.stringify(c.suggested));
+    return `switch: ${c.suggested.switch || 'none'}`;
     assert(!d.candidates.some((x) => x.device_id === 'car'), 'the car was offered as a charger');
   });
   await test('C2', 'Refused: no entities chosen', () => refused('POST', 'api/chargers', { device_id: 'ch' }, 'at least one'));
-  await test('C3', 'Refused: maximum current 100 A', () => refused('POST', 'api/chargers', { device_id: 'ch', status_entity: 'sensor.laadpaal_status', max_current: 100 }, 'between 6 and 80'));
-  await test('C4', 'Refused: a switch as status entity', () => refused('POST', 'api/chargers', { device_id: 'ch', status_entity: 'switch.laadpaal_charger_enabled' }, 'invalid entity'));
-  await test('C5', 'Save the Easee (3 phases, 16 A)', async () => {
+  await test('C3', 'Refused: maximum current 100 A', () => refused('POST', 'api/chargers', { device_id: 'ch', status_entity: CH.status, max_current: 100 }, 'between 6 and 80'));
+  await test('C4', 'Refused: a switch as status entity', () => refused('POST', 'api/chargers', { device_id: 'ch', status_entity: CH.switch }, 'invalid entity'));
+  await test('C5', 'Save the charger (3 phases, 16 A)', async () => {
     await ok('POST', 'api/chargers', {
-      name: 'Laadpaal', device_id: 'ch', integration: 'easee', status_entity: 'sensor.laadpaal_status',
-      power_entity: 'sensor.laadpaal_power', switch_entity: 'switch.laadpaal_charger_enabled', phases: 3, max_current: 16,
+      name: CH.name, device_id: 'ch', integration: CH.platform, status_entity: CH.status,
+      power_entity: CH.power, switch_entity: CH.switch, phases: 3, max_current: 16,
     });
     const c = (await ok('GET', 'api/chargers')).chargers[0];
     assert(c.phases === 3 && c.max_current === 16, 'not saved');
@@ -198,18 +207,28 @@ async function run() {
     return `recommended: ${r.recommended.start_stop && r.recommended.start_stop.label}`;
   });
 
+  if (CH.ownMode) {
+    await test('C6b', `Charger's own smart mode on (${CH.ownMode}): the control check warns`, async () => {
+      world.ownMode = true;
+      const r = await ok('GET', 'api/control/check');
+      world.ownMode = false;
+      const w = (r.warnings || []).map((x) => x.code || x.id || x.type || JSON.stringify(x));
+      assert(w.some((x) => /own_mode|own_smart/.test(x)), `warnings: ${w.join(', ') || 'none'}`);
+      return w.join(', ');
+    });
+  }
   await test('C7', 'Maximum current 10 A: the plan uses 3 × 230 V × 10 A = 6.9 kW', async () => {
-    await ok('POST', 'api/vehicles', { name: 'JLZ03X', device_id: 'car', soc_entity: 'sensor.jlz03x_battery', plugged_entity: 'binary_sensor.jlz03x_plugged_in', charge_limit_entity: 'number.jlz03x_target_charge_level', capacity_kwh: 52 });
+    await ok('POST', 'api/vehicles', { name: CAR.name, device_id: 'car', soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity });
     await ok('POST', 'api/prices', { source: { type: 'action', domain: 'energyzero', config_entry: 'ce_ez', name: 'EnergyZero' }, price_type: 'all_in' });
-    await ok('POST', 'api/chargers', { name: 'Laadpaal', device_id: 'ch', status_entity: 'sensor.laadpaal_status', power_entity: 'sensor.laadpaal_power', switch_entity: 'switch.laadpaal_charger_enabled', phases: 3, max_current: 10 });
+    await ok('POST', 'api/chargers', { name: CH.name, device_id: 'ch', status_entity: CH.status, power_entity: CH.power, switch_entity: CH.switch, phases: 3, max_current: 10 });
     const p = await plan();
     assert(near(p.power.planned_kw, 6.9, 0.01), `planned ${p.power.planned_kw}`);
   });
   await test('C8', 'One phase, 16 A: the plan uses 3.7 kW', async () => {
-    await ok('POST', 'api/chargers', { name: 'Laadpaal', device_id: 'ch', status_entity: 'sensor.laadpaal_status', power_entity: 'sensor.laadpaal_power', switch_entity: 'switch.laadpaal_charger_enabled', phases: 1, max_current: 16 });
+    await ok('POST', 'api/chargers', { name: CH.name, device_id: 'ch', status_entity: CH.status, power_entity: CH.power, switch_entity: CH.switch, phases: 1, max_current: 16 });
     const p = await plan();
     assert(near(p.power.planned_kw, 3.68, 0.01), `planned ${p.power.planned_kw}`);
-    await ok('POST', 'api/chargers', { name: 'Laadpaal', device_id: 'ch', status_entity: 'sensor.laadpaal_status', power_entity: 'sensor.laadpaal_power', switch_entity: 'switch.laadpaal_charger_enabled', phases: 3, max_current: 16 });
+    await ok('POST', 'api/chargers', { name: CH.name, device_id: 'ch', status_entity: CH.status, power_entity: CH.power, switch_entity: CH.switch, phases: 3, max_current: 16 });
   });
 
   // ----- D. Grid ------------------------------------------------------------
@@ -387,7 +406,7 @@ async function run() {
     assert(n.code === 'below_minimum', `code ${n.code}`);
   });
   await test('G4', 'Preconditioning entity on → charge', async () => {
-    await ok('POST', 'api/control/settings', rules({ preheat_entity: 'binary_sensor.jlz03x_hvac' }));
+    await ok('POST', 'api/control/settings', rules({ preheat_entity: CAR.preheat }));
     world.preheat = 'on';
     const n = await decision();
     world.preheat = 'off';
@@ -488,20 +507,20 @@ async function run() {
   // ----- J. Live: Allow control on ------------------------------------------
   group = 'J. Allow control on: quick choices and the car limit';
   await startApp({ allow_control: true, notify_start_stop: true });
-  await test('J1', 'Car limit follows the plan: tomorrow 90 % → limit 90 (one call)', async () => {
+  await test('J1', 'Car limit follows the plan: tomorrow 90 % (one call)', async () => {
     await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     const n0 = world.calls.length;
     await plan();
     await sleep(800);
     const sets = callsSince(n0).filter((c) => c.domain === 'number');
-    assert(sets.length === 1 && sets[0].data.value === 90 && world.limit === 90, `calls ${JSON.stringify(sets)}`);
-    return 'number.set_value 90';
+    assert(sets.length === 1 && sets[0].data.value === lim(90) && world.limit === lim(90), `calls ${JSON.stringify(sets)}`);
+    return `number.set_value ${lim(90)}`;
   });
   await test('J2', 'Plan is not capped at the old limit when the app manages it', async () => {
     const p = await plan();
     assert(p.manages_car_limit === true && p.planning.target_soc === 90, `${p.manages_car_limit}/${p.planning.target_soc}`);
   });
-  await test('J3', 'Ready for the day after tomorrow 95 %: minimum 30 % first, limit → 95', async () => {
+  await test('J3', 'Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows', async () => {
     world.soc = 20;
     await refused('POST', 'api/chargefor', { day: 'next_week', time: '06:00', soc: 90, min_soc: 30 }, 'tomorrow');
     await refused('POST', 'api/chargefor', { day: 'day_after', time: '06:00', soc: 90, min_soc: 50 }, 'between 20 and 45');
@@ -514,40 +533,42 @@ async function run() {
     const first = p.plan.blocks.filter((b) => b.start < p.plan.stage.first_deadline).reduce((a, b) => a + b.kwh, 0);
     assert(first >= p.charge_for.min_kwh - 0.01, `only ${first} kWh before the first departure, need ${p.charge_for.min_kwh}`);
     const sets = callsSince(n0).filter((c) => c.domain === 'number').map((c) => c.data.value);
-    assert(world.limit === 95, `limit ${world.limit}, sent ${sets}`);
+    assert(world.limit === lim(95), `limit ${world.limit}, sent ${sets}`);
     return `${first.toFixed(1)} kWh before ${new Date(p.plan.stage.first_deadline).toISOString().slice(5, 16)}, limit sent ${sets}`;
   });
-  await test('J4', 'Back to normal: limit goes down to the plan again (90)', async () => {
+  await test('J4', 'Back to normal: limit goes down to the plan again', async () => {
     await ok('DELETE', 'api/chargefor');
     await plan();
     await sleep(800);
-    assert(world.limit === 90, `limit ${world.limit}`);
+    assert(world.limit === lim(90), `limit ${world.limit}`);
+    return `limit ${world.limit}`;
   });
   await test('J5', 'Quickly to a minimum (35 %) does not lower the limit', async () => {
     world.soc = 20;
     const r = await ok('POST', 'api/boost/preview', { mode: 'soc', value: 35 });
-    assert(r.limit.managed && r.limit.to === 90, `preview ${JSON.stringify(r.limit)}`);
+    assert(r.limit.managed && r.limit.to === lim(90), `preview ${JSON.stringify(r.limit)}`);
   });
-  await test('J6', 'Charge now 100 %: limit → 100, charger started, then stop → back to 90', async () => {
-    world.status = 'awaiting_start';
+  await test('J6', 'Charge now 100 %: limit up, charger started; stop: limit back', async () => {
+    world.charging = false;
     world.powerKw = 0;
     const n0 = world.calls.length;
     await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
     await sleep(800);
     const calls = callsSince(n0);
-    const started = calls.find((c) => c.domain === 'easee' && ['resume', 'start'].includes(c.data.action_command));
-    assert(world.limit === 100, `limit ${world.limit}`);
+    const started = calls.find((c) => CH.isStart(c));
+    assert(world.limit === lim(100), `limit ${world.limit}`);
     assert(started, `no start sent: ${JSON.stringify(calls)}`);
     await ok('DELETE', 'api/boost');
     await plan();
     await sleep(800);
-    assert(world.limit === 90, `limit after stop ${world.limit}`);
-    return `start: easee.action_command ${started.data.action_command}`;
+    assert(world.limit === lim(90), `limit after stop ${world.limit}`);
+    return `limit ${lim(100)} → ${lim(90)}, start: ${CH.describe(started)}`;
   });
   await test('J7', 'Charge now as kWh: preview converts it to a level for the limit', async () => {
     world.soc = 20;
-    const r = await ok('POST', 'api/boost/preview', { mode: 'kwh', value: 45 });
-    assert(r.limit.managed && r.limit.to === 100, `preview ${JSON.stringify(r.limit)}`);
+    // Enough kWh to go from 20 % to above 100 %, whatever the battery size.
+    const r = await ok('POST', 'api/boost/preview', { mode: 'kwh', value: Math.round(CAR.capacity * 0.95) });
+    assert(r.limit.managed && r.limit.to === lim(100), `preview ${JSON.stringify(r.limit)}`);
   });
   await test('J8', "\"Don't change the car's charge limit\": nothing sent, plan capped at the limit", async () => {
     await ok('POST', 'api/control/settings', rules({ car_limit_off: true }));
@@ -568,9 +589,26 @@ async function run() {
     const n0 = world.calls.length;
     const a = await ok('POST', 'api/control/manual', { action: 'start' });
     const b = await ok('POST', 'api/control/manual', { action: 'stop' });
-    const cmds = callsSince(n0).filter((c) => c.domain === 'easee').map((c) => c.data.action_command);
+    const cmds = callsSince(n0).filter((c) => CH.isControl(c)).map((c) => CH.describe(c));
     assert(a.sent && b.sent && cmds.length === 2, `sent ${a.sent}/${b.sent}, commands ${cmds}`);
     return cmds.join(' → ');
+  });
+  await test('J12', 'Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 %', async () => {
+    // J8 changed the limit "in the car" (80) shortly after the app sent 90; the
+    // app waits the retry gap (here 2 s, live 15 min) before sending 90 again.
+    await sleep(2100);
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 85 } }) }));
+    const p = await plan();
+    await sleep(800);
+    assert(p.planning.target_soc === 85 && world.limit === lim(85), `target ${p.planning.target_soc}, limit ${world.limit}`);
+    world.soc = 85;
+    const n = (await ok('GET', 'api/control')).now;
+    await plan();
+    const n2 = (await ok('GET', 'api/control')).now;
+    world.soc = 20;
+    assert(n2.code === 'at_target' && n2.want === 'pause', `at 85 %: ${n2.want}/${n2.code}`);
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    return `limit ${world.limit} %, at 85 %: ${n2.code}`;
   });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
@@ -582,7 +620,7 @@ async function run() {
   await test('J11', 'Notify every start and pause off: start is not notified', async () => {
     await startApp({ allow_control: true, notify_start_stop: false });
     world.soc = 20;
-    world.status = 'awaiting_start';
+    world.charging = false;
     world.powerKw = 0;
     const n0 = world.calls.length;
     await ok('POST', 'api/boost', { mode: 'soc', value: 30 });
@@ -650,6 +688,6 @@ run()
     if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
     const failed = results.filter((r) => !r.ok);
     console.log(`\n${results.length - failed.length} of ${results.length} passed`);
-    if (process.env.SCP_RESULTS) fs.writeFileSync(process.env.SCP_RESULTS, JSON.stringify(results, null, 2));
+    if (process.env.SCP_RESULTS) fs.writeFileSync(process.env.SCP_RESULTS, JSON.stringify({ profile: world.profile.label, results }, null, 2));
     process.exit(failed.length ? 1 : 0);
   });

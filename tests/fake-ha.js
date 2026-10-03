@@ -1,8 +1,11 @@
 'use strict';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
-// REST API the app uses, with a car (Renault), a charger (Easee), a P1 meter,
-// EnergyZero prices, a price sensor with a 7-day forecast, a calendar,
+// REST API the app uses. A profile chooses the car and the charger:
+//   renault_easee  Renault Megane E-Tech (renault) + Easee Charge (easee)
+//   skoda_wallbox  Skoda Enyaq (myskoda) + Wallbox Pulsar Plus (wallbox)
+// Entity names follow the integrations' own source code. Further: a P1
+// meter, EnergyZero prices, a price sensor with a 7-day forecast, a calendar,
 // helpers and notify actions. Everything the app sends is recorded in `calls`.
 
 const http = require('http');
@@ -11,16 +14,113 @@ const WebSocket = require(path.join(__dirname, '..', 'smart_charging_planner', '
 const { localMidnight, isoLocal } = require(path.join(__dirname, '..', 'smart_charging_planner', 'app', 'prices.js'));
 
 const TZ = 'Europe/Amsterdam';
+const PCT = { unit_of_measurement: '%' };
+const KW = { unit_of_measurement: 'kW', device_class: 'power' };
 
-function createWorld() {
+const PROFILES = {
+  renault_easee: {
+    label: 'Renault Megane E-Tech + Easee Charge',
+    car: {
+      device: 'car', name: 'JLZ03X', manufacturer: 'Renault', model: 'Megane E-Tech', platform: 'renault', capacity: 52,
+      soc: 'sensor.jlz03x_battery', range: 'sensor.jlz03x_range', plugged: 'binary_sensor.jlz03x_plugged_in',
+      limit: 'number.jlz03x_target_charge_level', limit_min: 55, limit_max: 100, limit_step: 5,
+      preheat: 'binary_sensor.jlz03x_hvac',
+      states: (w) => [
+        ['sensor.jlz03x_battery', w.soc, { friendly_name: 'JLZ03X Battery', ...PCT, device_class: 'battery' }],
+        ['sensor.jlz03x_range', '150', { friendly_name: 'JLZ03X Range', unit_of_measurement: 'km', device_class: 'distance' }],
+        ['binary_sensor.jlz03x_plugged_in', w.plugged ? 'on' : 'off', { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' }],
+        ['binary_sensor.jlz03x_charging', w.charging ? 'on' : 'off', { friendly_name: 'JLZ03X Charging', device_class: 'battery_charging' }],
+        ['number.jlz03x_target_charge_level', w.limit, { friendly_name: 'JLZ03X Target charge level', ...PCT, min: 55, max: 100, step: 5 }],
+        ['number.jlz03x_minimum_charge_level', '15', { friendly_name: 'JLZ03X Minimum charge level', ...PCT, min: 15, max: 45, step: 5 }],
+        ['binary_sensor.jlz03x_hvac', w.preheat, { friendly_name: 'JLZ03X HVAC' }],
+      ],
+    },
+    charger: {
+      device: 'ch', name: 'Laadpaal', manufacturer: 'Easee', model: 'Charge', platform: 'easee',
+      status: 'sensor.laadpaal_status', power: 'sensor.laadpaal_power', switch: 'switch.laadpaal_charger_enabled',
+      text: { unplugged: 'disconnected', paused: 'awaiting_start', charging: 'charging' },
+      services: {
+        easee: { action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } } },
+      },
+      states: (w, status) => [
+        ['sensor.laadpaal_status', status, { friendly_name: 'Laadpaal Status', device_class: 'enum' }],
+        ['sensor.laadpaal_power', w.powerKw, { friendly_name: 'Laadpaal Power', ...KW }],
+        ['switch.laadpaal_charger_enabled', 'on', { friendly_name: 'Laadpaal Charger enabled' }],
+        ['switch.laadpaal_smart_charging', 'off', { friendly_name: 'Laadpaal Smart charging' }],
+      ],
+      // What a start or stop command does.
+      react(call) {
+        if (call.domain !== 'easee') return null;
+        const c = call.data.action_command;
+        return ['resume', 'start'].includes(c) ? 'start' : ['pause', 'stop'].includes(c) ? 'stop' : null;
+      },
+      isStart: (c) => c.domain === 'easee' && ['resume', 'start'].includes(c.data.action_command),
+      isControl: (c) => c.domain === 'easee',
+      describe: (c) => `easee.action_command ${c.data.action_command}`,
+    },
+  },
+  skoda_wallbox: {
+    label: 'Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus',
+    car: {
+      device: 'car', name: 'Enyaq', manufacturer: 'Skoda', model: 'Enyaq iV 80', platform: 'myskoda', capacity: 77,
+      soc: 'sensor.enyaq_battery_percentage', range: 'sensor.enyaq_range', plugged: 'binary_sensor.enyaq_charger_connected',
+      limit: 'number.enyaq_charge_limit', limit_min: 50, limit_max: 100, limit_step: 10,
+      preheat: 'input_boolean.enyaq_voorverwarmen',
+      states: (w) => [
+        ['sensor.enyaq_battery_percentage', w.soc, { friendly_name: 'Enyaq Battery Percentage', ...PCT, device_class: 'battery' }],
+        ['sensor.enyaq_range', '210', { friendly_name: 'Enyaq Range', unit_of_measurement: 'km', device_class: 'distance' }],
+        ['sensor.enyaq_charging_state', w.charging ? 'charging' : w.plugged ? 'ready_for_charging' : 'connect_cable', { friendly_name: 'Enyaq Charging State', device_class: 'enum' }],
+        ['sensor.enyaq_charging_power', w.powerKw, { friendly_name: 'Enyaq Charging Power', ...KW }],
+        ['binary_sensor.enyaq_charger_connected', w.plugged ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
+        ['binary_sensor.enyaq_charge_lock', 'on', { friendly_name: 'Enyaq Charge Lock', device_class: 'lock' }],
+        ['number.enyaq_charge_limit', w.limit, { friendly_name: 'Enyaq Charge Limit', ...PCT, min: 50, max: 100, step: 10 }],
+        ['switch.enyaq_charging', w.charging ? 'on' : 'off', { friendly_name: 'Enyaq Charging' }],
+        ['switch.enyaq_battery_care_mode', 'off', { friendly_name: 'Enyaq Battery Care' }],
+        ['climate.enyaq_air_conditioning', 'off', { friendly_name: 'Enyaq Air Conditioning' }],
+        // A helper of the user, not on the car's device.
+        ['input_boolean.enyaq_voorverwarmen', w.preheat, { friendly_name: 'Enyaq voorverwarmen' }, null],
+      ],
+    },
+    charger: {
+      device: 'ch', name: 'Wallbox Pulsar Plus', manufacturer: 'Wallbox', model: 'Pulsar Plus', platform: 'wallbox',
+      status: 'sensor.wallbox_pulsar_plus_status_description', power: 'sensor.wallbox_pulsar_plus_charging_power',
+      switch: 'switch.wallbox_pulsar_plus_pause_resume',
+      text: { unplugged: 'Ready', paused: 'Paused', charging: 'Charging' },
+      ownMode: 'Eco-smart (select.wallbox_pulsar_plus_ecosmart)',
+      services: {},
+      states: (w, status) => [
+        ['sensor.wallbox_pulsar_plus_status_description', status, { friendly_name: 'Wallbox Pulsar Plus Status Description' }],
+        ['sensor.wallbox_pulsar_plus_charging_power', w.powerKw, { friendly_name: 'Wallbox Pulsar Plus Charging Power', ...KW }],
+        ['sensor.wallbox_pulsar_plus_added_energy', '12.3', { friendly_name: 'Wallbox Pulsar Plus Added Energy', unit_of_measurement: 'kWh', device_class: 'energy' }],
+        ['sensor.wallbox_pulsar_plus_charging_speed', '0', { friendly_name: 'Wallbox Pulsar Plus Charging Speed' }],
+        ['switch.wallbox_pulsar_plus_pause_resume', w.charging ? 'on' : 'off', { friendly_name: 'Wallbox Pulsar Plus Pause/Resume' }],
+        ['number.wallbox_pulsar_plus_maximum_charging_current', '16', { friendly_name: 'Wallbox Pulsar Plus Maximum Charging Current', unit_of_measurement: 'A', min: 6, max: 32, step: 1 }],
+        ['select.wallbox_pulsar_plus_ecosmart', w.ownMode ? 'eco_mode' : 'off', { friendly_name: 'Wallbox Pulsar Plus Solar charging', options: ['off', 'eco_mode', 'full_solar'] }],
+        ['lock.wallbox_pulsar_plus_lock', 'unlocked', { friendly_name: 'Wallbox Pulsar Plus Lock' }],
+      ],
+      react(call) {
+        if (call.domain !== 'switch' || !call.target || call.target.entity_id !== 'switch.wallbox_pulsar_plus_pause_resume') return null;
+        return call.service === 'turn_on' ? 'start' : call.service === 'turn_off' ? 'stop' : null;
+      },
+      isStart: (c) => c.domain === 'switch' && c.service === 'turn_on' && c.target && c.target.entity_id === 'switch.wallbox_pulsar_plus_pause_resume',
+      isControl: (c) => c.domain === 'switch' && c.target && c.target.entity_id === 'switch.wallbox_pulsar_plus_pause_resume',
+      describe: (c) => `switch.${c.service} ${c.target.entity_id}`,
+    },
+  },
+};
+
+function createWorld(profileName = 'renault_easee') {
+  const profile = PROFILES[profileName];
+  if (!profile) throw new Error(`Unknown profile ${profileName}`);
   const d0 = localMidnight(TZ, 0);
   const H = 3600000;
   const w = {
     tz: TZ,
+    profile,
     soc: 40,
     limit: 80,
     plugged: true,
-    status: 'awaiting_start',
+    charging: false,
     powerKw: 0,
     preheat: 'off',
     events: [],
@@ -47,62 +147,61 @@ function createWorld() {
   return w;
 }
 
-function states(w) {
-  const ago = new Date(Date.now() - 600000).toISOString();
+// [entity_id, state, attributes, device ('car' | 'ch' | null)]
+function entityList(w) {
+  const p = w.profile;
+  const ch = p.charger;
+  const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : ch.text.paused;
+  const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
+  const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   return [
-    // Car (Renault)
-    { entity_id: 'sensor.jlz03x_battery', state: String(w.soc), attributes: { friendly_name: 'JLZ03X Battery', unit_of_measurement: '%', device_class: 'battery' } },
-    { entity_id: 'sensor.jlz03x_range', state: '150', attributes: { friendly_name: 'JLZ03X Range', unit_of_measurement: 'km', device_class: 'distance' } },
-    { entity_id: 'binary_sensor.jlz03x_plugged_in', state: w.plugged ? 'on' : 'off', attributes: { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' } },
-    { entity_id: 'binary_sensor.jlz03x_charging', state: w.status === 'charging' ? 'on' : 'off', attributes: { friendly_name: 'JLZ03X Charging', device_class: 'battery_charging' } },
-    { entity_id: 'number.jlz03x_target_charge_level', state: String(w.limit), attributes: { friendly_name: 'JLZ03X Target charge level', unit_of_measurement: '%', min: 55, max: 100, step: 5 } },
-    { entity_id: 'binary_sensor.jlz03x_hvac', state: w.preheat, attributes: { friendly_name: 'JLZ03X HVAC' } },
-    // Charger (Easee)
-    { entity_id: 'sensor.laadpaal_status', state: w.plugged ? w.status : 'disconnected', last_changed: ago, attributes: { friendly_name: 'Laadpaal Status', device_class: 'enum' } },
-    { entity_id: 'sensor.laadpaal_power', state: String(w.powerKw), attributes: { friendly_name: 'Laadpaal Power', unit_of_measurement: 'kW', device_class: 'power' } },
-    { entity_id: 'switch.laadpaal_charger_enabled', state: 'on', attributes: { friendly_name: 'Laadpaal Charger enabled' } },
-    // P1 meter
-    { entity_id: 'sensor.p1_power', state: '850', attributes: { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' } },
-    { entity_id: 'sensor.p1_current_l1', state: '3', attributes: { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' } },
-    { entity_id: 'sensor.p1_current_l2', state: '2', attributes: { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' } },
-    { entity_id: 'sensor.p1_current_l3', state: '2', attributes: { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' } },
-    // Prices
-    { entity_id: 'sensor.energyzero_today_energy_current_hour_price', state: '0.20', attributes: { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' } },
-    { entity_id: 'sensor.stroom_prijzen_gecombineerd', state: '0.30', attributes: { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() } },
-    // Departures
-    { entity_id: 'calendar.auto', state: 'off', attributes: { friendly_name: 'Auto' } },
-    { entity_id: 'input_datetime.ev_vertrek', state: w.helperTime || 'unknown', attributes: { friendly_name: 'EV vertrek', has_date: true, has_time: true } },
-    { entity_id: 'input_number.ev_doel', state: '70', attributes: { friendly_name: 'EV doel', unit_of_measurement: '%' } },
+    ...car,
+    ...charger,
+    ['sensor.p1_power', '850', { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
+    ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
+    ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
+    ['calendar.auto', 'off', { friendly_name: 'Auto' }, null],
+    ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
+    ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
   ];
 }
 
-const REGISTRY = [
-  ['sensor.jlz03x_battery', 'car', 'renault'], ['sensor.jlz03x_range', 'car', 'renault'],
-  ['binary_sensor.jlz03x_plugged_in', 'car', 'renault'], ['binary_sensor.jlz03x_charging', 'car', 'renault'],
-  ['number.jlz03x_target_charge_level', 'car', 'renault'], ['binary_sensor.jlz03x_hvac', 'car', 'renault'],
-  ['sensor.laadpaal_status', 'ch', 'easee'], ['sensor.laadpaal_power', 'ch', 'easee'], ['switch.laadpaal_charger_enabled', 'ch', 'easee'],
-  ['sensor.p1_power', 'p1', 'dsmr'], ['sensor.p1_current_l1', 'p1', 'dsmr'], ['sensor.p1_current_l2', 'p1', 'dsmr'], ['sensor.p1_current_l3', 'p1', 'dsmr'],
-  ['sensor.energyzero_today_energy_current_hour_price', 'ez', 'energyzero'],
-  ['sensor.stroom_prijzen_gecombineerd', null, 'template'],
-  ['calendar.auto', null, 'local_calendar'],
-].map(([entity_id, device_id, platform]) => ({ entity_id, device_id, platform, config_entry_id: platform === 'energyzero' ? 'ce_ez' : `ce_${platform}` }));
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero' };
 
-const DEVICES = [
-  { id: 'car', name: 'JLZ03X', manufacturer: 'Renault', model: 'Megane E-Tech' },
-  { id: 'ch', name: 'Laadpaal', manufacturer: 'Easee', model: 'Charge' },
-  { id: 'p1', name: 'P1 meter', manufacturer: 'DSMR', model: 'P1' },
-  { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
-];
+function states(w) {
+  const ago = new Date(Date.now() - 600000).toISOString();
+  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: ago, attributes }));
+}
 
-const SERVICES = {
-  easee: {
-    action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } },
-  },
-  notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, persistent_notification: {} },
-  energyzero: { get_energy_prices: {} },
-};
+function registry(w) {
+  const p = w.profile;
+  const platform = (dev, id) => (dev === p.car.device ? p.car.platform : dev === p.charger.device ? p.charger.platform
+    : PLATFORM_OF[dev] || id.split('.')[0]);
+  return entityList(w).map(([entity_id, , , dev]) => {
+    const pf = platform(dev, entity_id);
+    return { entity_id, device_id: dev, platform: pf, config_entry_id: pf === 'energyzero' ? 'ce_ez' : `ce_${pf}` };
+  });
+}
+
+function devices(w) {
+  const p = w.profile;
+  return [
+    { id: p.car.device, name: p.car.name, manufacturer: p.car.manufacturer, model: p.car.model },
+    { id: p.charger.device, name: p.charger.name, manufacturer: p.charger.manufacturer, model: p.charger.model },
+    { id: 'p1', name: 'P1 meter', manufacturer: 'DSMR', model: 'P1' },
+    { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
+  ];
+}
 
 function start(w, wsPort, restPort) {
+  const services = {
+    ...w.profile.charger.services,
+    notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, persistent_notification: {} },
+    energyzero: { get_energy_prices: {} },
+  };
   const wss = new WebSocket.Server({ port: wsPort });
   wss.on('connection', (s) => {
     s.send(JSON.stringify({ type: 'auth_required' }));
@@ -114,9 +213,9 @@ function start(w, wsPort, restPort) {
       switch (m.type) {
         case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: '2026.9.4' });
         case 'get_states': return ok(states(w));
-        case 'get_services': return ok(SERVICES);
-        case 'config/entity_registry/list': return ok(REGISTRY);
-        case 'config/device_registry/list': return ok(DEVICES);
+        case 'get_services': return ok(services);
+        case 'config/entity_registry/list': return ok(registry(w));
+        case 'config/device_registry/list': return ok(devices(w));
         case 'search/related': return ok({});
         case 'recorder/statistics_during_period': {
           const out = {};
@@ -128,13 +227,12 @@ function start(w, wsPort, restPort) {
           if (m.domain === 'calendar' && m.service === 'get_events') {
             return ok({ context: {}, response: { 'calendar.auto': { events: w.events } } });
           }
-          w.calls.push({ domain: m.domain, service: m.service, data: m.service_data, target: m.target });
-          if (m.domain === 'number' && m.service === 'set_value') w.limit = m.service_data.value;
-          if (m.domain === 'easee') {
-            const cmd = m.service_data.action_command;
-            if (cmd === 'resume' || cmd === 'start') { w.status = 'charging'; w.powerKw = 9.2; }
-            if (cmd === 'pause' || cmd === 'stop') { w.status = 'awaiting_start'; w.powerKw = 0; }
-          }
+          const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
+          w.calls.push(call);
+          if (m.domain === 'number' && m.service === 'set_value') w.limit = call.data.value;
+          const r = w.profile.charger.react(call);
+          if (r === 'start') { w.charging = true; w.powerKw = 11; }
+          if (r === 'stop') { w.charging = false; w.powerKw = 0; }
           return ok({ context: {} });
         }
         default: return fail(`not supported in the fake: ${m.type}`);
@@ -153,4 +251,4 @@ function start(w, wsPort, restPort) {
   return { close: () => { wss.close(); rest.close(); } };
 }
 
-module.exports = { createWorld, start, TZ };
+module.exports = { PROFILES, createWorld, start, TZ };
