@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1
+
+- **Change** no longer starts from empty forms. On Settings › Vehicle, Charger and Grid the form is filled with what is saved now (entities, battery capacity, phases, maximum current, following the charger's limit, main fuse, load balancer) and shown first. Nothing changes until you save
+- A saved entity that is not found by the new detection stays available as "(saved)", so it is not lost by accident; the same for a saved price source on Settings › Prices
+- New button **Cancel, keep the current settings**
+
 ## 0.21.0
 
 - **Price forecast** (optional, Settings › Prices): choose a sensor with expected prices for the coming days, for example a template that combines the real prices with a weekly forecast. Only the hours after the last real price are used, up to your departure
