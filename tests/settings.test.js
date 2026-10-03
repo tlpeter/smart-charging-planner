@@ -427,6 +427,12 @@ async function run() {
     const p = await plan();
     const n = (await ok('GET', 'api/control')).now;
     const inBlock = p.plan.blocks.some((b) => b.start <= Date.now() && Date.now() < b.end);
+    // A period that already started earlier in this test is finished first
+    // (locked until its end); that depends on the time of day the test runs.
+    if (!inBlock && n.code === 'locked_block') {
+      assert(n.want === 'charge' && n.locked_until > Date.now(), `locked ${JSON.stringify(n)}`);
+      return `an earlier started period is finished first (until ${new Date(n.locked_until).toISOString().slice(11, 16)} UTC)`;
+    }
     assert(inBlock ? n.want === 'charge' : n.want === 'pause', `inBlock ${inBlock}, want ${n.want}/${n.code}`);
     return inBlock ? 'in a planned block' : 'paused';
   });

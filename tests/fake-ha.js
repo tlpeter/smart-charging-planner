@@ -200,6 +200,8 @@ function entityList(w) {
       ['number.sigen_plant_ess_max_charging_limit', String(w.bat.chg), { friendly_name: 'Sigen Plant ESS Max Charging Limit', unit_of_measurement: 'kW', min: 0, max: 100 }, 'plant'],
       ['number.sigen_plant_ess_max_discharging_limit', String(w.bat.dis), { friendly_name: 'Sigen Plant ESS Max Discharging Limit', unit_of_measurement: 'kW', min: 0, max: 100 }, 'plant'],
     ] : []),
+    // Any other home battery (matrix test): entities from tests/fixtures.js.
+    ...(w.otherBattery ? w.otherBattery.list.map(([id, , a, dev]) => [id, String(w.store.get(id)), a, dev]) : []),
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
   ];
@@ -215,7 +217,7 @@ function states(w) {
 function registry(w) {
   const p = w.profile;
   const platform = (dev, id) => (dev === p.car.device ? p.car.platform : dev === p.charger.device ? p.charger.platform
-    : PLATFORM_OF[dev] || id.split('.')[0]);
+    : (w.otherBattery && w.otherBattery.devices[dev]) || PLATFORM_OF[dev] || id.split('.')[0]);
   return entityList(w).map(([entity_id, , , dev]) => {
     const pf = platform(dev, entity_id);
     return { entity_id, device_id: dev, platform: pf, config_entry_id: pf === 'energyzero' ? 'ce_ez' : `ce_${pf}` };
@@ -231,6 +233,7 @@ function devices(w) {
     { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
     { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
     { id: 'plant', name: 'Sigen Plant', manufacturer: 'Sigenergy', model: 'SigenStor' },
+    ...(w.otherBattery ? Object.keys(w.otherBattery.devices).map((id) => ({ id, name: w.otherBattery.names[id] || id })) : []),
   ];
 }
 
@@ -285,6 +288,12 @@ function start(w, wsPort, restPort) {
             if (tid === 'select.sigen_plant_remote_ems_control_mode') w.bat.mode = call.data.option;
             if (tid === 'number.sigen_plant_ess_max_charging_limit') w.bat.chg = call.data.value;
             if (tid === 'number.sigen_plant_ess_max_discharging_limit') w.bat.dis = call.data.value;
+          }
+          // Matrix test: switches, selects and numbers keep what was sent.
+          if (w.store && tid && w.store.has(tid)) {
+            if (m.domain === 'switch' && ['turn_on', 'turn_off'].includes(m.service)) w.store.set(tid, m.service === 'turn_on' ? 'on' : 'off');
+            if (m.domain === 'select' && m.service === 'select_option') w.store.set(tid, call.data.option);
+            if (m.domain === 'number' && m.service === 'set_value') w.store.set(tid, String(call.data.value));
           }
           const amps = w.profile.charger.currentOf && w.profile.charger.currentOf(call);
           if (amps != null) w.amps = amps;
