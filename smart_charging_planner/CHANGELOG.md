@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.2
+
+- Settings › Prices shows the settings right away as a form, filled with what is saved: source, costs and forecast. No more **Change** button; adjust a field and press Save. "Saved." confirms it
+- On top: **Prices now**, the live summary of today, tomorrow and the forecast
+- **Search for price sources again** keeps what is filled in
+- A purchase fee or energy tax of 0 is shown as 0 instead of the grey example value
+
 ## 0.21.1
 
 - **Change** no longer starts from empty forms. On Settings › Vehicle, Charger and Grid the form is filled with what is saved now (entities, battery capacity, phases, maximum current, following the charger's limit, main fuse, load balancer) and shown first. Nothing changes until you save
