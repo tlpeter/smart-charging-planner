@@ -24,7 +24,7 @@ const boost = require('./boost');
 const chargefor = require('./chargefor');
 const notifier = require('./notify');
 
-const PORT = 8099;
+const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const APP_VERSION = require('./package.json').version;
 
