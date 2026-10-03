@@ -10,9 +10,9 @@ const settings = require('./settings');
 const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
-const { chargePowerKw, energyNeededKwh, planCharging, periods } = require('./planner');
+const { chargePowerKw, energyNeededKwh, planCharging, planStaged, periods } = require('./planner');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
 const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
@@ -21,6 +21,7 @@ const controller = require('./controller');
 const session = require('./session');
 const { learnedPower } = require('./chargepower');
 const boost = require('./boost');
+const chargefor = require('./chargefor');
 const notifier = require('./notify');
 
 const PORT = 8099;
@@ -530,7 +531,15 @@ const routes = {
     const planning = s.planning;
     const dep = normalise(s.departures, s.planning);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
-    const departure = nextDeparture(dep, { states, events, tz, now });
+    let departure = nextDeparture(dep, { states, events, tz, now });
+    // "Ready for" a later day: that becomes the departure; a departure before
+    // it only gets the minimum battery level.
+    const cf = chargefor.current(now);
+    let interim = null;
+    if (cf) {
+      interim = departure && departure.time < cf.until - 60000 ? departure : null;
+      departure = { time: cf.until, soc: cf.soc, source: 'choice', title: cf.day === 'tomorrow' ? 'Ready tomorrow' : 'Ready the day after tomorrow' };
+    }
 
     const maxInfo = charger ? effectiveMaxCurrent(charger, states) : null;
     const maxCurrent = maxInfo && maxInfo.amps ? maxInfo.amps : null;
@@ -557,7 +566,8 @@ const routes = {
     const wantedSoc = departure ? departure.soc : dep.default_soc;
     // The car stops at its own charge limit; planning above it is pointless.
     const carLimit = vehicle && mode !== 'fixed_kwh' ? await carChargeLimit(vehicle, states) : null;
-    const managesLimit = managingCarLimit(s);
+    // The app sets the car's limit itself when the car supports it.
+    const managesLimit = managingCarLimit(s) && !!(carLimit && carLimit.writable);
     const limited = !managesLimit && carLimit && carLimit.value != null && wantedSoc > carLimit.value;
     const targetSoc = limited ? carLimit.value : wantedSoc;
     let neededKwh = vehicle ? energyNeededKwh(soc, targetSoc, vehicle.capacity_kwh, planning.loss_percent) : null;
@@ -568,11 +578,19 @@ const routes = {
     // Without a departure: plan in the cheapest real prices, no deadline
     // (a forecast could otherwise make the app wait for days).
     const deadline = departure ? departure.time : (realEnd || now);
-    const plan = planCharging({
-      prices, now, deadline, neededKwh, powerKw,
-      continuous: planning.continuous !== false,
-      minSplitSaving: Number(planning.min_split_saving) || 0,
-    });
+    const minKwh = interim && vehicle && mode !== 'fixed_kwh'
+      ? energyNeededKwh(soc, Math.min(cf.min_soc, targetSoc), vehicle.capacity_kwh, planning.loss_percent) : 0;
+    const plan = interim && minKwh > 0.01
+      ? planStaged({
+        prices, now, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
+        continuous: planning.continuous !== false,
+        minSplitSaving: Number(planning.min_split_saving) || 0,
+      })
+      : planCharging({
+        prices, now, deadline, neededKwh, powerKw,
+        continuous: planning.continuous !== false,
+        minSplitSaving: Number(planning.min_split_saving) || 0,
+      });
     if (!departure) plan.notes.unshift('no_departure');
     if (vehicle && mode === 'manual_soc' && !(sessionInfo && sessionInfo.manual_soc)) {
       plan.notes = ['enter_soc', ...plan.notes.filter((n) => n !== 'missing_data')];
@@ -625,6 +643,11 @@ const routes = {
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
       manages_car_limit: managesLimit,
+      charge_for: cf ? {
+        day: cf.day, until: cf.until, soc: cf.soc, min_soc: cf.min_soc,
+        interim: interim ? { time: interim.time, soc: interim.soc, source: interim.source, title: interim.title || null } : null,
+        min_kwh: minKwh,
+      } : null,
       departure,
       vehicle: vehicle ? {
         name: vehicle.name,
@@ -823,7 +846,7 @@ async function tripsPlan(body) {
   const tz = ha.state.timeZone;
   const dep = normalise(s.departures, s.planning);
   const calendar = dep.calendar.entity;
-  if (!calendar) throw badRequest('Choose a calendar on the Departures tab first');
+  if (!calendar) throw badRequest('Choose a calendar on the Planning tab first');
   const events = buildTripEvents(body, tz);
   let existing = [];
   try {
@@ -898,7 +921,11 @@ function boostFromBody(body, cached, starting = false) {
 }
 
 async function freshPlan() {
-  if (!planCache || Date.now() - planCache.at > 60000) await refreshPlan('charge now');
+  if (!planCache || Date.now() - planCache.at > 60000) {
+    const r = await refreshPlan('on request', { fresh: !planCache });
+    if (r) return r;
+  }
+  if (!planCache) throw new Error('The plan could not be calculated yet; try again in a moment');
   return planCache.result;
 }
 
@@ -942,6 +969,10 @@ routes['POST /api/boost/preview'] = async (req) => {
     soon_minutes: soonMinutes,
     car_limit: lim || null,
     above_limit: aboveLimit,
+    limit: limitPreview(cached, b.mode === 'soc' ? b.value
+      : b.mode === 'kwh' && Number.isFinite(v.soc) && v.capacity_kwh > 0
+        ? Math.min(100, Math.ceil(v.soc + (b.value / (1 + (Number(cached.planning.loss_percent) || 0) / 100) / v.capacity_kwh) * 100))
+        : null),
     wanted_soc: b.mode === 'soc' ? b.value : null,
     control_allowed: options.allow_control,
     manages_car_limit: !!cached.manages_car_limit,
@@ -977,7 +1008,7 @@ async function manualControl(on, reason) {
     control_allowed: options.allow_control,
   };
   if (!command) {
-    entry.error = 'No start/stop method chosen in Settings › Control';
+    entry.error = 'No start/stop method chosen in Settings › Charger';
   } else if (!options.allow_control) {
     entry.error = 'Allow control is off, so nothing was sent';
   } else {
@@ -1034,9 +1065,184 @@ routes['DELETE /api/boost'] = async () => {
   return { ok: true, send, next: n ? { want: n.want, reason: n.reason } : null };
 };
 
+// ---------------------------------------------------------------------------
+// "Ready for": tomorrow or the day after tomorrow
+// ---------------------------------------------------------------------------
+
+// Departures per day for the coming days (the winner of each day).
+async function departureDays(s, tz, now) {
+  const dep = normalise(s.departures, s.planning);
+  const states = await ha.call({ type: 'get_states' });
+  const { events } = await calendarEvents(dep, tz, now);
+  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3 }), tz) };
+}
+
+function dayStart(tz, offset, now) {
+  const p = tzParts(now, tz);
+  return localDateTime(tz, p.y, p.m, p.d + offset, 0, 0);
+}
+
+routes['GET /api/chargefor'] = async () => {
+  const s = settings.load();
+  const tz = ha.state.timeZone;
+  const now = Date.now();
+  const { dep, days } = await departureDays(s, tz, now);
+  const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+  const cached = await freshPlan();
+  const hm = (ms) => isoLocal(ms, tz).slice(11, 16);
+  const choices = {};
+  for (const [key, offset] of [['tomorrow', 1], ['day_after', 2]]) {
+    const date = localDate(dayStart(tz, offset, now) + 12 * 3600000, tz);
+    const day = days.find((d) => d.day === date);
+    const w = day && day.winner;
+    // Departures before that day: they only get the minimum.
+    const before = days.filter((d) => d.day < date).map((d) => ({ time: d.winner.time, soc: d.winner.soc, source: d.winner.source, title: d.winner.title || null }));
+    choices[key] = {
+      date,
+      time: w ? hm(w.time) : '07:00',
+      soc: w ? w.soc : dep.default_soc,
+      from: w ? { source: w.source, title: w.title || null } : null,
+      before,
+    };
+  }
+  const forecast = !!(s.prices && s.prices.forecast);
+  const lastPrice = cached.prices && cached.prices.length ? cached.prices[cached.prices.length - 1].end : null;
+  return {
+    time_zone: tz,
+    active: cached.charge_for || null,
+    options: choices,
+    min_range: chargefor.MIN_RANGE,
+    min_default: Math.min(45, Math.max(20, Number(rules.min_choice) || 30)),
+    forecast,
+    prices_until: lastPrice,
+    soc: cached.vehicle ? cached.vehicle.soc : null,
+    limit: limitPreview(cached, null),
+    car_limit: cached.car_limit || null,
+    manages_car_limit: !!cached.manages_car_limit,
+    control_allowed: options.allow_control,
+  };
+};
+
+routes['POST /api/chargefor/preview'] = async (req) => {
+  const c = chargeForFromBody(await readBody(req));
+  const cached = await freshPlan();
+  return { choice: c, limit: limitPreview(cached, c.soc) };
+};
+
+function chargeForFromBody(b) {
+  const tz = ha.state.timeZone;
+  const now = Date.now();
+  const offset = b.day === 'tomorrow' ? 1 : b.day === 'day_after' ? 2 : null;
+  if (!offset) throw badRequest('Choose tomorrow or the day after tomorrow');
+  const m = String(b.time || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!m) throw badRequest('Choose a time like 07:00');
+  const p = tzParts(now, tz);
+  const until = localDateTime(tz, p.y, p.m, p.d + offset, Number(m[1]), Number(m[2]));
+  const soc = Number(b.soc);
+  if (!(soc >= 10 && soc <= 100)) throw badRequest('Battery level must be between 10 and 100 %');
+  const min = Number(b.min_soc);
+  const [lo, hi] = chargefor.MIN_RANGE;
+  if (!(min >= lo && min <= hi)) throw badRequest(`Minimum must be between ${lo} and ${hi} %`);
+  return { day: b.day, until, soc, min_soc: min };
+}
+
+routes['POST /api/chargefor'] = async (req) => {
+  const c = chargeForFromBody(await readBody(req));
+  chargefor.set(c);
+  controller.clearLock(); // a new choice: do not finish a period of the old plan
+  planCache = null;
+  await refreshPlan('ready-for choice set', { fresh: true });
+  return { ok: true, active: planCache && planCache.result.charge_for };
+};
+
+routes['DELETE /api/chargefor'] = async () => {
+  chargefor.clear('back to normal, by you');
+  controller.clearLock(); // a new choice: do not finish a period of the old plan
+  planCache = null;
+  await refreshPlan('ready-for choice ended', { fresh: true });
+  return { ok: true };
+};
+
+// ---------------------------------------------------------------------------
+// Settings check: is everything set up well?
+// ---------------------------------------------------------------------------
+
+routes['GET /api/checklist'] = async () => {
+  const s = settings.load();
+  const items = [];
+  const add = (key, state, title, detail, page) => items.push({ key, state, title, detail, page });
+  const v = s.vehicles[0];
+  const c = s.chargers[0];
+  add('vehicle', v ? 'ok' : 'missing', 'Vehicle', v ? `${v.name}${v.capacity_kwh ? `, ${v.capacity_kwh} kWh` : ''}` : 'Not set up', 'vehicle');
+  if (v && (v.mode || 'sensor') !== 'fixed_kwh' && !(v.capacity_kwh > 0)) add('capacity', 'missing', 'Battery capacity', 'Needed to calculate how much to charge', 'vehicle');
+  add('charger', c ? 'ok' : 'missing', 'Charger', c ? c.name : 'Not set up', 'charger');
+  if (c) {
+    const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+    const methods = await currentControlMethods(c).catch(() => null);
+    const chosen = chosenMethods(methods, rules);
+    add('method', chosen && chosen.start_stop ? 'ok' : 'missing', 'Start and stop', chosen && chosen.start_stop ? chosen.start_stop.label || 'Chosen' : 'No way to start and stop the charger found', 'charger');
+  }
+  add('prices', s.prices ? 'ok' : 'missing', 'Prices', s.prices ? s.prices.source.name : 'Not set up', 'prices');
+  if (s.prices && s.prices.source.type !== 'fixed') {
+    add('forecast', s.prices.forecast ? 'ok' : 'optional', 'Price forecast', s.prices.forecast ? s.prices.forecast.entity_id : 'Optional: lets the app wait for a cheaper day', 'prices');
+  }
+  const dep = normalise(s.departures, s.planning);
+  const sources = [dep.schedule_enabled && 'weekly schedule', dep.calendar.enabled && 'calendar', dep.helper.enabled && 'helper'].filter(Boolean);
+  add('departures', sources.length ? 'ok' : 'warn', 'Departures', sources.length ? sources.join(', ') : 'No departure source: the app charges in the cheapest known hours', 'departures');
+  add('control', options.allow_control ? 'ok' : 'warn', 'Allow control', options.allow_control ? 'On: the app starts and pauses the charger' : 'Off: advice only. Turn on in Home Assistant › Apps › Smart Charging Planner › Configuration', null);
+  if (v) {
+    const states = await ha.call({ type: 'get_states' });
+    const lim = await carChargeLimit(v, states).catch(() => null);
+    if (!lim) add('car_limit', 'optional', "Car's charge limit", 'Not found; the app cannot see or set it', 'vehicle');
+    else if (!lim.writable) add('car_limit', 'warn', "Car's charge limit", `${lim.name} can only be read; set it in the car yourself`, 'vehicle');
+    else if (s.control && s.control.car_limit_off) add('car_limit', 'warn', "Car's charge limit", 'Off in Settings › Rules: the app does not change it', 'ctlset');
+    else if (!options.allow_control) add('car_limit', 'warn', "Car's charge limit", 'Follows your choices once Allow control is on', null);
+    else add('car_limit', 'ok', "Car's charge limit", `Follows every choice automatically (${lim.name}, now ${lim.value}%)`, 'ctlset');
+  }
+  const conflicts = await findConflicts().catch(() => null);
+  const n = conflicts ? conflicts.items.filter((x) => !x.dismissed).length : 0;
+  add('conflicts', n ? 'warn' : 'ok', 'Your own automations', n ? `${n} automation(s) use the same charger or car limit` : 'No conflicts found', 'ctlset');
+  add('notify', s.notify && s.notify.service ? 'ok' : 'optional', 'Notifications', s.notify && s.notify.service ? s.notify.service : 'Optional: choose where to send them', 'status');
+  add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load', 'grid');
+  return { items, ready: !items.some((i) => i.state === 'missing') };
+};
+
 // "Let the app manage the car's charge limit": only with Allow control on.
+// On by default: the car's limit follows every choice. Off only when chosen
+// in Settings › Rules (for example when an own automation does it).
 function managingCarLimit(s) {
-  return options.allow_control === true && !!(s.control && s.control.manage_car_limit);
+  return options.allow_control === true && !(s.control && s.control.car_limit_off === true);
+}
+
+// The limit the car needs: the highest goal that is still active. A goal
+// below the plan (Charge now to the minimum) never lowers it.
+function limitGoal(planResult, b) {
+  let wanted = Number(planResult && planResult.planning && planResult.planning.wanted_soc);
+  let reason = planResult && planResult.charge_for ? 'Ready-for choice' : 'Planned target';
+  if (!Number.isFinite(wanted)) wanted = NaN;
+  if (b && b.mode === 'soc' && !(b.value <= wanted)) { wanted = b.value; reason = 'Charge now'; }
+  if (b && b.mode === 'kwh') {
+    const v = planResult && planResult.vehicle;
+    const left = planResult && planResult.boost ? planResult.boost.remaining_kwh : b.value;
+    const loss = 1 + (Number(planResult && planResult.planning && planResult.planning.loss_percent) || 0) / 100;
+    if (v && Number.isFinite(v.soc) && v.capacity_kwh > 0 && Number.isFinite(left)) {
+      const end = Math.min(100, Math.ceil(v.soc + (left / loss / v.capacity_kwh) * 100));
+      if (!(end <= wanted)) { wanted = end; reason = 'Charge now'; }
+    }
+  }
+  return { wanted, reason };
+}
+
+// What the car's limit will be for a goal, for the previews.
+function limitPreview(planResult, goalSoc) {
+  const lim = planResult && planResult.car_limit;
+  if (!lim || lim.value == null) return { supported: false, reason: 'none' };
+  const managed = !!planResult.manages_car_limit;
+  const wantedPlan = Number(planResult.planning && planResult.planning.wanted_soc);
+  const goal = Math.max(Number.isFinite(goalSoc) ? goalSoc : 0, Number.isFinite(wantedPlan) ? wantedPlan : 0);
+  if (!lim.writable) return { supported: false, reason: 'read_only', now: lim.value, name: lim.name, goal };
+  if (!managed) return { supported: true, managed: false, reason: options.allow_control ? 'off' : 'control_off', now: lim.value, name: lim.name, goal };
+  return { supported: true, managed: true, now: lim.value, to: limitValue(lim, goal), name: lim.name, goal };
 }
 
 // Round up to a value the car accepts (Renault: steps of 5).
@@ -1086,12 +1292,7 @@ async function manageCarLimit(planResult, actual, states) {
   if (!vehicle || (vehicle.mode || 'sensor') === 'fixed_kwh') return;
   const lim = await carChargeLimit(vehicle, states);
   if (!lim || !lim.writable || lim.value == null) return;
-  const b = boost.current();
-  let wanted;
-  let reason;
-  if (b && b.mode === 'soc') { wanted = b.value; reason = 'Charge now'; }
-  else if (b && b.mode === 'kwh') return; // an amount, not a level: leave the limit
-  else { wanted = planResult.planning && planResult.planning.wanted_soc; reason = b ? 'Charge now' : 'Planned target'; }
+  const { wanted, reason } = limitGoal(planResult, boost.current());
   if (!Number.isFinite(Number(wanted))) return;
   const value = limitValue(lim, wanted);
   if (value === lim.value) return;
@@ -1163,6 +1364,12 @@ function refreshPlan(reason, { fresh = false } = {}) {
   planRunning = (async () => {
     try {
       const result = await computePlan();
+      // What the car's own limit will be, for Home.
+      try {
+        result.limit = limitPreview(result, limitGoal(result, boost.current()).wanted);
+      } catch {
+        result.limit = null;
+      }
       planCache = { at: Date.now(), result };
       try {
         await runDryRun(result);
@@ -1192,7 +1399,9 @@ routes['GET /api/plan'] = async (req) => {
   const url = new URL(req.url, 'http://localhost');
   const force = url.searchParams.get('refresh') === '1';
   const maxAge = options.refresh_minutes * 60000;
-  if (force || !planCache || Date.now() - planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request');
+  if (force || !planCache || Date.now() - planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request', { fresh: force });
+  if (!planCache) await refreshPlan('on request', { fresh: true });
+  if (!planCache) throw new Error('The plan could not be calculated yet; see the app log');
   return {
     ...planCache.result,
     computed_at: planCache.at,
@@ -1587,7 +1796,8 @@ routes['POST /api/control/settings'] = async (req) => {
     preheat_entity: ent(b.preheat_entity, /^(input_boolean|switch|binary_sensor)\./),
     force_minutes: num(b.force_minutes, 'Force window', 0, 600),
     hysteresis: num(b.hysteresis, 'Hysteresis', 0, 1),
-    manage_car_limit: b.manage_car_limit === true,
+    car_limit_off: b.car_limit_off === true,
+    min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
   settings.save(s);
   lastDryRun = null;

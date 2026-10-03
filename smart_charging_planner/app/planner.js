@@ -65,6 +65,71 @@ function bestContiguous(usable, neededKwh) {
   return best;
 }
 
+// A partly used block is placed against its planned neighbour, so charging
+// runs in one go instead of stopping and starting again.
+// planned: [{start, end, power, kwh, total, forecast}] (start/end: usable part).
+function placeBlocks(planned) {
+  const list = [...planned].sort((a, b) => a.start - b.start);
+  const starts = new Set(list.map((b) => b.start));
+  return list.map((b) => {
+    const duration = Math.min(b.end - b.start, (b.kwh / b.power) * 3600000);
+    const nextPlanned = starts.has(b.end);
+    const start = nextPlanned ? b.end - duration : b.start;
+    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power, ...(b.forecast ? { forecast: true } : {}) };
+  });
+}
+
+// Two goals: at least minKwh before firstDeadline (a departure in between),
+// and neededKwh in total before the final deadline. The minimum is planned
+// first in the cheapest blocks before the first deadline; the rest in the
+// cheapest capacity that is left before the final deadline.
+function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0 }) {
+  const opts = { powerKw, continuous, minSplitSaving };
+  const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
+  if (!(minKwh > 0.01) || !(firstDeadline > now) || firstDeadline >= deadline || neededKwh == null || neededKwh <= 0.01) return whole;
+  const first = planCharging({ prices, now, deadline: firstDeadline, neededKwh: Math.min(minKwh, neededKwh), ...opts });
+  // Capacity left in each block after the first stage.
+  const used = new Map(first.blocks.map((b) => [b.block_start, b.kwh]));
+  const rest = prices.map((p) => {
+    const start = Math.max(p.start, now);
+    const power = Number.isFinite(p.power_kw) ? p.power_kw : powerKw;
+    const u = used.get(start) || 0;
+    if (!u) return p;
+    const hours = (Math.min(p.end, deadline) - start) / 3600000;
+    const left = Math.max(0, hours * power - u);
+    return { ...p, power_kw: hours > 0 ? left / hours : 0 };
+  });
+  const second = planCharging({ prices: rest, now, deadline, neededKwh: Math.max(0, neededKwh - first.planned_kwh), ...opts });
+  // Merge both stages per block.
+  const byStart = new Map();
+  const add = (b, stage) => {
+    const prev = byStart.get(b.block_start);
+    if (prev) { prev.kwh += b.kwh; return; }
+    const src = prices.find((p) => Math.max(p.start, now) === b.block_start);
+    const power = src && Number.isFinite(src.power_kw) ? src.power_kw : powerKw;
+    byStart.set(b.block_start, {
+      start: b.block_start, end: stage === 1 ? b.block_end : Math.min(src ? src.end : b.block_end, deadline),
+      power, kwh: b.kwh, total: b.price, forecast: !!b.forecast,
+    });
+  };
+  first.blocks.forEach((b) => add(b, 1));
+  second.blocks.forEach((b) => add(b, 2));
+  const merged = placeBlocks([...byStart.values()]);
+  const notes = [...new Set([...first.notes.filter((n) => n !== 'already_at_target'), ...second.notes.filter((n) => n !== 'already_at_target')])];
+  if (first.planned_kwh < Math.min(minKwh, neededKwh) - 0.05) notes.push('minimum_not_reached');
+  const cost = first.cost + (second.cost || 0);
+  return {
+    ...whole,
+    blocks: merged,
+    planned_kwh: first.planned_kwh + second.planned_kwh,
+    cost,
+    savings: whole.reference_cost - cost,
+    notes,
+    stage: { first_deadline: firstDeadline, min_kwh: minKwh, first_kwh: first.planned_kwh },
+    continuous: undefined,
+  };
+}
+
 // prices: [{start, end, total, power_kw?}] sorted, now: ms, deadline: ms.
 // power_kw per block overrides powerKw (e.g. less room when the house uses more).
 // continuous: prefer one uninterrupted period unless splitting saves at least
@@ -143,16 +208,7 @@ function planCharging({ prices, now, deadline, neededKwh, powerKw, continuous = 
     }
   }
 
-  // A partly used block is placed against its planned neighbour, so charging
-  // runs in one go instead of stopping and starting again.
-  planned.sort((a, b) => a.start - b.start);
-  const starts = new Set(planned.map((b) => b.start));
-  result.blocks = planned.map((b) => {
-    const duration = (b.kwh / (b.hours * b.power)) * (b.end - b.start);
-    const nextPlanned = starts.has(b.end);
-    const start = nextPlanned ? b.end - duration : b.start;
-    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power, ...(b.forecast ? { forecast: true } : {}) };
-  });
+  result.blocks = placeBlocks(planned);
   result.planned_kwh = planned.reduce((s, b) => s + b.kwh, 0);
   result.cost = cost(planned);
   result.reference_cost = cost(reference);
@@ -177,4 +233,4 @@ function periods(blocks) {
   return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh, ...(p.forecast ? { forecast: true } : {}) }));
 }
 
-module.exports = { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, periods };
+module.exports = { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, planStaged, placeBlocks, periods };

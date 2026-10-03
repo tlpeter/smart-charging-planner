@@ -21,7 +21,7 @@ configuration:
     description: >-
       When off (default), "Add trip" only shows which calendar events it would
       create (test mode) and writes nothing. When on, trips are added to the
-      calendar chosen on the Departures tab. This does not allow any charger
+      calendar chosen on the Planning tab. This does not allow any charger
       control.
   loss_percent:
     name: Charging loss margin (%)
@@ -54,4 +54,4 @@ configuration:
     name: Notify every start and pause
     description: >-
       Also send a notification each time the app starts or pauses the charger.
-      Choose where notifications go in the app, under Settings › Status.
+      Choose where notifications go in the app, under Settings › Notifications.

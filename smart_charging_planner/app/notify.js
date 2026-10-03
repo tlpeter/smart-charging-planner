@@ -1,7 +1,7 @@
 'use strict';
 
 // Notifications to your phone and the app's own sensors in Home Assistant.
-// The notify action is chosen in the app (Settings › Status); the rest is set
+// The notify action is chosen in the app (Settings › Notifications); the rest is set
 // in the app's Configuration tab:
 //   - notify_start_stop: also notify every start and pause (problems always)
 //   - publish_sensors: write sensor.smart_charging_* for dashboards
@@ -10,7 +10,7 @@ const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
 
-// The chosen notify action (Settings › Status in the app).
+// The chosen notify action (Settings › Notifications in the app).
 function target() {
   const s = settings.load();
   const t = ha.normaliseNotify((s.notify && s.notify.service) || '');

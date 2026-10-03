@@ -205,6 +205,18 @@
     .entity .secondary { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
     .periods td, .periods th { border-bottom-color: var(--border); }
     a { color: var(--accent); }
+    .quick .qsec { padding: 14px 0; border-top: 1px solid var(--border); }
+    .quick .qsec:first-of-type { border-top: none; padding-top: 4px; }
+    .quick .qhead { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .section-title { margin: 18px 4px 8px; font-size: 15px; }
+    .check-item { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .check-item:last-child { border-bottom: none; }
+    .check-item .txt { flex: 1; min-width: 0; }
+    .check-item .txt .d { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+    @media (max-width: 480px) {
+      .tabs { flex-wrap: wrap; }
+      .tabs .tab span { font-size: 13px; }
+    }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -213,19 +225,24 @@
     <h1 id="app-title">Smart Charging Planner</h1>
     <div id="wizard" class="card" hidden></div>
     <nav class="tabs" id="main-nav">
-      <button class="tab active" data-tab="overview">Overview</button>
-      <button class="tab" data-tab="departures">Departures</button>
-      <button class="tab" data-tab="savings">Savings</button>
-      <button class="tab" data-tab="log">Log</button>
+      <button class="tab active" data-tab="overview">Home</button>
+      <button class="tab" data-tab="departures">Planning</button>
+      <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="settings">⚙ Settings</button>
     </nav>
+    <nav class="subtabs" id="history-nav" hidden>
+      <button class="subtab" data-sub="savings">Savings</button>
+      <button class="subtab" data-sub="log">Log</button>
+    </nav>
     <nav class="subtabs" id="settings-nav" hidden>
+      <button class="subtab" data-sub="setup">Overview</button>
       <button class="subtab" data-sub="vehicle">Vehicle</button>
       <button class="subtab" data-sub="charger">Charger</button>
       <button class="subtab" data-sub="grid">Grid</button>
       <button class="subtab" data-sub="prices">Prices</button>
-      <button class="subtab" data-sub="ctlset">Control</button>
-      <button class="subtab" data-sub="status">Status</button>
+      <button class="subtab" data-sub="ctlset">Rules</button>
+      <button class="subtab" data-sub="status">Notifications</button>
+      <button class="subtab" data-sub="diag">Diagnostics</button>
     </nav>
 
     <section id="tab-overview">
@@ -303,22 +320,22 @@
     <section id="tab-ctlset" hidden>
       <div id="conflicts-ctl"></div>
       <form id="control-form">
-        <div class="card">
-          <h2 data-icon="charger" data-color="blue">Charger</h2>
-          <p class="muted small">How the app starts and stops the charger. Found by the control check; for example choose the method your own automation used.</p>
-          <div class="field"><label>Start / stop charging</label><select name="start_stop_id"></select></div>
-          <div class="field"><label>Charging current</label><select name="current_id"></select>
+        <div class="card" id="method-card">
+          <h2 data-icon="control" data-color="blue">How the app starts and stops charging</h2>
+          <p class="muted small">Found by the control check above; for example choose the method your own automation used.</p>
+          <div class="field"><label>Start / stop charging</label><select name="start_stop_id" form="control-form"></select></div>
+          <div class="field"><label>Charging current</label><select name="current_id" form="control-form"></select>
             <p class="muted small">Not used yet: the app only starts and pauses the charger. Your load balancer keeps setting the current.</p></div>
+          <div class="buttons"><button class="primary" type="submit" form="control-form">Save</button></div>
         </div>
 
         <div class="card">
           <h2 data-icon="car" data-color="green">Car</h2>
-          <p class="muted small">The car's own charge limit and a minimum battery level.</p>
-          <label class="check"><input type="checkbox" name="manage_car_limit"> <strong>Let the app manage the car's own charge limit</strong></label>
-          <div class="sub" data-when="manage_car_limit">
-            <p class="muted small" id="car-limit-now"></p>
-            <p class="muted small">Sets the car's limit to the goal: the Charge now level while it runs, otherwise the battery level of your next departure (for example "doel: 90" in the calendar). Only while the car is plugged in. A new limit is sent once, right away; it is only sent again if the car still shows the old value after 15 minutes (at most twice), because the car's cloud limits the number of calls.</p>
-          </div>
+          <p class="muted small"><strong>The car's own charge limit follows every choice.</strong> The app sets it to the highest goal that is active: your next departure, Charge now, or Ready for tomorrow / the day after. When that goal ends, it goes back. Only while the car is plugged in, and only when the car supports it. A new limit is sent once; it is only sent again if the car still shows the old value after 15 minutes (at most 3 times), because the car's cloud limits the number of calls.</p>
+          <p class="muted small" id="car-limit-now"></p>
+          <label class="check"><input type="checkbox" name="car_limit_off"> Don't change the car's charge limit (only if your own automation does that)</label>
+          <div class="field" style="margin-top:14px"><label>Default minimum for the quick choices on Home (20–45 %)</label>
+            <input name="min_choice" type="number" min="20" max="45" step="5"></div>
           <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>
           <div class="sub" data-when="min_soc_enabled">
             <div class="two">
@@ -342,10 +359,30 @@
 
         <div class="savebar">
           <div class="error form-error" hidden></div>
-          <button class="primary" type="submit">Save control settings</button>
+          <button class="primary" type="submit">Save rules</button>
         </div>
       </form>
+    </section>
+    <section id="tab-setup" hidden><div id="setup-body"><div class="card muted">Loading…</div></div></section>
+    <section id="tab-diag" hidden>
+      <div class="card">
+        <div class="row"><span class="label">Home Assistant</span><span id="conn">Checking…</span></div>
+        <div class="row"><span class="label">Home Assistant version</span><span id="haver">–</span></div>
+        <div class="row"><span class="label">Time zone</span><span id="tz">–</span></div>
+        <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
+        <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
+        <div class="row"><span class="label">Control</span><span id="control">–</span></div>
+        <div class="row"><span class="label">Adding trips to calendar</span><span id="calwrite">–</span></div>
+        <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
+        <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
+        <div id="status-error" class="error" hidden></div>
+      </div>
       <div id="manual-test-body"></div>
+      <div class="card">
+        <h2>Setup wizard</h2>
+        <p class="muted small">Walks you through Vehicle, Charger, Grid and Prices again. Your current settings are kept.</p>
+        <div class="buttons"><button class="secondary" id="wizard-again">Run the setup wizard</button></div>
+      </div>
     </section>
     <section id="tab-vehicle" hidden></section>
     <section id="tab-charger" hidden></section>
@@ -440,18 +477,6 @@
 
     <section id="tab-status" hidden>
       <div class="card">
-        <div class="row"><span class="label">Home Assistant</span><span id="conn">Checking…</span></div>
-        <div class="row"><span class="label">Home Assistant version</span><span id="haver">–</span></div>
-        <div class="row"><span class="label">Time zone</span><span id="tz">–</span></div>
-        <div class="row"><span class="label">Entities found</span><span id="count">–</span></div>
-        <div class="row"><span class="label">App version</span><span id="appver">–</span></div>
-        <div class="row"><span class="label">Control</span><span id="control">–</span></div>
-        <div class="row"><span class="label">Adding trips to calendar</span><span id="calwrite">–</span></div>
-        <div class="row"><span class="label">Log level</span><span id="loglevel">–</span></div>
-        <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
-        <div id="status-error" class="error" hidden></div>
-      </div>
-      <div class="card">
         <h2>Notifications and sensors</h2>
         <div class="field"><label>Send notifications to</label>
           <div style="display:flex;gap:8px"><select id="notify-choice"></select><button class="primary" id="notify-save">Save</button></div>
@@ -461,11 +486,6 @@
         <p class="muted small">"Notify every start and pause" and "Publish sensors" are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
         <div class="buttons"><button class="secondary" id="notify-test">Send test notification</button></div>
         <div id="notify-test-result"></div>
-      </div>
-      <div class="card">
-        <h2>Setup wizard</h2>
-        <p class="muted small">Walks you through Vehicle, Charger, Grid and Prices again. Your current settings are kept.</p>
-        <div class="buttons"><button class="secondary" id="wizard-again">Run the setup wizard</button></div>
       </div>
     </section>
   </main>
@@ -647,7 +667,7 @@
         const other = extra.length ? `<optgroup label="Other devices">${toOpts(extra)}</optgroup>` : '';
         control = `<select name="${f.key}">${f.required ? '' : '<option value="">— none —</option>'}${main}${other}</select>`;
       }
-      return `<div class="field"><label>${esc(f.label)}${f.required ? ' – required' : ''}</label>${control}</div>`;
+      return `<div class="field" data-key="${f.key}"><label>${esc(f.label)}${f.required ? ' – required' : ''}</label>${control}</div>`;
     }
 
     // Round long numbers from sensors: 9.15299987792969 -> 9.15
@@ -752,18 +772,23 @@
     function sectionShell(kind) {
       const cfg = SECTIONS[kind];
       $('tab-' + kind).innerHTML = `
-        <div id="${kind}-saved"></div>
         <div class="card" id="${kind}-intro">
           <h2>Find your ${cfg.noun}</h2>
           <p class="muted">${esc(cfg.intro)}</p>
           <div class="buttons"><button class="primary" id="${kind}-detect">Detect ${cfg.noun}s</button></div>
           <div id="${kind}-error" class="error" hidden></div>
         </div>
+        ${kind === 'vehicle' ? noIntegrationCard() : ''}
         <div id="${kind}-results"></div>
-        ${kind === 'vehicle' ? noIntegrationCard() : ''}`;
+        <div id="${kind}-saved"></div>
+        <div id="${kind}-extra"></div>`;
       $(`${kind}-detect`).addEventListener('click', () => detect(kind));
       if (kind === 'vehicle') wireNoIntegration();
     }
+
+    // Forms already filled with the saved settings, per section.
+    const formFilled = {};
+    const savedItems = {};
 
     async function loadSaved(kind) {
       const cfg = SECTIONS[kind];
@@ -773,6 +798,7 @@
         const list = data[cfg.listKey];
         if (!list.length) {
           box.innerHTML = '';
+          formFilled[kind] = false;
           $(`${kind}-intro`).hidden = false;
           if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = false;
           return;
@@ -786,12 +812,11 @@
           `<div class="row"><span class="label">${esc(label)}</span><span class="value">${val ?? '<span class="muted">not set</span>'}</span></div>`).join('');
         box.innerHTML = `
           <div class="card">
-            <h2>${esc(item.name)}</h2>
+            <h2>Now · ${esc(item.name)}</h2>
             <p class="muted small">${item.integration ? 'Integration: ' + esc(item.integration) : 'Chosen manually'}</p>
             ${liveRows}${extra}
             <div class="buttons">
-              <button class="secondary" data-act="change">Change</button>
-              <button class="secondary" data-act="remove">Remove</button>
+              <button class="secondary" data-act="remove">Remove ${esc(cfg.noun)} settings</button>
             </div>
           </div>`;
         if (cfg.afterSaved) {
@@ -799,15 +824,19 @@
           const btn = box.querySelector('#control-check-btn');
           if (btn) btn.onclick = runControlCheck;
         }
-        box.querySelector('[data-act=change]').onclick = () => {
-          $(`${kind}-intro`).hidden = false;
-          if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = false;
-          detect(kind, item);
-        };
+        // The settings are shown as a form right away, filled with what is saved.
+        savedItems[kind] = item;
+        if (!formFilled[kind]) {
+          formFilled[kind] = true;
+          if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = !(item.mode && item.mode !== 'sensor');
+          await detect(kind, item);
+        }
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
           await api('DELETE', cfg.api);
           $(`${kind}-results`).innerHTML = '';
+          formFilled[kind] = false;
+          savedItems[kind] = null;
           loadSaved(kind);
         };
       } catch (err) {
@@ -837,8 +866,6 @@
         setValue(f, 'capacity_kwh', saved.capacity_kwh);
         setValue(f, 'fixed_kwh', saved.fixed_kwh);
         f.dispatchEvent(new Event('change'));
-        f.insertAdjacentHTML('afterbegin', '<div class="note">Your current settings are filled in.</div>');
-        f.scrollIntoView({ block: 'start' });
         return;
       }
       const cands = (lastDetect[kind] && lastDetect[kind].candidates) || [];
@@ -855,7 +882,10 @@
         if (el) el.value = '';
         else if (saved[f.key]) {
           // Not found now; keep the saved entity as a choice.
-          form.querySelector('.buttons').insertAdjacentHTML('beforebegin', `<div class="field"><label>${esc(f.label)}</label><select name="${f.key}"><option value="">— none —</option></select></div>`);
+          const html = `<label>${esc(f.label)}</label><select name="${f.key}"><option value="">— none —</option></select>`;
+          const div = form.querySelector(`.field[data-key="${f.key}"]`);
+          if (div) div.innerHTML = html;
+          else form.querySelector('.buttons').insertAdjacentHTML('beforebegin', `<div class="field">${html}</div>`);
         }
         setValue(form, f.key, saved[f.key]);
       }
@@ -867,10 +897,37 @@
         setValue(form, 'load_balancer', lb ? (lb.type === 'other' ? 'other' : lb.device_id) : '');
         if (!lb) form.querySelector('select[name=load_balancer]').value = '';
       }
-      // Put the form with your settings first.
-      if (idx > 0) box.insertBefore(form, box.querySelector('form'));
-      form.insertAdjacentHTML('afterbegin', '<div class="note">Your current settings are filled in. Change what you want and save; nothing changes until you do.</div>');
-      form.scrollIntoView({ block: 'start' });
+      form.dataset.mine = '1';
+      const btn = form.querySelector('button[type=submit]');
+      if (btn) btn.textContent = 'Save';
+    }
+
+    // With saved settings: show only the form with them; other devices and
+    // choosing manually go under "Use a different …".
+    function tidySavedForm(kind) {
+      const cfg = SECTIONS[kind];
+      const box = $(`${kind}-results`);
+      const mine = box.querySelector('form[data-mine]') || (box.querySelector('details form[data-mine]'));
+      const header = box.querySelector(':scope > p, :scope > .card:not(form):not(details)');
+      if (header) header.remove();
+      const others = [...box.children].filter((el) => el !== mine && !(mine && el.contains(mine)));
+      const wrap = document.createElement('details');
+      wrap.className = 'card';
+      wrap.innerHTML = `<summary>Use a different ${esc(cfg.noun)} or choose the entities yourself</summary>`;
+      others.forEach((el) => {
+        if (el.tagName === 'DETAILS') { el.open = true; el.classList.remove('card'); el.querySelector('summary') && el.querySelector('summary').remove(); }
+        wrap.appendChild(el);
+      });
+      if (mine && mine.closest('details')) {
+        // The saved settings were chosen manually: keep that form visible.
+        const d = mine.closest('details');
+        box.insertBefore(mine, box.firstChild);
+        if (!d.querySelector('form')) d.remove();
+      }
+      box.insertAdjacentHTML('afterbegin', `<h2 class="section-title">Settings</h2>`);
+      if (wrap.children.length > 1) box.appendChild(wrap);
+      box.insertAdjacentHTML('beforeend', `<div class="buttons"><button class="secondary" type="button" data-act="redetect">Search again</button></div>`);
+      box.querySelector('[data-act=redetect]').onclick = () => detect(kind, savedItems[kind]);
     }
 
     async function detect(kind, saved) {
@@ -891,13 +948,9 @@
           `<details class="card" ${n ? '' : 'open'}><summary>Not listed? Choose manually</summary>${manualCard(kind, data)}</details>`;
         $(`${kind}-results`).querySelectorAll('form').forEach((f) => f.addEventListener('submit', save));
         if (saved) {
+          $(`${kind}-intro`).hidden = true;
           prefill(kind, saved);
-          $(`${kind}-results`).insertAdjacentHTML('afterbegin', `<div class="buttons" style="margin-bottom:12px"><button class="secondary" type="button" data-act="cancel-change">Cancel, keep the current settings</button></div>`);
-          $(`${kind}-results`).querySelector('[data-act=cancel-change]').onclick = () => {
-            $(`${kind}-results`).innerHTML = '';
-            $(`${kind}-intro`).hidden = true;
-            if ($('noint-form') && kind === 'vehicle') $('noint-form').hidden = true;
-          };
+          tidySavedForm(kind);
         }
       } catch (err) {
         $(`${kind}-error`).textContent = err.message;
@@ -929,8 +982,10 @@
       const errBox = form.querySelector('.form-error');
       try {
         await api('POST', cfg.api, data);
-        $(`${kind}-results`).innerHTML = '';
-        loadSaved(kind);
+        formFilled[kind] = false;
+        await loadSaved(kind);
+        const okBtn = $(`${kind}-results`).querySelector('form[data-mine] button[type=submit]');
+        if (okBtn) { okBtn.insertAdjacentHTML('afterend', ' <span class="ok small">Saved.</span>'); }
       } catch (err) {
         errBox.textContent = err.message;
         errBox.hidden = false;
@@ -952,6 +1007,7 @@
       calendar_error: 'The calendar could not be read; other departure sources are still used.',
       uses_forecast: 'Part of the plan is in hours with only a forecast price (striped bars). The app never charges on a forecast: the plan is recalculated as soon as the real prices are published (usually around 13:00 for the next day). Forecast prices include the safety margin set in Settings › Prices.',
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
+      minimum_not_reached: 'The minimum cannot be reached before the departure in between with the known prices and time. The plan charges as much as fits.',
     };
 
     function tzFmt(ms, opts) {
@@ -1138,6 +1194,8 @@
             <div class="secondary">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</div></div>
           </div>
           ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
+          ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))} (${tidy(p.stage.first_kwh)} kWh), the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
+          ${!d.boost ? limitLine(d.limit, true) : ''}
           ${d.boost ? (p.cost != null ? `
           <div class="stats">
             <div class="stat">${shape('bolt', 'amber', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div></div>
@@ -1152,7 +1210,7 @@
           ${p.notes.map((n) => n === 'car_limit' ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed) : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
           ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
         </div>
-        ${boostHtml(d)}
+        ${quickHtml(d)}
         <div class="card">
           <h2>Prices and plan</h2>
           <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
@@ -1165,24 +1223,33 @@
             ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
             </table></details>` : ''}
         </div>
-        <div class="card">
-          <h2>Planning settings</h2>
-          <p class="muted small">Charging loss margin ${esc(d.planning.loss_percent)} % · ${d.planning.continuous !== false ? `one continuous period, unless splitting saves at least ${money(d.planning.min_split_saving)}` : 'split charging allowed'} · house load ${d.planning.use_house_load !== false ? 'on' : 'off'}.</p>
-          <p class="muted small">Change these in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration. Departure times and battery levels are on the <a href="#" data-goto="departures">Departures</a> tab.</p>
-        </div>`;
+`;
     }
 
     // ---------- Charge now ----------
     // The car stops at its own charge limit.
     function carLimitNote(lim, wanted, controlAllowed) {
       if (!lim || lim.value == null) return '';
-      const btn = lim.writable && controlAllowed && wanted > lim.value
-        ? ` <button class="secondary raise-limit" data-value="${esc(wanted)}">Raise the car's limit to ${esc(wanted)}%</button>`
-        : '';
-      const how = lim.writable
-        ? (controlAllowed ? '' : ' (with Allow control on, the app can raise it for you)')
-        : '';
-      return `<div class="note">Your car stops charging at <strong>${esc(lim.value)}%</strong> (${esc(lim.name)}), below the wanted ${esc(wanted)}%. The app plans up to ${esc(lim.value)}%. Raise the limit in the car or its app to charge further${how}.${btn}<div class="raise-result"></div></div>`;
+      const why = !lim.writable
+        ? 'Your car does not allow changing it from Home Assistant: raise it in the car or its app to charge further.'
+        : !controlAllowed
+          ? 'The app sets it automatically once Allow control is on.'
+          : 'Changing it automatically is off in Settings › Rules.';
+      return `<div class="note">Your car stops charging at <strong>${esc(lim.value)}%</strong> (${esc(lim.name)}), below the wanted ${esc(wanted)}%. The app plans up to ${esc(lim.value)}%. ${why}</div>`;
+    }
+
+    // What happens with the car's own charge limit for a choice.
+    function limitLine(l, compact) {
+      if (!l || l.reason === 'none' || l.now == null) return '';
+      if (l.managed) {
+        if (l.to !== l.now) return `<p class="small">${shape('car', 'green', true)} Car's charge limit: ${esc(l.now)}% → <strong>${esc(l.to)}%</strong>, set automatically${compact ? '' : ', and back when this ends'}.</p>`;
+        return compact ? '' : `<p class="small muted">Car's charge limit stays at ${esc(l.now)}% (already right).</p>`;
+      }
+      if (!(l.goal > l.now)) return '';
+      const why = l.reason === 'read_only' ? 'Your car does not allow changing it from Home Assistant; raise it in the car or its app.'
+        : l.reason === 'control_off' ? 'The app changes it automatically once Allow control is on.'
+          : 'Changing it automatically is off in Settings › Rules.';
+      return `<div class="note">Car's charge limit is ${esc(l.now)}%, below ${esc(l.goal)}%. ${why}</div>`;
     }
 
     function bindRaiseLimit(after) {
@@ -1222,6 +1289,165 @@
       return '';
     }
 
+    // ---------- Quick choices on Home ----------
+    let minDefault = 30;
+
+    function quickHtml(d) {
+      if (d.boost) return boostHtml(d);
+      const v = d.vehicle || {};
+      const opts = [];
+      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Up to the plan's target (${d.planning.target_soc}%)</option>`);
+      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Up to a battery level</option>');
+      opts.push('<option value="kwh">A fixed amount (kWh)</option>');
+      const canMin = v.soc != null && v.mode !== 'fixed_kwh';
+      const mins = [20, 25, 30, 35, 40, 45];
+      return `
+        <div class="card quick">
+          <h2>${shape('bolt', 'amber', true)} Quick choices</h2>
+          <div class="qsec">
+            <div class="qhead">${shape('bolt', 'grey', true)}<div><strong>Charge now</strong><div class="muted small">Right away instead of in the cheapest hours.</div></div></div>
+            <form id="boost-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <select name="mode">${opts.join('')}</select>
+              <input name="value" type="number" step="any" min="0" style="width:100px" hidden>
+              <span class="muted small" id="boost-unit"></span>
+              <button class="secondary" type="submit">Check</button>
+            </form>
+            <div id="boost-check">${boostMessage}</div>
+          </div>
+          ${canMin ? `
+          <div class="qsec">
+            <div class="qhead">${shape('battery', 'grey', true)}<div><strong>Quickly to a minimum</strong><div class="muted small">Charge right away up to a minimum, then the plan takes over.</div></div></div>
+            <form id="min-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <select name="value">${mins.map((m) => `<option value="${m}" ${m === minDefault ? 'selected' : ''}>${m}%</option>`).join('')}</select>
+              <button class="secondary" type="submit">Check</button>
+            </form>
+            <div id="min-check"></div>
+          </div>` : ''}
+          <div class="qsec">
+            <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready for</strong><div class="muted small">Normally the car is ready for the next departure. Choose a later day when that is cheaper.</div></div></div>
+            <div id="cf-box"><p class="muted small">Loading…</p></div>
+          </div>
+        </div>`;
+    }
+
+    function cfInfoHtml(c, o, until, minSoc) {
+      const parts = [];
+      if (o.before.length) {
+        parts.push(`<div class="note">Before then: ${o.before.map((b) => `<strong>${esc(dayHm(b.time))}</strong> (${esc(SOURCE_NAMES[b.source] || b.source)}${b.title ? ': ' + esc(b.title) : ''})`).join(', ')}. ${o.before.length > 1 ? 'These get' : 'It gets'} at least <strong>${esc(minSoc)}%</strong>; the app charges that first, in the cheapest hours before it.${c.soc == null ? ' <span class="differ">The battery level is unknown, so the minimum cannot be checked.</span>' : ''}</div>`);
+      }
+      if (c.prices_until && c.prices_until >= until) parts.push('<p class="small muted">Prices are known up to then.</p>');
+      else if (c.forecast) parts.push(`<p class="small muted">Real prices are known until ${esc(dayHm(c.prices_until))}; after that the price forecast is used. The plan is updated when the real prices come out (around 13:00), and never charges on a forecast price.</p>`);
+      else parts.push(`<div class="note">No price forecast: the app only knows prices until ${c.prices_until ? esc(dayHm(c.prices_until)) : 'now'}. It plans with those and updates when new prices come out (around 13:00). Add a forecast in <a href="#" data-goto="prices">Settings › Prices</a> to choose the cheapest day.</div>`);
+      return parts.join('');
+    }
+
+    async function loadChargeFor() {
+      const box = $('cf-box');
+      if (!box) return;
+      let c;
+      try {
+        c = await api('GET', 'api/chargefor');
+      } catch (err) {
+        box.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+        return;
+      }
+      minDefault = c.min_default;
+      const mf = $('min-form');
+      if (mf && !mf.contains(document.activeElement)) mf.value.value = String(c.min_default);
+      const a = c.active;
+      if (a) {
+        box.innerHTML = `
+          <p>Ready <strong>${esc(dayHm(a.until))}</strong> at <strong>${esc(a.soc)}%</strong>${a.interim ? `, and at least <strong>${esc(a.min_soc)}%</strong> before ${esc(dayHm(a.interim.time))} (${esc(SOURCE_NAMES[a.interim.source] || a.interim.source)}${a.interim.title ? ': ' + esc(a.interim.title) : ''})` : ''}.</p>
+          ${limitLine(c.limit)}
+          <p class="muted small">Ends by itself after ${esc(dayHm(a.until))}.</p>
+          <button class="secondary" id="cf-clear">Back to normal</button>`;
+        $('cf-clear').onclick = async () => {
+          $('cf-clear').disabled = true;
+          await api('DELETE', 'api/chargefor');
+          loadOverview(true);
+        };
+        return;
+      }
+      const label = { tomorrow: 'Tomorrow', day_after: 'Day after tomorrow' };
+      const optText = (o) => `${esc(o.time)} · ${esc(o.soc)}%${o.from ? '' : ' (no departure that day)'}`;
+      box.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${['tomorrow', 'day_after'].map((k) => `<button class="secondary cf-day" data-day="${k}">${label[k]} <span class="muted small">${optText(c.options[k])}</span></button>`).join('')}
+        </div>
+        <form id="cf-form" hidden style="margin-top:12px">
+          <div class="two">
+            <div class="field"><label>Ready at</label><input name="time" type="time" step="300" required></div>
+            <div class="field"><label>Battery level (%)</label><input name="soc" type="number" min="10" max="100" step="1" required></div>
+          </div>
+          <div class="field cf-min"><label>Minimum for departures before then</label>
+            <select name="min_soc">${[20, 25, 30, 35, 40, 45].map((m) => `<option value="${m}">${m}%</option>`).join('')}</select></div>
+          <div id="cf-info"></div>
+          <div id="cf-limit"></div>
+          <div class="buttons"><button class="primary" type="submit">Use this</button><button class="secondary" type="button" id="cf-cancel">Cancel</button></div>
+          <div class="error form-error" hidden></div>
+        </form>`;
+      const f = $('cf-form');
+      let day = null;
+      const untilOf = () => {
+        const o = c.options[day];
+        // The chosen time on that date (shown in the plan's time zone).
+        return Date.parse(`${o.date}T${f.time.value || o.time}:00`) - tzOffsetGuess(o.date);
+      };
+      const refresh = async () => {
+        const o = c.options[day];
+        f.querySelector('.cf-min').hidden = !o.before.length;
+        $('cf-info').innerHTML = cfInfoHtml(c, o, untilOf(), f.min_soc.value);
+        bindGoto($('cf-info'));
+        try {
+          const r = await api('POST', 'api/chargefor/preview', { day, time: f.time.value, soc: f.soc.value, min_soc: f.min_soc.value });
+          $('cf-limit').innerHTML = limitLine(r.limit);
+        } catch (err) {
+          $('cf-limit').innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+        }
+      };
+      box.querySelectorAll('.cf-day').forEach((b) => {
+        b.onclick = () => {
+          day = b.dataset.day;
+          box.querySelectorAll('.cf-day').forEach((x) => x.classList.toggle('primary', x === b));
+          const o = c.options[day];
+          f.time.value = o.time;
+          f.soc.value = o.soc;
+          f.min_soc.value = String(c.min_default);
+          f.hidden = false;
+          refresh();
+        };
+      });
+      f.onchange = refresh;
+      $('cf-cancel').onclick = () => {
+        f.hidden = true;
+        box.querySelectorAll('.cf-day').forEach((x) => x.classList.remove('primary'));
+      };
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const err = f.querySelector('.form-error');
+        err.hidden = true;
+        try {
+          await api('POST', 'api/chargefor', { day, time: f.time.value, soc: f.soc.value, min_soc: f.min_soc.value });
+          loadOverview(true);
+        } catch (x) {
+          err.textContent = x.message;
+          err.hidden = false;
+        }
+      };
+    }
+
+    // Offset of the plan's time zone on a date, to turn a local time into a moment.
+    function tzOffsetGuess(date) {
+      const t = Date.parse(`${date}T12:00:00Z`);
+      const p = new Intl.DateTimeFormat('en-GB', { timeZone: lastPlan.time_zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(t));
+      const g = Object.fromEntries(p.map((x) => [x.type, x.value]));
+      return Date.UTC(+g.year, +g.month - 1, +g.day, +g.hour, +g.minute) - t;
+    }
+
+    function bindGoto(root) {
+      root.querySelectorAll('[data-goto]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); showTab(a.dataset.goto); }; });
+    }
+
     function boostHtml(d) {
       const b = d.boost;
       if (b) {
@@ -1255,7 +1481,7 @@
         </div>`;
     }
 
-    function boostCheckHtml(r) {
+    function boostCheckHtml(r, prefix = 'boost') {
       const parts = [];
       if (r.plugged === false) parts.push('<div class="error">The car is not plugged in.</div>');
       if (r.running) parts.push(`<div class="note">The plan is already charging now, until ${esc(hm(r.running.end))}. Charge now only helps if you need more than the plan gives.</div>`);
@@ -1264,9 +1490,7 @@
         parts.push(`<div class="note">Charging is already planned soon: from ${esc(hm(r.soon.start))} (in ${mins} min) until ${esc(hm(r.soon.end))}, at ${r.soon.avg_price.toFixed(4)} /kWh on average. Waiting may be enough.</div>`);
       }
       if (r.above_limit) parts.push(carLimitNote(r.car_limit, r.wanted_soc, r.control_allowed));
-      if (r.manages_car_limit && r.car_limit && r.car_limit.value != null && r.wanted_soc > r.car_limit.value) {
-        parts.push(`<div class="note">The car's limit is ${esc(r.car_limit.value)}%. The app first sets it to ${esc(r.wanted_soc)}% (or the next value the car accepts), and back to your departure target when Charge now ends.</div>`);
-      }
+      else parts.push(limitLine(r.limit));
       if (!(r.kwh > 0.01)) {
         if (!r.above_limit) parts.push('<p>Nothing to charge: the battery is already at that level.</p>');
         return parts.join('');
@@ -1282,7 +1506,7 @@
         ${n.start && pl.start && n.kwh + 0.05 < r.kwh ? '<div class="note">Not all of it fits in the hours with known prices.</div>' : ''}
         ${r.extra_cost != null ? `<p>${r.extra_cost > 0.005 ? `Charging now costs about <strong>${money(r.extra_cost)}</strong> more.` : 'Charging now costs about the same.'}</p>` : ''}`);
       if (r.plugged !== false && !r.above_limit) {
-        parts.push(`<div style="display:flex;gap:8px"><button class="primary" id="boost-start">Charge now</button><button class="secondary" id="boost-cancel">Cancel</button></div>
+        parts.push(`<div style="display:flex;gap:8px"><button class="primary" id="${prefix}-start">Charge now</button><button class="secondary" id="${prefix}-cancel">Cancel</button></div>
           <p class="muted small">${lastPlan && lastPlan.control_allowed ? 'This really starts the charger now (Allow control is on).' : 'Allow control is off: this only changes what the app would do (see the Log tab); nothing is sent to the charger.'}</p>`);
       }
       return parts.join('');
@@ -1310,17 +1534,25 @@
       };
       f.mode.onchange = syncMode;
       syncMode();
-      f.onsubmit = async (e) => {
+      f.onsubmit = (e) => {
         e.preventDefault();
-        const box = $('boost-check');
-        const goal = { mode: f.mode.value, value: f.value.value };
+        runBoostCheck({ mode: f.mode.value, value: f.value.value }, $('boost-check'), 'boost');
+      };
+      const mf = $('min-form');
+      if (mf) mf.onsubmit = (e) => {
+        e.preventDefault();
+        runBoostCheck({ mode: 'soc', value: mf.value.value }, $('min-check'), 'min');
+      };
+    }
+
+    // Check a Charge now goal and offer to start it.
+    async function runBoostCheck(goal, box, prefix) {
         boostMessage = '';
         box.innerHTML = '<p class="muted small">Checking…</p>';
         try {
           const r = await api('POST', 'api/boost/preview', goal);
-          box.innerHTML = boostCheckHtml(r);
-          bindRaiseLimit(() => f.requestSubmit());
-          const go = $('boost-start');
+          box.innerHTML = boostCheckHtml(r, prefix);
+          const go = $(`${prefix}-start`);
           if (go) go.onclick = async () => {
             go.disabled = true;
             go.textContent = 'Starting…';
@@ -1333,12 +1565,11 @@
               go.textContent = 'Charge now';
             }
           };
-          const cancel = $('boost-cancel');
+          const cancel = $(`${prefix}-cancel`);
           if (cancel) cancel.onclick = () => { box.innerHTML = ''; };
         } catch (err) {
           box.innerHTML = `<div class="error">${esc(err.message)}</div>`;
         }
-      };
     }
 
     function vehicleSessionHtml(d) {
@@ -1399,7 +1630,7 @@
           loadOverview(true);
         };
         bindBoost();
-        bindRaiseLimit(() => loadOverview(true));
+        loadChargeFor();
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
       } catch (err) {
@@ -1412,7 +1643,7 @@
     // ---------- Departures ----------
     const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
-    const SOURCE_NAMES = { override: 'One-off', calendar: 'Calendar', helper: 'Helper', schedule: 'Schedule' };
+    const SOURCE_NAMES = { override: 'One-off', calendar: 'Calendar', helper: 'Helper', schedule: 'Schedule', choice: 'Your choice' };
     let depTz = 'UTC';
 
     const depFmt = (ms, opts) => new Intl.DateTimeFormat('en-GB', { timeZone: depTz, ...opts }).format(new Date(ms));
@@ -1714,10 +1945,11 @@
       f.preheat_entity.innerHTML = entityOptions(d.options.preheat, r.preheat_entity, '— none —');
       f.force_minutes.value = r.force_minutes;
       f.hysteresis.value = r.hysteresis;
-      f.manage_car_limit.checked = !!r.manage_car_limit;
+      f.car_limit_off.checked = !!r.car_limit_off;
+      f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
       $('car-limit-now').innerHTML = lim && lim.entity_id
-        ? `Car limit now: <strong>${lim.value != null ? esc(lim.value) + '%' : 'unknown'}</strong> (${esc(lim.name)})${lim.writable ? '' : ' · <span class="differ">cannot be changed from Home Assistant</span>'}${d.control_allowed ? '' : ' · <span class="differ">needs "Allow control" on</span>'}`
+        ? `Car limit now: <strong>${lim.value != null ? esc(lim.value) + '%' : 'unknown'}</strong> (${esc(lim.name)})${lim.writable ? '' : ' · <span class="differ">your car does not allow changing it from Home Assistant; set it in the car</span>'}${d.control_allowed ? '' : ' · <span class="differ">follows your choices once "Allow control" is on</span>'}`
         : '<span class="differ">No charge limit of the car found. Choose it in Settings › Vehicle.</span>';
       syncSubs(f);
     }
@@ -1743,7 +1975,7 @@
           min_soc_enabled: f.min_soc_enabled.checked, min_soc: f.min_soc.value, min_soc_entity: f.min_soc_entity.value,
           min_soc_max_price: f.min_soc_max_price.value, preheat_entity: f.preheat_entity.value,
           force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
-          manage_car_limit: f.manage_car_limit.checked,
+          car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
         });
         document.activeElement.blur();
         await loadControl();
@@ -1751,9 +1983,9 @@
       } catch (err) {
         errBox.textContent = err.message;
         errBox.hidden = false;
-        btn.textContent = 'Save control settings';
+        btn.textContent = 'Save rules';
       } finally {
-        setTimeout(() => { btn.textContent = 'Save control settings'; btn.disabled = false; }, 2000);
+        setTimeout(() => { btn.textContent = 'Save rules'; btn.disabled = false; }, 2000);
       }
     });
 
@@ -1806,7 +2038,7 @@
         }
         $('manual-test-body').innerHTML = `          <div class="card">
             <h2>${shape('control', 'grey', true)} Manual test</h2>
-            <p class="muted small">Start or stop the charger once with the start/stop method chosen below${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. With Allow control on, the plan takes over again at the next check (within a minute); to charge now, use Charge now on the Overview.</p>
+            <p class="muted small">Start or stop the charger once with the start/stop method chosen in Settings › Charger${d.chosen_start_stop ? ` (<span class="cmd">${esc(d.chosen_start_stop)}</span>)` : ''}. Use this to check that the app can really control your charger. With Allow control on, the plan takes over again at the next check (within a minute); to charge now, use Charge now on Home.</p>
             ${d.control_allowed
               ? '<div style="display:flex;gap:8px"><button class="primary" id="manual-start">Start charging</button><button class="secondary" id="manual-stop">Stop charging</button></div>'
               : '<div class="note">Allow control is off in the app\'s Configuration tab, so these buttons are hidden and nothing can be sent.</div>'}
@@ -1823,7 +2055,7 @@
             <div class="row"><span class="label">Charger now</span><span class="value">${esc(actualText(n))}</span></div>
             <div class="row"><span class="label">Same as the plan?</span><span class="value">${n.agrees ? '<span class="agree">Yes</span>' : '<span class="differ">No — the app would change this</span>'}</span></div>
             <div class="row"><span class="label">${d.control_allowed ? 'Sends' : 'Would send'}</span><span class="value">${n.commands.length ? n.commands.map(cmdText).join('<br>') : '<span class="muted">nothing</span>'}${n.waiting ? '<div class="src">Already sent less than 15 minutes ago; waiting for the charger before sending again.</div>' : ''}${n.error ? `<div class="src differ">${esc(n.error)}</div>` : ''}</span></div>
-            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. ${d.control_allowed ? 'Allow control is on: the app starts and pauses the charger by itself, following the plan, Charge now and the rules in Settings › Control. The charger is also checked every minute in between. Only start/stop is sent; the charging current is not changed. Turn off your own charging automation, or the two will fight.' : 'Allow control is off: nothing is sent. Turn it on in the app\'s Configuration tab to let the app control the charger.'}</p>
+            <p class="muted small">Checked every ${lastPlan ? esc(lastPlan.refresh_minutes) : '?'} minutes in the background. Only changes are logged below. ${d.control_allowed ? 'Allow control is on: the app starts and pauses the charger by itself, following the plan, Charge now and the rules in Settings › Rules. The charger is also checked every minute in between. Only start/stop is sent; the charging current is not changed. Turn off your own charging automation, or the two will fight.' : 'Allow control is off: nothing is sent. Turn it on in the app\'s Configuration tab to let the app control the charger.'}</p>
           </div>
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -2313,6 +2545,36 @@
       showTab('overview');
     }
 
+    // ---------- Settings › Overview: is everything set up well? ----------
+    async function loadChecklist() {
+      const box = $('setup-body');
+      try {
+        const r = await api('GET', 'api/checklist');
+        const look = { ok: ['check', 'green'], warn: ['alert', 'orange'], missing: ['alert', 'red'], optional: ['check', 'grey'] };
+        const row = (i) => `
+          <div class="check-item">
+            ${shape(...look[i.state], true)}
+            <div class="txt"><strong>${esc(i.title)}</strong>${i.state === 'optional' ? ' <span class="muted small">(optional)</span>' : ''}<div class="d">${esc(i.detail)}</div></div>
+            ${i.page ? `<a href="#" data-goto="${esc(i.page)}" class="small">${i.state === 'ok' || i.state === 'optional' ? 'View' : 'Fix'}</a>` : ''}
+          </div>`;
+        const todo = r.items.filter((i) => i.state === 'missing' || i.state === 'warn');
+        box.innerHTML = `
+          <div class="card">
+            <h2>${shape(r.ready && !todo.length ? 'check' : 'alert', r.ready ? (todo.length ? 'orange' : 'green') : 'red', true)} ${r.ready ? (todo.length ? 'Ready, with a few points' : 'Everything is set up') : 'Not ready yet'}</h2>
+            <p class="muted small">Settings are things you set once. What you choose day to day (Charge now, Ready for tomorrow) is on Home; departures are on Planning.</p>
+            ${r.items.map(row).join('')}
+          </div>
+          ${lastPlan && lastPlan.planning ? (() => { const d = lastPlan; return `
+          <div class="card">
+            <h2>${shape('control', 'grey', true)} Planning settings in Home Assistant</h2>
+            <p class="muted small">Charging loss margin ${esc(d.planning.loss_percent)} % · ${d.planning.continuous !== false ? `one continuous period, unless splitting saves at least ${money(d.planning.min_split_saving)}` : 'split charging allowed'} · house load ${d.planning.use_house_load !== false ? 'on' : 'off'} · Allow control ${d.control_allowed ? 'on' : 'off'}.</p>
+            <p class="muted small">These, and the safety switches, are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
+          </div>`; })() : ''}`;
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+
     async function loadNotifyStatus() {
       try {
         const n = await api('GET', 'api/notify');
@@ -2374,34 +2636,42 @@
     });
 
     // ---------- Tabs ----------
-    const SETTINGS_SUBS = ['vehicle', 'charger', 'grid', 'prices', 'ctlset', 'status'];
-    let settingsSub = 'vehicle';
+    // Use: Home, Planning, History. Set up once: Settings.
+    const SETTINGS_SUBS = ['setup', 'vehicle', 'charger', 'grid', 'prices', 'ctlset', 'status', 'diag'];
+    const HISTORY_SUBS = ['savings', 'log'];
+    let settingsSub = 'setup';
+    let historySub = 'savings';
 
-    // Show a tab. Settings pages can be named directly ('charger').
+    // Show a tab. Sub pages can be named directly ('charger', 'log').
     function showTab(name) {
       if (name === 'control') name = 'ctlset';
       let main = name;
       let sub = null;
       if (SETTINGS_SUBS.includes(name)) { main = 'settings'; sub = name; settingsSub = name; }
+      else if (HISTORY_SUBS.includes(name)) { main = 'history'; sub = name; historySub = name; }
       else if (name === 'settings') sub = settingsSub;
+      else if (name === 'history') sub = historySub;
       document.querySelectorAll('#main-nav .tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === main));
       $('settings-nav').hidden = main !== 'settings' || wizardActive;
-      document.querySelectorAll('#settings-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
+      $('history-nav').hidden = main !== 'history';
+      document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
       const show = sub || main;
       document.querySelectorAll('main > section').forEach((s) => { s.hidden = s.id !== 'tab-' + show; });
-      if (show === 'status') { loadStatus(); loadNotifyStatus(); }
+      if (show === 'status') loadNotifyStatus();
+      if (show === 'diag') { loadStatus(); loadControl(); }
+      if (show === 'setup') loadChecklist();
       if (show === 'overview') loadOverview();
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
-      if (show === 'log' || show === 'ctlset') loadControl();
+      if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
     }
     document.querySelectorAll('#main-nav .tab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
-    document.querySelectorAll('#settings-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
+    document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
 
     // Icons on the tabs.
-    const NAV_ICONS = { overview: 'overview', departures: 'departures', savings: 'savings', log: 'log', settings: 'settings',
-      vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', ctlset: 'control', status: 'status' };
-    document.querySelectorAll('#main-nav .tab, #settings-nav .subtab').forEach((b) => {
+    const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', settings: 'settings',
+      setup: 'check', vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', ctlset: 'control', status: 'bell', diag: 'status' };
+    document.querySelectorAll('#main-nav .tab, #settings-nav .subtab, #history-nav .subtab').forEach((b) => {
       const label = b.textContent.replace('⚙', '').trim();
       b.innerHTML = `${icon(NAV_ICONS[b.dataset.tab || b.dataset.sub])}<span>${esc(label)}</span>`;
     });
@@ -2413,6 +2683,8 @@
       sectionShell(kind);
       loadSaved(kind);
     }
+    // The start/stop method is part of setting up the charger.
+    $('charger-extra').appendChild($('method-card'));
     loadStatus();
     loadPrices();
     checkWizard().then((active) => { if (!active) loadOverview(); });
@@ -2422,7 +2694,8 @@
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {
-        if ($(`${kind}-saved`).innerHTML && !$(`${kind}-results`).innerHTML) loadSaved(kind);
+        const busy = $(`tab-${kind}`).contains(document.activeElement) || ($('control-result') && $('control-result').innerHTML && kind === 'charger');
+        if ($(`${kind}-saved`).innerHTML && !busy && !$(`tab-${kind}`).hidden) loadSaved(kind);
       }
     }, 30000);
   </script>
