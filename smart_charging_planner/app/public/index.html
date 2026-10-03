@@ -464,7 +464,8 @@
               <option value="never">Never: the battery does not discharge while the car charges</option>
               <option value="solar_only">Only with stored solar power</option>
               <option value="always">Always: the battery does what it does</option>
-            </select></div>
+            </select>
+            <p id="bat-ev-warn" class="small differ" hidden></p></div>
           <div class="field"><label>Who gets the sun first?</label>
             <select name="solar_priority">
               <option value="smart">Smart: the car while it still needs energy, otherwise the battery</option>
@@ -2871,6 +2872,10 @@
         <p class="small">${shape('battery', 'purple', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
         <p class="small">${c.control.supported.length ? `The app can: ${c.control.supported.map((a) => esc(ACTION_TEXT[a] || a)).join(', ')}.` : '<span class="differ">The app can only read this battery; the plan is advice.</span>'} ${c.control.note ? `<span class="muted">${esc(c.control.note)}</span>` : ''}</p>
         ${c.sign_verified ? '' : '<p class="muted small">The sign of the power sensor is not documented in the integration; check below that charging shows as charging.</p>'}` : '';
+      const warn = $('bat-ev-warn');
+      const cannot = c && c.control.supported.length && !c.control.protects_car && f.ev_discharge.value !== 'always';
+      warn.hidden = !cannot;
+      warn.textContent = cannot ? `${c.brand} cannot be told to stop discharging from Home Assistant, so while the car charges the battery may still discharge into it.` : '';
     }
 
     async function loadBattery() {

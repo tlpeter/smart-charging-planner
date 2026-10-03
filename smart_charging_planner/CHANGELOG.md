@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.1
+
+- **Home battery and the car**: the battery also stops discharging when the car charges without the app starting it (charging started by the car or the charger itself, or a charger the app cannot steer such as the Tesla Wall Connector). A pause the app just sent counts as stopping
+- **Switching to another battery** first puts the previous one back in its own mode, and forgets its saved values (backup reserve, strategy)
+- The battery test buttons in Diagnostics also remember the values to put back (Tesla backup reserve, Sessy strategy)
+- "No discharging" that a brand does as "hold" is no longer sent again when the reason changes
+- Settings › Battery warns when the battery cannot be stopped from discharging into the car (GoodWe, Marstek Local API)
+- **New test** `tests/matrix.test.js`: every charger (Easee, Zaptec, Alfen, Wallbox, go-e ×2, Peblar, OCPP, Ohme, Tesla Wall Connector) with every home battery (15 integrations) in the real app: 960 checks. Charger and battery fixtures shared in `tests/fixtures.js`
+- Settings test G6 no longer fails depending on the time of day (an earlier started period that is still being finished)
+
 ## 0.24.0
 
 **Home battery**: the app plans and steers the home battery next to the car.

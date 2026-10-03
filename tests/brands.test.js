@@ -23,143 +23,8 @@ function check(name, fn) {
   }
 }
 
-// Build registries and states for one device.
-function device(id, name, platform, list) {
-  const entities = list.map(([entity_id]) => ({ entity_id, device_id: id, platform }));
-  const states = list.map(([entity_id, state, attributes]) => ({ entity_id, state, attributes: { friendly_name: entity_id, ...(attributes || {}) } }));
-  return { entities, devices: [{ id, name }], states };
-}
-const W = { unit_of_measurement: 'W', device_class: 'power' };
-const KW = { unit_of_measurement: 'kW', device_class: 'power' };
-const A = (min, max) => ({ unit_of_measurement: 'A', min, max });
-
-const BRANDS = [
-  {
-    brand: 'Easee',
-    dev: device('d', 'EMVGUS3H', 'easee', [
-      ['sensor.emvgus3h_status', 'awaiting_start', { device_class: 'enum' }],
-      ['sensor.emvgus3h_power', '0', KW],
-      ['switch.emvgus3h_charger_enabled', 'on'],
-      ['switch.emvgus3h_smart_charging', 'on'],
-      ['button.emvgus3h_override_schedule', 'unknown'],
-    ]),
-    services: {
-      easee: {
-        action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } },
-        set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } } },
-        set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
-      },
-    },
-    expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'action_choice', start: 'resume', noWarning: 'own_smart_charging_on', current: 'action_current:set_charger_dynamic_limit', phase: 'action_phase:1_phase/3_phase' },
-    statuses: { awaiting_start: [true, false], charging: [true, true], disconnected: [false, null], completed: [true, false], ready_to_charge: [true, false] },
-  },
-  {
-    brand: 'Zaptec',
-    dev: device('d', 'Zaptec Go', 'zaptec', [
-      ['sensor.zaptec_go_charger_mode', 'connected_requesting', { device_class: 'enum' }],
-      ['sensor.zaptec_go_charge_power', '0', W],
-      ['button.zaptec_go_resume_charging', 'unknown'],
-      ['button.zaptec_go_stop_charging', 'unknown'],
-      ['switch.zaptec_go_charging', 'off'],
-      ['number.zaptec_go_charger_max_current', '32', A(0, 32)],
-    ]),
-    services: {},
-    expect: { status: 'sensor.zaptec_go_charger_mode', power: 'sensor.zaptec_go_charge_power', startStop: 'buttons', current: 'number:number.zaptec_go_charger_max_current', phase: null },
-    statuses: { disconnected: [false, null], connected_requesting: [true, false], connected_charging: [true, true], connected_finished: [true, false] },
-  },
-  {
-    brand: 'Alfen',
-    dev: device('d', 'Alfen Eve', 'alfen_wallbox', [
-      ['sensor.alfen_eve_status_code_socket_1', 'Charging Normal'],
-      ['sensor.alfen_eve_active_power_total_socket_1', '7400', W],
-      ['switch.alfen_eve_charging', 'on'],
-      ['select.alfen_eve_socket_1_operation_mode', 'Operative', { options: ['Operative', 'In-operative'] }],
-      ['select.alfen_eve_solar_charging_mode', 'Green', { options: ['Disable', 'Comfort', 'Green'] }],
-      ['number.alfen_eve_power_connector_max_current_socket_1', '16', A(0, 16)],
-    ]),
-    services: {},
-    expect: { status: 'sensor.alfen_eve_status_code_socket_1', power: 'sensor.alfen_eve_active_power_total_socket_1', startStop: 'switch', warning: 'own_mode_on', warning2: 'alfen_single_login', current: 'number:number.alfen_eve_power_connector_max_current_socket_1', phase: null },
-    statuses: { Available: [false, null], 'Charging Normal': [true, true], 'Suspended Over Current': [true, false], 'Finish Wait Disconnect': [true, false] },
-  },
-  {
-    brand: 'Wallbox',
-    dev: device('d', 'Wallbox Pulsar Plus', 'wallbox', [
-      ['sensor.wallbox_pulsar_plus_status_description', 'Charging'],
-      ['sensor.wallbox_pulsar_plus_charging_power', '7.4', KW],
-      ['switch.wallbox_pulsar_plus_pause_resume', 'on'],
-      ['number.wallbox_pulsar_plus_maximum_charging_current', '16', A(6, 32)],
-      ['select.wallbox_pulsar_plus_ecosmart', 'eco_mode', { options: ['off', 'eco_mode', 'full_solar'] }],
-    ]),
-    services: {},
-    expect: { status: 'sensor.wallbox_pulsar_plus_status_description', power: 'sensor.wallbox_pulsar_plus_charging_power', startStop: 'switch', warning: 'own_mode_on', current: 'number:number.wallbox_pulsar_plus_maximum_charging_current', phase: null },
-    statuses: { Charging: [true, true], Paused: [true, false], Ready: [false, null], Disconnected: [false, null], 'Waiting for car demand': [true, false] },
-  },
-  {
-    brand: 'go-e (marq24)',
-    dev: device('d', 'go-e 123456', 'goecharger_api2', [
-      ['sensor.goe_123456_car_value', 'Idle', { friendly_name: 'Car state' }],
-      ['sensor.goe_123456_nrg_11', '0', { ...W, friendly_name: 'Power total now' }],
-      ['sensor.goe_123456_nrg_7', '0', { ...W, friendly_name: 'Power L1' }],
-      ['sensor.goe_123456_modelstatus_value', 'NotChargingBecauseNoChargeCtrlData', { friendly_name: 'Status' }],
-      ['select.goe_123456_frc', '0', { options: ['0', '1', '2'], friendly_name: 'Force state' }],
-      ['select.goe_123456_lmo', '3', { options: ['3', '4', '5'], friendly_name: 'Logic mode' }],
-      ['number.goe_123456_amp', '16', { ...A(6, 32), friendly_name: 'Requested current' }],
-      ['select.goe_123456_psm', '0', { options: ['0', '1', '2'], friendly_name: 'Phase switch mode' }],
-    ]),
-    services: {},
-    expect: { status: 'sensor.goe_123456_car_value', power: 'sensor.goe_123456_nrg_11', startStop: 'select', start: '2', stop: '1', current: 'number:number.goe_123456_amp', phase: 'select_phase:1/2' },
-    statuses: { Idle: [false, null], Charging: [true, true], 'Wait for car': [true, false], Complete: [true, false] },
-  },
-  {
-    brand: 'go-e (cathiele)',
-    dev: device('d', 'goecharger', 'goecharger', [
-      ['sensor.goecharger_home_car_status', 'Charger ready, no vehicle'],
-      ['sensor.goecharger_home_p_all', '0', KW],
-      ['switch.goecharger_home_allow_charging', 'on'],
-    ]),
-    services: {},
-    expect: { status: 'sensor.goecharger_home_car_status', startStop: 'switch', current: null, phase: null },
-    statuses: { 'Charger ready, no vehicle': [false, null], charging: [true, true], 'Waiting for vehicle': [true, false], 'charging finished, vehicle still connected': [true, false] },
-  },
-  {
-    brand: 'Peblar',
-    dev: device('d', 'Peblar EV Charger', 'peblar', [
-      ['sensor.peblar_ev_charger_state', 'no_ev_connected', { device_class: 'enum' }],
-      ['sensor.peblar_ev_charger_power', '0', W],
-      ['switch.peblar_ev_charger_charge', 'on'],
-      ['number.peblar_ev_charger_charge_limit', '16', A(6, 32)],
-      ['select.peblar_ev_charger_smart_charging', 'default', { options: ['default', 'fast_solar', 'pure_solar', 'smart_solar', 'scheduled'] }],
-      ['switch.peblar_ev_charger_force_single_phase', 'off'],
-    ]),
-    services: {},
-    expect: { status: 'sensor.peblar_ev_charger_state', power: 'sensor.peblar_ev_charger_power', startStop: 'switch', noWarning: 'own_mode_on', current: 'number:number.peblar_ev_charger_charge_limit', phase: 'switch_phase:on/off', switchEntity: 'switch.peblar_ev_charger_charge' },
-    statuses: { no_ev_connected: [false, null], charging: [true, true], suspended: [true, false] },
-  },
-  {
-    brand: 'OCPP',
-    dev: device('d', 'charger', 'ocpp', [
-      ['sensor.charger_status_connector', 'Available'],
-      ['sensor.charger_power_active_import', '0', KW],
-      ['switch.charger_charge_control', 'off'],
-      ['switch.charger_availability', 'on'],
-      ['number.charger_maximum_current', '32', A(0, 32)],
-    ]),
-    services: { ocpp: { set_charge_rate: { name: 'Set charge rate', fields: { limit_amps: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } } } } } },
-    expect: { status: 'sensor.charger_status_connector', power: 'sensor.charger_power_active_import', startStop: 'switch', switchEntity: 'switch.charger_charge_control', warning: 'ocpp_backend', current: 'number:number.charger_maximum_current', phase: null },
-    statuses: { Available: [false, null], Preparing: [true, false], Charging: [true, true], SuspendedEV: [true, false], SuspendedEVSE: [true, false], Finishing: [true, false] },
-  },
-  {
-    brand: 'Ohme',
-    dev: device('d', 'Ohme Home Pro', 'ohme', [
-      ['sensor.ohme_home_pro_status', 'plugged_in', { device_class: 'enum' }],
-      ['sensor.ohme_home_pro_power', '0', W],
-      ['select.ohme_home_pro_charge_mode', 'smart_charge', { options: ['smart_charge', 'max_charge', 'paused'] }],
-    ]),
-    services: {},
-    expect: { status: 'sensor.ohme_home_pro_status', power: 'sensor.ohme_home_pro_power', startStop: 'select', start: 'max_charge', stop: 'paused', warning: 'own_mode_on', current: null, phase: null },
-    statuses: { unplugged: [false, null], plugged_in: [true, false], charging: [true, true], paused: [true, false], finished: [true, false] },
-  },
-];
+const { CHARGERS } = require('./fixtures');
+const BRANDS = CHARGERS.filter((c) => !c.readOnly);
 
 for (const b of BRANDS) {
   console.log(b.brand);
@@ -237,10 +102,7 @@ for (const b of BRANDS) {
 // Tesla Wall Connector can only read.
 console.log('Tesla Wall Connector');
 {
-  const { entities, devices, states } = device('d', 'Tesla Wall Connector', 'tesla_wall_connector', [
-    ['sensor.tesla_wall_connector_status', 'charging_finished'],
-    ['sensor.tesla_wall_connector_power', '0', W],
-  ]);
+  const { entities, states } = CHARGERS.find((c) => c.readOnly).dev;
   const r = checkControl({ charger: { device_id: 'd', integration: 'tesla_wall_connector' }, entities, states, services: {} });
   check('says it can only read', () => assert.ok(r.warnings.some((w) => w.code === 'read_only_integration')));
 }
