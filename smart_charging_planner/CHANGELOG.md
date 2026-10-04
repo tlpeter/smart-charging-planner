@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.4
+
+- Home › Quick choices: "Solar" is only shown when solar is set up. Without solar there is nothing to choose there; setting it up stays in Settings › Solar (and in Settings › Overview)
+
 ## 0.24.3
 
 - **Fix, Easee**: starting and pausing failed with "value should be a string at 'device_id'". The Easee actions (`action_command`, `set_charger_dynamic_limit`, `set_charger_phase_mode`) have a `device_id` field and no target; the app sent the device as a target, which Home Assistant passes on as a list. The device now goes in the data as text for every integration action with a `device_id` field (as a target only for actions that have one)

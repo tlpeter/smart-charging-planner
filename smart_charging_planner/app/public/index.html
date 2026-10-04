@@ -1497,9 +1497,8 @@
     };
     function modeHtml(d) {
       const sol = d.solar || {};
-      if (!sol.enabled) {
-        return `<div class="qsec"><div class="qhead">${shape('sun', 'grey', true)}<div><strong>Solar</strong><div class="muted small">Not set up. <a href="#" data-goto="solar">Settings › Solar</a></div></div></div></div>`;
-      }
+      // Without solar there is nothing to choose: setting it up is in Settings › Solar.
+      if (!sol.enabled) return '';
       const n = d.solar_now;
       let now = '';
       if (n && sol.mode !== 'plan') {
