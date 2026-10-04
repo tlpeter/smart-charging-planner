@@ -77,7 +77,7 @@ for (const b of BRANDS) {
     const ph = r.recommended.phase;
     const one = ph ? controller.phaseCommand(ph, 1, 'd') : null;
     const three = ph ? controller.phaseCommand(ph, 3, 'd') : null;
-    const val = (c) => (c ? (c.data.option ?? Object.values(c.data)[0] ?? c.service.split('_').pop()) : null);
+    const val = (c) => (c ? (c.data.option ?? Object.entries(c.data).filter(([k]) => k !== 'device_id').map(([, v]) => v)[0] ?? c.service.split('_').pop()) : null);
     const got = ph ? `${ph.type}:${val(one)}/${val(three)}` : null;
     check(`phase switching: ${b.expect.phase || 'not possible'}`, () => assert.strictEqual(got, b.expect.phase));
     if (ph) {

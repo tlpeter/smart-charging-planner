@@ -878,7 +878,7 @@ async function run() {
     for (let i = 0; i < 3; i++) { await plan(); await sleep(1100); }
     const n = (await ok('GET', 'api/control')).now;
     const sent = batCalls(n0);
-    assert(n.code === 'solar' && world.charging, `car: ${n.code}`);
+    assert(n.code === 'solar' && world.charging, `car: ${n.code}, charging ${world.charging}, sent ${callsSince(n0).filter((c) => c.domain !== 'notify').map((c) => `${c.domain}.${c.service} ${JSON.stringify(c.data)}`)}, now ${JSON.stringify(n).slice(0, 600)}`);
     const bn = (await ok('GET', 'api/plan')).battery_now;
     assert(world.bat.mode === 'Standby', `battery ${world.bat.mode}, sent ${sent}, battery now ${JSON.stringify(bn)}`);
     return `car on solar at ${world.amps} A · battery: ${sent.join(' · ')}`;

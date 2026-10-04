@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.3
+
+- **Fix, Easee**: starting and pausing failed with "value should be a string at 'device_id'". The Easee actions (`action_command`, `set_charger_dynamic_limit`, `set_charger_phase_mode`) have a `device_id` field and no target; the app sent the device as a target, which Home Assistant passes on as a list. The device now goes in the data as text for every integration action with a `device_id` field (as a target only for actions that have one)
+- Tests: the fake Home Assistant now checks `device_id` the same way (the old code fails on it); the Easee fixtures follow the integration's real `services.yaml`. The test prices no longer have cheap hours today, so the results no longer depend on the time of day the tests run
+
 ## 0.24.2
 
 - **Ready for**: a choice made for a departure (schedule, calendar, helper) ends by itself when that departure is removed, with a notification. Before, it stayed until its time, so the plan kept aiming at a day you no longer leave

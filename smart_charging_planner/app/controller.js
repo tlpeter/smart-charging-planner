@@ -217,12 +217,18 @@ function decide(ctx) {
 }
 
 // The start or stop command for a start/stop method.
+// An integration action for the charger's device: the device as a text field
+// in the data when the action has a device_id field (Easee), otherwise as target.
+function forDevice(m, data, deviceId) {
+  if (m.device_field) return { data: deviceId ? { [m.device_field]: String(deviceId), ...data } : data, target: null };
+  return { data, target: deviceId ? { device_id: deviceId } : null };
+}
+
 function startStopCommand(m, on, deviceId) {
   if (!m) return null;
-  const dev = deviceId ? { device_id: deviceId } : null;
   switch (m.type) {
-    case 'action_choice': return { service: `${m.domain}.${m.service}`, data: { [m.field]: on ? m.start_value : m.stop_value }, target: dev };
-    case 'action_pair': return { service: `${m.domain}.${on ? m.start_service : m.stop_service}`, data: {}, target: dev };
+    case 'action_choice': return { service: `${m.domain}.${m.service}`, ...forDevice(m, { [m.field]: on ? m.start_value : m.stop_value }, deviceId) };
+    case 'action_pair': return { service: `${m.domain}.${on ? m.start_service : m.stop_service}`, ...forDevice(m, {}, deviceId) };
     case 'buttons': return { service: 'button.press', data: {}, target: { entity_id: on ? m.start_entity : m.stop_entity } };
     case 'switch': return { service: `switch.turn_${on ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
     case 'select': return { service: 'select.select_option', data: { option: on ? m.start_option : m.stop_option }, target: { entity_id: m.entity_id } };
@@ -255,7 +261,7 @@ function currentCommand(m, amps, deviceId) {
   if (!m || !Number.isFinite(amps)) return null;
   if (m.type === 'number') return { what: `set current to ${amps} A`, service: 'number.set_value', data: { value: amps }, target: { entity_id: m.entity_id } };
   if (m.type === 'action_current') {
-    return { what: `set current to ${amps} A`, service: `${m.domain}.${m.service}`, data: { [m.field]: amps, ...(m.ttl_field ? { [m.ttl_field]: 30 } : {}) }, target: deviceId ? { device_id: deviceId } : null };
+    return { what: `set current to ${amps} A`, service: `${m.domain}.${m.service}`, ...forDevice(m, { [m.field]: amps, ...(m.ttl_field ? { [m.ttl_field]: 30 } : {}) }, deviceId) };
   }
   return null;
 }
@@ -265,7 +271,7 @@ function phaseCommand(m, phases, deviceId) {
   if (!m) return null;
   const one = phases === 1;
   const what = `switch to ${one ? 'one phase' : 'three phases'}`;
-  if (m.type === 'action_phase') return { what, service: `${m.domain}.${m.service}`, data: { [m.field]: one ? m.one_value : m.three_value }, target: deviceId ? { device_id: deviceId } : null };
+  if (m.type === 'action_phase') return { what, service: `${m.domain}.${m.service}`, ...forDevice(m, { [m.field]: one ? m.one_value : m.three_value }, deviceId) };
   if (m.type === 'select_phase') return { what, service: 'select.select_option', data: { option: one ? m.one_value : m.three_value }, target: { entity_id: m.entity_id } };
   if (m.type === 'switch_phase') return { what, service: `switch.turn_${one ? 'on' : 'off'}`, data: {}, target: { entity_id: m.entity_id } };
   return null;
@@ -289,7 +295,7 @@ function commandsFor(decision, actual, methods, deviceId) {
   if (decision.want === 'charge') {
     if (cur && decision.amps) {
       if (cur.type === 'number') out.push({ what: `set current to ${decision.amps} A`, service: 'number.set_value', data: { value: decision.amps }, target: { entity_id: cur.entity_id } });
-      else if (cur.type === 'action_current') out.push({ what: `set current to ${decision.amps} A`, service: `${cur.domain}.${cur.service}`, data: { [cur.field]: decision.amps, ...(cur.ttl_field ? { [cur.ttl_field]: 30 } : {}) }, target: deviceId ? { device_id: deviceId } : null });
+      else if (cur.type === 'action_current') out.push(currentCommand(cur, decision.amps, deviceId));
     }
     if (actual.charging !== true) {
       const c = describe(ss, true);
