@@ -7,7 +7,7 @@ Two set-ups, with entity names taken from the integrations' own source code:
 - **A**: Renault Megane E-Tech + Easee Charge
 - **B**: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus
 
-Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a calendar, helpers and notify actions.
+Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a calendar, helpers and notify actions.
 
 Run (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:
 
@@ -18,7 +18,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 Brand by brand, without Home Assistant: `node tests/brands.test.js` (chargers: detection, start/stop, current, phase switching, status texts), `node tests/solar.test.js` (inverters, solar forecasts, feed-in value, charging on surplus) and `node tests/battery.test.js` (home batteries: detection, commands, the guard, the battery plan).
 
-Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
+Last run (v0.24.3): **A 102 of 102**, **B 103 of 103** passed.
 
 
 ## A. Fresh install and checklist
@@ -99,11 +99,11 @@ Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
 |---|---|---|---|
 | G1 | Refused: default minimum 50 %, force window 700 min, hysteresis 2 | ✓ | ✓ |
 | G2 | Minimum battery level: below it → charge now | ✓ | ✓ |
-| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: not_planned | ✓ then: locked_block |
+| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: not_planned | ✓ then: not_planned |
 | G3b | Minimum taken from an entity (the car's own minimum, here 70 %) | ✓ | ✓ |
 | G4 | Preconditioning entity on → charge | ✓ | ✓ |
 | G5 | Force window: departure within the window → charge | ✓ force_window | ✓ force_window |
-| G6 | Not in a planned block and not charging → pause | ✓ paused | ✓ an earlier started period is finished first (until 08:55 UTC) |
+| G6 | Not in a planned block and not charging → pause | ✓ paused | ✓ paused |
 | G7 | Default minimum for quick choices is used on Home | ✓ | ✓ |
 | G8 | Allow control off: the car limit is not changed and the plan stops at the limit | ✓ | ✓ |
 | G9 | Allow control off: nothing is sent to Home Assistant | ✓ | ✓ |
@@ -137,11 +137,11 @@ Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
 | J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-06) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-06) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
-| J6 | Charge now 100 %: limit up, charger started; stop: limit back | ✓ limit 100 → 90, start: easee.action_command {"action_command":"resume"} | ✓ limit 100 → 90, start: switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
+| J6 | Charge now 100 %: limit up, charger started; stop: limit back | ✓ limit 100 → 90, start: easee.action_command {"device_id":"ch","action_command":"resume"} | ✓ limit 100 → 90, start: switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | J7 | Charge now as kWh: preview converts it to a level for the limit | ✓ | ✓ |
 | J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ | ✓ |
 | J9 | Notification on start (notify every start and pause) | ✓ Car charge limit changed · Charging started · Charging paused · Car charge limit changed | ✓ Car charge limit changed · Charging started · Charging paused · Car charge limit changed |
-| J9b | Manual test (Diagnostics): start and stop really sent | ✓ easee.action_command {"action_command":"resume"} → easee.action_command {"action_command":"pause"} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
+| J9b | Manual test (Diagnostics): start and stop really sent | ✓ easee.action_command {"device_id":"ch","action_command":"resume"} → easee.action_command {"device_id":"ch","action_command":"pause"} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | J12 | Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 % | ✓ limit 85 %, at 85 %: at_target | ✓ limit 90 %, at 85 %: at_target |
 | J10 | Car unplugged: Charge now is refused | ✓ | ✓ |
 | J11 | Notify every start and pause off: start is not notified | ✓ no notifications | ✓ no notifications |
@@ -152,13 +152,13 @@ Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 24.0 kWh on solar, 10.3 kWh from the grid | ✓ 24.0 kWh on solar, 26.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 24.0 kWh on solar | ✓ 24.0 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 18.1 kWh on solar, 16.2 kWh from the grid | ✓ 18.1 kWh on solar, 32.7 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 18.1 kWh on solar | ✓ 18.1 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
-| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.action_command {"action_command":"resume"} · easee.set_charger_dynamic_limit {"current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
-| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.action_command {"action_command":"resume"} · easee.set_charger_phase_mode {"phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
+| S5 | Solar only: the plan uses only the sun | ✓ 18.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 18.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.action_command {"device_id":"ch","action_command":"resume"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
+| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
+| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.action_command {"device_id":"ch","action_command":"resume"} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
 | S9 | Solar modes raise the car limit to "solar up to" (90 %) | ✓ | ✓ |
 | S10 | Grid meter sign "delivering is positive": the reading is turned around | ✓ | ✓ |
 | S11 | Mode buttons refused without solar; solar off → back to the price plan | ✓ | ✓ |
@@ -169,7 +169,7 @@ Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.50 | ✓ charges in 3 block(s), saving €1.50 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.50 | ✓ charges in 3 block(s), saving €1.41 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -204,19 +204,20 @@ Last run (v0.24.2): **A 102 of 102**, **B 103 of 103** passed.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
+- Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - The page itself (buttons, forms): checked with screenshots during development, not in this test.
 
 # Matrix: every charger with every home battery
 
 `node tests/matrix.test.js` (several minutes; `SCP_CHARGERS=Easee,Zaptec` for a part). The real app against a fake Home Assistant with a Renault, one charger brand and, one after the other, every home battery brand from `tests/fixtures.js`. The fake charger reacts to exactly the start/stop command the app's control check chooses; `tests/brands.test.js` checks those commands per brand.
 
-Last run (v0.24.2): **960 of 960** passed (10 chargers × 15 batteries).
+Last run (v0.24.3): **960 of 960** passed (10 chargers × 15 batteries).
 
 ## Per charger
 
 | Charger | Method | Charge now | Solar 6 kW | Solar 2.5 kW | Back to full power | Only own commands | Batteries |
 |---|---|---|---|---|---|---|---|
-| Easee | ✓ action_choice, current: action_current, phases: action_phase | ✓ easee.action_command {"action_command":"resume"} → easee.action_command {"action_command":"pause"} | ✓ 7 A · easee.action_command {"action_command":"resume"} · easee.set_charger_dynamic_limit {"current":7,"time_to_live":30} | ✓ one phase, 6 A · easee.set_charger_phase_mode {"phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"current":6,"time_to_live":30} | ✓ easee.action_command {"action_command":"resume"} · easee.set_charger_phase_mode {"phase_mode":"3_phase"} · easee.set_charger_dynamic_limit { | ✓ 11 commands | 90 of 90 ✓ |
+| Easee | ✓ action_choice, current: action_current, phases: action_phase | ✓ easee.action_command {"device_id":"ch","action_command":"resume"} → easee.action_command {"device_id":"ch","action_command":"pause"} | ✓ 7 A · easee.action_command {"device_id":"ch","action_command":"resume"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"tim | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch", | ✓ easee.action_command {"device_id":"ch","action_command":"resume"} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · | ✓ 11 commands | 90 of 90 ✓ |
 | Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":7} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":16} | ✓ 9 commands | 90 of 90 ✓ |
 | Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} | ✓ 9 commands | 90 of 90 ✓ |
 | Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"val | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16 | ✓ 9 commands | 90 of 90 ✓ |
@@ -233,16 +234,16 @@ Per battery: 1 found, 2 switching from the previous battery puts that one back i
 
 | Battery | Can | Car charges | Car stops | Car charges by itself | All chargers |
 |---|---|---|---|---|---|
-| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ auto: turn_off | ✓ hold; car still charging | 60 of 60 ✓ |
-| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ auto: stop_forcible_charge · set_value 5000 · set_value 5000 | ✓ no_discharge; car still charging | 60 of 60 ✓ |
-| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 3600 · select_option Solar Power Only (Off) | ✓ auto: select_option Maximize Self Consumption | ✓ no_discharge; car still charging | 60 of 60 ✓ |
-| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ auto: select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 8000 | ✓ no_discharge; car still charging | 60 of 60 ✓ |
+| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ auto (Battery plan: auto): stop_forcible_charge · set_value 5000 · set_value 5000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 3600 · select_option Solar Power Only (Off) | ✓ auto (Battery plan: auto): select_option Maximize Self Consumption | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ auto (Battery plan: auto): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 8000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
 | GoodWe (goodwe) | ✓ can: auto, charge, discharge · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ auto: set_value 20 | ✓ no_discharge; car still charging | 60 of 60 ✓ |
-| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ auto: select_option zero | ✓ no_discharge; car still charging | 60 of 60 ✓ |
-| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ auto: turn_off | ✓ hold; car still charging | 60 of 60 ✓ |
+| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ auto (Battery plan: auto): set_value 20 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ auto (Battery plan: auto): select_option zero | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
 | Marstek Venus (marstek_local_api) | ✓ can: charge, discharge, auto · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ auto: select_option roi | ✓ hold; car still charging | 60 of 60 ✓ |
+| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ auto (Battery plan: auto): select_option roi | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
 | Zonneplan Nexus (zonneplan_one) | ✓ read only | ✓ nothing sent (Zonneplan steers the Nexus itself (dynamic charging); the integration offers no charge or discharge command.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Growatt (growatt_server) | ✓ read only | ✓ nothing sent (Growatt cloud only offers time segments in %, not commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Anker Solix (anker_solix) | ✓ read only | ✓ nothing sent (Anker Solix is steered with schedules and presets, not with charge or discharge commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |

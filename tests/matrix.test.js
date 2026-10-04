@@ -243,6 +243,14 @@ async function runCharger(fx, n) {
   world.profile = { label: fx.brand, car: fake.PROFILES.renault_easee.car, charger: CH };
   world.store = new Map();
   CH.initial(world);
+  // Prices that give the same battery plan at every time of day: 0.20 all
+  // day, cheap only tomorrow 02:00-05:00 (for the car). Without grid charging
+  // the battery has no reason to hold now, so "own mode" is the plan.
+  const { localMidnight } = require(path.join(APP, 'prices.js'));
+  world.energyzero = () => Array.from({ length: 48 }, (_, i) => ({
+    timestamp: new Date(localMidnight(fake.TZ, 0) + i * 3600000).toISOString(),
+    price: i >= 26 && i < 29 ? 0.05 : 0.20,
+  }));
   const ha = fake.start(world, WS_PORT, REST_PORT);
   const since = (k) => world.calls.slice(k);
   const CAR = world.profile.car;
@@ -438,46 +446,54 @@ async function runCharger(fx, n) {
         assert(!err, err);
         return `${r.last.action} (${r.bn.reason}): ${sent.map(fmt).join(' · ')}`;
       });
-      await test(`${id}.4`, 'Car stops: the battery goes back to its own mode', async () => {
+      await test(`${id}.4`, 'Car stops: the battery follows its own plan again (not the car)', async () => {
         const n0 = world.calls.length;
         const before = (await ok('GET', 'api/battery')).last;
         await api('DELETE', 'api/boost');
-        const r = await until((last, bn) => !last && bn.action === 'auto');
+        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && !bn.error);
         const sent = batCalls(n0);
         if (controllable) assert(!world.charging, 'car still charging');
         if (ro || !protects) { assert(!sent.length, `sent ${sent.map(fmt)}`); return 'nothing sent'; }
         assert(!r.timeout, `battery ${JSON.stringify(r.bn)} last ${JSON.stringify(r.last)}`);
-        if (before) {
-          // While the charger is still pausing, the car may draw power for one
-          // more step: a protecting action first is fine, it must end in auto.
-          const autoCmds = battery.commandsFor(ctl, 'auto', 3, null).commands;
-          const tail = sent.slice(sent.length - autoCmds.length);
-          const head = sent.slice(0, sent.length - autoCmds.length);
-          const err = exact(tail, 'auto');
-          assert(!err, err);
-          const protectKeys = ['no_discharge', 'hold'].map((a) => battery.commandsFor(ctl, a, 3, Number(world.store.get(bx.expect.soc)))).filter(Boolean).map((x) => x.commands.map(cmdKey).join('|'));
-          assert(!head.length || protectKeys.includes(head.map(callKey).join('|')), `before auto: ${head.map(fmt)}`);
-          return `${head.length ? `${head.map(fmt).join(' · ')} (charger still pausing) → ` : ''}auto: ${tail.map(fmt).join(' · ')}`;
+        // What the battery should get now: the plan's action ("auto" = own mode).
+        const target = r.last ? r.last.action : 'auto';
+        if ((before ? before.action : 'auto') === target) {
+          assert(!sent.length, `sent ${sent.map(fmt)} while it already was ${target}`);
+          return `${target} (${r.bn.reason}), already so: nothing sent`;
         }
-        assert(!sent.length, `sent ${sent.map(fmt)}`);
-        return 'was not changed, nothing sent';
+        // While the charger is still pausing, the car may draw power for one
+        // more step: a protecting action first is fine, it must end in the plan's action.
+        const want = battery.commandsFor(ctl, target, 3, Number(world.store.get(bx.expect.soc))).commands;
+        const tail = sent.slice(sent.length - want.length);
+        const head = sent.slice(0, sent.length - want.length);
+        const err = exact(tail, target);
+        assert(!err, err);
+        const protectKeys = ['no_discharge', 'hold'].map((x) => battery.commandsFor(ctl, x, 3, Number(world.store.get(bx.expect.soc)))).filter(Boolean).map((x) => x.commands.map(cmdKey).join('|'));
+        assert(!head.length || protectKeys.includes(head.map(callKey).join('|')), `before ${target}: ${head.map(fmt)}`);
+        return `${head.length ? `${head.map(fmt).join(' · ')} (charger still pausing) → ` : ''}${target} (${r.bn.reason}): ${tail.map(fmt).join(' · ')}`;
       });
       await test(`${id}.5`, 'Car starts charging by itself: the battery still does not discharge into it', async () => {
         const n0 = world.calls.length;
+        const before = (await ok('GET', 'api/battery')).last;
         world.charging = true;
         const r = await until((last, bn) => (protects ? last && ['no_discharge', 'hold'].includes(last.action) : !!bn.action));
         const sent = batCalls(n0);
         if (ro) { assert(!sent.length, `sent ${sent.map(fmt)}`); return 'nothing sent'; }
         if (!protects) return `cannot prevent it: ${r.bn.error || r.bn.action}`;
         assert(!r.timeout, `battery ${JSON.stringify(r.bn)}, sent ${sent.map(fmt)}`);
+        const tail = controllable ? 'car paused by the app or still charging' : 'the app cannot pause this charger';
+        if (before && before.action === r.last.action) {
+          assert(!sent.length, `sent ${sent.map(fmt)} while it already was ${before.action}`);
+          return `${r.last.action} already (battery plan) · ${tail}`;
+        }
         const err = exact(sent.slice(0, battery.commandsFor(ctl, r.last.action, 3, 50).commands.length), r.last.action);
         assert(!err, err);
-        return `${r.last.action}${controllable ? `; car ${world.charging ? 'still charging' : 'paused by the app (not planned)'}` : ' (the app cannot pause this charger)'}`;
+        return `${r.last.action} (${r.bn.reason}) · ${world.charging ? 'car still charging' : 'car paused by the app (not planned)'}`;
       });
       // Back to a calm state for the next battery: the car stops.
       world.charging = false;
       await ok('DELETE', 'api/boost').catch(() => {});
-      if (!ro) await until((last, bn) => !last && bn.action === 'auto');
+      if (!ro) await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || ''));
       b.changed = !!(await ok('GET', 'api/battery')).last;
       await test(`${id}.6`, 'Every command went to this charger, the car\'s limit or this battery', async () => {
         const allowedBat = ctl && ctl.available ? battery.allowedFor(ctl) : [];

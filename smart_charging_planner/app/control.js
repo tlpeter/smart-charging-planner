@@ -61,6 +61,9 @@ function actionMethods(domains, services) {
     for (const [name, svc] of Object.entries(svcs)) {
       const fields = flatFields(svc.fields);
       const label = svc.name || name;
+      // The device as a field of the action (Easee: device_id must be a text
+      // in the data, a target device would arrive as a list and is refused).
+      const deviceField = fields.some((f) => f.key === 'device_id') ? 'device_id' : null;
 
       // One action with a choice that includes pause/resume or start/stop.
       for (const f of fields) {
@@ -72,7 +75,7 @@ function actionMethods(domains, services) {
           const pair = opts.includes('pause') && opts.includes('resume') ? ['resume', 'pause'] : [on, off];
           startStop.push({
             type: 'action_choice', domain, service: name, label, field: f.key,
-            start_value: pair[0], stop_value: pair[1], target: targetKind(svc),
+            start_value: pair[0], stop_value: pair[1], target: targetKind(svc), device_field: deviceField,
             score: pair[0] === 'resume' ? 100 : 90,
           });
         }
@@ -84,7 +87,7 @@ function actionMethods(domains, services) {
         if (stopName) {
           startStop.push({
             type: 'action_pair', domain, start_service: name, stop_service: stopName,
-            label: `${name} / ${stopName}`, target: targetKind(svc), score: 80,
+            label: `${name} / ${stopName}`, target: targetKind(svc), device_field: deviceField, score: 80,
           });
         }
       }
@@ -96,7 +99,7 @@ function actionMethods(domains, services) {
           const one = opts.find((o) => ONE_PHASE.test(o));
           const three = opts.find((o) => THREE_PHASE.test(o));
           if (one && three) {
-            phase.push({ type: 'action_phase', domain, service: name, label, field: f.key, one_value: one, three_value: three, target: targetKind(svc), score: 90 });
+            phase.push({ type: 'action_phase', domain, service: name, label, field: f.key, one_value: one, three_value: three, target: targetKind(svc), device_field: deviceField, score: 90 });
           }
         }
       }
@@ -115,7 +118,7 @@ function actionMethods(domains, services) {
         current.push({
           type: 'action_current', domain, service: name, label, field: cf.key,
           min: r.min, max: r.max, ttl_field: ttlField ? ttlField.key : null,
-          dynamic, target: targetKind(svc),
+          dynamic, target: targetKind(svc), device_field: deviceField,
           // Temporary (dynamic) limits are safest: they fall back by themselves.
           score: (dynamic ? 100 : 60) + (ttlField ? 10 : 0),
         });

@@ -56,9 +56,9 @@ const PROFILES = {
       text: { unplugged: 'disconnected', paused: 'awaiting_start', charging: 'charging' },
       services: {
         easee: {
-          action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } }, target: { device: {} } },
-          set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } }, target: { device: {} } },
-          set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } }, target: { device: {} } },
+          action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } } },
+          set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } } },
+          set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
         },
       },
       states: (w, status) => [
@@ -153,7 +153,8 @@ function createWorld(profileName = 'renault_easee') {
     // EnergyZero: today and tomorrow, cheap 02:00-05:00 tomorrow.
     energyzero: () => Array.from({ length: 48 }, (_, i) => ({
       timestamp: new Date(d0 + i * H).toISOString(),
-      price: i >= 26 && i < 29 ? 0.05 : i >= 12 && i < 16 ? 0.10 : 0.20,
+      // No cheap hours today: the result must not depend on the time of day the test runs.
+      price: i >= 26 && i < 29 ? 0.05 : 0.20,
     })),
   };
   // Combined sensor: real prices today/tomorrow, then 5 days of forecast;
@@ -278,6 +279,13 @@ function start(w, wsPort, restPort) {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
           if (m.domain === 'calendar' && m.service === 'get_events') {
             return ok({ context: {}, response: { 'calendar.auto': { events: w.events } } });
+          }
+          // Like Home Assistant: an action with a device_id field (Easee)
+          // validates it as text; a target device arrives as a list.
+          const svc = services[m.domain] && services[m.domain][m.service];
+          if (svc && svc.fields && svc.fields.device_id) {
+            const v = (m.service_data || {}).device_id ?? (m.target && m.target.device_id != null ? [].concat(m.target.device_id) : undefined);
+            if (typeof v !== 'string') return fail("value should be a string at 'device_id'");
           }
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
           w.calls.push(call);
