@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.2
+
+- **Ready for**: a choice made for a departure (schedule, calendar, helper) ends by itself when that departure is removed, with a notification. Before, it stayed until its time, so the plan kept aiming at a day you no longer leave
+- **Ready for**: Home and the Planning tab show when the choice was made and for which departure; the Planning tab has a **Back to normal** button too, and says clearly that the plan uses the choice instead of the next departure
+- **Home battery plan, fix**: small discharges were rounded up to a whole 0.25 kWh step, which made "hold" look cheaper than it is. With a short first block or a small house load the plan could hold the battery all day. The plan now reads the value between steps
+- Tests: two Ready-for checks in the settings test, a battery plan check for the rounding; settings tests S3 and T6 no longer depend on the time of day
+
 ## 0.24.1
 
 - **Home battery and the car**: the battery also stops discharging when the car charges without the app starting it (charging started by the car or the charger itself, or a charger the app cannot steer such as the Tesla Wall Connector). A pause the app just sent counts as stopping

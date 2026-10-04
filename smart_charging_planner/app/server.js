@@ -540,7 +540,19 @@ const routes = {
     let departure = nextDeparture(dep, { states, events, tz, now });
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
-    const cf = chargefor.current(now);
+    let cf = chargefor.current(now);
+    // A choice made for a departure that is gone (removed from the calendar or
+    // the schedule) ends by itself. Not when the calendar could not be read.
+    if (cf && cf.based_on && !calendarError) {
+      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3 }), tz);
+      if (!days.some((d) => d.day === cf.based_on.date)) {
+        const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
+        chargefor.clear(`the departure it was chosen for is gone: ${what}`);
+        controller.clearLock();
+        notifier.notify('problem', 'Ready-for choice ended', `The departure it was chosen for (${what}) is no longer planned. The car is planned for the next departure again.`, { key: 'chargefor_gone', minGapMs: 60000 }).catch(() => {});
+        cf = null;
+      }
+    }
     let interim = null;
     if (cf) {
       interim = departure && departure.time < cf.until - 60000 ? departure : null;
@@ -693,7 +705,7 @@ const routes = {
       car_limit: carLimit,
       manages_car_limit: managesLimit,
       charge_for: cf ? {
-        day: cf.day, until: cf.until, soc: cf.soc, min_soc: cf.min_soc,
+        day: cf.day, until: cf.until, soc: cf.soc, min_soc: cf.min_soc, created: cf.created || null, based_on: cf.based_on || null,
         interim: interim ? { time: interim.time, soc: interim.soc, source: interim.source, title: interim.title || null } : null,
         min_kwh: minKwh,
       } : null,
@@ -1181,6 +1193,8 @@ routes['POST /api/chargefor/preview'] = async (req) => {
   return { choice: c, limit: limitPreview(cached, c.soc) };
 };
 
+const SOURCE_LABEL = { schedule: 'weekly schedule', helper: 'helper', calendar: 'calendar', override: 'one-off departure' };
+
 function chargeForFromBody(b) {
   const tz = ha.state.timeZone;
   const now = Date.now();
@@ -1200,6 +1214,17 @@ function chargeForFromBody(b) {
 
 routes['POST /api/chargefor'] = async (req) => {
   const c = chargeForFromBody(await readBody(req));
+  // Remember the departure of that day, if any: when it disappears, the
+  // choice ends by itself.
+  try {
+    const tz = ha.state.timeZone;
+    const { days } = await departureDays(settings.load(), tz, Date.now());
+    const date = localDate(c.until, tz);
+    const day = days.find((d) => d.day === date);
+    if (day && day.winner) c.based_on = { date, time: day.winner.time, source: day.winner.source, title: day.winner.title || null };
+  } catch (err) {
+    ha.warn('Could not read the departures for the ready-for choice:', err.message);
+  }
   chargefor.set(c);
   controller.clearLock(); // a new choice: do not finish a period of the old plan
   planCache = null;

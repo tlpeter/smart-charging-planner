@@ -32,14 +32,12 @@ function planBattery(blocks, bat) {
   const allowed = new Set(bat.actions && bat.actions.length ? bat.actions : ['auto']);
   allowed.add('auto');
   const n = Math.round(cap / STEP_KWH);
-  const levelOf = (kwh) => Math.max(0, Math.min(n, Math.round(kwh / STEP_KWH)));
   const startK = Math.max(0, Math.min(cap, cap * (Number(bat.soc_pct) || 0) / 100));
   const evAllowed = bat.ev_discharge === 'always';
 
-  // One block, one action, from level k: [new level, grid kWh (+import), cost, discharged kWh]
-  const stepOf = (b, k, action) => {
+  // One block, one action, from `soc` kWh: { soc: new kWh, grid (+import), cost, d, c }
+  const stepOf = (b, soc, action) => {
     const h = (b.end - b.start) / 3600000;
-    const soc = k * STEP_KWH;
     const house = Math.max(0, (b.house_kw || 0)) * h;
     const ev = Math.max(0, (b.ev_kw || 0)) * h;
     const pv = Math.max(0, (b.pv_kw || 0)) * h;
@@ -56,65 +54,73 @@ function planBattery(blocks, bat) {
     if (action === 'charge') c = Math.min(chgCap, room / ec);
     const grid = demand + c - d;
     const cost = (grid > 0 ? grid * b.buy : grid * (Number.isFinite(b.sell) ? b.sell : 0)) + d * wear;
-    const next = soc + c * ec - d / ed;
-    return { k: levelOf(next), grid, cost, d, c };
+    const next = Math.max(0, Math.min(cap, soc + c * ec - d / ed));
+    return { soc: next, grid, cost, d, c };
+  };
+
+  // Value tables per level, read between two levels (no rounding: a small
+  // discharge must not count as a whole step).
+  const valueAt = (W, kwh) => {
+    const x = Math.max(0, Math.min(n, kwh / STEP_KWH));
+    const i = Math.min(n - 1, Math.floor(x));
+    const f = x - i;
+    return n === 0 ? W[0] : W[i] * (1 - f) + W[i + 1] * f;
   };
 
   // Energy left at the end is worth what it saves later: an average price.
   const avgBuy = blocks.reduce((s, b) => s + b.buy, 0) / blocks.length;
   const endValue = Math.max(0, avgBuy * ed - wear);
+  const endWorth = (kwh) => Math.max(0, kwh - minK) * endValue;
   const T = blocks.length;
-  // V[t][k]: lowest cost from block t with level k.
-  let V = new Float64Array(n + 1);
-  for (let k = 0; k <= n; k++) V[k] = -Math.max(0, k * STEP_KWH - minK) * endValue;
-  const choice = [];
-  for (let t = T - 1; t >= 0; t--) {
-    const W = new Float64Array(n + 1);
-    const ch = new Array(n + 1);
+  const ACTIONS = ['auto', 'hold', 'no_discharge', 'charge'];
+  const choices = (t) => {
     const b = blocks[t];
     // With the car charging and no discharging into it, "auto" is not allowed.
     const evNow = (b.ev_kw || 0) > 0.05 && !evAllowed;
-    for (let k = 0; k <= n; k++) {
-      let best = Infinity;
-      let bestA = 'auto';
-      for (const a of ['auto', 'hold', 'no_discharge', 'charge']) {
-        if (!allowed.has(a)) continue;
-        if (a === 'auto' && evNow && (allowed.has('hold') || allowed.has('no_discharge'))) continue;
-        const r = stepOf(b, k, a);
-        const v = r.cost + V[r.k];
-        // Prefer "auto" on (near) ties: no needless commands.
-        if (v < best - 1e-6 || (Math.abs(v - best) <= 1e-6 && a === 'auto')) { best = v; bestA = a; }
-      }
-      W[k] = best;
-      ch[k] = bestA;
+    return ACTIONS.filter((a) => allowed.has(a) && !(a === 'auto' && evNow && (allowed.has('hold') || allowed.has('no_discharge'))));
+  };
+  // Best action from `soc` in block t, with the values of block t+1.
+  const best = (t, soc, Vnext) => {
+    let v = Infinity;
+    let act = 'auto';
+    let res = null;
+    for (const a of choices(t)) {
+      const r = stepOf(blocks[t], soc, a);
+      const val = r.cost + valueAt(Vnext, r.soc);
+      // Prefer "auto" on (near) ties: no needless commands.
+      if (val < v - 1e-6 || (Math.abs(val - v) <= 1e-6 && a === 'auto')) { v = val; act = a; res = r; }
     }
-    V = W;
-    choice[t] = ch;
+    return { v, act, r: res };
+  };
+  // V[t][k]: lowest cost from block t with k steps of energy.
+  const V = new Array(T + 1);
+  V[T] = new Float64Array(n + 1);
+  for (let k = 0; k <= n; k++) V[T][k] = -endWorth(k * STEP_KWH);
+  for (let t = T - 1; t >= 0; t--) {
+    V[t] = new Float64Array(n + 1);
+    for (let k = 0; k <= n; k++) V[t][k] = best(t, k * STEP_KWH, V[t + 1]).v;
   }
 
-  // Forward: the chosen actions and the expected level.
-  let k = levelOf(startK);
+  // Forward from the real level: the chosen actions and the expected level.
+  let soc = startK;
   let cost = 0;
   for (let t = 0; t < T; t++) {
-    const a = choice[t][k];
-    const r = stepOf(blocks[t], k, a);
-    result.actions.push({ start: blocks[t].start, end: blocks[t].end, action: a, soc_pct: (r.k * STEP_KWH / cap) * 100, grid_kwh: r.grid, charge_kwh: r.c, discharge_kwh: r.d, price: blocks[t].buy });
+    const { act, r } = best(t, soc, V[t + 1]);
+    result.actions.push({ start: blocks[t].start, end: blocks[t].end, action: act, soc_pct: (r.soc / cap) * 100, grid_kwh: r.grid, charge_kwh: r.c, discharge_kwh: r.d, price: blocks[t].buy });
     cost += r.cost;
-    k = r.k;
+    soc = r.soc;
   }
-  const endK = k;
   // Baseline: always "auto" (what the battery does on its own).
-  let kb = levelOf(startK);
+  let sb = startK;
   let base = 0;
   for (let t = 0; t < T; t++) {
-    const r = stepOf(blocks[t], kb, 'auto');
+    const r = stepOf(blocks[t], sb, 'auto');
     base += r.cost;
-    kb = r.k;
+    sb = r.soc;
   }
   // Compare fairly: count the energy left at the end.
-  const endWorth = (lv) => Math.max(0, lv * STEP_KWH - minK) * endValue;
-  result.cost = cost - endWorth(endK);
-  result.baseline_cost = base - endWorth(kb);
+  result.cost = cost - endWorth(soc);
+  result.baseline_cost = base - endWorth(sb);
   result.saving = result.baseline_cost - result.cost;
   return result;
 }

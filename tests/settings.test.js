@@ -551,6 +551,29 @@ async function run() {
     assert(world.limit === lim(90), `limit ${world.limit}`);
     return `limit ${world.limit}`;
   });
+  await test('J4b', 'Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself', async () => {
+    world.events = [{ summary: 'Naar werk', description: 'doel: 80', start: isoLocal(at(2, 7, 0), tz), end: isoLocal(at(2, 8, 0), tz) }];
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    await ok('POST', 'api/chargefor', { day: 'day_after', time: '07:00', soc: 80, min_soc: 30 });
+    const p1 = await plan();
+    assert(p1.charge_for && p1.charge_for.based_on && p1.charge_for.based_on.source === 'calendar', `choice ${JSON.stringify(p1.charge_for)}`);
+    const n0 = world.calls.length;
+    world.events = [];
+    const p2 = await plan();
+    const note = callsSince(n0).find((c) => c.domain === 'notify' && /Ready-for choice ended/.test(c.data.title || ''));
+    assert(!p2.charge_for && (!p2.departure || p2.departure.source !== 'choice'), `still ${JSON.stringify(p2.charge_for)}`);
+    assert(note, 'no notification');
+    return `based on "${p1.charge_for.based_on.title}", ended; notified: ${note.data.message}`;
+  });
+  await test('J4c', 'Ready for tomorrow when no departure was planned that day: the choice stays', async () => {
+    await ok('POST', 'api/chargefor', { day: 'tomorrow', time: '09:00', soc: 70, min_soc: 30 });
+    await plan();
+    const p = await plan();
+    assert(p.charge_for && !p.charge_for.based_on && p.departure.source === 'choice', `choice ${JSON.stringify(p.charge_for)}`);
+    await ok('DELETE', 'api/chargefor');
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    await plan();
+  });
   await test('J5', 'Quickly to a minimum (35 %) does not lower the limit', async () => {
     world.soc = 20;
     const r = await ok('POST', 'api/boost/preview', { mode: 'soc', value: 35 });
@@ -668,7 +691,9 @@ async function run() {
     assert(m.mode === 'plan_solar', `mode ${m.mode}`);
     const p = await plan();
     const sk = solarKwh(p);
-    assert(sk > 11 && sk < 13, `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
+    // Tomorrow's sun (6 h × 2 kW at 80 % after the house); run in the morning, today's sun counts too.
+    const todaySun = Date.now() < at(0, 15, 0);
+    assert(sk > 11 && sk < (todaySun ? 25 : 13), `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
     return `${sk.toFixed(1)} kWh on solar, ${(p.plan.planned_kwh - sk).toFixed(1)} kWh from the grid`;
   });
   await test('S4', 'Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen', async () => {
@@ -824,7 +849,8 @@ async function run() {
     const p = await plan();
     const want = p.battery_now && p.battery_now.action;
     const sent = batCalls(n0);
-    assert(want && want !== 'hold', `battery now ${JSON.stringify(p.battery_now)}`);
+    // The car no longer decides: the battery follows its own plan (which may hold at some hours).
+    assert(want && !/car/i.test(p.battery_now.reason || ''), `battery now ${JSON.stringify(p.battery_now)}`);
     assert(want !== 'auto' || world.bat.ems === 'off', `auto wanted but ems ${world.bat.ems}`);
     return `now: ${want} · ${sent.join(' · ') || 'nothing sent'}`;
   });

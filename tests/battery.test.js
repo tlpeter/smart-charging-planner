@@ -102,6 +102,13 @@ check('sun: fills from solar surplus, never above the maximum', () => {
   const r = planBattery(day((h) => ({ pv_kw: h >= 10 && h < 16 ? 4 : 0 })), { ...bat, max_pct: 90 });
   assert.ok(Math.max(...r.actions.map((a) => a.soc_pct)) <= 90.01 && r.actions[15].soc_pct > 80, r.actions.map((a) => Math.round(a.soc_pct)).join(' '));
 });
+check('short first block, the same price later: no needless "hold" (small discharges are not rounded up to a whole step)', () => {
+  const blocks = day((h) => ({ buy: h >= 2 && h < 5 ? 0.05 : 0.20 })).slice(8);
+  blocks[0] = { ...blocks[0], start: blocks[0].start + 35 * 60000 };
+  const r = planBattery(blocks, { ...bat, capacity_kwh: 16, soc_pct: 50 });
+  assert.strictEqual(r.actions[0].action, 'auto', r.actions.map((a) => a.action[0]).join(''));
+  assert.ok(!r.actions.slice(-6).some((a) => a.action === 'hold'), r.actions.map((a) => a.action[0]).join(''));
+});
 check('never below the minimum', () => {
   const r = planBattery(day((h) => ({ house_kw: 2, buy: 0.5 })), { ...bat, soc_pct: 50, min_pct: 20 });
   assert.ok(Math.min(...r.actions.map((a) => a.soc_pct)) >= 19.99, r.actions.map((a) => Math.round(a.soc_pct)).join(' '));

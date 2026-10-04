@@ -1537,6 +1537,15 @@
       if (box) box.insertAdjacentHTML('afterbegin', `<div class="error">${esc(msg)}</div>`);
     }
 
+    // When and for what a ready-for choice was made.
+    function cfOrigin(a) {
+      const when = a.created ? `Chosen ${esc(dayHm(a.created))}` : 'Chosen';
+      const what = a.based_on
+        ? `for ${a.based_on.title ? esc(a.based_on.title) : esc(SOURCE_NAMES[a.based_on.source] || a.based_on.source)} (${esc(dayHm(a.based_on.time))}); ends by itself when that departure is removed`
+        : 'when no departure was planned that day';
+      return `${when}, ${what}.`;
+    }
+
     function cfInfoHtml(c, o, until, minSoc) {
       const parts = [];
       if (o.before.length) {
@@ -1566,7 +1575,7 @@
         box.innerHTML = `
           <p>Ready <strong>${esc(dayHm(a.until))}</strong> at <strong>${esc(a.soc)}%</strong>${a.interim ? `, and at least <strong>${esc(a.min_soc)}%</strong> before ${esc(dayHm(a.interim.time))} (${esc(SOURCE_NAMES[a.interim.source] || a.interim.source)}${a.interim.title ? ': ' + esc(a.interim.title) : ''})` : ''}.</p>
           ${limitLine(c.limit)}
-          <p class="muted small">Ends by itself after ${esc(dayHm(a.until))}.</p>
+          <p class="muted small">${cfOrigin(a)} Ends by itself after ${esc(dayHm(a.until))}.</p>
           <button class="secondary" id="cf-clear">Back to normal</button>`;
         $('cf-clear').onclick = async () => {
           $('cf-clear').disabled = true;
@@ -1887,7 +1896,8 @@
         $('dep-next').innerHTML = `
           <h2>Next departure</h2>
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
-          ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>Your choice on <a href="#" data-goto="overview">Home</a>:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. Ends by itself after that time.</div>` : ''}
+          ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
+            <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${d.calendar_error ? `<div class="error">Calendar could not be read: ${esc(d.calendar_error)}</div>` : ''}
           ${d.upcoming.length > 1 ? `
           <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
@@ -1896,6 +1906,13 @@
             </table>
             <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
           </details>` : ''}`;
+        if ($('dep-cf-clear')) {
+          $('dep-cf-clear').onclick = async () => {
+            $('dep-cf-clear').disabled = true;
+            await api('DELETE', 'api/chargefor');
+            loadDepartures();
+          };
+        }
 
         const trips = d.calendar_trips || [];
         $('dep-trips').hidden = !dep.calendar.enabled;
