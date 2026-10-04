@@ -34,7 +34,9 @@ Normally the car is ready for the next departure. On Home, **Ready for** lets yo
 - Departures before then get a **minimum** (20–45 %). The app charges that first, in the cheapest hours before that departure, and the rest before the chosen day.
 - You see whether the prices up to then are known, come from the price forecast, or are not known yet.
 - The car's charge limit follows the choice (see below).
-- The choice ends by itself after the chosen time, or with **Back to normal**.
+- The choice ends by itself after the chosen time, or with **Back to normal** (on Home or on the Planning tab).
+- A choice made for a departure on that day (from the schedule, calendar or helper) also ends by itself when that departure is removed, for example when you take a day off. You get a notification. A choice for a day without a departure stays until its time.
+- Home and the Planning tab show when you made the choice and what it was for.
 
 ## Getting started
 
