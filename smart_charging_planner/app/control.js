@@ -202,9 +202,12 @@ function entityMethods(deviceEntities, states, domains = []) {
       }
       const other = has('smart', 'schedule', 'plan', 'eco', 'cable', 'lock', 'light', 'led', 'idle', 'current', 'phase', 'ocpp');
       if (!other && has('charging', 'charger', 'charge', 'enabled', 'enable', 'pause', 'start')) {
-        // A switch that turns the whole charger off is a blunt tool.
-        const blunt = has('enabled', 'enable');
-        startStop.push({ type: 'switch', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, blunt, score: blunt ? 30 : 60 });
+        // A switch that turns the whole charger off is a blunt tool, except
+        // Easee "Charger enabled": that is how Easee owners start and stop
+        // charging (pause/resume is ignored while it is off), so it is the default.
+        const easeeEnabled = domains.includes('easee') && has('charger') && has('enabled');
+        const blunt = has('enabled', 'enable') && !easeeEnabled;
+        startStop.push({ type: 'switch', entity_id: e.entity_id, label: a.friendly_name || e.entity_id, blunt, score: easeeEnabled ? 110 : blunt ? 30 : 60 });
       }
     }
     if (e.entity_id.startsWith('select.') && /\bpsm\b|_psm\b|phase/.test(name)) {

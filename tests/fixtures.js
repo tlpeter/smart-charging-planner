@@ -32,7 +32,7 @@ const CHARGERS = [
         set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
       },
     },
-    expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'action_choice', start: 'resume', noWarning: 'own_smart_charging_on', current: 'action_current:set_charger_dynamic_limit', phase: 'action_phase:1_phase/3_phase' },
+    expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'switch', switchEntity: 'switch.emvgus3h_charger_enabled', noWarning: 'own_smart_charging_on', current: 'action_current:set_charger_dynamic_limit', phase: 'action_phase:1_phase/3_phase' },
     statuses: { awaiting_start: [true, false], charging: [true, true], disconnected: [false, null], completed: [true, false], ready_to_charge: [true, false] },
   },
   {
