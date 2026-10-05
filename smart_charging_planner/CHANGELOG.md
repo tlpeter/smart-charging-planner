@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.5
+
+- **Easee: start and stop with the "Charger enabled" switch** (on/off), now the default start/stop method for Easee. Before, the app chose `easee.action_command` pause/resume, which Easee ignores while the charger is switched off: the charger stayed on "awaiting start". Charging current and phases (solar) still use Easee's own actions. A method you chose yourself in Settings › Charger stays as it is
+- Tests: the fake Easee starts and stops with that switch; the matrix test no longer fails on two timing moments (a battery that first protects the car and then follows its plan; a pause that takes one more step)
+
 ## 0.24.4
 
 - Home › Quick choices: "Solar" is only shown when solar is set up. Without solar there is nothing to choose there; setting it up stays in Settings › Solar (and in Settings › Overview)

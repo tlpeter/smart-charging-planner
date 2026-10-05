@@ -167,7 +167,7 @@ The app reads which actions and entities your charger's integration offers and p
 
 | Charger | Integration | Start / stop | Notes |
 |---|---|---|---|
-| Easee | easee (HACS) | `easee.action_command` pause / resume | The "Charger enabled" switch also works, but turns the whole charger off |
+| Easee | easee (HACS) | "Charger enabled" switch on / off | Pause/resume (`easee.action_command`) can be chosen in Settings › Charger, but does nothing while the charger is switched off. Current and phases (solar) through Easee's own actions |
 | Zaptec | zaptec (HACS) | Resume / Stop charging buttons | Resume only works after a stop command |
 | Alfen | alfen_wallbox (HACS) | Charging switch | One login at a time; solar mode may override |
 | Wallbox | wallbox | Pause/resume switch | Eco-Smart and Wallbox schedules may override |

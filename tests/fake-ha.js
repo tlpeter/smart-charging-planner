@@ -64,18 +64,22 @@ const PROFILES = {
       states: (w, status) => [
         ['sensor.laadpaal_status', status, { friendly_name: 'Laadpaal Status', device_class: 'enum' }],
         ['sensor.laadpaal_power', carKw(w), { friendly_name: 'Laadpaal Power', ...KW }],
-        ['switch.laadpaal_charger_enabled', 'on', { friendly_name: 'Laadpaal Charger enabled' }],
+        ['switch.laadpaal_charger_enabled', w.charging ? 'on' : 'off', { friendly_name: 'Laadpaal Charger enabled' }],
         ['switch.laadpaal_smart_charging', 'off', { friendly_name: 'Laadpaal Smart charging' }],
       ],
       // What a start or stop command does.
+      // Start and stop: the "Charger enabled" switch (the default for Easee).
       react(call) {
+        if (call.domain === 'switch' && call.target && call.target.entity_id === 'switch.laadpaal_charger_enabled') {
+          return call.service === 'turn_on' ? 'start' : call.service === 'turn_off' ? 'stop' : null;
+        }
         if (call.domain !== 'easee') return null;
         const c = call.data.action_command;
         return ['resume', 'start'].includes(c) ? 'start' : ['pause', 'stop'].includes(c) ? 'stop' : null;
       },
-      isStart: (c) => c.domain === 'easee' && ['resume', 'start'].includes(c.data.action_command),
-      isControl: (c) => c.domain === 'easee' && c.service === 'action_command',
-      describe: (c) => `easee.${c.service} ${JSON.stringify(c.data)}`,
+      isStart: (c) => (c.domain === 'switch' && c.service === 'turn_on' && c.target && c.target.entity_id === 'switch.laadpaal_charger_enabled') || (c.domain === 'easee' && ['resume', 'start'].includes(c.data.action_command)),
+      isControl: (c) => (c.domain === 'switch' && c.target && c.target.entity_id === 'switch.laadpaal_charger_enabled') || (c.domain === 'easee' && c.service === 'action_command'),
+      describe: (c) => (c.domain === 'easee' ? `easee.${c.service} ${JSON.stringify(c.data)}` : `${c.domain}.${c.service} ${c.target && c.target.entity_id}`),
       // Current and phases (solar)
       currentOf: (c) => (c.domain === 'easee' && c.service === 'set_charger_dynamic_limit' ? c.data.current : null),
       phasesOf: (c) => (c.domain === 'easee' && c.service === 'set_charger_phase_mode' ? (c.data.phase_mode === '1_phase' ? 1 : 3) : null),

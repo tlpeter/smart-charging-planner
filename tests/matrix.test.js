@@ -442,15 +442,22 @@ async function runCharger(fx, n) {
           return `cannot prevent it: ${r.bn.error}`;
         }
         assert(!r.timeout, `battery ${JSON.stringify(r.bn)}, sent ${sent.map(fmt)}`);
-        const err = exact(sent, r.last.action);
+        // The plan may follow a moment later (car block in the new plan):
+        // first "no discharging" for the car, then the plan's "hold". Both protect.
+        const want = battery.commandsFor(ctl, r.last.action, 3, Number(world.store.get(bx.expect.soc))).commands;
+        const tail = sent.slice(sent.length - want.length);
+        const head = sent.slice(0, sent.length - want.length);
+        const err = exact(tail, r.last.action);
         assert(!err, err);
+        const protectKeys = ['no_discharge', 'hold'].map((x) => battery.commandsFor(ctl, x, 3, Number(world.store.get(bx.expect.soc)))).filter(Boolean).map((x) => x.commands.map(cmdKey).join('|'));
+        assert(!head.length || protectKeys.includes(head.map(callKey).join('|')), `before ${r.last.action}: ${head.map(fmt)}`);
         return `${r.last.action} (${r.bn.reason}): ${sent.map(fmt).join(' · ')}`;
       });
       await test(`${id}.4`, 'Car stops: the battery follows its own plan again (not the car)', async () => {
         const n0 = world.calls.length;
         const before = (await ok('GET', 'api/battery')).last;
         await api('DELETE', 'api/boost');
-        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && !bn.error);
+        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && !bn.error && !(controllable && world.charging));
         const sent = batCalls(n0);
         if (controllable) assert(!world.charging, 'car still charging');
         if (ro || !protects) { assert(!sent.length, `sent ${sent.map(fmt)}`); return 'nothing sent'; }
