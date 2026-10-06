@@ -5,8 +5,8 @@
 // departure. Departures before it get a minimum battery level, so the car is
 // never empty in between. Ends by itself after the chosen time.
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -17,17 +17,12 @@ let state;
 
 function load() {
   if (state !== undefined) return state;
-  try {
-    state = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    state = null;
-  }
+  state = readJson(FILE, null);
   return state;
 }
 
 function save() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(state));
+  writeJsonAtomic(FILE, state);
 }
 
 // The active choice, or null. An expired choice is removed.

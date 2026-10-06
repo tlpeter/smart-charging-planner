@@ -310,6 +310,10 @@ function start(w, wsPort, restPort) {
             if (typeof v !== 'string') return fail("value should be a string at 'device_id'");
           }
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
+          if (w.failNextControl > 0 && w.profile.charger.isControl(call)) {
+            w.failNextControl--;
+            return fail('simulated charger command failure');
+          }
           w.calls.push(call);
           const tid = call.target && call.target.entity_id;
           if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) w.limit = call.data.value;
@@ -353,7 +357,15 @@ function start(w, wsPort, restPort) {
       res.end('{}');
     });
   }).listen(restPort);
-  return { close: () => { wss.close(); rest.close(); } };
+  return {
+    close: async () => {
+      for (const client of wss.clients) client.terminate();
+      await Promise.all([
+        new Promise((resolve) => wss.close(resolve)),
+        new Promise((resolve) => rest.close(resolve)),
+      ]);
+    },
+  };
 }
 
 module.exports = { PROFILES, createWorld, start, TZ };

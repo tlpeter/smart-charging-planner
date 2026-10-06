@@ -60,6 +60,7 @@ const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 const CONTROL_TOKEN = Symbol('charger control');
 const NOTIFY_TOKEN = Symbol('notification');
 const REST_URL = process.env.HA_REST_URL || 'http://supervisor/core/api';
+const RECONNECT_MS = Math.max(50, Number(process.env.SCP_RECONNECT_MS) || 10000);
 
 // Send a command to Home Assistant and wait for its result.
 function call(message, timeoutMs = 20000, token = null) {
@@ -318,7 +319,7 @@ function connect() {
     state.connected = false;
     for (const { reject } of pending.values()) reject(new Error('Connection closed'));
     pending.clear();
-    setTimeout(connect, 10000);
+    setTimeout(connect, RECONNECT_MS);
   });
 }
 

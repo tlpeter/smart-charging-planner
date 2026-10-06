@@ -7,8 +7,8 @@
 //   solar       solar surplus only (Charge now, the minimum battery level and
 //               preconditioning still work)
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -19,11 +19,7 @@ let state;
 
 function load() {
   if (state !== undefined) return state;
-  try {
-    state = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    state = null;
-  }
+  state = readJson(FILE, null);
   return state;
 }
 
@@ -37,8 +33,7 @@ function current(solarEnabled) {
 function set(mode) {
   if (!MODES.includes(mode)) throw new Error('Unknown mode');
   state = { mode, at: Date.now() };
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(state));
+  writeJsonAtomic(FILE, state);
   ha.log(`Charging mode: ${mode}`);
   return state;
 }
