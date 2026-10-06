@@ -210,6 +210,8 @@
     .periods td, .periods th { border-bottom-color: var(--border); }
     a { color: var(--accent); }
     .quick .qsec { padding: 14px 0; border-top: 1px solid var(--border); }
+    .wiz-import { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .wiz-import summary { cursor: pointer; color: var(--accent); }
     .filebtn { display: inline-flex; align-items: center; cursor: pointer; border-radius: 18px; padding: 8px 16px; font-weight: 600; font-size: 13px; background: var(--chip); color: var(--text); }
     .filebtn:hover { background: rgba(var(--rgb-text), 0.1); }
     .whocards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 12px; }
@@ -1209,7 +1211,9 @@
     };
 
     function tzFmt(ms, opts) {
-      return new Intl.DateTimeFormat('en-GB', { timeZone: lastPlan.time_zone, ...opts }).format(new Date(ms));
+      // Before the first plan (setup wizard, Settings opened first) the browser's time zone is used.
+      const tz = (lastPlan && lastPlan.time_zone) || undefined;
+      return new Intl.DateTimeFormat('en-GB', { timeZone: tz, ...opts }).format(new Date(ms));
     }
     const hm = (ms) => tzFmt(ms, { hour: '2-digit', minute: '2-digit' });
     const dayHm = (ms) => tzFmt(ms, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -2810,7 +2814,21 @@
           ${w.optional && !st[w.key] ? '<button class="secondary" id="wiz-skip">Skip</button>' : ''}
           <button class="primary" id="wiz-next">${last ? 'Finish' : 'Next'}</button>
         </div>
-        <div class="error" id="wiz-error" hidden></div>`;
+        <div class="error" id="wiz-error" hidden></div>
+        <details class="wiz-import">
+          <summary class="small">Have a settings file (Export settings from another install or a backup)? Import it instead</summary>
+          <div class="buttons"><label class="secondary filebtn">Import settings…<input type="file" id="wiz-file" accept="application/json,.json" hidden></label></div>
+          <div id="wiz-import"></div>
+        </details>`;
+      $('wiz-file').onchange = (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (file) importFlow(file, $('wiz-import'), async () => {
+          const now = await api('GET', 'api/setup');
+          if (now.vehicle && now.charger && now.prices) return finishWizard();
+          renderWizard(now);
+        });
+      };
       document.querySelectorAll('main > section').forEach((sec) => { sec.hidden = sec.id !== 'tab-' + w.key; });
       const go = async (delta, check) => {
         const now = await api('GET', 'api/setup');
@@ -2931,11 +2949,15 @@
         box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
       }
     };
-    $('settings-file').onchange = async (e) => {
-      const box = $('settings-import');
+    $('settings-file').onchange = (e) => {
       const file = e.target.files[0];
       e.target.value = '';
-      if (!file) return;
+      if (file) importFlow(file, $('settings-import'), () => {
+        $('settings-import').innerHTML = '<p class="small"><span class="ok">Settings imported.</span> Check Settings › Overview to see that everything is set up.</p>';
+      });
+    };
+    // Import: preview first, then replace after "Replace my settings".
+    async function importFlow(file, box, done) {
       let data;
       try {
         data = JSON.parse(await file.text());
@@ -2959,7 +2981,7 @@
           $('settings-import-go').disabled = true;
           try {
             await api('POST', 'api/settings/import', data);
-            box.innerHTML = '<p class="small"><span class="ok">Settings imported.</span> Check Settings › Overview to see that everything is set up.</p>';
+            done();
           } catch (err) {
             box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
           }
@@ -2967,7 +2989,7 @@
       } catch (err) {
         box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
       }
-    };
+    }
     $('diag-download').onclick = async () => {
       const out = $('diag-result');
       out.textContent = 'Collecting…';
