@@ -136,6 +136,15 @@ The battery also stops discharging when the car charges without the app (started
 
 **Control.** Only with **Allow control** and **Allow home battery control** both on. The app sends a command when the wanted action changes, and again every 15 minutes (30 for brands with timed commands) so a battery that fell back to its own mode is steered again. Diagnostics has a test button per action.
 
+## When the car cannot be reached
+
+Car integrations depend on the car maker's cloud (Renault, MySkoda, Tesla …), and that is sometimes down. The app notices when the car's battery level is *unavailable*, or has not been read by Home Assistant for longer than **Car data counts as old after** (Settings › Vehicle, default 3 hours). Then:
+
+- The plan goes on with the last good level plus the energy the charger delivered since (from the charger's power sensor, minus the loss margin). Home shows "~62% (estimated)" and why.
+- When no level is known at all, the plan assumes the car is at your minimum level (Settings › Rules), or 20 %. It would rather charge a bit too much than too little.
+- The car's own charge limit is not changed until the car is back: the call would fail, and car APIs limit the number of calls.
+- You get one notification when the car drops out and one when it is back (at most one of each per hour).
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.

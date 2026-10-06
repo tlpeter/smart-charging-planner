@@ -7,7 +7,7 @@ Two set-ups, with entity names taken from the integrations' own source code:
 - **A**: Renault Megane E-Tech + Easee Charge
 - **B**: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus
 
-Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a calendar, helpers and notify actions.
+Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a Sigenergy home battery, a calendar, helpers and notify actions.
 
 Run (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:
 
@@ -18,7 +18,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 Brand by brand, without Home Assistant: `node tests/brands.test.js` (chargers: detection, start/stop, current, phase switching, status texts), `node tests/solar.test.js` (inverters, solar forecasts, feed-in value, charging on surplus) and `node tests/battery.test.js` (home batteries: detection, commands, the guard, the battery plan).
 
-Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
+Last run (v0.25.2): **A 111 of 111**, **B 110 of 110** passed.
 
 
 ## A. Fresh install and checklist
@@ -152,10 +152,10 @@ Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 23.3 kWh on solar, 11.0 kWh from the grid | ✓ 23.3 kWh on solar, 27.6 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 23.3 kWh on solar | ✓ 23.3 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 21.3 kWh on solar, 13.1 kWh from the grid | ✓ 21.2 kWh on solar, 29.6 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 21.3 kWh on solar | ✓ 21.2 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 23.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 23.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S5 | Solar only: the plan uses only the sun | ✓ 21.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 21.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -171,7 +171,7 @@ Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.41 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.48 | ✓ charges in 3 block(s), saving €1.39 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -181,6 +181,15 @@ Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
 | T8b | Equalizer does solar, no sun (evening): the charger is on but the car waits, so the battery keeps covering the house | ✓ charger on, Equalizer waits; battery: auto (Battery plan: auto) | – (not for this set-up) |
 | T9 | Diagnostics: battery test "charge" sends the Sigenergy commands | ✓ turn_on · set_value 5 · select_option Command Charging (Grid First) | ✓ turn_on · set_value 5 · select_option Command Charging (Grid First) |
 | T10 | Battery planning off: the battery goes back to normal (Remote EMS off) | ✓ | ✓ |
+
+## V. Car not reachable (the car's cloud is down)
+
+| # | What is tested | A: Renault + Easee | B: Skoda + Wallbox |
+|---|---|---|---|
+| V1 | Refused: car data old after 100 hours; 2 hours is saved | ✓ | ✓ |
+| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✓ plans with 48.2% (last level 45% + 1.84 kWh charged since), decision not_planned | ✓ plans with 47.2% (last level 45% + 1.84 kWh charged since), decision not_planned |
+| V3 | Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour | ✓ stale: 50% · back: 50% | ✓ stale: 50% · back: 50% |
+| V4 | Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges | ✓ assumed 20%, planned 40.0 kWh | ✓ assumed 20%, planned 59.3 kWh |
 
 ## K. Price forecast and checklist
 
@@ -197,7 +206,7 @@ Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 51 kB, 10 entities, 11 log lines | ✓ 47 kB, 10 entities, 11 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 51 kB, 10 entities, 14 log lines | ✓ 48 kB, 10 entities, 14 log lines |
 
 ## Not covered by this test
 
@@ -213,13 +222,14 @@ Last run (v0.25.1): **A 107 of 107**, **B 106 of 106** passed.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
+- Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - The page itself (buttons, forms): checked with screenshots during development, not in this test.
 
 # Matrix: every charger with every home battery
 
 `node tests/matrix.test.js` (several minutes; `SCP_CHARGERS=Easee,Zaptec` for a part). The real app against a fake Home Assistant with a Renault, one charger brand and, one after the other, every home battery brand from `tests/fixtures.js`. The fake charger reacts to exactly the start/stop command the app's control check chooses; `tests/brands.test.js` checks those commands per brand.
 
-Last run (v0.25.1): **960 of 960** passed (10 chargers × 15 batteries).
+Last run (v0.25.2): **960 of 960** passed (10 chargers × 15 batteries).
 
 ## Per charger
 

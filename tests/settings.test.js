@@ -986,6 +986,74 @@ async function run() {
   world.hasBattery = false;
   await startApp({ allow_control: true, notify_start_stop: false });
 
+  // ----- V. Car not reachable (the car's cloud is down) ----------------------
+  group = "V. Car not reachable (the car's cloud is down)";
+  const vehicleBody = (o = {}) => ({ name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity, ...o });
+  const notesSince = (n0) => callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.data.title);
+  await test('V1', 'Refused: car data old after 100 hours; 2 hours is saved', async () => {
+    await refused('POST', 'api/vehicles', vehicleBody({ stale_hours: 100 }), 'between 0.5 and 48');
+    await ok('POST', 'api/vehicles', vehicleBody({ stale_hours: 2 }));
+    const v = (await ok('GET', 'api/vehicles')).vehicles[0];
+    assert(v.stale_hours === 2, `stale_hours ${v.stale_hours}`);
+  });
+  await test('V2', 'Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification', async () => {
+    world.soc = 45; world.ages = {}; world.limit = 80; world.charging = false;
+    await plan();
+    const n0 = world.calls.length;
+    world.soc = 'unavailable';
+    world.chargedKw = 11; // the charger delivers 11 kW meanwhile
+    await sleep(1500);
+    const p = await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    world.chargedKw = 0;
+    const cd = p.vehicle.car_data;
+    assert(cd && cd.ok === false && cd.reason === 'unavailable' && cd.last_soc === 45, JSON.stringify(p.vehicle));
+    // The last level plus what the charger delivered since (10 % loss margin).
+    const expected = 45 + (cd.kwh_since / 1.1 / CAR.capacity) * 100;
+    assert(cd.kwh_since > 0 && Math.abs(p.vehicle.soc - expected) < 0.11, `soc ${p.vehicle.soc}, kWh ${cd.kwh_since}, expected ${expected.toFixed(2)}`);
+    assert(!p.plan.notes.includes('missing_data'), `notes ${p.plan.notes}`);
+    const n = (await ok('GET', 'api/control')).now;
+    assert(n.code !== 'missing_data', `decision ${n.code}`);
+    assert(!callsSince(n0).some((c) => c.domain === 'number' && c.target && c.target.entity_id === CAR.limit), 'car limit sent while the car is not reachable');
+    const titles = notesSince(n0).filter((t) => t === 'Car not reachable');
+    assert(titles.length === 1, `notifications ${notesSince(n0)}`);
+    return `plans with ${p.vehicle.soc}% (last level 45% + ${cd.kwh_since} kWh charged since), decision ${n.code}`;
+  });
+  await test('V3', 'Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour', async () => {
+    const nBack = world.calls.length;
+    world.soc = 50;
+    world.ages = {};
+    await plan(); // read while live again: 50 % (back after V2)
+    world.ages = { [CAR.soc]: 3 * H }; // then Home Assistant does not read it any more
+    const p = await plan();
+    const cd = p.vehicle.car_data;
+    assert(cd && cd.ok === false && cd.reason === 'stale' && p.vehicle.soc === 50, JSON.stringify(p.vehicle));
+    world.ages = {};
+    const p2 = await plan();
+    await sleep(300);
+    assert(p2.vehicle.car_data.ok === true && p2.vehicle.soc === 50, JSON.stringify(p2.vehicle));
+    // At most one "back" message an hour: no flood when the car's cloud flaps.
+    const back = notesSince(nBack).filter((t) => t === 'Car reachable again');
+    assert(back.length === 1, `notifications ${notesSince(nBack)}`);
+    return `stale: ${p.vehicle.soc}% · back: ${p2.vehicle.soc}%`;
+  });
+  await test('V4', 'Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges', async () => {
+    await stopApp();
+    fs.rmSync(path.join(dataDir, 'cardata.json'), { force: true });
+    world.soc = 'unavailable';
+    await startApp({ allow_control: true, notify_start_stop: false });
+    const p = await plan();
+    world.soc = 40;
+    const cd = p.vehicle.car_data;
+    assert(cd && cd.assumed === true && p.vehicle.soc === 20, JSON.stringify(p.vehicle));
+    assert(p.plan.planned_kwh > 0 && p.plan.blocks.length, `planned ${p.plan.planned_kwh}`);
+    await ok('POST', 'api/vehicles', vehicleBody());
+    await plan();
+    return `assumed ${p.vehicle.soc}%, planned ${p.plan.planned_kwh.toFixed(1)} kWh`;
+  });
+
   // ----- K. Forecast and checklist -----------------------------------------
   group = 'K. Price forecast and checklist';
   await test('K1', 'Forecast on: plan waits for the cheap forecast day, never charges on it now', async () => {

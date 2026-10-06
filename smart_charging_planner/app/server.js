@@ -24,6 +24,7 @@ const boost = require('./boost');
 const chargefor = require('./chargefor');
 const equalizer = require('./equalizer');
 const diagnostics = require('./diagnostics');
+const cardata = require('./cardata');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
@@ -235,7 +236,9 @@ const routes = {
       plugged_entity: String(body.plugged_entity || '').startsWith('binary_sensor.') || String(body.plugged_entity || '').startsWith('sensor.') ? body.plugged_entity : null,
       capacity_kwh: capacity,
       charge_limit_entity: null, // checked below
+      stale_hours: body.stale_hours === undefined || body.stale_hours === '' ? cardata.DEFAULT_STALE_HOURS : Number(body.stale_hours),
     };
+    if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -506,6 +509,47 @@ const routes = {
     // Cars without integration: follow the session and the energy charged.
     const actualNow = controller.readActual({ vehicle, charger, states, now });
     const sess = session.update(actualNow.plugged, now);
+
+    // The car's cloud down (battery level unavailable or not read for a long
+    // time): go on from the last good level plus what the charger delivered.
+    let carData = null;
+    if (vehicle && mode === 'sensor') {
+      const st = states.find((x) => x.entity_id === vehicle.soc_entity);
+      const h = cardata.check(st, now, vehicle.stale_hours);
+      if (h.ok) {
+        cardata.remember(vehicle.soc_entity, h.soc, h.at);
+        carData = { ok: true };
+      } else {
+        // The newest of: the last good level, and an old (stale) reading.
+        const remembered = cardata.lastGood(vehicle.soc_entity);
+        const staleRead = h.reason === 'stale' ? { soc: h.soc, at: h.at } : null;
+        const lastGood = [remembered, staleRead].filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
+        let kwh = 0;
+        let estimate;
+        if (lastGood) {
+          if (charger && charger.power_entity && vehicle.capacity_kwh > 0) {
+            kwh = await session.energySince(charger.power_entity, lastGood.at, now).catch(() => 0);
+          }
+          const loss = 1 + (Number(s.planning.loss_percent) || 0) / 100;
+          estimate = vehicle.capacity_kwh > 0 ? Math.min(100, lastGood.soc + (kwh / loss / vehicle.capacity_kwh) * 100) : lastGood.soc;
+        } else {
+          // Nothing known: plan carefully, as if the car is at the minimum.
+          const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+          estimate = rules.min_soc_enabled && Number.isFinite(Number(rules.min_soc)) ? Number(rules.min_soc) : 20;
+        }
+        soc = Math.round(estimate * 10) / 10;
+        carData = {
+          ok: false,
+          reason: h.reason,
+          since: lastGood ? lastGood.at : h.at,
+          last_soc: lastGood ? lastGood.soc : null,
+          kwh_since: Math.round(kwh * 100) / 100,
+          estimate: soc,
+          assumed: !lastGood,
+        };
+      }
+      carDataChanged(vehicle, carData);
+    }
     let sessionInfo = null;
     if (vehicle && mode !== 'sensor') {
       const from = mode === 'manual_soc'
@@ -719,6 +763,7 @@ const routes = {
         session: sessionInfo,
         soc: Number.isFinite(soc) ? soc : null,
         soc_state: socValue ? socValue.state : null,
+        car_data: carData,
         capacity_kwh: vehicle.capacity_kwh,
         plugged: plugged ? plugged.state : null,
       } : null,
@@ -1900,6 +1945,10 @@ async function manageCarLimit(planResult, actual, states) {
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
   const vehicle = s.vehicles[0] || null;
   if (!vehicle || (vehicle.mode || 'sensor') === 'fixed_kwh') return;
+  // The car's cloud is down: do not send the limit (it would fail, and the
+  // car's API has a limit on the number of calls).
+  const cd = planResult.vehicle && planResult.vehicle.car_data;
+  if (cd && cd.ok === false) return;
   const lim = await carChargeLimit(vehicle, states);
   if (!lim || !lim.writable || lim.value == null) return;
   const { wanted, reason } = limitGoal(planResult, boost.current());
@@ -2431,6 +2480,23 @@ routes['GET /api/control'] = async () => {
   };
 };
 
+// One notification when the car's data drops out, one when it is back.
+let carOffline = null; // { since }
+function carDataChanged(vehicle, cd) {
+  const name = vehicle.name || 'The car';
+  if (cd && !cd.ok && !carOffline) {
+    carOffline = { since: Date.now() };
+    const why = cd.reason === 'stale' ? 'has not been updated for a long time' : 'is not available';
+    const what = cd.assumed ? `No earlier level is known, so the app plans as if it is at ${cd.estimate}%.` : `The app plans with an estimate (${cd.estimate}%: the last level ${cd.last_soc}% plus what the charger delivered since).`;
+    ha.warn(`Car data: battery level of ${name} ${why}; estimate ${cd.estimate}%`);
+    notifier.notify('problem', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: 'car_offline', minGapMs: 60 * 60000 }).catch(() => {});
+  } else if (cd && cd.ok && carOffline) {
+    carOffline = null;
+    ha.log(`Car data: battery level of ${name} is back`);
+    notifier.notify('problem', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: 'car_online', minGapMs: 60 * 60000 }).catch(() => {});
+  }
+}
+
 // "Download diagnostics" (Settings › Diagnostics): one file to attach to a bug
 // report. Personal details are removed (see diagnostics.js).
 routes['GET /api/diagnostics'] = async () => {
@@ -2476,6 +2542,7 @@ routes['GET /api/diagnostics'] = async () => {
       departure: p.departure ? { time: p.departure.time, soc: p.departure.soc, source: p.departure.source } : null,
       blocks: p.plan && p.plan.blocks ? p.plan.blocks.map((b) => ({ start: b.start, end: b.end, kwh: b.kwh, price: b.price, solar_kwh: b.solar_kwh || 0 })) : [],
       prices: p.prices ? { count: p.prices.length, first: p.prices[0] && p.prices[0].start, last: p.prices.length ? p.prices[p.prices.length - 1].end : null, forecast: p.prices.filter((x) => x.forecast).length } : null,
+      vehicle: p.vehicle ? { mode: p.vehicle.mode, soc: p.vehicle.soc, soc_state: p.vehicle.soc_state, car_data: p.vehicle.car_data, plugged: p.vehicle.plugged } : null,
       charge_for: p.charge_for, boost: p.boost, solar: p.solar, battery: p.battery ? { enabled: p.battery.enabled, soc: p.battery.soc, control: p.battery.control, error: p.battery.error || null } : null,
     } : null,
     now: lastDryRun,

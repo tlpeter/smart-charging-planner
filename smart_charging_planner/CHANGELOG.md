@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.2
+
+- **Car not reachable** (the car maker's cloud is down, for every car integration): when the battery level is unavailable or has not been read for longer than "Car data counts as old after" (Settings › Vehicle, default 3 hours), the plan goes on with the last good level plus the energy the charger delivered since. Before, the app stopped deciding ("leave as it is"), so a paused charger stayed paused. With no level known at all, it plans as if the car is at your minimum (or 20 %)
+- While the car cannot be reached the app does not send the car's charge limit, and Home shows the estimate and why; one notification when it drops out and one when it is back
+- The diagnostics file includes the car data state
+- Tests: settings test group V (unavailable, not read for a long time, energy added since, nothing known yet, notifications)
+
 ## 0.25.1
 
 - **Download diagnostics** (Settings › Diagnostics › Report a problem): one file with your settings, the control check, what the app found (chargers, cars, batteries, Equalizer, inverters), the entities it uses, the plan, the last decisions and log lines. Names, trip titles, places, e-mail addresses and the notify target are removed; tokens are never in it. Attach it to a bug report on GitHub

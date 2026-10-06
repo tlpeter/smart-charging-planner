@@ -224,7 +224,10 @@ const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sige
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
-  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: ago, attributes }));
+  // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
+  // for a while (a car whose cloud is down).
+  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : ago);
+  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 
 function registry(w) {
@@ -286,6 +289,12 @@ function start(w, wsPort, restPort) {
         case 'recorder/statistics_during_period': {
           const out = {};
           for (const id of m.statistic_ids) out[id] = [];
+          // w.chargedKw: the charger delivered this power the whole period (5-minute means in W).
+          if (w.chargedKw && m.statistic_ids.includes(w.profile.charger.power)) {
+            const rows = [];
+            for (let t = Date.parse(m.start_time); t < Date.parse(m.end_time); t += 300000) rows.push({ start: t, end: t + 300000, mean: w.chargedKw * 1000 });
+            out[w.profile.charger.power] = rows;
+          }
           return ok(out);
         }
         case 'call_service': {
