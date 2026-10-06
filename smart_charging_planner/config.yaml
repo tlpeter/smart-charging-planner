@@ -1,7 +1,7 @@
-name: Smart Charging Planner (dev)
-version: "0.25.3-dev"
+name: Smart Charging Planner
+version: "0.25.3"
 slug: smart_charging_planner
-description: "TEST VERSION: plans EV and home battery charging around dynamic electricity prices."
+description: Plans EV and home battery charging around dynamic electricity prices.
 url: https://github.com/tlpeter/smart-charging-planner
 arch:
   - amd64
@@ -12,7 +12,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:ev-station
-panel_title: Smart Charging (dev)
+panel_title: Smart Charging
 homeassistant_api: true
 options:
   allow_control: false
