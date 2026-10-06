@@ -7,7 +7,9 @@
 - Home has a clear Mushroom-style Ready Guard card with target progress, safety facts and the reasons behind the status; the price chart marks the latest safe start
 - The full app uses a calmer Mushroom-inspired palette, softer cards and clearer navigation; bounded battery, target, timing and solar settings use touch-friendly sliders with live values
 - A Home Assistant sensor exposes Ready Guard state, timing, margin and shortfall for dashboards and automations
-- Tests cover Ready Guard decisions, advice-only mode and impossible targets
+- Ready Guard shows time to spare and the safety margin readably ("3 d 14 h" instead of "5160 minutes")
+- Ready Guard's price fact now says "Prices not yet known up to departure" when tomorrow's prices are not published yet (it said "Known prices cover the plan"); this alone does not change the status
+- Tests cover Ready Guard decisions, advice-only mode, impossible targets, readable durations and the price fact
 
 
 ## 0.25.5
