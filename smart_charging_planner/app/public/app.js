@@ -2635,24 +2635,36 @@ function durationText(minutes) {
       try {
         const r = await api('GET', 'api/checklist');
         const look = { ok: ['check', 'green'], warn: ['alert', 'orange'], missing: ['alert', 'red'], optional: ['check', 'grey'] };
-        const row = (i) => `
-          <div class="check-item">
+        const stateLabel = { ok: 'Ready', warn: 'Check', missing: 'Required', optional: 'Optional' };
+        const tile = (i) => {
+          const tag = i.page ? 'a' : 'div';
+          const attrs = i.page ? ` href="#" data-goto="${esc(i.page)}"` : '';
+          return `<${tag} class="settings-tile state-${esc(i.state)}"${attrs}>
             ${shape(...look[i.state], true)}
-            <div class="txt"><strong>${esc(i.title)}</strong>${i.state === 'optional' ? ' <span class="muted small">(optional)</span>' : ''}<div class="d">${esc(i.detail)}</div></div>
-            ${i.page ? `<a href="#" data-goto="${esc(i.page)}" class="small">${i.state === 'ok' || i.state === 'optional' ? 'View' : 'Fix'}</a>` : ''}
-          </div>`;
+            <span class="settings-tile-copy"><strong>${esc(i.title)}</strong><small>${esc(i.detail)}</small></span>
+            <span class="settings-state">${esc(stateLabel[i.state] || i.state)}</span>
+          </${tag}>`;
+        };
         const todo = r.items.filter((i) => i.state === 'missing' || i.state === 'warn');
+        const complete = r.ready && !todo.length;
         box.innerHTML = `
-          <div class="card">
-            <h2>${shape(r.ready && !todo.length ? 'check' : 'alert', r.ready ? (todo.length ? 'orange' : 'green') : 'red', true)} ${r.ready ? (todo.length ? 'Ready, with a few points' : 'Everything is set up') : 'Not ready yet'}</h2>
-            <p class="muted small">Settings are things you set once. What you choose day to day (Charge now, Ready for tomorrow) is on Home; departures are on Planning.</p>
-            ${r.items.map(row).join('')}
+          <div class="card settings-hero ${complete ? 'is-ready' : r.ready ? 'has-warnings' : 'needs-work'}">
+            <div class="entity">
+              ${shape(complete ? 'check' : 'alert', complete ? 'green' : r.ready ? 'orange' : 'red')}
+              <div class="txt">
+                <span class="page-eyebrow">SETUP STATUS</span>
+                <div class="headline">${r.ready ? (todo.length ? 'Ready, with a few points' : 'Everything is set up') : 'Not ready yet'}</div>
+                <div class="secondary">Open a tile to view or adjust that part. Daily choices stay on Home; departures live under Plan.</div>
+              </div>
+              <span class="settings-count">${todo.length ? `${todo.length} to check` : 'All clear'}</span>
+            </div>
           </div>
+          <div class="settings-grid">${r.items.map(tile).join('')}</div>
           ${lastPlan && lastPlan.planning ? (() => { const d = lastPlan; return `
-          <div class="card">
+          <div class="card settings-note-card">
             <h2>${shape('control', 'grey', true)} Planning settings in Home Assistant</h2>
             <p class="muted small">Charging loss margin ${esc(d.planning.loss_percent)} % · ${d.planning.continuous !== false ? `one continuous period, unless splitting saves at least ${money(d.planning.min_split_saving)}` : 'split charging allowed'} · house load ${d.planning.use_house_load !== false ? 'on' : 'off'} · Allow control ${d.control_allowed ? 'on' : 'off'}.</p>
-            <p class="muted small">These, and the safety switches, are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
+            <p class="muted small">These options and the safety switches are managed in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
           </div>`; })() : ''}`;
       } catch (err) {
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
@@ -2727,6 +2739,39 @@ function durationText(minutes) {
     let historySub = 'savings';
 
     // Show a tab. Sub pages can be named directly ('charger', 'log').
+    const PAGE_META = {
+      departures: ['PLAN', 'Plan departures', 'Choose when the car must be ready and which battery level you need.', 'departures', 'blue'],
+      savings: ['ACTIVITY', 'Savings', 'See what smart charging changed compared with charging immediately.', 'savings', 'green'],
+      log: ['ACTIVITY', 'Charging activity', 'Follow decisions, charger commands and conflicts in one place.', 'log', 'blue'],
+      setup: ['SETTINGS', 'Settings overview', 'Check the complete setup and jump straight to anything that needs attention.', 'settings', 'blue'],
+      vehicle: ['SETTINGS', 'Vehicle', 'Choose the battery and connection data the plan should use.', 'car', 'green'],
+      charger: ['SETTINGS', 'Charger', 'Connect the charger and verify how it can be controlled.', 'charger', 'blue'],
+      grid: ['SETTINGS', 'Grid', 'Set the grid meter and the electrical limits the plan must respect.', 'grid', 'orange'],
+      prices: ['SETTINGS', 'Prices', 'Configure real electricity prices and an optional multi-day forecast.', 'prices', 'green'],
+      solar: ['SETTINGS', 'Solar', 'Plan with solar production and control charging on live surplus.', 'sun', 'amber'],
+      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'purple'],
+      ctlset: ['SETTINGS', 'Charging rules', 'Fine-tune safety, timing and the way the app controls charging.', 'control', 'green'],
+      status: ['SETTINGS', 'Notifications', 'Choose where updates are sent and inspect published sensors.', 'status', 'blue'],
+      diag: ['SETTINGS', 'Diagnostics', 'Check the connection, test control and export troubleshooting data.', 'alert', 'grey'],
+    };
+
+    function ensurePageHeading(name) {
+      const section = $('tab-' + name);
+      const meta = PAGE_META[name];
+      if (!section || !meta) return;
+      section.classList.add('app-page', 'page-' + name);
+      if (section.querySelector(':scope > .page-heading')) return;
+      section.insertAdjacentHTML('afterbegin', `
+        <header class="page-heading">
+          ${shape(meta[3], meta[4])}
+          <div>
+            <span class="page-eyebrow">${esc(meta[0])}</span>
+            <h2>${esc(meta[1])}</h2>
+            <p>${esc(meta[2])}</p>
+          </div>
+        </header>`);
+    }
+
     function showTab(name) {
       if (name === 'control') name = 'ctlset';
       let main = name;
@@ -2740,6 +2785,7 @@ function durationText(minutes) {
       $('history-nav').hidden = main !== 'history';
       document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
       const show = sub || main;
+      ensurePageHeading(show);
       document.querySelectorAll('main > section').forEach((s) => { s.hidden = s.id !== 'tab-' + show; });
       if (show === 'status') loadNotifyStatus();
       if (show === 'diag') { loadStatus(); loadControl(); }

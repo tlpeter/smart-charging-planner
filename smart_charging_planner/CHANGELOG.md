@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.26.2-dev
+
+- Plan, Activity and every Settings subpage now share the same Mushroom-style page headers, cards, spacing, controls and responsive layout as Home
+- Settings Overview is a clear tile dashboard with status badges and direct links to Vehicle, Charger, Grid, Prices, Solar, Battery, Rules, Notifications and Diagnostics
+- Plan uses a compact two-column desktop layout with a prominent next-departure card, clearer forms and mobile-friendly stacking
+- Activity gives savings, charging decisions and log tables a stronger visual hierarchy without hiding technical detail
+- Forms use consistent inset field tiles, switches, sliders and sticky save actions; status rows and tables use the same card language throughout
+- Each functional area has a calm accent colour, including solar, battery, grid, prices and charging rules
+
 ## 0.26.1-dev
 
 - **Home rebuilt around one Ready Guard card**: the duplicate status card is gone; technical plan information is available in a compact expandable section
