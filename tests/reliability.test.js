@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { evaluateReadyGuard } = require('../smart_charging_planner/app/reliability');
+const { evaluateReadyGuard, duration } = require('../smart_charging_planner/app/reliability');
 const controller = require('../smart_charging_planner/app/controller');
 
 const H = 3600000;
@@ -112,6 +112,30 @@ check('does nothing without a departure and accepts an already reached target', 
   const done = evaluateReadyGuard({ now, deadline: now + H, neededKwh: 0, powerKw: 11, plugged: true });
   assert.equal(done.status, 'on_track');
   assert.equal(done.protect, false);
+});
+
+check('time to spare in days and hours, not thousands of minutes', () => {
+  const r = evaluateReadyGuard({
+    now, deadline: now + 110 * H, neededKwh: 10, plannedKwh: 10, powerKw: 11,
+    blocks: [{ start: now, end: now + 2 * H, price: 0.2 }], plugged: true, controlAllowed: true,
+  });
+  assert.match(r.message, /4 d 12 h to spare/);
+  assert.equal(duration(45), '45 min');
+  assert.equal(duration(200), '3 h 20 min');
+  assert.equal(duration(120), '2 h');
+  assert.equal(duration(5160), '3 d 14 h');
+});
+
+check('prices not yet known up to departure: shown on the chip, status stays on track', () => {
+  const r = evaluateReadyGuard({
+    now, deadline: now + 40 * H, neededKwh: 10, plannedKwh: 10, powerKw: 11,
+    blocks: [{ start: now + 2 * H, end: now + 4 * H, price: 0.2 }], plugged: true, controlAllowed: true,
+    notes: ['prices_incomplete'],
+  });
+  const chip = r.factors.find((f) => f.key === 'prices');
+  assert.equal(chip.state, 'warn');
+  assert.equal(chip.label, 'Prices not yet known up to departure');
+  assert.equal(r.status, 'on_track');
 });
 
 console.log('Ready Guard tests passed');

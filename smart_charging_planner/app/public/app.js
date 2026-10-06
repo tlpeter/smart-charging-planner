@@ -1,3 +1,14 @@
+// Readable duration: "45 min", "3 h 20 min", "3 d 14 h".
+function durationText(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return `${m} min`;
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const rest = m % 60;
+  if (d) return h ? `${d} d ${h} h` : `${d} d`;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
 // All URLs are relative, so requests go through the ingress path.
 
     // Material Design Icons (as used by Home Assistant and Mushroom), from @mdi/js 7.4.47 (Apache-2.0).
@@ -757,7 +768,7 @@
         d.departure ? fact('Ready by', dayHm(d.departure.time)) : fact('Ready by', 'Not set'),
         r.latest_safe_start ? fact('Latest safe start', dayHm(r.latest_safe_start)) : '',
         r.expected_ready ? fact('Continuous charging', dayHm(r.expected_ready)) : '',
-        r.safety_margin_minutes != null ? fact('Safety margin', `${r.safety_margin_minutes} min`) : '',
+        r.safety_margin_minutes != null ? fact('Safety margin', durationText(r.safety_margin_minutes)) : '',
       ].join('');
       const chips = (r.factors || []).map((f) =>
         `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');

@@ -9,10 +9,23 @@ const HOUR = 60 * MINUTE;
 const MIN_MARGIN_MS = 30 * MINUTE;
 const POWER_CONFIDENCE = 0.90;
 const EPSILON_KWH = 0.05;
+// Plan notes that are a real risk: the known hours do not hold the energy yet.
+const PRICE_RISK = ['not_enough_known_time', 'forecast_error'];
 
 const finite = (v) => (v === null || v === undefined || v === '') ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
 const iso = (v) => Number.isFinite(v) ? v : null;
 const round = (v, digits = 1) => Number.isFinite(v) ? Number(v.toFixed(digits)) : null;
+
+// Readable duration: "45 min", "3 h 20 min", "3 d 14 h".
+function duration(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return `${m} min`;
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const rest = m % 60;
+  if (d) return h ? `${d} d ${h} h` : `${d} d`;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
 
 function evaluateReadyGuard(input = {}) {
   const now = finite(input.now) ?? Date.now();
@@ -46,8 +59,12 @@ function evaluateReadyGuard(input = {}) {
   const forecastPlan = blocks.some((b) => b && b.forecast);
   factors.push({
     key: 'prices',
-    state: notes.includes('not_enough_known_time') || notes.includes('forecast_error') ? 'warn' : 'good',
-    label: forecastPlan ? 'Plan partly uses forecast prices' : 'Known prices cover the plan',
+    // Prices not yet known up to the departure is normal (tomorrow's prices
+    // come around 13:00): shown, but it does not change the status.
+    state: PRICE_RISK.some((n) => notes.includes(n)) || notes.includes('prices_incomplete') ? 'warn' : 'good',
+    label: forecastPlan ? 'Plan partly uses forecast prices'
+      : notes.includes('prices_incomplete') ? 'Prices not yet known up to departure'
+        : 'Known prices cover the plan',
   });
 
   const base = {
@@ -117,12 +134,12 @@ function evaluateReadyGuard(input = {}) {
   const shortfallKwh = Math.max(0, neededKwh - maxPossibleKwh);
   const planShort = plannedKwh + EPSILON_KWH < neededKwh;
   const dataRisk = !!(input.carData && input.carData.ok === false);
-  const priceRisk = notes.includes('not_enough_known_time') || notes.includes('forecast_error');
+  const priceRisk = PRICE_RISK.some((n) => notes.includes(n));
   const noBuffer = now >= latestSafeStart;
   let baseStatus = 'on_track';
   let label = 'On track';
   let message = plannedReady
-    ? `The plan reaches the target with ${Math.max(0, Math.round((deadline - plannedReady) / MINUTE))} minutes to spare.`
+    ? `The plan reaches the target with ${duration((deadline - plannedReady) / MINUTE)} to spare.`
     : 'The target fits before departure.';
   let reason = 'Ready Guard confirms the plan is on track';
   let protect = false;
@@ -183,4 +200,4 @@ function evaluateReadyGuard(input = {}) {
   };
 }
 
-module.exports = { evaluateReadyGuard, POWER_CONFIDENCE, MIN_MARGIN_MS };
+module.exports = { evaluateReadyGuard, duration, POWER_CONFIDENCE, MIN_MARGIN_MS };
