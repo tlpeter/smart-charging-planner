@@ -11,14 +11,15 @@
 //   3. battery below the minimum (and price ok)   -> charge
 //   4. preconditioning active                     -> charge
 //   5. Charge now / quickly to a minimum (Home)   -> charge
-//   6. solar surplus (Plan + solar, Solar only)   -> charge on solar
+//   6. Ready Guard at/after the latest safe start -> charge continuously
+//   7. solar surplus (Plan + solar, Solar only)   -> charge on solar
 //      (a planned grid block goes first in Plan + solar; Solar only: else pause)
-//   7. battery at the target                      -> pause
-//   8. within the force window before departure   -> charge
-//   9. inside a locked (already started) block    -> keep charging
-//  10. inside a planned block                     -> charge (and lock it)
-//  11. already charging and price close enough    -> keep charging (hysteresis)
-//  12. otherwise                                  -> pause
+//   8. battery at the target                      -> pause
+//   9. within the force window before departure   -> charge
+//  10. inside a locked (already started) block    -> keep charging
+//  11. inside a planned block                     -> charge (and lock it)
+//  12. already charging and price close enough    -> keep charging (hysteresis)
+//  13. otherwise                                  -> pause
 
 const fs = require('fs');
 const path = require('path');
@@ -55,6 +56,8 @@ const DEFAULT_RULES = {
   preheat_entity: null,
   force_minutes: 0,
   hysteresis: 0.03,
+  ready_guard_enabled: true,
+  ready_guard_margin_minutes: 30,
   car_limit_off: false, // true: never change the car's own charge limit
   min_choice: 30, // default minimum (%) for the quick choices on Home
 };
@@ -168,6 +171,17 @@ function decide(ctx) {
     return charge('Charge now, started by you', 'boost', { amps: blk ? ampsFor(blk.power_kw, phases, maxAmps) : maxAmps, clear_lock: true });
   }
 
+  // Ready Guard: once the separate safety margin is gone, continuous
+  // full-power charging wins over price optimisation and solar-only mode.
+  const guard = plan && plan.reliability;
+  if (guard && guard.protect) {
+    const end = guard.guard_until || departure || (now + 3600000);
+    return charge(guard.reason || 'Ready Guard is protecting the departure target', 'ready_guard', {
+      block_end: end,
+      clear_lock: true,
+    });
+  }
+
   // Solar: charge on surplus (live, ctx.solar from solarctl). In "plan and
   // solar" a planned block with grid power goes first (full power); in
   // "solar only" nothing is charged from the grid by the plan.
@@ -209,7 +223,7 @@ function decide(ctx) {
   // 9. Hysteresis: already charging and the price is close to the planned ones.
   const hyst = Number(rules.hysteresis) || 0;
   // Only to keep a planned session going, not after charging on solar.
-  const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window'].includes(ctx.prevCode);
+  const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window', 'ready_guard'].includes(ctx.prevCode);
   if (actual.charging === true && hyst > 0 && keepGoing && Number.isFinite(priceNow) && p.blocks.length) {
     const maxPlanned = Math.max(...p.blocks.map((b) => b.price));
     if (priceNow <= maxPlanned + hyst) return charge(`Already charging and the price is within ${hyst.toFixed(2)} of the planned price`, 'hysteresis');

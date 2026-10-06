@@ -8,6 +8,55 @@
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+    // Bounded, intuitive settings become Mushroom-style sliders. Precise
+    // amounts and identifiers remain normal inputs.
+    const RANGE_FIELDS = {
+      soc: '%', default_soc: '%', min_choice: '%', min_soc: '%',
+      force_minutes: ' min', ready_guard_margin_minutes: ' min', forecast_factor: '×', max_soc: '%',
+      grid_allow: ' W', delay_start_minutes: ' min', delay_stop_minutes: ' min',
+      capacity_kwh: ' kWh', efficiency: '', charge_kw: ' kW', discharge_kw: ' kW',
+      min_pct: '%', max_pct: '%', ev_from_pct: '%', ev_to_pct: '%',
+      loss_percent: '%', stale_hours: ' h',
+    };
+    function rangeText(input) {
+      const n = Number(input.value);
+      if (input.name === 'efficiency' || input.name === 'forecast_factor') return `${Math.round(n * 100)}%`;
+      return `${Number.isFinite(n) ? n : '–'}${RANGE_FIELDS[input.name] || ''}`;
+    }
+    function refreshRangeValues(root = document) {
+      root.querySelectorAll('input[data-mushroom-range]').forEach((input) => {
+        const out = input.closest('.field') && input.closest('.field').querySelector('.range-value');
+        if (out) out.textContent = rangeText(input);
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const value = Number(input.value);
+        if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(value)) {
+          input.style.setProperty('--range-pos', `${Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))}%`);
+        }
+      });
+    }
+    function enhanceRangeControls(root = document) {
+      root.querySelectorAll('input[type="number"]').forEach((input) => {
+        if (!(input.name in RANGE_FIELDS) || !input.hasAttribute('min') || !input.hasAttribute('max')) return;
+        input.type = 'range';
+        input.dataset.mushroomRange = '1';
+        const field = input.closest('.field');
+        const label = field && field.querySelector('label');
+        if (label && !label.querySelector('.range-value')) {
+          const out = document.createElement('output');
+          out.className = 'range-value';
+          label.appendChild(out);
+        }
+      });
+      refreshRangeValues(root);
+    }
+    document.addEventListener('input', (event) => {
+      if (event.target.matches('input[data-mushroom-range]')) refreshRangeValues(event.target.closest('.field') || document);
+    });
+    document.addEventListener('change', (event) => {
+      if (event.target.matches('input[data-mushroom-range]')) refreshRangeValues(event.target.closest('.field') || document);
+    });
+
     async function api(method, url, body) {
       // Changes are always sent as JSON: the app refuses anything else.
       const write = method !== 'GET';
@@ -638,6 +687,11 @@
         marks.push(`<line x1="${nowX}" x2="${nowX}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5"/>
           <text x="${nowX + 4}" y="${m.t + 10}" font-size="11" fill="var(--text)">now</text>`);
       }
+      if (d.reliability && d.reliability.latest_safe_start > t0 && d.reliability.latest_safe_start < t1) {
+        const sx = X(d.reliability.latest_safe_start);
+        marks.push(`<line x1="${sx}" x2="${sx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <text x="${sx + 4}" y="${m.t + 24}" font-size="11" fill="var(--warning)">safe start</text>`);
+      }
       if (d.departure && d.plan.deadline && d.plan.deadline > t0 && d.plan.deadline <= t1) {
         const dx = X(d.plan.deadline);
         marks.push(`<line x1="${dx}" x2="${dx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 3"/>
@@ -686,6 +740,45 @@
       return shape('sleep', 'grey');
     }
 
+    function readyGuardHtml(d) {
+      const r = d.reliability;
+      if (!r) return '';
+      const visual = {
+        on_track: ['check', 'green'],
+        at_risk: ['clock', 'amber'],
+        action_needed: ['alert', 'orange'],
+        not_achievable: ['alert', 'red'],
+        advice_only: ['status', 'blue'],
+        no_goal: ['clock', 'grey'],
+        off: ['sleep', 'grey'],
+      }[r.status] || ['status', 'grey'];
+      const fact = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+      const facts = [
+        d.departure ? fact('Ready by', dayHm(d.departure.time)) : fact('Ready by', 'Not set'),
+        r.latest_safe_start ? fact('Latest safe start', dayHm(r.latest_safe_start)) : '',
+        r.expected_ready ? fact('Continuous charging', dayHm(r.expected_ready)) : '',
+        r.safety_margin_minutes != null ? fact('Safety margin', `${r.safety_margin_minutes} min`) : '',
+      ].join('');
+      const chips = (r.factors || []).map((f) =>
+        `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');
+      const current = d.vehicle && Number.isFinite(Number(d.vehicle.soc)) ? Number(d.vehicle.soc) : null;
+      const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
+      const progress = current != null && target ? Math.max(0, Math.min(100, (current / target) * 100)) : 0;
+      return `<div class="card ready-card ready-${esc(r.status)}">
+        <div class="ready-head">
+          <div class="entity">${shape(visual[0], visual[1])}<div class="txt">
+            <div class="ready-kicker">READY GUARD</div>
+            <div class="ready-title">${esc(r.label)}</div>
+            <div class="secondary">${esc(r.message)}</div>
+          </div></div>
+          <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'AUTOMATIC' : 'ADVICE ONLY'}</span>
+        </div>
+        ${current != null && target ? `<div class="ready-level"><div class="ready-level-label"><span>Battery ${esc(current)}%</span><span>Target ${esc(target)}%</span></div><div class="ready-track"><span style="width:${progress}%"></span></div></div>` : ''}
+        <div class="ready-facts">${facts}</div>
+        <div class="reliability-chips">${chips}</div>
+      </div>`;
+    }
+
     function overviewHtml(d) {
       if (d.missing.length) {
         const tabs = { prices: 'Prices', vehicle: 'Vehicle' };
@@ -724,7 +817,8 @@
       const cd = v.car_data;
       const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
       return `
-        <div class="card">
+        ${readyGuardHtml(d)}
+        <div class="card plan-card">
           <div class="row" style="border:none;padding:0;align-items:center">
             <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
             <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
@@ -1222,6 +1316,8 @@
         const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
         lastPlan = d;
         $('overview-body').innerHTML = overviewHtml(d);
+        enhanceRangeControls($('overview-body'));
+        refreshRangeValues($('overview-body'));
         drawChart(d);
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
@@ -1555,6 +1651,8 @@
       f.preheat_entity.innerHTML = entityOptions(d.options.preheat, r.preheat_entity, '— none —');
       f.force_minutes.value = r.force_minutes;
       f.hysteresis.value = r.hysteresis;
+      f.ready_guard_enabled.checked = r.ready_guard_enabled !== false;
+      f.ready_guard_margin_minutes.value = r.ready_guard_margin_minutes ?? 30;
       f.car_limit_off.checked = !!r.car_limit_off;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
@@ -1585,6 +1683,8 @@
           min_soc_enabled: f.min_soc_enabled.checked, min_soc: f.min_soc.value, min_soc_entity: f.min_soc_entity.value,
           min_soc_max_price: f.min_soc_max_price.value, preheat_entity: f.preheat_entity.value,
           force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
+          ready_guard_enabled: f.ready_guard_enabled.checked,
+          ready_guard_margin_minutes: f.ready_guard_margin_minutes.value,
           car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
         });
         document.activeElement.blur();
@@ -2624,6 +2724,7 @@
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
       if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
+      [0, 250, 1000].forEach((delay) => setTimeout(() => refreshRangeValues(), delay));
     }
     document.querySelectorAll('#main-nav .tab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
     document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
@@ -2643,6 +2744,8 @@
       sectionShell(kind);
       loadSaved(kind);
     }
+    enhanceRangeControls();
+    setTimeout(() => refreshRangeValues(), 0);
     // The start/stop method is part of setting up the charger.
     $('charger-extra').appendChild($('method-card'));
     loadStatus();

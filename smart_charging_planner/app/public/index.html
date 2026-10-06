@@ -12,8 +12,8 @@
     <div id="wizard" class="card" hidden></div>
     <nav class="tabs" id="main-nav">
       <button class="tab active" data-tab="overview">Home</button>
-      <button class="tab" data-tab="departures">Planning</button>
-      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="departures">Plan</button>
+      <button class="tab" data-tab="history">Activity</button>
       <button class="tab" data-tab="settings">⚙ Settings</button>
     </nav>
     <nav class="subtabs" id="history-nav" hidden>
@@ -142,6 +142,11 @@
           </div>
           <div class="field"><label>Keep charging while the car preconditions (heats or cools)</label><select name="preheat_entity"></select>
             <p class="muted small">While this entity is "on", the charger stays on, so heating or cooling the car uses grid power instead of the battery. For example the car's HVAC status, or your own helper. Only entities of your car and entities about preconditioning, HVAC or airco are listed.</p></div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="ready_guard_enabled"> <strong>Use Ready Guard for every departure</strong></label>
+          <div class="sub" data-when="ready_guard_enabled">
+            <div class="field"><label>Minimum safety margin before departure</label><input name="ready_guard_margin_minutes" type="number" min="30" max="120" step="5"></div>
+            <p class="muted small">Ready Guard also adds 15% of the required charging time when that is more. At the latest safe start it temporarily ignores price and solar-only waiting.</p>
+          </div>
           <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>
 

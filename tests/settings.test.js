@@ -428,7 +428,7 @@ async function run() {
     await ok('POST', 'api/control/settings', rules({ force_minutes: 180 }));
     const n = await decision();
     await ok('DELETE', 'api/departures/override');
-    assert(n.want === 'charge' && ['force_window', 'planned', 'locked_block'].includes(n.code), `${n.want}/${n.code}`);
+    assert(n.want === 'charge' && ['ready_guard', 'force_window', 'planned', 'locked_block'].includes(n.code), `${n.want}/${n.code}`);
     return n.code;
   });
   await test('G6', 'Not in a planned block and not charging → pause', async () => {

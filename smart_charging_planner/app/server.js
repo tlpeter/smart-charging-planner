@@ -13,6 +13,7 @@ const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./
 const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, periods } = require('./planner');
+const { evaluateReadyGuard } = require('./reliability');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
 const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
@@ -735,6 +736,26 @@ const routes = {
       }
     }
 
+    // Ready Guard independently checks whether the cost plan still has enough
+    // real-world margin. It may later overrule price/solar waiting, but never
+    // claims that an impossible or unplugged target is guaranteed.
+    const readyRules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
+    const reliability = evaluateReadyGuard({
+      now,
+      enabled: readyRules.ready_guard_enabled,
+      marginMinutes: readyRules.ready_guard_margin_minutes,
+      deadline: departure ? departure.time : null,
+      neededKwh,
+      plannedKwh: plan.planned_kwh,
+      blocks: plan.blocks,
+      powerKw,
+      plugged: actualNow.plugged,
+      charging: actualNow.charging,
+      controlAllowed: options.allow_control,
+      carData,
+      notes: plan.notes,
+    });
+
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
     const bcfg = batterySettings(s);
@@ -804,6 +825,7 @@ const routes = {
       } : { available: false, reason: houseLoad.reason },
       plan: { ...activePlan, periods: periods(activePlan.blocks) },
       normal_plan: { ...plan, periods: periods(plan.blocks) },
+      reliability,
       boost: boostInfo,
       plugged_now: actualNow.plugged,
       control_allowed: options.allow_control,
@@ -2043,11 +2065,17 @@ function refreshPlan(reason, { fresh = false } = {}) {
         ha.warn('Control dry run failed:', err.message);
       }
       const p = result.plan;
-      if (result.departure && p.notes.includes('not_enough_time') && !result.boost) {
-        const short = Math.max(0, (p.needed_kwh || 0) - (p.planned_kwh || 0));
-        await notifier.notify('problem', 'Car will not be ready',
-          `Only ${p.planned_kwh.toFixed(1)} of ${(p.needed_kwh || 0).toFixed(1)} kWh fits before the departure at ${hmLocal(result.departure.time)} (${short.toFixed(1)} kWh short).`,
-          { key: `notready:${result.departure.time}`, minGapMs: 24 * 3600000 });
+      const rg = result.reliability;
+      if (rg && rg.base_status === 'not_achievable' && !result.boost) {
+        await notifier.notify('problem', 'Ready Guard: target at risk',
+          `${rg.message} Departure is ${hmLocal(result.departure.time)}.`,
+          { key: `ready:not-achievable:${result.departure.time}`, minGapMs: 6 * 3600000 });
+      } else if (rg && rg.protect && !result.boost) {
+        await notifier.notify('problem', 'Ready Guard active', rg.message,
+          { key: `ready:active:${result.departure.time}`, minGapMs: 6 * 3600000 });
+      } else if (rg && rg.base_status === 'action_needed' && result.departure && !result.boost) {
+        await notifier.notify('problem', 'Ready Guard needs you', rg.message,
+          { key: `ready:action:${result.departure.time}`, minGapMs: 6 * 3600000 });
       }
       ha.debug(`Plan refreshed (${reason}):`, p.blocks.length ? `${p.planned_kwh.toFixed(1)} kWh in ${p.periods.length} period(s)` : 'nothing to charge', p.notes.join(',') || '');
       return result;
@@ -2833,6 +2861,8 @@ routes['POST /api/control/settings'] = async (req) => {
     preheat_entity: ent(b.preheat_entity, /^(input_boolean|switch|binary_sensor)\./),
     force_minutes: num(b.force_minutes, 'Force window', 0, 600),
     hysteresis: num(b.hysteresis, 'Hysteresis', 0, 1),
+    ready_guard_enabled: b.ready_guard_enabled !== false,
+    ready_guard_margin_minutes: num(b.ready_guard_margin_minutes ?? 30, 'Ready Guard margin', 30, 120),
     car_limit_off: b.car_limit_off === true,
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
