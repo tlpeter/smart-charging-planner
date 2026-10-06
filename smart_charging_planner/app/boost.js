@@ -3,8 +3,8 @@
 // "Charge now": a manual override that charges right away until a goal is
 // reached, the car is unplugged, or the user stops it.
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -15,17 +15,12 @@ let state;
 
 function load() {
   if (state !== undefined) return state;
-  try {
-    state = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    state = null;
-  }
+  state = readJson(FILE, null);
   return state;
 }
 
 function save() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(state));
+  writeJsonAtomic(FILE, state);
 }
 
 function current() {

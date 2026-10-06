@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.5
+
+- Reliability: a charger command that Home Assistant rejects or cannot deliver is retried at the next control step instead of being suppressed for 15 minutes
+- Reliability: after Home Assistant reconnects, the plan is recalculated immediately before live control resumes
+- Storage: Charge now, Ready for, charging mode and remembered car data are saved atomically, preventing partial JSON after a power loss
+- Settings import now validates nested structures and rejects malformed backups before anything is changed
+- Maintenance: the frontend is split into HTML, CSS and JavaScript; persistence and import validation have their own modules
+- Tests: reconnect and failed-command regressions, atomic persistence, syntax checking and minimum line/function/branch coverage
+
+
 ## 0.25.4
 
 - **Import settings in the setup wizard**: a fresh install (for example the dev version) shows the setup wizard first, so Settings › Diagnostics could not be reached. The wizard now has "Have a settings file? Import it instead"; after the import the wizard closes by itself when car, charger and prices are in the file

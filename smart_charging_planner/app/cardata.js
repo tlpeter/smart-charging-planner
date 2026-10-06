@@ -6,8 +6,8 @@
 // the plan: the app goes on from the last good level plus the energy the
 // charger delivered since then. Works for every car integration.
 
-const fs = require('fs');
 const path = require('path');
+const { readJson, writeJsonAtomic } = require('./jsonstore');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'cardata.json');
@@ -18,18 +18,13 @@ let last; // { entity_id, soc, at }
 
 function load() {
   if (last !== undefined) return last;
-  try {
-    last = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    last = null;
-  }
+  last = readJson(FILE, null);
   return last;
 }
 
 function save() {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(last));
+    writeJsonAtomic(FILE, last);
   } catch { /* best effort */ }
 }
 

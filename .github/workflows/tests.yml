@@ -13,6 +13,30 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    name: Syntax, persistence, coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: smart_charging_planner/app
+      - name: Check JavaScript syntax
+        shell: bash
+        run: find smart_charging_planner/app tests -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: node tests/persistence.test.js
+      - name: Critical-module coverage
+        run: >-
+          node --test --experimental-test-coverage
+          --test-coverage-include='smart_charging_planner/app/*.js'
+          --test-coverage-lines=40
+          --test-coverage-functions=40
+          --test-coverage-branches=30
+          tests/brands.test.js tests/solar.test.js tests/battery.test.js
+
   unit:
     name: Brands, solar, battery, price forecast
     runs-on: ubuntu-latest
