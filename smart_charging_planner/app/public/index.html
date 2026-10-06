@@ -711,11 +711,17 @@
           { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
         ],
         extraInputs: () => `
-          <div class="field"><label>Battery capacity in kWh (optional, needed later for planning)</label>
-            <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>`,
+          <div class="two">
+            <div class="field"><label>Battery capacity in kWh (needed to estimate the level when the car cannot be reached)</label>
+              <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
+            <div class="field"><label>Car data counts as old after (hours)</label>
+              <input name="stale_hours" type="number" min="0.5" max="48" step="0.5" value="3"></div>
+          </div>
+          <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
           ['Battery level from', { sensor: 'the car (sensor)', manual_soc: 'entered by you at plug-in', fixed_kwh: `fixed amount: ${esc(v.fixed_kwh)} kWh per session` }[v.mode || 'sensor']],
           ['Battery capacity', v.capacity_kwh ? `${esc(v.capacity_kwh)} kWh` : null],
+          ['Car data old after', (v.mode || 'sensor') === 'sensor' ? `${esc(v.stale_hours ?? 3)} hours` : null],
         ],
         manual: (data) => ({
           intro: 'Pick any sensor that shows the battery level in %.',
@@ -1068,7 +1074,7 @@
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -1385,7 +1391,8 @@
         }
         if (d.house_load.available && p.blocks.length && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += '; less in some blocks because of house load';
       }
-      const socText = v.soc != null ? `${v.soc}%${v.mode === 'manual_soc' ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
+      const cd = v.car_data;
+      const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
       return `
         <div class="card">
           <div class="row" style="border:none;padding:0;align-items:center">
@@ -1398,6 +1405,7 @@
             <div class="secondary">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</div></div>
           </div>
           ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
+          ${cd && !cd.ok ? `<div class="note">${shape('alert', 'orange', true)} <strong>Car not reachable</strong>: the battery level ${cd.reason === 'stale' ? 'has not been updated' : 'has not been available'}${cd.since ? ` since ${esc(dayHm(cd.since))}` : ''} (the car's cloud may be down). ${cd.assumed ? `No earlier level is known, so the plan assumes ${esc(cd.estimate)}%.` : `The plan uses ${esc(cd.estimate)}%: the last level ${esc(cd.last_soc)}%${cd.kwh_since > 0 ? ` plus ${esc(tidy(cd.kwh_since))} kWh charged since` : ''}.`} The car's charge limit is not changed until it is back.</div>` : ''}
           ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))} (${tidy(p.stage.first_kwh)} kWh), the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
           ${!d.boost ? limitLine(d.limit, true) : ''}
           ${d.boost ? (p.cost != null ? `
