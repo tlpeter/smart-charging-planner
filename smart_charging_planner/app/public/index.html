@@ -536,6 +536,15 @@
         <div class="row"><span class="label">Refresh interval</span><span id="refresh">–</span></div>
         <div id="status-error" class="error" hidden></div>
       </div>
+      <div class="card">
+        <h2 data-icon="log" data-color="blue">Report a problem</h2>
+        <p class="muted small">Something not working? Download the diagnostics and attach the file to a bug report on GitHub. It contains your settings, what the app found, the last decisions and log lines, so the problem can be found without asking you much. Names, trip titles, places and your notify target are removed; no passwords or tokens are in it. You can open the file to check before you share it.</p>
+        <div class="buttons">
+          <button class="secondary" id="diag-download">Download diagnostics</button>
+          <a class="small" href="https://github.com/tlpeter/smart-charging-planner/issues/new/choose" target="_blank" rel="noopener">Open a bug report on GitHub ↗</a>
+        </div>
+        <p class="small" id="diag-result"></p>
+      </div>
       <div id="manual-test-body"></div>
       <div class="card">
         <h2>Home battery test</h2>
@@ -2886,6 +2895,24 @@
       syncSolar();
     }
 
+    $('diag-download').onclick = async () => {
+      const out = $('diag-result');
+      out.textContent = 'Collecting…';
+      try {
+        const d = await api('GET', 'api/diagnostics');
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `smart-charging-planner-diagnostics-${d.app_version}-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        out.innerHTML = '<span class="ok">Downloaded.</span> Attach it to your bug report.';
+      } catch (err) {
+        out.innerHTML = `<span class="differ">${esc(err.message)}</span>`;
+      }
+    };
     $('solar-form').addEventListener('change', syncSolar);
     document.querySelectorAll('#battery-test-buttons [data-bat]').forEach((b) => {
       b.onclick = async () => {

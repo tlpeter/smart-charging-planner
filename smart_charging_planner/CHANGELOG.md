@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1
+
+- **Download diagnostics** (Settings › Diagnostics › Report a problem): one file with your settings, the control check, what the app found (chargers, cars, batteries, Equalizer, inverters), the entities it uses, the plan, the last decisions and log lines. Names, trip titles, places, e-mail addresses and the notify target are removed; tokens are never in it. Attach it to a bug report on GitHub
+- **GitHub**: bug report and idea forms, a pull request checklist, SECURITY.md for private security reports, and all tests run automatically on every push and pull request (Actions → Tests)
+- **Stable and test version**: `main` is stable, `dev` is the test version (add the repository with `#dev`). See the README
+- The decision order at the top of `controller.js` now includes Charge now and solar
+- Tests: settings test L4 (diagnostics, and that personal details are removed)
+
 ## 0.25.0
 
 - **Easee Equalizer surplus charging**: with an Easee charger and an Equalizer, Settings › Solar asks who follows the solar surplus: the app, or the Easee Equalizer. With the Equalizer, the app switches its surplus charging on for solar and off for full power (planned blocks, Charge now, the minimum level) with `easee.set_surplus_charging`, keeps the charger on and sends no current or phase commands. When you go back to the app, surplus charging that the app switched on is switched off. With the app following the surplus, the page warns when Equalizer surplus charging is on (they would fight)

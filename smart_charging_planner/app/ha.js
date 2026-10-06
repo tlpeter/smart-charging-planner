@@ -26,9 +26,15 @@ const LEVELS = { debug: 10, info: 20, warning: 30, error: 40 };
 const { options } = require('./options');
 const threshold = LEVELS[options.log_level] || LEVELS.info;
 
+// The last lines of the app log, for "Download diagnostics".
+const recentLines = [];
+function recentLog() { return recentLines.slice(); }
+
 function logAt(level, args) {
   if (LEVELS[level] < threshold) return;
   const line = [new Date().toISOString(), level.toUpperCase(), ...args];
+  recentLines.push(line.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' '));
+  if (recentLines.length > 300) recentLines.shift();
   (level === 'error' || level === 'warning' ? console.error : console.log)(...line);
 }
 
@@ -316,4 +322,4 @@ function connect() {
   });
 }
 
-module.exports = { state, call, callAction, createCalendarEvent, sendControl, sendBattery, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, sendControl, sendBattery, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };

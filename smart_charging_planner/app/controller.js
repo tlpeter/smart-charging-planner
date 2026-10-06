@@ -10,12 +10,15 @@
 //      ... and for longer than the grace period   -> pause
 //   3. battery below the minimum (and price ok)   -> charge
 //   4. preconditioning active                     -> charge
-//   5. battery at the target                      -> pause
-//   6. within the force window before departure   -> charge
-//   7. inside a locked (already started) block    -> keep charging
-//   8. inside a planned block                     -> charge (and lock it)
-//   9. already charging and price close enough    -> keep charging (hysteresis)
-//  10. otherwise                                  -> pause
+//   5. Charge now / quickly to a minimum (Home)   -> charge
+//   6. solar surplus (Plan + solar, Solar only)   -> charge on solar
+//      (a planned grid block goes first in Plan + solar; Solar only: else pause)
+//   7. battery at the target                      -> pause
+//   8. within the force window before departure   -> charge
+//   9. inside a locked (already started) block    -> keep charging
+//  10. inside a planned block                     -> charge (and lock it)
+//  11. already charging and price close enough    -> keep charging (hysteresis)
+//  12. otherwise                                  -> pause
 
 const fs = require('fs');
 const path = require('path');
