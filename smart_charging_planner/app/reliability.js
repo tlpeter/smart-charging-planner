@@ -9,8 +9,11 @@ const HOUR = 60 * MINUTE;
 const MIN_MARGIN_MS = 30 * MINUTE;
 const POWER_CONFIDENCE = 0.90;
 const EPSILON_KWH = 0.05;
-// Plan notes that are a real risk: the known hours do not hold the energy yet.
-const PRICE_RISK = ['not_enough_known_time', 'forecast_error'];
+// Missing known capacity is a real readiness risk. A missing optional
+// forecast is only a warning when the real price horizon already covers the
+// required energy.
+const PRICE_RISK = ['not_enough_known_time'];
+const PRICE_WARNING = ['not_enough_known_time', 'forecast_error', 'prices_incomplete'];
 
 const finite = (v) => (v === null || v === undefined || v === '') ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
 const iso = (v) => Number.isFinite(v) ? v : null;
@@ -61,10 +64,11 @@ function evaluateReadyGuard(input = {}) {
     key: 'prices',
     // Prices not yet known up to the departure is normal (tomorrow's prices
     // come around 13:00): shown, but it does not change the status.
-    state: PRICE_RISK.some((n) => notes.includes(n)) || notes.includes('prices_incomplete') ? 'warn' : 'good',
+    state: PRICE_WARNING.some((n) => notes.includes(n)) ? 'warn' : 'good',
     label: forecastPlan ? 'Plan partly uses forecast prices'
       : notes.includes('prices_incomplete') ? 'Prices not yet known up to departure'
-        : 'Known prices cover the plan',
+        : notes.includes('forecast_error') ? 'Price forecast unavailable; real prices are sufficient'
+          : 'Known prices cover the plan',
   });
 
   const base = {
