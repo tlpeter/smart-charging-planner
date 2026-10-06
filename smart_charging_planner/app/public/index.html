@@ -210,6 +210,8 @@
     .periods td, .periods th { border-bottom-color: var(--border); }
     a { color: var(--accent); }
     .quick .qsec { padding: 14px 0; border-top: 1px solid var(--border); }
+    .filebtn { display: inline-flex; align-items: center; cursor: pointer; border-radius: 18px; padding: 8px 16px; font-weight: 600; font-size: 13px; background: var(--chip); color: var(--text); }
+    .filebtn:hover { background: rgba(var(--rgb-text), 0.1); }
     .whocards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 12px; }
     @media (max-width: 560px) { .whocards { grid-template-columns: 1fr; } }
     .whocard { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; }
@@ -544,6 +546,15 @@
           <a class="small" href="https://github.com/tlpeter/smart-charging-planner/issues/new/choose" target="_blank" rel="noopener">Open a bug report on GitHub ↗</a>
         </div>
         <p class="small" id="diag-result"></p>
+      </div>
+      <div class="card">
+        <h2 data-icon="settings" data-color="blue">Back up or move your settings</h2>
+        <p class="muted small">Export saves all settings of this app in one file: car, charger, grid, prices, departures, rules, solar, battery and notifications. Import puts them back, here or in another install (for example the test version). "Allow control" and the other options in Home Assistant's Configuration tab are not part of it: they stay as they are.</p>
+        <div class="buttons">
+          <button class="secondary" id="settings-export">Export settings</button>
+          <label class="secondary filebtn">Import settings…<input type="file" id="settings-file" accept="application/json,.json" hidden></label>
+        </div>
+        <div id="settings-import"></div>
       </div>
       <div id="manual-test-body"></div>
       <div class="card">
@@ -2903,6 +2914,60 @@
       syncSolar();
     }
 
+    $('settings-export').onclick = async () => {
+      const box = $('settings-import');
+      try {
+        const d = await api('GET', 'api/settings/export');
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `smart-charging-planner-settings-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        box.innerHTML = '<p class="small"><span class="ok">Exported.</span> Keep the file somewhere safe; it contains the names of your entities and devices.</p>';
+      } catch (err) {
+        box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+      }
+    };
+    $('settings-file').onchange = async (e) => {
+      const box = $('settings-import');
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      let data;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        box.innerHTML = '<p class="small differ">This file is not readable (no JSON).</p>';
+        return;
+      }
+      try {
+        const r = await api('POST', 'api/settings/import/preview', data);
+        const sm = r.summary;
+        const row = (k, val) => `<div class="row"><span class="label">${k}</span><span>${val}</span></div>`;
+        box.innerHTML = `
+          <div class="note" style="margin-top:12px">
+            <p class="small"><strong>Replace all settings with this file?</strong> From version ${esc(sm.from_version || '?')}${sm.exported_at ? `, exported ${esc(dayHm(Date.parse(sm.exported_at)))}` : ''}.</p>
+            ${row('Car', esc(sm.vehicle || '–'))}${row('Charger', esc(sm.charger || '–'))}${row('Prices', esc(sm.prices || '–'))}${row('Solar', sm.solar ? 'on' : 'off')}${row('Home battery', sm.battery ? 'on' : 'off')}
+            ${sm.notes.length ? `<ul class="small differ">${sm.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '<p class="small ok">Everything in the file was found in this Home Assistant.</p>'}
+            <div class="buttons"><button class="primary" id="settings-import-go">Replace my settings</button><button class="secondary" id="settings-import-cancel">Cancel</button></div>
+          </div>`;
+        $('settings-import-cancel').onclick = () => { box.innerHTML = ''; };
+        $('settings-import-go').onclick = async () => {
+          $('settings-import-go').disabled = true;
+          try {
+            await api('POST', 'api/settings/import', data);
+            box.innerHTML = '<p class="small"><span class="ok">Settings imported.</span> Check Settings › Overview to see that everything is set up.</p>';
+          } catch (err) {
+            box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+          }
+        };
+      } catch (err) {
+        box.innerHTML = `<p class="small differ">${esc(err.message)}</p>`;
+      }
+    };
     $('diag-download').onclick = async () => {
       const out = $('diag-result');
       out.textContent = 'Collecting…';

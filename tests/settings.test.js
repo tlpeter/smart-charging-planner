@@ -1113,6 +1113,57 @@ async function run() {
     for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Reusel', 'SUPERVISOR']) assert(!text.includes(secret), `contains ${secret}`);
     return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log.length} log lines`;
   });
+
+  // ----- M. Settings export and import --------------------------------------
+  group = 'M. Settings export and import';
+  let exported = null;
+  await test('M1', 'Export: all settings in one file, without the Configuration options (Allow control)', async () => {
+    exported = await ok('GET', 'api/settings/export');
+    const keys = Object.keys(exported.settings);
+    assert(exported.format === 'smart-charging-planner-settings' && keys.includes('vehicles') && keys.includes('chargers') && keys.includes('prices') && keys.includes('departures'), `keys ${keys}`);
+    assert(!JSON.stringify(exported).includes('allow_control'), 'Configuration options in the export');
+    return `${keys.length} parts, ${Math.round(JSON.stringify(exported).length / 1024)} kB`;
+  });
+  await test('M2', 'Refused: not a settings file, a file with unknown parts, a newer format', async () => {
+    await refused('POST', 'api/settings/import/preview', { hello: 1 }, 'not a Smart Charging Planner settings file');
+    await refused('POST', 'api/settings/import/preview', { ...exported, settings: { ...exported.settings, scripts: [] } }, 'Unknown parts');
+    await refused('POST', 'api/settings/import/preview', { ...exported, format_version: 9 }, 'newer version');
+  });
+  await test('M3', 'Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured', async () => {
+    const keepDir = dataDir;
+    // The same Home Assistant as when the battery was set up (group T).
+    world.hasBattery = true;
+    world.bat = world.bat || { soc: 50, ems: 'off', mode: 'Maximum Self Consumption', chg: 10, dis: 10, autoKw: 0 };
+    await stopApp();
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-test-import-'));
+    await startApp({ allow_control: false });
+    const before = (await ok('GET', 'api/vehicles')).vehicles.length;
+    const pv = await ok('POST', 'api/settings/import/preview', exported);
+    const stillEmpty = (await ok('GET', 'api/vehicles')).vehicles.length === 0;
+    await ok('POST', 'api/settings/import', exported);
+    const again = await ok('GET', 'api/settings/export');
+    const st = await ok('GET', 'api/status');
+    await stopApp();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    dataDir = keepDir;
+    world.hasBattery = false;
+    await startApp({ allow_control: true, notify_start_stop: false });
+    assert(before === 0 && stillEmpty, 'preview changed something');
+    assert(pv.summary && pv.summary.notes.length === 0, `notes ${JSON.stringify(pv.summary)}`);
+    assert(JSON.stringify(again.settings) === JSON.stringify(exported.settings), 'settings differ after import');
+    assert(st.allow_control === false, 'Allow control changed by the import');
+    return `car ${pv.summary.vehicle}, charger ${pv.summary.charger}, prices ${pv.summary.prices}`;
+  });
+  await test('M4', 'Import with things this Home Assistant does not have: battery and notify action left out, entities listed', async () => {
+    const odd = JSON.parse(JSON.stringify(exported));
+    odd.settings.battery = { enabled: true, platform: 'sigen', soc_entity: 'sensor.other_house_battery_soc', capacity_kwh: 10 };
+    odd.settings.notify = { service: 'notify.mobile_app_someone_else' };
+    const pv = await ok('POST', 'api/settings/import/preview', odd);
+    const n = pv.summary.notes.join(' | ');
+    assert(/home battery was left out/.test(n) && /Notifications were switched off/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
+    assert(pv.summary.battery === false, 'battery still on');
+    return n;
+  });
 }
 
 // ---------------------------------------------------------------------------
