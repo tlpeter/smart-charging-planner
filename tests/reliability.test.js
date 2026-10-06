@@ -138,4 +138,16 @@ check('prices not yet known up to departure: shown on the chip, status stays on 
   assert.equal(r.status, 'on_track');
 });
 
+check('forecast failure alone does not downgrade a complete real-price plan', () => {
+  const r = evaluateReadyGuard({
+    now, deadline: now + 8 * H, neededKwh: 10, plannedKwh: 10, powerKw: 11,
+    blocks: [{ start: now + H, end: now + 3 * H, price: 0.2 }], plugged: true, controlAllowed: true,
+    notes: ['forecast_error'],
+  });
+  const chip = r.factors.find((f) => f.key === 'prices');
+  assert.equal(chip.state, 'warn');
+  assert.match(chip.label, /forecast unavailable/i);
+  assert.equal(r.status, 'on_track');
+});
+
 console.log('Ready Guard tests passed');

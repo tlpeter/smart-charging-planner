@@ -32,7 +32,7 @@ function durationText(minutes) {
     function rangeText(input) {
       const n = Number(input.value);
       if (input.name === 'efficiency' || input.name === 'forecast_factor') return `${Math.round(n * 100)}%`;
-      return `${Number.isFinite(n) ? n : '–'}${RANGE_FIELDS[input.name] || ''}`;
+      return `${Number.isFinite(n) ? n : '–'}${input.dataset.unit || RANGE_FIELDS[input.name] || ''}`;
     }
     function refreshRangeValues(root = document) {
       root.querySelectorAll('input[data-mushroom-range]').forEach((input) => {
@@ -616,8 +616,10 @@ function durationText(minutes) {
       const wrap = $('chart');
       if (!wrap || !d.prices.length) return;
       const W = Math.max(320, wrap.clientWidth);
-      const H = 240;
-      const m = { l: 44, r: 8, t: 12, b: 28 };
+      const H = 272;
+      // Three dedicated marker lanes prevent "now", "safe start" and
+      // "ready by" from colliding when they are only minutes apart.
+      const m = { l: 44, r: 8, t: 46, b: 28 };
       const iw = W - m.l - m.r;
       const ih = H - m.t - m.b;
       const t0 = d.prices[0].start;
@@ -695,18 +697,24 @@ function durationText(minutes) {
       const nowX = X(nowMs);
       const marks = [];
       if (nowMs > t0 && nowMs < t1) {
+        const anchor = nowX > W - 70 ? 'end' : 'start';
+        const tx = anchor === 'end' ? nowX - 4 : nowX + 4;
         marks.push(`<line x1="${nowX}" x2="${nowX}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5"/>
-          <text x="${nowX + 4}" y="${m.t + 10}" font-size="11" fill="var(--text)">now</text>`);
+          <text x="${tx}" y="13" text-anchor="${anchor}" font-size="11" fill="var(--text)">now</text>`);
       }
       if (d.reliability && d.reliability.latest_safe_start > t0 && d.reliability.latest_safe_start < t1) {
         const sx = X(d.reliability.latest_safe_start);
+        const anchor = sx > W - 90 ? 'end' : 'start';
+        const tx = anchor === 'end' ? sx - 4 : sx + 4;
         marks.push(`<line x1="${sx}" x2="${sx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 3"/>
-          <text x="${sx + 4}" y="${m.t + 24}" font-size="11" fill="var(--warning)">safe start</text>`);
+          <text x="${tx}" y="28" text-anchor="${anchor}" font-size="11" fill="var(--warning)">latest safe start</text>`);
       }
       if (d.departure && d.plan.deadline && d.plan.deadline > t0 && d.plan.deadline <= t1) {
         const dx = X(d.plan.deadline);
+        const anchor = dx < 90 ? 'start' : 'end';
+        const tx = anchor === 'start' ? dx + 4 : dx - 4;
         marks.push(`<line x1="${dx}" x2="${dx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 3"/>
-          <text x="${dx - 4}" y="${m.t + 10}" font-size="11" text-anchor="end" fill="var(--text)">ready by</text>`);
+          <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--text)">ready by</text>`);
       }
 
       wrap.innerHTML = `
@@ -764,17 +772,19 @@ function durationText(minutes) {
         off: ['sleep', 'grey'],
       }[r.status] || ['status', 'grey'];
       const fact = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+      const done = r.needed_kwh === 0;
       const facts = [
         d.departure ? fact('Ready by', dayHm(d.departure.time)) : fact('Ready by', 'Not set'),
-        r.latest_safe_start ? fact('Latest safe start', dayHm(r.latest_safe_start)) : '',
-        r.expected_ready ? fact('Continuous charging', dayHm(r.expected_ready)) : '',
-        r.safety_margin_minutes != null ? fact('Safety margin', durationText(r.safety_margin_minutes)) : '',
+        !done && r.latest_safe_start ? fact('Latest safe start', dayHm(r.latest_safe_start)) : '',
+        !done && r.expected_ready ? fact('Expected ready', dayHm(r.expected_ready)) : '',
+        !done && r.safety_margin_minutes != null ? fact('Safety margin', durationText(r.safety_margin_minutes)) : '',
       ].join('');
       const chips = (r.factors || []).map((f) =>
         `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');
       const current = d.vehicle && Number.isFinite(Number(d.vehicle.soc)) ? Number(d.vehicle.soc) : null;
       const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
-      const progress = current != null && target ? Math.max(0, Math.min(100, (current / target) * 100)) : 0;
+      const progress = current != null ? Math.max(0, Math.min(100, current)) : 0;
+      const targetPos = target != null ? Math.max(0, Math.min(100, target)) : null;
       return `<div class="card ready-card ready-${esc(r.status)}">
         <div class="ready-head">
           <div class="entity">${shape(visual[0], visual[1])}<div class="txt">
@@ -782,9 +792,15 @@ function durationText(minutes) {
             <div class="ready-title">${esc(r.label)}</div>
             <div class="secondary">${esc(r.message)}</div>
           </div></div>
-          <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'AUTOMATIC' : 'ADVICE ONLY'}</span>
+          <div class="ready-meta">
+            <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'AUTOMATIC' : 'ADVICE ONLY'}</span>
+            <span class="src">Updated ${esc(hm(d.computed_at))} · <a href="#" id="refresh-now">Refresh</a></span>
+          </div>
         </div>
-        ${current != null && target ? `<div class="ready-level"><div class="ready-level-label"><span>Battery ${esc(current)}%</span><span>Target ${esc(target)}%</span></div><div class="ready-track"><span style="width:${progress}%"></span></div></div>` : ''}
+        ${current != null && target != null ? `<div class="ready-level">
+          <div class="ready-level-label"><span>Battery <strong>${esc(current)}%</strong></span><span>Target <strong>${esc(target)}%</strong></span></div>
+          <div class="ready-track"><span style="width:${progress}%"></span><i style="left:${targetPos}%"></i></div>
+        </div>` : ''}
         <div class="ready-facts">${facts}</div>
         <div class="reliability-chips">${chips}</div>
       </div>`;
@@ -801,77 +817,73 @@ function durationText(minutes) {
       let headline;
       if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
       else if (p.notes.includes('fixed_waiting')) headline = 'Waiting for the car to be plugged in';
-      else if (p.notes.includes('already_at_target')) headline = v.mode === 'fixed_kwh' ? 'The fixed amount has been charged' : 'No charging needed';
+      else if (p.notes.includes('already_at_target')) headline = 'No charging scheduled';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
-      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}${p.periods.some((x) => x.forecast) ? ' (partly on forecast prices)' : ''}`;
-      if (d.boost && p.blocks.length) headline = `Charge now: ${p.planned_kwh.toFixed(1)} kWh, ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
+      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh · ${periodsList}${p.periods.some((x) => x.forecast) ? ' · partly forecast' : ''}`;
+      if (d.boost && p.blocks.length) headline = `Charge now · ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
 
       const pw = d.power || null;
-      let nowText = '';
-      if (pw && pw.now_w != null) nowText = pw.now_w > 500 ? `charging now at ${(pw.now_w / 1000).toFixed(1)} kW` : 'not charging now';
+      const nowText = pw && pw.now_w != null ? (pw.now_w > 500 ? `charging at ${(pw.now_w / 1000).toFixed(1)} kW` : 'not charging') : '';
       let planText = '';
       if (pw) {
         const limit = `${pw.phases} × ${tidy(pw.amps)} A = ${pw.theoretical_kw.toFixed(1)} kW${d.assumed_current ? ', assumed' : pw.max_source === 'manual' ? ', set manually' : pw.max_name ? `, max from ${pw.max_name}` : ''}`;
         if (pw.learned && pw.learned.available) {
           planText = pw.learned.kw < pw.theoretical_kw - 0.05
-            ? `Plan uses ${pw.planned_kw.toFixed(1)} kW: what the car really charged at in the last ${pw.learned.days} days (the charger allows ${limit})`
-            : `Plan uses ${pw.planned_kw.toFixed(1)} kW: the charger maximum (${limit}); measured in the last ${pw.learned.days} days: ${pw.learned.kw.toFixed(1)} kW`;
+            ? `Plan uses ${pw.planned_kw.toFixed(1)} kW from recent charging (charger allows ${limit})`
+            : `Plan uses ${pw.planned_kw.toFixed(1)} kW · ${limit}`;
         } else {
-          const why = pw.learned && pw.learned.reason === 'no_power_sensor' ? 'choose a charging power sensor in Settings › Charger to use the real charging power'
-            : pw.learned && pw.learned.reason === 'error' ? 'the real charging power could not be read'
-            : 'not enough charging measured yet to learn the real charging power';
-          planText = `Plan uses ${pw.planned_kw.toFixed(1)} kW (${limit}); ${why}`;
+          planText = `Plan uses ${pw.planned_kw.toFixed(1)} kW · ${limit}`;
         }
-        if (d.house_load.available && p.blocks.length && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += '; less in some blocks because of house load';
+        if (d.house_load.available && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += ' · reduced in some blocks for house load';
       }
       const cd = v.car_data;
-      const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
+      const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' estimated' : ''}` : esc(v.soc_state || 'unknown');
+      const vehicleLine = `${esc(v.name)} · ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} → ${d.planning.target_soc}%`}${d.departure ? ` · ${esc(dayHm(d.departure.time))}` : ' · no departure'}${nowText ? ` · ${esc(nowText)}` : ''}`;
+      const notes = p.notes.map((n) => n === 'car_limit'
+        ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
+        : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
+
       return `
         ${readyGuardHtml(d)}
-        <div class="card plan-card">
-          <div class="row" style="border:none;padding:0;align-items:center">
-            <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
-            <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
+        <div class="overview-grid">
+          <div class="overview-main">
+            <div class="card chart-card">
+              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
+              <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
+              <div class="chart-wrap" id="chart"></div>
+              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}</div>
+              ${houseLoadHtml(d)}
+              ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
+                <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
+                ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
+                </table></details>` : ''}
+            </div>
+
+            <details class="card plan-details">
+              <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
+              <div class="plan-detail-body">
+                <p class="plan-vehicle">${vehicleLine}</p>
+                ${planText ? `<p class="muted small">${esc(planText)}</p>` : ''}
+                ${cd && !cd.ok ? `<div class="note"><strong>Car not reachable:</strong> battery data is ${cd.reason === 'stale' ? 'old' : 'unavailable'}; the plan uses ${esc(cd.estimate)}%.</div>` : ''}
+                ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))}; the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
+                ${!d.boost ? limitLine(d.limit, true) : ''}
+                ${p.cost != null ? `<div class="stats">
+                  <div class="stat">${shape('cash', 'blue', true)}<div><div class="v">${money(p.cost)}</div><div class="l">${d.boost ? 'Cost now' : 'Planned cost'}</div></div></div>
+                  ${!d.boost ? `<div class="stat">${shape('savings', 'green', true)}<div><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div></div>` : ''}
+                </div>` : ''}
+                ${vehicleSessionHtml(d)}
+                ${continuousNote(p)}
+                ${notes}
+                ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
+              </div>
+            </details>
           </div>
-          <div class="entity" style="margin:12px 0 4px">
-            ${overviewShape(d, p, pw)}
-            <div class="txt"><div class="headline">${esc(headline)}</div>
-            <div class="secondary">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</div></div>
-          </div>
-          ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
-          ${cd && !cd.ok ? `<div class="note">${shape('alert', 'orange', true)} <strong>Car not reachable</strong>: the battery level ${cd.reason === 'stale' ? 'has not been updated' : 'has not been available'}${cd.since ? ` since ${esc(dayHm(cd.since))}` : ''} (the car's cloud may be down). ${cd.assumed ? `No earlier level is known, so the plan assumes ${esc(cd.estimate)}%.` : `The plan uses ${esc(cd.estimate)}%: the last level ${esc(cd.last_soc)}%${cd.kwh_since > 0 ? ` plus ${esc(tidy(cd.kwh_since))} kWh charged since` : ''}.`} The car's charge limit is not changed until it is back.</div>` : ''}
-          ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))} (${tidy(p.stage.first_kwh)} kWh), the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
-          ${!d.boost ? limitLine(d.limit, true) : ''}
-          ${d.boost ? (p.cost != null ? `
-          <div class="stats">
-            <div class="stat">${shape('bolt', 'amber', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div></div>
-          </div>` : '') : p.cost != null ? `
-          <div class="stats">
-            <div class="stat">${shape('cash', 'blue', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div></div>
-            <div class="stat">${shape('bolt', 'grey', true)}<div><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div></div>
-            <div class="stat">${shape('savings', 'green', true)}<div><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div></div>
-          </div>` : ''}
-          ${vehicleSessionHtml(d)}
-          ${continuousNote(p)}
-          ${p.notes.map((n) => n === 'car_limit' ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed) : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
-          ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
-        </div>
-        ${quickHtml(d)}
-        ${batteryHtml(d)}
-        <div class="card">
-          <h2>Prices and plan</h2>
-          <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
-          <div class="chart-wrap" id="chart"></div>
-          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((a) => a.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery charges · grey: holds</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Planned on solar · line: expected sun for the car</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i style="background:repeating-linear-gradient(45deg,var(--bar) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--bar)"></i>Forecast (striped)</span>' : ''}</div>
-          ${houseLoadHtml(d)}
-          ${p.periods.length ? `
-          <details><summary class="small muted" style="margin-top:12px;cursor:pointer">Show plan as table</summary>
-            <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
-            ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}${x.solar_kwh ? ` <span class="muted small">(${tidy(x.solar_kwh)} kWh sun)</span>` : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
-            </table></details>` : ''}
-        </div>
-`;
+          <aside class="overview-side">
+            ${quickHtml(d)}
+            ${batteryHtml(d)}
+          </aside>
+        </div>`;
     }
 
     // ---------- Charge now ----------
@@ -944,36 +956,36 @@ function durationText(minutes) {
       if (d.boost) return boostHtml(d);
       const v = d.vehicle || {};
       const opts = [];
-      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Up to the plan's target (${d.planning.target_soc}%)</option>`);
-      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Up to a battery level</option>');
-      opts.push('<option value="kwh">A fixed amount (kWh)</option>');
+      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Plan target (${d.planning.target_soc}%)</option>`);
+      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Battery level</option>');
+      opts.push('<option value="kwh">Fixed amount (kWh)</option>');
       const canMin = v.soc != null && v.mode !== 'fixed_kwh';
-      const mins = [20, 25, 30, 35, 40, 45];
       return `
         <div class="card quick">
-          <h2>${shape('bolt', 'amber', true)} Quick choices</h2>
+          <div class="card-title-row"><h2>${shape('bolt', 'amber', true)} Quick choices</h2><span class="src">Temporary</span></div>
           ${modeHtml(d)}
-          <div class="qsec">
-            <div class="qhead">${shape('bolt', 'grey', true)}<div><strong>Charge now</strong><div class="muted small">Right away instead of in the cheapest hours.</div></div></div>
-            <form id="boost-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <select name="mode">${opts.join('')}</select>
-              <input name="value" type="number" step="any" min="0" style="width:100px" hidden>
-              <span class="muted small" id="boost-unit"></span>
-              <button class="secondary" type="submit">Check</button>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('bolt', 'blue', true)}<div><strong>Charge now</strong><div class="muted small">Start immediately, up to a goal you choose.</div></div></div>
+            <form id="boost-form" class="choice-form">
+              <select name="mode" aria-label="Charge now goal">${opts.join('')}</select>
+              <div class="choice-value"><input name="value" type="number" step="any" min="0" hidden><span class="muted small" id="boost-unit"></span></div>
+              <button class="primary" type="submit">Continue</button>
             </form>
             <div id="boost-check">${boostMessage}</div>
           </div>
           ${canMin ? `
-          <div class="qsec">
-            <div class="qhead">${shape('battery', 'grey', true)}<div><strong>Quickly to a minimum</strong><div class="muted small">Charge right away up to a minimum, then the plan takes over.</div></div></div>
-            <form id="min-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <select name="value">${mins.map((m) => `<option value="${m}" ${m === minDefault ? 'selected' : ''}>${m}%</option>`).join('')}</select>
-              <button class="secondary" type="submit">Check</button>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('battery', 'purple', true)}<div><strong>Quick minimum</strong><div class="muted small">Charge immediately to this level, then resume the plan.</div></div></div>
+            <form id="min-form" class="choice-form slider-choice">
+              <div class="field"><label>Minimum <output class="range-value">${minDefault}%</output></label>
+                <input name="value" type="range" min="20" max="45" step="5" value="${minDefault}" data-mushroom-range="1" data-unit="%">
+              </div>
+              <button class="secondary" type="submit">Continue</button>
             </form>
             <div id="min-check"></div>
           </div>` : ''}
-          <div class="qsec">
-            <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready for</strong><div class="muted small">Normally the car is ready for the next departure. Choose a later day when that is cheaper.</div></div></div>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready later</strong><div class="muted small">Move the goal to tomorrow or the day after when that is cheaper.</div></div></div>
             <div id="cf-box"><p class="muted small">Loading…</p></div>
           </div>
         </div>`;
@@ -997,9 +1009,9 @@ function durationText(minutes) {
         now = `<p class="small">${shape('sun', n.code === 'solar' ? 'amber' : 'grey', true)} Now: ${esc(gridTxt)}${n.code === 'solar' ? (n.equalizer ? ' · charging on solar through the Easee Equalizer' : ` · charging on solar at ${esc(n.amps)} A${n.phases === 1 ? ', one phase' : ''}`) : ''}. <span class="muted">${n.equalizer && n.code === 'solar' ? '' : esc(n.reason || '')}</span></p>`;
       }
       return `
-          <div class="qsec">
-            <div class="qhead">${shape('sun', sol.mode === 'plan' ? 'grey' : 'amber', true)}<div><strong>How to charge</strong><div class="muted small">${esc(MODE_TEXT[sol.mode])}</div></div></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="qsec action-tile mode-tile">
+            <div class="qhead">${shape('sun', sol.mode === 'plan' ? 'grey' : 'amber', true)}<div><strong>Charging mode</strong><div class="muted small">${esc(MODE_TEXT[sol.mode])}</div></div></div>
+            <div class="mode-pills">
               ${[['plan', 'Price plan'], ['plan_solar', 'Plan + solar'], ['solar', 'Solar only']].map(([k, l]) => `<button class="${sol.mode === k ? 'primary' : 'secondary'} mode-btn" data-mode="${k}">${l}</button>`).join('')}
             </div>
             ${now}
@@ -1058,7 +1070,10 @@ function durationText(minutes) {
       }
       minDefault = c.min_default;
       const mf = $('min-form');
-      if (mf && !mf.contains(document.activeElement)) mf.value.value = String(c.min_default);
+      if (mf && !mf.contains(document.activeElement)) {
+        mf.value.value = String(c.min_default);
+        refreshRangeValues(mf);
+      }
       const a = c.active;
       if (a) {
         box.innerHTML = `

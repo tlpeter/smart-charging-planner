@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.26.1-dev
+
+- **Home rebuilt around one Ready Guard card**: the duplicate status card is gone; technical plan information is available in a compact expandable section
+- Desktop uses a focused two-column layout with the price plan on the left and Mushroom-style quick choices on the right; mobile collapses to one column
+- Quick choices use clear action tiles, pill controls and a live minimum slider instead of long form-like rows
+- Ready Guard only shows relevant facts: an already reached target no longer says "Continuous charging"; the battery bar shows both the current level and target marker
+- The chart reserves separate label lanes for now, latest safe start and ready by, so close markers no longer overlap
+- Settings use the same card, switch and slider language throughout; battery, solar and control sliders keep their own calm accent colours
+- Long durations are readable ("3 d 14 h"), incomplete future prices are described honestly, and an unavailable optional forecast no longer marks an otherwise complete plan at risk
+- Tests include the Ready Guard price-forecast regression
+
 ## 0.26.0-dev
 
 - **Ready Guard / plan reliability**: every departure now gets an honest status (on track, at risk, action needed or not achievable), based on conservative charging power, connection, battery-data freshness and price coverage
@@ -7,9 +18,7 @@
 - Home has a clear Mushroom-style Ready Guard card with target progress, safety facts and the reasons behind the status; the price chart marks the latest safe start
 - The full app uses a calmer Mushroom-inspired palette, softer cards and clearer navigation; bounded battery, target, timing and solar settings use touch-friendly sliders with live values
 - A Home Assistant sensor exposes Ready Guard state, timing, margin and shortfall for dashboards and automations
-- Ready Guard shows time to spare and the safety margin readably ("3 d 14 h" instead of "5160 minutes")
-- Ready Guard's price fact now says "Prices not yet known up to departure" when tomorrow's prices are not published yet (it said "Known prices cover the plan"); this alone does not change the status
-- Tests cover Ready Guard decisions, advice-only mode, impossible targets, readable durations and the price fact
+- Tests cover Ready Guard decisions, advice-only mode and impossible targets
 
 
 ## 0.25.5
