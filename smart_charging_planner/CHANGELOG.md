@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.3
+
+- **Export and import settings** (Settings › Diagnostics › Back up or move your settings): all settings of the app in one file (car, charger, grid, prices, departures, rules, solar, home battery, notifications, how to charge). Import shows first what is in the file and what this Home Assistant does not have, and only replaces your settings after you confirm. A car limit, home battery, Equalizer or notify action that is not found here is left out, with the same checks as when you set them by hand. "Allow control" and the other Configuration options are never in the file and never changed by an import
+- Use it as a backup, or to move your settings to the test version (dev)
+- Tests: settings test group M (export, refused files, import in a fresh install, things this Home Assistant does not have)
+
 ## 0.25.2
 
 - **Car not reachable** (the car maker's cloud is down, for every car integration): when the battery level is unavailable or has not been read for longer than "Car data counts as old after" (Settings › Vehicle, default 3 hours), the plan goes on with the last good level plus the energy the charger delivered since. Before, the app stopped deciding ("leave as it is"), so a paused charger stayed paused. With no level known at all, it plans as if the car is at your minimum (or 20 %)

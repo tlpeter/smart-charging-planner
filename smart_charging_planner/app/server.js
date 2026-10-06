@@ -2480,6 +2480,110 @@ routes['GET /api/control'] = async () => {
   };
 };
 
+// Settings export / import (Settings › Diagnostics): a backup, and to move
+// the settings to another install (for example the dev version). Only the
+// app's own settings; "Allow control" and the other options stay in Home
+// Assistant's Configuration tab and are never part of it.
+const SETTINGS_KEYS = ['vehicles', 'chargers', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'setup_done'];
+const EXPORT_FORMAT = 'smart-charging-planner-settings';
+
+routes['GET /api/settings/export'] = async () => {
+  const s = settings.load();
+  const out = {};
+  for (const k of SETTINGS_KEYS) if (s[k] !== undefined) out[k] = s[k];
+  // The battery's remembered values (Tesla reserve, Sessy strategy) belong to this install only.
+  if (out.battery) out.battery = { ...out.battery, saved: null };
+  return {
+    format: EXPORT_FORMAT,
+    format_version: 1,
+    app_version: APP_VERSION,
+    exported_at: new Date().toISOString(),
+    charge_mode: chargeMode.current(true),
+    settings: out,
+  };
+};
+
+// Check an export against this Home Assistant. dryRun: only report.
+async function importSettings(body, dryRun) {
+  if (!body || body.format !== EXPORT_FORMAT || !body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+    throw badRequest('This is not a Smart Charging Planner settings file');
+  }
+  if (Number(body.format_version) > 1) throw badRequest('This file comes from a newer version of the app; update the app first');
+  const unknown = Object.keys(body.settings).filter((k) => !SETTINGS_KEYS.includes(k));
+  if (unknown.length) throw badRequest(`Unknown parts in the file: ${unknown.join(', ')}`);
+  const next = { ...settings.load() };
+  for (const k of SETTINGS_KEYS) if (body.settings[k] !== undefined) next[k] = body.settings[k];
+  for (const k of ['vehicles', 'chargers', 'grid']) if (next[k] != null && !Array.isArray(next[k])) throw badRequest(`"${k}" must be a list`);
+
+  const { entities, devices, states } = await loadRegistries();
+  const notes = [];
+  // Entities the settings use that this Home Assistant does not have.
+  const ids = new Set();
+  JSON.stringify(next, (k, v) => { if (typeof v === 'string' && /^(sensor|binary_sensor|switch|number|select|button|input_number|input_datetime|input_boolean|calendar)\.[a-z0-9_]+$/.test(v)) ids.add(v); return v; });
+  const missing = [...ids].filter((id) => !states.some((x) => x.entity_id === id)).sort();
+  if (missing.length) notes.push(`Not found in this Home Assistant: ${missing.join(', ')}`);
+  // SAFETY: the same checks as when you save these parts by hand.
+  const v = next.vehicles && next.vehicles[0];
+  if (v && v.charge_limit_entity) {
+    const reg = entities.find((e) => e.entity_id === v.charge_limit_entity);
+    const st = states.find((x) => x.entity_id === v.charge_limit_entity);
+    if (!reg || !st || (v.device_id && reg.device_id !== v.device_id) || !isChargeLimit(reg, st)) {
+      next.vehicles = [{ ...v, charge_limit_entity: null }];
+      notes.push("The car's charge limit was left out: it is not on the car's device here");
+    }
+  }
+  const b = next.battery;
+  if (b && b.soc_entity) {
+    const found = battery.detectBatteries(entities, devices, states).find((c) => c.soc_entity === b.soc_entity && c.platform === b.platform);
+    if (!found) {
+      next.battery = { ...b, enabled: false, platform: null, device_id: null, soc_entity: null, power_entity: null, saved: null };
+      notes.push('The home battery was left out: it was not found here');
+    } else {
+      next.battery = { ...b, device_id: found.device_id, power_entity: found.power_entity, saved: null };
+    }
+  }
+  const sol = next.solar;
+  if (sol && sol.solar_control === 'equalizer') {
+    const eq = equalizer.detectEqualizer(entities, states, devices);
+    if (!eq) {
+      next.solar = { ...sol, solar_control: 'app', equalizer: null };
+      notes.push('Solar by the Easee Equalizer was switched to the app: no Equalizer found here');
+    } else next.solar = { ...sol, equalizer: { device_id: eq.device_id, switch_entity: eq.switch_entity, name: eq.name } };
+  }
+  if (next.notify && next.notify.service) {
+    const choices = await notifyOptions().catch(() => []);
+    if (!choices.some((c) => c.id === next.notify.service)) {
+      next.notify = { service: null };
+      notes.push('Notifications were switched off: that notify action does not exist here');
+    }
+  }
+  const summary = {
+    from_version: body.app_version || null,
+    exported_at: body.exported_at || null,
+    vehicle: v ? v.name || v.soc_entity : null,
+    charger: next.chargers && next.chargers[0] ? next.chargers[0].name || next.chargers[0].status_entity : null,
+    prices: next.prices && next.prices.source ? next.prices.source.name || next.prices.source.type : null,
+    solar: !!(next.solar && next.solar.enabled),
+    battery: !!(next.battery && next.battery.enabled),
+    notes,
+  };
+  if (dryRun) return { ok: true, preview: true, summary };
+  settings.save(next);
+  if (['plan', 'plan_solar', 'solar'].includes(body.charge_mode)) {
+    try { chargeMode.set(body.charge_mode); } catch { /* keep the current mode */ }
+  }
+  controlMethods = null;
+  solarFcCache = null;
+  controller.clearLock();
+  planCache = null;
+  ha.log(`Settings imported (from version ${body.app_version || 'unknown'})${notes.length ? `: ${notes.join('; ')}` : ''}`);
+  await refreshPlan('settings imported', { fresh: true }).catch(() => {});
+  return { ok: true, summary };
+}
+
+routes['POST /api/settings/import/preview'] = async (req) => importSettings(await readBody(req), true);
+routes['POST /api/settings/import'] = async (req) => importSettings(await readBody(req), false);
+
 // One notification when the car's data drops out, one when it is back.
 let carOffline = null; // { since }
 function carDataChanged(vehicle, cd) {

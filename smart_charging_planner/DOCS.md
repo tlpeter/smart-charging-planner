@@ -217,6 +217,10 @@ These sensors are not stored by Home Assistant between restarts; the app writes 
 
 If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again.
 
+## Backup and moving to another install
+
+Settings › Diagnostics › **Export settings** saves all settings of the app in one file. **Import settings** puts them back, in this install or another one (for example the test version). Before anything changes you see what is in the file and what this Home Assistant does not have; parts that do not fit here (a car limit on another device, a battery or notify action that does not exist) are left out. "Allow control" and the other options in the Configuration tab are never part of the file.
+
 ## Security
 
 - The app only accepts requests through Home Assistant ingress (the sidebar panel). Other apps on the internal network are refused.
