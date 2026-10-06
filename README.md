@@ -37,6 +37,7 @@ The test version may contain unfinished or less-tested changes. Its version numb
 - [x] Price forecast, Ready for tomorrow / the day after tomorrow, the car's charge limit follows every choice
 - [x] Solar: forecast in the plan, charging on surplus with current control and one/three-phase switching
 - [x] Home battery: plan (charging from the grid, holding), smart sun, battery and car, 10 brands steered
+- [x] Ready Guard: conservative safety margin, latest safe start and automatic full-power fallback
 - [ ] Multiple vehicles
 
 ## Tests

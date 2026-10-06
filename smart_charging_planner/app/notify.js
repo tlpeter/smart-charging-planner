@@ -100,6 +100,17 @@ function sensorsFor(d, n, extra = {}) {
     ['binary_sensor.smart_charging_charge_now', d && d.boost ? 'on' : 'off', {
       friendly_name: 'Smart Charging charge now', icon: 'mdi:lightning-bolt',
     }],
+    ['sensor.smart_charging_ready_guard', d && d.reliability ? d.reliability.status : 'unknown', {
+      friendly_name: 'Smart Charging Ready Guard',
+      icon: 'mdi:shield-check',
+      base_status: d && d.reliability ? d.reliability.base_status : null,
+      message: d && d.reliability ? d.reliability.message : null,
+      protecting: !!(d && d.reliability && d.reliability.protect),
+      latest_safe_start: d && d.reliability ? iso(d.reliability.latest_safe_start) : null,
+      expected_ready: d && d.reliability ? iso(d.reliability.expected_ready) : null,
+      safety_margin_minutes: d && d.reliability ? d.reliability.safety_margin_minutes : null,
+      shortfall_kwh: d && d.reliability ? d.reliability.shortfall_kwh : null,
+    }],
   ];
 }
 

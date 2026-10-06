@@ -1,50 +1,61 @@
 /* Look and feel: Home Assistant's default theme with Mushroom-style cards,
        chips and round tinted icons. */
     :root {
-      --bg: #fafafa;
-      --card: #ffffff;
-      --text: #212121;
-      --muted: #727272;
-      --border: #e0e0e0;
-      --accent: #03a9f4;
-      --solar: #f5b301;
-      --battery: #9c27b0;
-      --rgb-accent: 3, 169, 244;
+      --bg: #f3f1ec;
+      --card: #fffdf9;
+      --surface: #f0eee9;
+      --text: #263238;
+      --muted: #6f777b;
+      --border: #e5e1d9;
+      --accent: #5677e8;
+      --solar: #d29a28;
+      --battery: #8a73d6;
+      --warning: #bd7c20;
+      --rgb-accent: 86, 119, 232;
       --accent-text: #ffffff;
-      --good: #43a047;
-      --bad: #db4437;
-      --chip: rgba(0, 0, 0, 0.05);
-      --bar: #cfd5dc;
-      --grid: #eceff1;
-      --rgb-text: 33, 33, 33;
-      --rgb-green: 76, 175, 80;
-      --rgb-amber: 255, 193, 7;
-      --rgb-orange: 255, 152, 0;
-      --rgb-blue: 33, 150, 243;
-      --rgb-red: 244, 67, 54;
-      --rgb-grey: 158, 158, 158;
-      --rgb-purple: 156, 39, 176;
-      --radius: 12px;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      --good: #388e6c;
+      --bad: #c65353;
+      --chip: rgba(66, 72, 76, 0.065);
+      --bar: #cfd3d5;
+      --grid: #e7e4de;
+      --rgb-text: 38, 50, 56;
+      --rgb-green: 56, 142, 108;
+      --rgb-amber: 210, 154, 40;
+      --rgb-orange: 210, 119, 45;
+      --rgb-blue: 86, 119, 232;
+      --rgb-red: 198, 83, 83;
+      --rgb-grey: 125, 132, 136;
+      --rgb-purple: 138, 115, 214;
+      --radius: 18px;
+      --shadow: 0 3px 14px rgba(50, 55, 60, 0.07);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #111111;
-        --card: #1c1c1c;
-        --text: #e1e1e1;
-        --muted: #9b9b9b;
-        --border: #2e2e2e;
-        --accent: #03a9f4;
-      --solar: #f5b301;
-      --battery: #9c27b0;
-        --accent-text: #ffffff;
-        --good: #66bb6a;
-        --bad: #ef5350;
-        --chip: rgba(255, 255, 255, 0.06);
-        --bar: #3a3f45;
-        --grid: #262a2e;
-        --rgb-text: 225, 225, 225;
-        --shadow: none;
+        --bg: #17191c;
+        --card: #222529;
+        --surface: #2b2e33;
+        --text: #eef0f2;
+        --muted: #a7adb2;
+        --border: #34383e;
+        --accent: #8ca6ff;
+        --solar: #e1b34d;
+        --battery: #b4a2ef;
+        --warning: #e1b34d;
+        --accent-text: #17203d;
+        --good: #72c6a1;
+        --bad: #ee8585;
+        --chip: rgba(255, 255, 255, 0.07);
+        --bar: #4a4f55;
+        --grid: #30343a;
+        --rgb-text: 238, 240, 242;
+        --rgb-green: 114, 198, 161;
+        --rgb-amber: 225, 179, 77;
+        --rgb-orange: 225, 142, 76;
+        --rgb-blue: 140, 166, 255;
+        --rgb-red: 238, 133, 133;
+        --rgb-grey: 157, 164, 170;
+        --rgb-purple: 180, 162, 239;
+        --shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
       }
     }
     * { box-sizing: border-box; }
@@ -239,3 +250,103 @@
       .tabs .tab span { font-size: 13px; }
     }
     [hidden] { display: none !important; }
+
+
+    /* ---- 0.26 Mushroom dashboard and controls ---- */
+    body { padding: 24px clamp(12px, 3vw, 32px); }
+    main { max-width: 1120px; }
+    h1 { font-size: 22px; margin-bottom: 20px; }
+    .card {
+      border-color: transparent;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      margin-bottom: 18px;
+    }
+    select, input:not([type=range]) { background: var(--surface); border-radius: 12px; min-height: 40px; }
+    .tabs { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 90%, transparent); padding: 4px 0 10px; backdrop-filter: blur(10px); }
+    .tab, .subtab { border-color: transparent; }
+    .tab.active, .subtab.active { background: rgba(var(--rgb-accent), .14); }
+    .plan-card { border-top: 4px solid rgba(var(--rgb-accent), .55); }
+
+    .ready-card { position: relative; overflow: hidden; padding: 22px; }
+    .ready-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: rgb(var(--rgb-grey)); }
+    .ready-on_track::before { background: rgb(var(--rgb-green)); }
+    .ready-at_risk::before { background: rgb(var(--rgb-amber)); }
+    .ready-action_needed::before { background: rgb(var(--rgb-orange)); }
+    .ready-not_achievable::before { background: rgb(var(--rgb-red)); }
+    .ready-advice_only::before { background: rgb(var(--rgb-blue)); }
+    .ready-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+    .ready-kicker { color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .12em; margin-bottom: 3px; }
+    .ready-title { font-size: clamp(20px, 3vw, 28px); font-weight: 650; line-height: 1.15; }
+    .ready-card .secondary { font-size: 13px; margin-top: 6px; max-width: 720px; }
+    .ready-level { margin: 20px 0 12px; }
+    .ready-level-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-bottom: 7px; }
+    .ready-track { height: 12px; border-radius: 8px; overflow: hidden; background: var(--surface); }
+    .ready-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgb(var(--rgb-purple)), rgb(var(--rgb-green))); }
+    .ready-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+    .ready-facts > div { background: var(--chip); border-radius: 14px; padding: 11px 12px; min-width: 0; }
+    .ready-facts span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+    .ready-facts strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+    .reliability-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+    .reliability-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 14px; background: var(--chip); color: var(--muted); padding: 5px 9px; font-size: 11px; }
+    .reliability-chip i { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--rgb-grey)); }
+    .reliability-chip.good i { background: rgb(var(--rgb-green)); }
+    .reliability-chip.warn i { background: rgb(var(--rgb-amber)); }
+    .reliability-chip.bad i { background: rgb(var(--rgb-red)); }
+
+    .field label:has(.range-value) { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .range-value { color: var(--text); font-weight: 650; font-size: 13px; white-space: nowrap; }
+    input[type=range][data-mushroom-range] {
+      --range-pos: 50%;
+      appearance: none;
+      -webkit-appearance: none;
+      width: 100%;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      outline: none;
+      background: transparent;
+      cursor: pointer;
+    }
+    input[type=range][data-mushroom-range]::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--accent) 0 var(--range-pos), var(--surface) var(--range-pos) 100%);
+    }
+    input[type=range][data-mushroom-range]::-moz-range-track { height: 8px; border-radius: 6px; background: var(--surface); }
+    input[type=range][data-mushroom-range]::-moz-range-progress { height: 8px; border-radius: 6px; background: var(--accent); }
+    input[type=range][data-mushroom-range]::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 22px; height: 22px; border-radius: 50%;
+      margin-top: -7px; border: 3px solid var(--card); background: var(--accent);
+      box-shadow: 0 1px 5px rgba(0,0,0,.2);
+    }
+    input[type=range][data-mushroom-range]::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      border: 3px solid var(--card); background: var(--accent);
+      box-shadow: 0 1px 5px rgba(0,0,0,.2);
+    }
+    input[type=range][data-mushroom-range]:focus-visible::-webkit-slider-thumb { outline: 3px solid rgba(var(--rgb-accent), .25); outline-offset: 2px; }
+
+    #dep-form, #control-form, #solar-form, #battery-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }
+    #dep-form > .card, #control-form > .card, #solar-form > .card, #battery-form > .card { margin-bottom: 0; }
+    #dep-form > .savebar, #control-form > .savebar, #solar-form > .savebar, #battery-form > .savebar { grid-column: 1 / -1; }
+    @media (max-width: 760px) {
+      #dep-form, #control-form, #solar-form, #battery-form { grid-template-columns: 1fr; gap: 0; }
+      #dep-form > .card, #control-form > .card, #solar-form > .card, #battery-form > .card { margin-bottom: 16px; }
+      .ready-facts { grid-template-columns: 1fr 1fr; }
+      .ready-head { flex-direction: column-reverse; gap: 10px; }
+    }
+    @media (max-width: 480px) {
+      body { padding: 14px 10px; }
+      .card { padding: 16px; border-radius: 16px; }
+      .ready-facts { grid-template-columns: 1fr; }
+      .ready-card .shape { width: 36px; height: 36px; }
+    }

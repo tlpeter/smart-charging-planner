@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.26.0-dev
+
+- **Ready Guard / plan reliability**: every departure now gets an honest status (on track, at risk, action needed or not achievable), based on conservative charging power, connection, battery-data freshness and price coverage
+- Ready Guard calculates a latest safe start with at least 30 minutes of margin; once that point is reached it temporarily overrides cheap-hour and solar-only waiting and charges continuously at full power
+- Home has a clear Mushroom-style Ready Guard card with target progress, safety facts and the reasons behind the status; the price chart marks the latest safe start
+- The full app uses a calmer Mushroom-inspired palette, softer cards and clearer navigation; bounded battery, target, timing and solar settings use touch-friendly sliders with live values
+- A Home Assistant sensor exposes Ready Guard state, timing, margin and shortfall for dashboards and automations
+- Tests cover Ready Guard decisions, advice-only mode and impossible targets
+
+
 ## 0.25.5
 
 - Reliability: a charger command that Home Assistant rejects or cannot deliver is retried at the next control step instead of being suppressed for 15 minutes
