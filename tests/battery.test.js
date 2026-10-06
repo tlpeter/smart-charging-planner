@@ -98,6 +98,24 @@ check('car charging, "always": the battery may cover the car when that pays', ()
   const r = planBattery(day((h) => ({ ev_kw: h < 4 ? 11 : 0, buy: h < 4 ? 0.40 : 0.20 })), { ...bat, soc_pct: 90, ev_discharge: 'always' });
   assert.ok(r.actions.slice(0, 4).some((a) => a.discharge_kwh > 0.5), JSON.stringify(r.actions.slice(0, 4).map((a) => [a.action, a.discharge_kwh])));
 });
+check('car charging, "between 80 % and 40 %", battery at 90 %: covers the car, never below 40 %', () => {
+  const r = planBattery(day((h) => ({ ev_kw: h < 4 ? 3 : 0, buy: h < 4 ? 0.40 : 0.20 })), { ...bat, soc_pct: 90, ev_discharge: 'range', ev_from_pct: 80, ev_to_pct: 40 });
+  const ev = r.actions.slice(0, 4);
+  assert.ok(ev.some((a) => a.discharge_kwh > 0.5), JSON.stringify(ev.map((a) => [a.action, a.discharge_kwh])));
+  assert.ok(ev.every((a) => a.soc_pct >= 40 - 1e-6), ev.map((a) => Math.round(a.soc_pct)).join(' '));
+});
+check('car charging, "between 80 % and 40 %", battery at 70 % (below the start level), no grid charging: no discharging into the car', () => {
+  const r = planBattery(day((h) => ({ ev_kw: h < 4 ? 3 : 0, buy: h < 4 ? 0.40 : 0.20 })), { ...bat, soc_pct: 70, ev_discharge: 'range', ev_from_pct: 80, ev_to_pct: 40, actions: ['auto', 'hold', 'no_discharge'] });
+  assert.ok(r.actions.slice(0, 4).every((a) => a.action !== 'auto' && a.discharge_kwh === 0), JSON.stringify(r.actions.slice(0, 4).map((a) => [a.action, a.discharge_kwh])));
+});
+check('"between 80 % and 40 %": at 60 % after it stopped (off), it does not start again; still on from before, it may continue to 40 %', () => {
+  const blocks = day((h) => ({ ev_kw: h < 3 ? 3 : 0, buy: h < 3 ? 0.40 : 0.20 }));
+  const opts = { ...bat, soc_pct: 60, ev_discharge: 'range', ev_from_pct: 80, ev_to_pct: 40, actions: ['auto', 'hold', 'no_discharge'] };
+  const off = planBattery(blocks, { ...opts, ev_range_active: false });
+  assert.ok(off.actions.slice(0, 3).every((a) => a.discharge_kwh === 0), JSON.stringify(off.actions.slice(0, 3).map((a) => [a.action, a.discharge_kwh])));
+  const on = planBattery(blocks, { ...opts, ev_range_active: true });
+  assert.ok(on.actions.slice(0, 3).some((a) => a.discharge_kwh > 0.5) && on.actions.slice(0, 3).every((a) => a.soc_pct >= 40 - 1e-6), JSON.stringify(on.actions.slice(0, 3).map((a) => [a.action, a.discharge_kwh, Math.round(a.soc_pct)])));
+});
 check('sun: fills from solar surplus, never above the maximum', () => {
   const r = planBattery(day((h) => ({ pv_kw: h >= 10 && h < 16 ? 4 : 0 })), { ...bat, max_pct: 90 });
   assert.ok(Math.max(...r.actions.map((a) => a.soc_pct)) <= 90.01 && r.actions[15].soc_pct > 80, r.actions.map((a) => Math.round(a.soc_pct)).join(' '));

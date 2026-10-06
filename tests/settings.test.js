@@ -102,6 +102,7 @@ async function startApp(options = {}) {
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
       SCP_CURRENT_GAP_MS: '1000',
+      SCP_EQ_GAP_MS: '1000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -779,6 +780,51 @@ async function run() {
     const real = (world.houseW ?? 850) + (world.charging ? (world.amps ?? 16) * (world.phases ?? 3) * 230 : 0) - 3000;
     assert(near(r.grid.net_w, -real, 1), `${r.grid.net_w} vs ${-real}`);
   });
+  if (CH.equalizer) {
+    await test('S12', 'Easee Equalizer does solar: surplus charging on, charger on, no current or phase commands; Charge now: surplus off (full power)', async () => {
+      const r0 = await ok('GET', 'api/solar');
+      assert(r0.equalizer && r0.equalizer.switch_entity === 'switch.equalizer_surplus_charging', `equalizer ${JSON.stringify(r0.equalizer)}`);
+      world.charging = false; world.amps = null; world.phases = null; world.eqSurplus = false;
+      world.pvW = 6000;
+      const n0 = world.calls.length;
+      await ok('POST', 'api/solar', solarBody({ solar_control: 'equalizer' }));
+      await ok('POST', 'api/chargemode', { mode: 'plan_solar' });
+      for (let i = 0; i < 2; i++) { await plan(); await sleep(700); }
+      const n = (await ok('GET', 'api/control')).now;
+      const sent = callsSince(n0).filter((c) => c.domain !== 'notify' && c.domain !== 'number');
+      const desc = sent.map((c) => `${c.domain}.${c.service}${c.data.enable != null ? ' ' + c.data.enable : ''}${c.target && c.target.entity_id ? ' ' + c.target.entity_id : ''}`);
+      assert(n.code === 'solar' && world.charging, `decision ${n.code}, charging ${world.charging}, sent ${desc}`);
+      assert(world.eqSurplus === true, `surplus ${world.eqSurplus}, sent ${desc}`);
+      assert(!sent.some((c) => ['set_charger_dynamic_limit', 'set_charger_phase_mode'].includes(c.service)), `current/phase sent: ${desc}`);
+      const n1 = world.calls.length;
+      await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+      for (let i = 0; i < 2; i++) { await plan(); await sleep(1100); }
+      const off = world.eqSurplus;
+      const sent2 = callsSince(n1).filter((c) => c.service === 'set_surplus_charging').map((c) => c.data.enable);
+      await ok('DELETE', 'api/boost');
+      assert(off === false, `surplus still ${off}, sent ${sent2}`);
+      return `${desc.join(' · ')} · Charge now: surplus ${sent2.join(', ')}`;
+    });
+    await test('S13', 'Back to the app: the surplus charging the app switched on goes off; Equalizer surplus on in the Easee app is reported', async () => {
+      world.eqSurplus = true;
+      await ok('POST', 'api/solar', solarBody({ solar_control: 'app' }));
+      await plan();
+      await sleep(1100);
+      await plan();
+      await sleep(700);
+      const offNow = world.eqSurplus === false;
+      world.eqSurplus = true;
+      const r = await ok('GET', 'api/solar');
+      world.eqSurplus = false;
+      world.pvW = 0;
+      assert(offNow, 'surplus charging left on');
+      assert(r.settings.solar_control === 'app' && r.equalizer.surplus_on === true, JSON.stringify(r.equalizer));
+    });
+  } else {
+    await test('S12', 'Equalizer solar refused without an Easee charger and Equalizer', async () => {
+      await refused('POST', 'api/solar', solarBody({ solar_control: 'equalizer' }), 'Easee');
+    });
+  }
   await test('S11', 'Mode buttons refused without solar; solar off → back to the price plan', async () => {
     await ok('POST', 'api/solar', solarBody({ enabled: false }));
     await refused('POST', 'api/chargemode', { mode: 'solar' }, 'set up solar');
@@ -865,6 +911,29 @@ async function run() {
     await ok('DELETE', 'api/boost');
     assert(ok7, `mode ${world.bat.mode}, sent ${sent7}`);
   });
+  await test('T7b', '"Between two levels" (80 % → 40 %): refused when the levels do not fit; car charges: below 80 % no help, from 80 % the battery helps, at 40 % it stops', async () => {
+    await refused('POST', 'api/battery', batBody({ ev_discharge: 'range', ev_from_pct: 40, ev_to_pct: 60 }), 'below the start level');
+    await refused('POST', 'api/battery', batBody({ ev_discharge: 'range', ev_from_pct: 80, ev_to_pct: 5 }), 'minimum');
+    await ok('POST', 'api/battery', batBody({ ev_discharge: 'range', ev_from_pct: 80, ev_to_pct: 40, arbitrage: false }));
+    const step = async () => { await plan(); await sleep(700); return (await ok('GET', 'api/plan')).battery_now || {}; };
+    world.bat.soc = 60;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 90 });
+    const a = await step();
+    const modeA = world.bat.mode;
+    world.bat.soc = 85;
+    const b = await step();
+    const emsB = world.bat.ems;
+    world.bat.soc = 39;
+    const c = await step();
+    const modeC = world.bat.mode;
+    await ok('DELETE', 'api/boost');
+    world.bat.soc = 50;
+    await ok('POST', 'api/battery', batBody({ ev_discharge: 'never' }));
+    assert(a.action === 'hold' && modeA === 'Standby', `at 60 %: ${JSON.stringify(a)} mode ${modeA}`);
+    assert(b.action === 'auto' && emsB === 'off', `at 85 %: ${JSON.stringify(b)} ems ${emsB}`);
+    assert(c.action === 'hold' && modeC === 'Standby', `at 39 %: ${JSON.stringify(c)} mode ${modeC}`);
+    return `60 %: ${a.action} · 85 %: ${b.action} · 39 %: ${c.action}`;
+  });
   await test('T8', 'Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits', async () => {
     await ok('POST', 'api/battery', batBody({ ev_discharge: 'never', arbitrage: false }));
     await ok('POST', 'api/solar', solarBody());
@@ -883,6 +952,22 @@ async function run() {
     assert(world.bat.mode === 'Standby', `battery ${world.bat.mode}, sent ${sent}, battery now ${JSON.stringify(bn)}`);
     return `car on solar at ${world.amps} A · battery: ${sent.join(' · ')}`;
   });
+  if (CH.equalizer) {
+    await test('T8b', 'Equalizer does solar, no sun (evening): the charger is on but the car waits, so the battery keeps covering the house', async () => {
+      await ok('POST', 'api/battery', batBody({ ev_discharge: 'never', arbitrage: false }));
+      world.pvW = 0;
+      world.bat = { ...world.bat, autoKw: 0 };
+      await ok('POST', 'api/solar', solarBody({ solar_control: 'equalizer' }));
+      await ok('POST', 'api/chargemode', { mode: 'plan_solar' });
+      for (let i = 0; i < 3; i++) { await plan(); await sleep(800); }
+      const n = (await ok('GET', 'api/control')).now;
+      const bn = (await ok('GET', 'api/plan')).battery_now || {};
+      await ok('POST', 'api/solar', solarBody());
+      assert(n.code === 'solar' && world.eqSurplus === true && world.charging === false, `car ${n.code}, surplus ${world.eqSurplus}, charging ${world.charging}`);
+      assert(!/car/i.test(bn.reason || ''), `battery ${JSON.stringify(bn)}`);
+      return `charger on, Equalizer waits; battery: ${bn.action} (${bn.reason})`;
+    });
+  }
   await test('T9', 'Diagnostics: battery test "charge" sends the Sigenergy commands', async () => {
     const n0 = world.calls.length;
     const r = await ok('POST', 'api/battery/test', { action: 'charge' });

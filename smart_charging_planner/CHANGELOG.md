@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0
+
+- **Easee Equalizer surplus charging**: with an Easee charger and an Equalizer, Settings › Solar asks who follows the solar surplus: the app, or the Easee Equalizer. With the Equalizer, the app switches its surplus charging on for solar and off for full power (planned blocks, Charge now, the minimum level) with `easee.set_surplus_charging`, keeps the charger on and sends no current or phase commands. When you go back to the app, surplus charging that the app switched on is switched off. With the app following the surplus, the page warns when Equalizer surplus charging is on (they would fight)
+- **Home battery and the car: "Between two levels"**: a fourth choice next to Never / Only stored solar power / Always. The battery helps the car from a start level down to a stop level that stays for the house, and starts again only at the start level. Settings › Battery shows the levels on a bar with the level now; Home shows the rule. The battery plan follows the same levels
+- Fix: with the Equalizer doing solar the charger is on all day, but the car only charges when there is surplus. The home battery now goes by what the car really does, so it keeps covering the house in the evening
+- Tests: Equalizer (settings test S12, S13, T8b, with the old code T8b fails), "between two levels" in the plan and live (T7b), the fake Equalizer waits without sun
+
 ## 0.24.5
 
 - **Easee: start and stop with the "Charger enabled" switch** (on/off), now the default start/stop method for Easee. Before, the app chose `easee.action_command` pause/resume, which Easee ignores while the charger is switched off: the charger stayed on "awaiting start". Charging current and phases (solar) still use Easee's own actions. A method you chose yourself in Settings › Charger stays as it is

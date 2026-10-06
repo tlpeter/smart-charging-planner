@@ -59,8 +59,15 @@ const PROFILES = {
           action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } } },
           set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: {}, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1080 } } } } },
           set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: {}, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
+          // Equalizer surplus charging (nordicopen/easee_hass services.yaml)
+          set_surplus_charging: { name: 'Set surplus charging', fields: { device_id: {}, equalizer_id: {}, enable: { selector: { boolean: {} } }, current: { selector: { number: { min: 0, max: 40, unit_of_measurement: 'A' } } } } },
         },
       },
+      // An Easee Equalizer with surplus charging, on its own device.
+      equalizer: (w) => [
+        ['switch.equalizer_surplus_charging', w.eqSurplus ? 'on' : 'off', { friendly_name: 'Equalizer Surplus charging', surplusChargingCurrent: w.eqCurrent ?? 0 }, 'eq'],
+        ['sensor.equalizer_export_power', '0', { friendly_name: 'Equalizer Export power', unit_of_measurement: 'kW', device_class: 'power' }, 'eq'],
+      ],
       states: (w, status) => [
         ['sensor.laadpaal_status', status, { friendly_name: 'Laadpaal Status', device_class: 'enum' }],
         ['sensor.laadpaal_power', carKw(w), { friendly_name: 'Laadpaal Power', ...KW }],
@@ -206,13 +213,14 @@ function entityList(w) {
       ['number.sigen_plant_ess_max_discharging_limit', String(w.bat.dis), { friendly_name: 'Sigen Plant ESS Max Discharging Limit', unit_of_measurement: 'kW', min: 0, max: 100 }, 'plant'],
     ] : []),
     // Any other home battery (matrix test): entities from tests/fixtures.js.
+    ...(w.profile.charger.equalizer ? w.profile.charger.equalizer(w) : []),
     ...(w.otherBattery ? w.otherBattery.list.map(([id, , a, dev]) => [id, String(w.store.get(id)), a, dev]) : []),
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
   ];
 }
 
-const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen' };
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen', eq: 'easee' };
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
@@ -238,6 +246,7 @@ function devices(w) {
     { id: 'ez', name: 'EnergyZero', manufacturer: 'EnergyZero' },
     { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
     { id: 'plant', name: 'Sigen Plant', manufacturer: 'Sigenergy', model: 'SigenStor' },
+    ...(w.profile.charger.equalizer ? [{ id: 'eq', name: 'Equalizer', manufacturer: 'Easee', model: 'Equalizer' }] : []),
     ...(w.otherBattery ? Object.keys(w.otherBattery.devices).map((id) => ({ id, name: w.otherBattery.names[id] || id })) : []),
   ];
 }
@@ -307,12 +316,18 @@ function start(w, wsPort, restPort) {
             if (m.domain === 'select' && m.service === 'select_option') w.store.set(tid, call.data.option);
             if (m.domain === 'number' && m.service === 'set_value') w.store.set(tid, String(call.data.value));
           }
+          if (m.domain === 'easee' && m.service === 'set_surplus_charging') {
+            w.eqSurplus = call.data.enable === true;
+            w.eqCurrent = call.data.current;
+            // Like the Equalizer: with surplus charging on and no sun, the car waits.
+            if (w.eqSurplus && (w.pvW ?? 0) < 1400) w.charging = false;
+          }
           const amps = w.profile.charger.currentOf && w.profile.charger.currentOf(call);
           if (amps != null) w.amps = amps;
           const ph = w.profile.charger.phasesOf && w.profile.charger.phasesOf(call);
           if (ph != null) w.phases = ph;
           const r = w.profile.charger.react(call);
-          if (r === 'start') w.charging = true;
+          if (r === 'start') w.charging = !(w.eqSurplus && (w.pvW ?? 0) < 1400);
           if (r === 'stop') w.charging = false;
           return ok({ context: {} });
         }
