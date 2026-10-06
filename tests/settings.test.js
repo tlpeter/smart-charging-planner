@@ -1031,6 +1031,20 @@ async function run() {
     const r = await api('POST', 'api/control/settings', '{bad');
     assert(r.status === 400, `status ${r.status}`);
   });
+  await test('L4', 'Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token', async () => {
+    world.events = [{ summary: 'Naar Werk Dordrecht', description: 'doel: 80', location: 'Kerkstraat 1, Reusel', start: isoLocal(at(1, 7, 0), tz), end: isoLocal(at(1, 8, 0), tz) }];
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' }).catch(() => {});
+    await plan();
+    const d = await ok('GET', 'api/diagnostics');
+    const text = JSON.stringify(d);
+    world.events = [];
+    assert(d.app_version && d.settings && d.settings.chargers && d.settings.chargers.length, 'no settings');
+    assert(d.control_check && d.control_check.recommended, 'no control check');
+    assert(d.entities.some((e) => e.entity_id === CH.status), 'charger status entity missing');
+    assert(Array.isArray(d.control_log) && Array.isArray(d.app_log) && d.app_log.length > 5, 'no logs');
+    for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Reusel', 'SUPERVISOR']) assert(!text.includes(secret), `contains ${secret}`);
+    return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log.length} log lines`;
+  });
 }
 
 // ---------------------------------------------------------------------------

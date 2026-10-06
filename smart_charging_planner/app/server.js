@@ -23,6 +23,7 @@ const { learnedPower } = require('./chargepower');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
 const equalizer = require('./equalizer');
+const diagnostics = require('./diagnostics');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
@@ -2428,6 +2429,59 @@ routes['GET /api/control'] = async () => {
     })(),
     log: controller.recentLog(150),
   };
+};
+
+// "Download diagnostics" (Settings › Diagnostics): one file to attach to a bug
+// report. Personal details are removed (see diagnostics.js).
+routes['GET /api/diagnostics'] = async () => {
+  const s = settings.load();
+  const safe = async (fn) => { try { return await fn(); } catch (err) { return { error: err.message }; } };
+  const { entities, devices, states } = await loadRegistries();
+  const charger = s.chargers[0] || null;
+  const methods = charger ? await safe(() => currentControlMethods(charger)) : null;
+  // The entities the settings use, with their state and the attributes that matter.
+  const ids = new Set();
+  JSON.stringify(s, (k, v) => { if (typeof v === 'string' && /^[a-z_]+\.[a-z0-9_]+$/.test(v) && !/^notify\./.test(v)) ids.add(v); return v; });
+  const KEEP_ATTR = ['unit_of_measurement', 'device_class', 'state_class', 'options', 'min', 'max', 'step', 'surplusChargingCurrent'];
+  const used = [...ids].sort().map((id) => {
+    const st = states.find((x) => x.entity_id === id);
+    const reg = entities.find((e) => e.entity_id === id);
+    if (!st) return { entity_id: id, state: 'not found' };
+    const attrs = Object.fromEntries(Object.entries(st.attributes || {}).filter(([k]) => KEEP_ATTR.includes(k)));
+    return { entity_id: id, platform: reg ? reg.platform : null, state: st.state, last_changed: st.last_changed, attributes: attrs };
+  });
+  const p = planCache ? planCache.result : null;
+  const detect = {
+    chargers: await safe(async () => (await routes['GET /api/chargers/detect']()).candidates.map((c) => ({ integration: c.integration, suggested: c.suggested }))),
+    vehicles: await safe(async () => (await routes['GET /api/vehicles/detect']()).candidates.map((c) => ({ platform: c.platform, soc_entity: c.soc_entity, plugged_entity: c.plugged_entity, charge_limit_entity: c.charge_limit_entity }))),
+    batteries: await safe(() => battery.detectBatteries(entities, devices, states).map((c) => ({ platform: c.platform, soc_entity: c.soc_entity, power_entity: c.power_entity, control: battery.controlFor(c, entities, states, null).supported || [] }))),
+    equalizer: await safe(() => equalizer.detectEqualizer(entities, states, devices)),
+    pv_sensors: await safe(() => solar.detectPvSensors(entities, states).slice(0, 5).map((x) => ({ entity_id: x.entity_id, brand: x.brand }))),
+  };
+  return diagnostics.redact({
+    generated_at: new Date().toISOString(),
+    app_version: APP_VERSION,
+    ha_version: ha.state.version,
+    time_zone: ha.state.timeZone,
+    connected: ha.state.connected,
+    options,
+    settings: s,
+    control_check: methods,
+    detected: detect,
+    entities: used,
+    plan: p ? {
+      computed_at: p.computed_at,
+      notes: p.plan && p.plan.notes,
+      planning: p.planning,
+      departure: p.departure ? { time: p.departure.time, soc: p.departure.soc, source: p.departure.source } : null,
+      blocks: p.plan && p.plan.blocks ? p.plan.blocks.map((b) => ({ start: b.start, end: b.end, kwh: b.kwh, price: b.price, solar_kwh: b.solar_kwh || 0 })) : [],
+      prices: p.prices ? { count: p.prices.length, first: p.prices[0] && p.prices[0].start, last: p.prices.length ? p.prices[p.prices.length - 1].end : null, forecast: p.prices.filter((x) => x.forecast).length } : null,
+      charge_for: p.charge_for, boost: p.boost, solar: p.solar, battery: p.battery ? { enabled: p.battery.enabled, soc: p.battery.soc, control: p.battery.control, error: p.battery.error || null } : null,
+    } : null,
+    now: lastDryRun,
+    control_log: controller.recentLog(100),
+    app_log: ha.recentLog().slice(-200).map(diagnostics.redactLine),
+  });
 };
 
 // Setup wizard: what is set up, and whether the user finished the wizard.

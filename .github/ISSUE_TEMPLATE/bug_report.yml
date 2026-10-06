@@ -1,0 +1,59 @@
+name: Bug report
+description: Something does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The more of the fields below you fill in, the faster it can be found.
+        **Please attach the diagnostics file**: in the app, Settings › Diagnostics › *Download diagnostics*. Names, trip titles, places and your notify target are removed from it.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Settings › Diagnostics › App version
+      placeholder: "0.25.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.10.1"
+  - type: input
+    id: charger
+    attributes:
+      label: Charger (brand, model, integration)
+      placeholder: "Easee Charge Max, easee (HACS)"
+    validations:
+      required: true
+  - type: input
+    id: car
+    attributes:
+      label: Car (brand, model, integration)
+      placeholder: "Renault Megane E-Tech, renault"
+  - type: input
+    id: battery
+    attributes:
+      label: Home battery and solar (if any)
+      placeholder: "Sigenergy (sigen), Easee Equalizer surplus charging"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did the app do instead? Times help (for example "at 13:00 it should have started").
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log lines (optional)
+      description: From the Log tab in the app or the app log in Home Assistant.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I attached the diagnostics file (Settings › Diagnostics › Download diagnostics), or explained why not
+          required: false

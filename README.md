@@ -2,7 +2,7 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.25.0). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+> Status: early development (v0.25.1). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
 
 ## Installation
 
@@ -40,6 +40,20 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 `node tests/forecast.test.js` checks the price forecast (forecast entries, time zone, planner) and the planner with two goals.
 
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
+
+## Stable and test versions
+
+- **`main`** is the stable version. Add `https://github.com/tlpeter/smart-charging-planner` in Home Assistant (Settings → Apps → App store → ⋮ → Repositories).
+- **`dev`** is the test version with the newest changes. Add `https://github.com/tlpeter/smart-charging-planner#dev` instead. Only use it if you want to try new things and report problems.
+
+Every push and pull request runs all tests on GitHub (Actions → Tests). A version only goes from `dev` to `main` when the tests pass and it has run well for a while.
+
+## Reporting a problem
+
+1. In the app: Settings › Diagnostics › **Download diagnostics**. Names, trip titles, places and your notify target are removed from the file.
+2. Open a [bug report](https://github.com/tlpeter/smart-charging-planner/issues/new/choose) and attach the file.
+
+Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
 
 ## Credits
 

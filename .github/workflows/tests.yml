@@ -1,0 +1,68 @@
+name: Tests
+
+# Runs every test on each push and pull request. A red result means: do not
+# release this version.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Brands, solar, battery, price forecast
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: smart_charging_planner/app
+      - run: node tests/brands.test.js
+      - run: node tests/solar.test.js
+      - run: node tests/battery.test.js
+      - run: node tests/forecast.test.js
+
+  settings:
+    name: Settings test (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [renault_easee, skoda_wallbox]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: smart_charging_planner/app
+      - run: node tests/settings.test.js
+        env:
+          SCP_PROFILE: ${{ matrix.profile }}
+
+  matrix:
+    name: Matrix (${{ matrix.charger }} × all batteries)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        charger: ['Easee', 'Zaptec', 'Alfen', 'Wallbox', 'go-e (marq24)', 'go-e (cathiele)', 'Peblar', 'OCPP', 'Ohme', 'Tesla Wall']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: smart_charging_planner/app
+      - run: node tests/matrix.test.js
+        env:
+          SCP_CHARGERS: ${{ matrix.charger }}

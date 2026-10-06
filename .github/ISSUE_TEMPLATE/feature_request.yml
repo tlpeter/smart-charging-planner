@@ -1,0 +1,16 @@
+name: Idea or question
+description: A new feature, a charger/car/battery that is not supported yet, or a question
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe what you want to do and why. For a new brand, name the Home Assistant integration (and link it).
+    validations:
+      required: true
+  - type: textarea
+    id: entities
+    attributes:
+      label: Entities and actions (for a new brand, optional)
+      description: The entities and actions the integration gives you, for example from Settings › Devices › your charger. A diagnostics file helps too.
