@@ -44,7 +44,9 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 ## Stable and test versions
 
 - **`main`** is the stable version. Add `https://github.com/tlpeter/smart-charging-planner` in Home Assistant (Settings → Apps → App store → ⋮ → Repositories).
-- **`dev`** is the test version with the newest changes. Add `https://github.com/tlpeter/smart-charging-planner#dev` instead. Only use it if you want to try new things and report problems.
+- **`dev`** is the test version with the newest changes. Add `https://github.com/tlpeter/smart-charging-planner#dev` instead. It shows as **Smart Charging Planner (dev)**, with a version ending in `-dev`. Only use it if you want to try new things and report problems.
+- Install **one of the two**, not both: each has its own settings, and two apps with "Allow control" on would both steer the same charger.
+- When a version goes from `dev` to `main`, the names and the version on `main` stay without "(dev)".
 
 Every push and pull request runs all tests on GitHub (Actions → Tests). A version only goes from `dev` to `main` when the tests pass and it has run well for a while.
 
