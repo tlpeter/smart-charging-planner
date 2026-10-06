@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.4
+
+- **Import settings in the setup wizard**: a fresh install (for example the dev version) shows the setup wizard first, so Settings › Diagnostics could not be reached. The wizard now has "Have a settings file? Import it instead"; after the import the wizard closes by itself when car, charger and prices are in the file
+- Fix: times on the page (for example in the import preview) failed before the first plan was loaded ("Cannot read properties of null (reading 'time_zone')"); they now use the browser's time zone until then
+
 ## 0.25.3
 
 - **Export and import settings** (Settings › Diagnostics › Back up or move your settings): all settings of the app in one file (car, charger, grid, prices, departures, rules, solar, home battery, notifications, how to charge). Import shows first what is in the file and what this Home Assistant does not have, and only replaces your settings after you confirm. A car limit, home battery, Equalizer or notify action that is not found here is left out, with the same checks as when you set them by hand. "Allow control" and the other Configuration options are never in the file and never changed by an import
