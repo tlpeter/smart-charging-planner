@@ -2,15 +2,27 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development (v0.25.4). Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+> Status: early development. Charging plan, departures, savings and charger control. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
 
 ## Installation
 
+Choose **one** version before adding the repository:
+
+| Version | Recommended for | Repository URL | Name in Home Assistant |
+| --- | --- | --- | --- |
+| **Stable (`main`)** | Most users | `https://github.com/tlpeter/smart-charging-planner` | **Smart Charging Planner** |
+| **Test (`dev`)** | Testing the newest changes and reporting problems | `https://github.com/tlpeter/smart-charging-planner#dev` | **Smart Charging Planner (dev)** |
+
+The test version may contain unfinished or less-tested changes. Its version number ends in `-dev`.
+
 1. In Home Assistant, go to **Settings → Apps → App store**.
 2. Open the menu (⋮) in the top right and choose **Repositories**.
-3. Add `https://github.com/tlpeter/smart-charging-planner`.
-4. Find **Smart Charging Planner** in the store and install it.
+3. Paste the repository URL for the version you chose and select **Add**.
+4. Find the matching app name in the store and install it.
 5. Start the app and open **Smart Charging** in the sidebar. A setup wizard walks you through the first steps.
+
+> [!WARNING]
+> Install only one version. Stable and test installations have separate settings, and if control is enabled in both, they may both try to control the same charger or home battery.
 
 ## Roadmap
 
@@ -41,14 +53,13 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
 
-## Stable and test versions
+## Release process
 
-- **`main`** is the stable version. Add `https://github.com/tlpeter/smart-charging-planner` in Home Assistant (Settings → Apps → App store → ⋮ → Repositories).
-- **`dev`** is the test version with the newest changes. Add `https://github.com/tlpeter/smart-charging-planner#dev` instead. It shows as **Smart Charging Planner (dev)**, with a version ending in `-dev`. Only use it if you want to try new things and report problems.
-- Install **one of the two**, not both: each has its own settings, and two apps with "Allow control" on would both steer the same charger.
-- When a version goes from `dev` to `main`, the names and the version on `main` stay without "(dev)".
-
-Every push and pull request runs all tests on GitHub (Actions → Tests). A version only goes from `dev` to `main` when the tests pass and it has run well for a while.
+- `main` contains the stable version.
+- `dev` contains the newest test version.
+- Every push and pull request runs the complete GitHub Actions test suite.
+- A version moves from `dev` to `main` only after the tests pass and it has run reliably for a while.
+- On `main`, the app name and version do not contain `(dev)` or `-dev`.
 
 ## Reporting a problem
 
