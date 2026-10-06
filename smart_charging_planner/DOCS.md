@@ -97,6 +97,8 @@ Set up in **Settings › Solar** (needs the grid meter in Settings › Grid: the
 
 **Charging on surplus.** Every minute (with Allow control on) the app looks at the grid meter: surplus = what you export + what the car uses now. It starts when the surplus is enough for 6 A for a few minutes, follows it with the charging current, and stops when it has been too low for a few minutes. Up to "Charge with solar up to" (default 90 %; the car's charge limit follows). A planned block with grid power in "Plan + solar" goes first, at full power. Without a way to set the current, charging on solar only starts when the surplus covers the full power.
 
+**Easee Equalizer.** With an Easee charger and an Equalizer with surplus charging, Settings › Solar asks who follows the surplus: **the app** (as described above) or **the Easee Equalizer**. With the Equalizer, the app switches its surplus charging on while charging on solar and off when it charges at full power (a planned block, Charge now, the minimum level), with `easee.set_surplus_charging`. The charger stays switched on; the Equalizer starts, stops, sets the current and switches phases itself (Easee: after about 10 minutes of steady surplus, from 6 A). "Grid power allowed" is passed on as amps per phase on top of the surplus. The app sends no current or phase commands then. With the app following the surplus, turn surplus charging off in the Easee app: the page warns when it is on, because the two would fight.
+
 **One or three phases.** Below 6 A on three phases (about 4.1 kW) the charger can switch to one phase (from about 1.4 kW), and back with enough sun, at most every 10 minutes. Possible with Easee (`easee.set_charger_phase_mode`), go-e (phase switch mode `psm`) and Peblar (`Force single phase`). Wallbox, Zaptec, Alfen, OCPP and Ohme cannot switch phases from Home Assistant.
 
 **Current back to normal.** When the app charges at full power again (plan, Charge now), it sets the current back to the maximum and the phases back to three. A current the app never changed is left alone.
@@ -111,7 +113,7 @@ Set up in **Settings › Battery**. The app plans the home battery next to the c
 
 The plan shows on Home (Home battery card) and in the chart (purple: charges, grey: holds), with the expected saving compared with leaving the battery alone.
 
-**The car and the battery.** "May the home battery charge the car?": *Never* (default: the battery does not discharge while the car charges), *Only stored solar power* (the app counts how much of the battery's energy came from the sun), or *Always* (when that pays). "Who gets the sun first?": *Smart* (default: the car while it still needs energy, otherwise the battery), *Car* or *Battery*.
+**The car and the battery.** "May the home battery charge the car?": *Never* (default: the battery does not discharge while the car charges), *Only stored solar power* (the app counts how much of the battery's energy came from the sun), *Always* (when that pays), or *Between two levels*: the battery starts helping the car from a start level (for example 80 %) and stops at a stop level (for example 40 %) that stays for the house; after it stopped it only starts again when it is back at the start level. A bar on the page shows the levels and the level now. The plan follows the same levels. "Who gets the sun first?": *Smart* (default: the car while it still needs energy, otherwise the battery), *Car* or *Battery*.
 
 **Brands.** Control goes through the integration's own entities and actions, checked against its source code:
 

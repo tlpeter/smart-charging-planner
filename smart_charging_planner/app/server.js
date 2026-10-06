@@ -22,6 +22,7 @@ const session = require('./session');
 const { learnedPower } = require('./chargepower');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
+const equalizer = require('./equalizer');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
@@ -1260,7 +1261,9 @@ const BATTERY_DEFAULTS = {
   efficiency: 0.9,
   wear: 0.03,
   arbitrage: true,
-  ev_discharge: 'never', // 'never' | 'solar_only' | 'always'
+  ev_discharge: 'never', // 'never' | 'solar_only' | 'always' | 'range'
+  ev_from_pct: 80, // range: the battery starts charging the car from this level
+  ev_to_pct: 40, // range: and stops at this level (kept for the house)
   solar_priority: 'smart',
   saved: null, // values to put back (Tesla backup reserve, Sessy strategy)
 };
@@ -1306,6 +1309,7 @@ async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, stat
   const plan = planBattery(blocks, {
     ...bcfg,
     soc_pct: soc,
+    ev_range_active: evRange.active || (Number.isFinite(soc) && soc >= bcfg.ev_from_pct),
     actions: bcfg.arbitrage ? actions : actions.filter((a) => a !== 'charge'),
   });
   return {
@@ -1319,6 +1323,9 @@ async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, stat
     saving: plan.saving,
     notes: plan.notes,
     ev_discharge: bcfg.ev_discharge,
+    ev_from_pct: bcfg.ev_from_pct,
+    ev_to_pct: bcfg.ev_to_pct,
+    ev_range_active: evRange.active,
     solar_kwh: batteryLedger.solar_kwh,
   };
 }
@@ -1357,7 +1364,16 @@ function updateLedger(bcfg, states, gridW) {
 }
 
 // What the battery should do now: the plan, then the car.
-function batteryWanted(bcfg, planResult, entry) {
+// "Between two levels": on from the start level, off at the stop level, and
+// only on again at the start level (no switching back and forth in between).
+const evRange = { active: false };
+function updateEvRange(bcfg, soc) {
+  if (bcfg.ev_discharge !== 'range' || !Number.isFinite(soc)) { evRange.active = false; return; }
+  if (soc >= bcfg.ev_from_pct) evRange.active = true;
+  if (soc <= bcfg.ev_to_pct) evRange.active = false;
+}
+
+function batteryWanted(bcfg, planResult, entry, soc = null) {
   const b = planResult && planResult.battery;
   const now = Date.now();
   const blk = b && b.actions ? b.actions.find((a) => a.start <= now && now < a.end) : null;
@@ -1367,13 +1383,24 @@ function batteryWanted(bcfg, planResult, entry) {
   // (charging started outside the app, a charger the app cannot steer).
   // A pause that was just sent successfully: the car stops in a moment.
   const pausing = !!entry && entry.want === 'pause' && entry.sent === true;
-  const evCharging = !!entry && entry.plugged !== false && (entry.want === 'charge' || (entry.charging === true && !pausing));
+  // With the Easee Equalizer doing solar, "charge" only means the charger is on;
+  // the car charges when the Equalizer sees surplus: go by what it really does.
+  const eqSolar = !!entry && entry.solar_equalizer && entry.code === 'solar';
+  const evCharging = !!entry && entry.plugged !== false && (eqSolar ? entry.charging === true : (entry.want === 'charge' || (entry.charging === true && !pausing)));
   if (evCharging && entry.code === 'solar' && bcfg.solar_priority === 'smart' && ['auto', 'no_discharge'].includes(action)) {
     action = 'hold';
     reason = 'The car is charging on solar: the battery waits, so the sun goes to the car';
   } else if (evCharging && action === 'auto') {
     if (bcfg.ev_discharge === 'never') { action = 'no_discharge'; reason = 'The car is charging: the battery does not discharge into it'; }
     if (bcfg.ev_discharge === 'solar_only' && batteryLedger.solar_kwh < 0.3) { action = 'no_discharge'; reason = 'The car is charging and the battery holds no stored solar power: no discharging into the car'; }
+    if (bcfg.ev_discharge === 'range' && !evRange.active) {
+      action = 'no_discharge';
+      reason = Number.isFinite(soc) && soc <= bcfg.ev_to_pct
+        ? `The car is charging; the battery is at ${Math.round(soc)} %, the stop level for the car is ${bcfg.ev_to_pct} %: no discharging into the car`
+        : `The car is charging; the battery charges the car only from ${bcfg.ev_from_pct} %: no discharging into it`;
+    } else if (bcfg.ev_discharge === 'range') {
+      reason = `The car is charging; the battery may charge it until it is at ${bcfg.ev_to_pct} %`;
+    }
   }
   return { action, reason };
 }
@@ -1413,7 +1440,9 @@ async function batteryStep(s, planResult, entry, states) {
   const grid = s.grid[0] || null;
   const sol = s.solar && s.solar.enabled ? s.solar : null;
   updateLedger(bcfg, states, solar.gridNetW(grid, states, sol ? sol.grid_sign : 'import_positive'));
-  const want = bcfg.enabled ? batteryWanted(bcfg, planResult, entry) : { action: 'auto', reason: 'Battery planning is off' };
+  const socLive = socNow(bcfg, states);
+  updateEvRange(bcfg, socLive);
+  const want = bcfg.enabled ? batteryWanted(bcfg, planResult, entry, socLive) : { action: 'auto', reason: 'Battery planning is off' };
   const info = { ...want, sent: false, live: options.allow_control === true && options.allow_battery_control === true };
   if (!info.live) return info;
   // Nothing changed by the app yet and "auto" wanted: leave the battery alone.
@@ -1499,11 +1528,18 @@ routes['POST /api/battery'] = async (req) => {
     efficiency: num(b.efficiency, 'Round-trip efficiency', 0.5, 1),
     wear: num(b.wear, 'Wear', 0, 0.5),
     arbitrage: b.arbitrage !== false,
-    ev_discharge: ['never', 'solar_only', 'always'].includes(b.ev_discharge) ? b.ev_discharge : 'never',
+    ev_discharge: ['never', 'solar_only', 'always', 'range'].includes(b.ev_discharge) ? b.ev_discharge : 'never',
+    ev_from_pct: b.ev_from_pct === undefined ? prev.ev_from_pct : num(b.ev_from_pct, 'Start level for the car', 1, 100),
+    ev_to_pct: b.ev_to_pct === undefined ? prev.ev_to_pct : num(b.ev_to_pct, 'Stop level for the car', 0, 99),
     solar_priority: b.solar_priority === 'battery' ? 'battery' : b.solar_priority === 'car' ? 'car' : 'smart',
     power_sign: b.power_sign === 'discharge_positive' ? 'discharge_positive' : 'charge_positive',
   };
   if (cfg.min_pct >= cfg.max_pct) throw badRequest('The minimum level must be below the maximum level');
+  if (cfg.ev_discharge === 'range') {
+    if (cfg.ev_to_pct >= cfg.ev_from_pct) throw badRequest('The stop level for the car must be below the start level');
+    if (cfg.ev_to_pct < cfg.min_pct) throw badRequest(`The stop level for the car cannot be below the battery's minimum (${cfg.min_pct} %)`);
+    if (cfg.ev_from_pct > cfg.max_pct) throw badRequest(`The start level for the car cannot be above the battery's maximum (${cfg.max_pct} %)`);
+  }
   if (b.platform !== undefined || b.soc_entity !== undefined) {
     // SAFETY: the battery must be one that the app detected itself.
     const { entities, devices, states } = await loadRegistries();
@@ -1570,6 +1606,8 @@ const SOLAR_DEFAULTS = {
   phase_switching: false,
   phase_method_id: null,
   feed_in: { mode: 'market', fee: 0.02, fixed: 0.05, vat_percent: 0 },
+  solar_control: 'app', // 'app' | 'equalizer' (Easee Equalizer surplus charging)
+  equalizer: null, // { device_id, switch_entity, name } when solar_control is 'equalizer'
 };
 
 function solarSettings(s) {
@@ -1580,7 +1618,7 @@ function solarSettings(s) {
 routes['GET /api/solar'] = async () => {
   const s = settings.load();
   const cfg = solarSettings(s);
-  const { entities, states } = await loadRegistries();
+  const { entities, devices: devicesList, states } = await loadRegistries();
   const charger = s.chargers[0] || null;
   const methods = charger ? await currentControlMethods(charger).catch(() => null) : null;
   const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
@@ -1619,6 +1657,7 @@ routes['GET /api/solar'] = async () => {
     price_type: s.prices ? s.prices.price_type : null,
     current_method: chosen && chosen.current ? { id: chosen.current.id, label: chosen.current.label } : null,
     phase_methods: methods && methods.available ? (methods.phase || []).map((m) => ({ id: m.id, label: m.label, type: m.type })) : [],
+    equalizer: charger && methods && methods.available && (methods.domains || []).includes('easee') ? equalizer.detectEqualizer(entities, states, devicesList) : null,
     control_allowed: options.allow_control,
     now: lastDryRun && lastDryRun.solar_now ? lastDryRun.solar_now : null,
   };
@@ -1664,6 +1703,19 @@ routes['POST /api/solar'] = async (req) => {
   }
   const s = settings.load();
   if (cfg.enabled && !(s.grid && s.grid[0])) throw badRequest('Set up the grid meter first (Settings › Grid): the app sees the solar surplus there');
+  cfg.solar_control = 'app';
+  cfg.equalizer = null;
+  if (b.solar_control === 'equalizer') {
+    // SAFETY: only an Equalizer that Home Assistant's registry shows, next to an Easee charger.
+    const charger = s.chargers[0] || null;
+    const methods = charger ? await currentControlMethods(charger).catch(() => null) : null;
+    if (!(methods && methods.available && (methods.domains || []).includes('easee'))) throw badRequest('Solar charging by the Equalizer needs an Easee charger (Settings › Charger)');
+    const { entities, devices, states } = await loadRegistries();
+    const eq = equalizer.detectEqualizer(entities, states, devices);
+    if (!eq) throw badRequest('No Easee Equalizer with surplus charging found in Home Assistant');
+    cfg.solar_control = 'equalizer';
+    cfg.equalizer = { device_id: eq.device_id, switch_entity: eq.switch_entity, name: eq.name };
+  }
   s.solar = cfg;
   settings.save(s);
   solarFcCache = null;
@@ -2023,6 +2075,23 @@ function solarStep(s, planResult, states, methods, rules, charger) {
   if (!sol || cm === 'plan' || !planResult) { solarState = solarctl.initialState(); return null; }
   const grid = s.grid[0] || null;
   const net = solar.gridNetW(grid, states, sol.grid_sign);
+  if (sol.solar_control === 'equalizer' && sol.equalizer) {
+    // The Equalizer follows the surplus itself (current, phases, start and
+    // stop): the charger stays on and the Equalizer's surplus charging is on.
+    solarState = solarctl.initialState();
+    const soc = planResult.vehicle ? planResult.vehicle.soc : null;
+    const full = Number.isFinite(soc) && soc >= (Number(sol.max_soc) || 100);
+    return {
+      charge: !full,
+      amps: null,
+      phases: null,
+      equalizer: true,
+      reason: full ? `Battery at ${sol.max_soc}%, the most to charge with solar` : 'Charging on solar surplus through the Easee Equalizer (it starts, stops and sets the current itself)',
+      mode: cm,
+      available_w: null,
+      grid_w: net,
+    };
+  }
   const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
   const carW = Number.isFinite(actual.power_w) ? actual.power_w : 0;
   let available = net == null ? null : carW - net + (Number(sol.grid_allow_w) || 0);
@@ -2056,6 +2125,46 @@ function solarStep(s, planResult, states, methods, rules, charger) {
   return { ...r, mode: cm, available_w: available, grid_w: net };
 }
 
+// Easee Equalizer surplus charging: on while charging on solar, off while
+// charging at full power (a planned block, Charge now, the minimum level).
+// Only sent when the switch is not already as wanted, at most every few
+// minutes (the Easee cloud). When the Equalizer no longer does solar, the
+// surplus charging the app switched on is switched off once.
+let lastEqualizer = null; // { enable, at, device_id }
+const EQ_GAP_MS = Number(process.env.SCP_EQ_GAP_MS) || 5 * 60000; // SCP_EQ_GAP_MS: tests only
+async function equalizerStep(s, entry, states, charger) {
+  const sol = s.solar && s.solar.enabled ? s.solar : null;
+  const eqMode = !!(sol && sol.solar_control === 'equalizer' && sol.equalizer);
+  const eq = eqMode ? sol.equalizer : lastEqualizer && lastEqualizer.eq;
+  if (!eq) return;
+  let want = null;
+  if (eqMode && chargeMode.current(true) !== 'plan') {
+    if (entry.want === 'charge' && entry.code === 'solar') want = true;
+    else if (entry.want === 'charge') want = false;
+  } else if (lastEqualizer && lastEqualizer.enable) {
+    want = false; // the app switched it on: switch it off again
+  }
+  if (want == null) return;
+  const st = (states || []).find((x) => x.entity_id === eq.switch_entity);
+  const isOn = st ? st.state === 'on' : null;
+  if (isOn === want) {
+    if (!want && !eqMode) lastEqualizer = null;
+    return;
+  }
+  if (lastEqualizer && lastEqualizer.enable === want && Date.now() - lastEqualizer.at < EQ_GAP_MS) return;
+  const cmd = equalizer.surplusCommand(eq, want, equalizer.importAmps(sol ? sol.grid_allow_w : 0, charger ? charger.phases : 3));
+  const line = { ...entry, time: Date.now(), live: true, commands: [cmd], sent: false, reason: want ? 'Charging on solar: the Equalizer follows the surplus' : 'Charging at full power: Equalizer surplus charging off' };
+  try {
+    await ha.sendControl(cmd, [{ service: 'easee.set_surplus_charging' }]);
+    line.sent = true;
+  } catch (err) {
+    line.error = err.message;
+    await notifier.notify('problem', 'Equalizer command failed', `${cmd.what}: ${err.message}`, { key: 'equalizer', minGapMs: 60 * 60000 });
+  }
+  lastEqualizer = { enable: want, at: Date.now(), eq };
+  controller.logSent(line);
+}
+
 // Set the charging current (and phases) for solar charging, and back to the
 // maximum (and three phases) when charging at full power again. Only what the
 // app changed itself is changed back; a current the app never touched is
@@ -2067,6 +2176,8 @@ const PHASE_RESTORE_MS = Number(process.env.SCP_PHASE_GAP_MS) || 2 * 60000;
 async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
   const sol = s.solar && s.solar.enabled ? s.solar : null;
   if (!sol || entry.want !== 'charge' || entry.plugged === false) return;
+  // The Equalizer sets the current and phases itself while charging on solar.
+  if (entry.solar && entry.solar_equalizer) return;
   const chosen = chosenMethods(methods, rules);
   const curM = sol.current_control !== false && chosen ? chosen.current : null;
   const phaseM = phaseMethodFor(methods, sol);
@@ -2137,13 +2248,15 @@ async function runDryRun(planResult) {
     boostActive: !!boost.current(),
     solar: solarCtx,
   });
-  if (solarCtx) lastDryRun.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason };
+  if (solarCtx) lastDryRun.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason, equalizer: !!solarCtx.equalizer };
+  lastDryRun.solar_equalizer = !!(solarCtx && solarCtx.equalizer);
   ha.debug('Control:', lastDryRun.want, lastDryRun.reason, lastDryRun.commands.map((c) => c.what).join(', ') || 'no commands');
   if (options.allow_control === true) {
     await checkReaction(lastDryRun);
     await sendLive(lastDryRun, chosenMethods(methods, rules));
     await sendCurrentAndPhases(lastDryRun, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
     await manageCarLimit(planResult, lastDryRun, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+    await equalizerStep(s, lastDryRun, states, charger).catch((err) => ha.warn('Equalizer surplus charging failed:', err.message));
   }
   try {
     lastDryRun.battery_now = await batteryStep(s, planResult, lastDryRun, states);
@@ -2180,6 +2293,8 @@ async function checkReaction(entry) {
   const { on, service } = pendingCheck;
   pendingCheck = null;
   if (entry.plugged === false) return; // unplugged meanwhile: nothing to check
+  // The Equalizer starts charging only when there is surplus.
+  if (on && entry.solar_equalizer && entry.code === 'solar') return;
   const followed = on ? entry.charging === true : entry.charging !== true;
   if (followed) return;
   const text = on

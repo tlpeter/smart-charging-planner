@@ -210,6 +210,26 @@
     .periods td, .periods th { border-bottom-color: var(--border); }
     a { color: var(--accent); }
     .quick .qsec { padding: 14px 0; border-top: 1px solid var(--border); }
+    .whocards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 12px; }
+    @media (max-width: 560px) { .whocards { grid-template-columns: 1fr; } }
+    .whocard { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: pointer; }
+    .whocard input { margin-top: 3px; width: auto; flex: none; }
+    .whocard:has(input:checked) { border-color: var(--accent); background: rgba(var(--rgb-accent), 0.06); }
+    .whocard strong { display: block; margin-bottom: 2px; }
+    .levelbar { position: relative; height: 16px; border-radius: 8px; overflow: hidden; display: flex; background: var(--chip); }
+    .levelbar span { height: 100%; }
+    .levelbar .lv-off { background: rgba(var(--rgb-grey), 0.35); }
+    .levelbar .lv-house { background: rgba(var(--rgb-amber), 0.55); }
+    .levelbar .lv-car { background: rgba(var(--rgb-purple), 0.45); }
+    .levelbar .lv-start { background: rgba(var(--rgb-purple), 0.85); }
+    .levelwrap { position: relative; padding: 22px 0 22px; margin-bottom: 6px; }
+    .levelmark { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .levelmark.below { top: auto; bottom: 0; }
+    .levelmark::after { content: ''; position: absolute; left: 50%; width: 1px; height: 8px; background: var(--muted); }
+    .levelmark:not(.below)::after { top: 16px; }
+    .levelmark.below::after { bottom: 16px; }
+    .levellegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+    .levellegend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
     .quick .qsec:first-of-type { border-top: none; padding-top: 4px; }
     .quick .qhead { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
     .section-title { margin: 18px 4px 8px; font-size: 15px; }
@@ -409,20 +429,30 @@
         </div>
         <div class="card sol-on">
           <h2>Charging on surplus</h2>
+          <div id="sol-who" hidden>
+            <label class="muted small">Who follows the surplus?</label>
+            <div class="whocards">
+              <label class="whocard"><input type="radio" name="solar_control" value="app"><span><strong>The app</strong><span class="muted small">Starts and stops, sets the current and switches phases from the grid meter.</span></span></label>
+              <label class="whocard"><input type="radio" name="solar_control" value="equalizer"><span><strong>The Easee Equalizer</strong><span class="muted small">Its own surplus charging. The app switches it on for solar and off for full power (planned blocks, Charge now).</span></span></label>
+            </div>
+            <p class="small" id="sol-eq-info"></p>
+          </div>
           <div class="two">
             <div class="field"><label>Charge with solar up to (%)</label><input name="max_soc" type="number" min="50" max="100" step="5"></div>
             <div class="field"><label>Grid power allowed while charging on solar, W</label><input name="grid_allow_w" type="number" min="0" max="5000" step="50"></div>
-            <div class="field"><label>Start after enough surplus for (minutes)</label><input name="start_delay_min" type="number" min="0" max="30" step="1"></div>
-            <div class="field"><label>Stop after too little surplus for (minutes)</label><input name="stop_delay_min" type="number" min="0" max="30" step="1"></div>
+            <div class="field sol-app"><label>Start after enough surplus for (minutes)</label><input name="start_delay_min" type="number" min="0" max="30" step="1"></div>
+            <div class="field sol-app"><label>Stop after too little surplus for (minutes)</label><input name="stop_delay_min" type="number" min="0" max="30" step="1"></div>
           </div>
           <div class="field"><label>Grid meter (Settings › Grid): a positive value means</label>
             <select name="grid_sign"><option value="import_positive">Taking power from the grid (most P1 meters)</option><option value="export_positive">Delivering power to the grid</option></select>
             <p class="muted small" id="solar-grid-now"></p></div>
-          <label class="check"><input type="checkbox" name="current_control"> Follow the surplus with the charging current (6 A up to the maximum)</label>
-          <p class="muted small" id="solar-current-note"></p>
-          <label class="check"><input type="checkbox" name="phase_switching"> Switch to one phase when there is too little sun for three</label>
-          <div class="field sol-phase"><label>How the charger switches phases</label><select name="phase_method_id"></select></div>
-          <p class="muted small" id="solar-phase-note"></p>
+          <div class="sol-app">
+            <label class="check"><input type="checkbox" name="current_control"> Follow the surplus with the charging current (6 A up to the maximum)</label>
+            <p class="muted small" id="solar-current-note"></p>
+            <label class="check"><input type="checkbox" name="phase_switching"> Switch to one phase when there is too little sun for three</label>
+            <div class="field sol-phase"><label>How the charger switches phases</label><select name="phase_method_id"></select></div>
+            <p class="muted small" id="solar-phase-note"></p>
+          </div>
           <div class="field"><label>Solar power sensor (optional, only to show the solar power now)</label><select name="pv_entity"></select></div>
         </div>
         <div class="savebar">
@@ -464,8 +494,16 @@
               <option value="never">Never: the battery does not discharge while the car charges</option>
               <option value="solar_only">Only with stored solar power</option>
               <option value="always">Always: the battery does what it does</option>
+              <option value="range">Between two levels: from a start level down to a stop level</option>
             </select>
             <p id="bat-ev-warn" class="small differ" hidden></p></div>
+          <div id="bat-ev-range" hidden>
+            <div class="two">
+              <div class="field"><label>Start charging the car from, %</label><input name="ev_from_pct" type="number" min="1" max="100" step="1"></div>
+              <div class="field"><label>Stop at, % (kept for the house)</label><input name="ev_to_pct" type="number" min="0" max="99" step="1"></div>
+            </div>
+            <div id="bat-ev-bar"></div>
+          </div>
           <div class="field"><label>Who gets the sun first?</label>
             <select name="solar_priority">
               <option value="smart">Smart: the car while it still needs energy, otherwise the battery</option>
@@ -1504,7 +1542,7 @@
       if (n && sol.mode !== 'plan') {
         const kw = (w) => `${(Math.abs(w) / 1000).toFixed(1)} kW`;
         const gridTxt = Number.isFinite(n.grid_w) ? (n.grid_w < 0 ? `exporting ${kw(n.grid_w)}` : `importing ${kw(n.grid_w)}`) : 'grid meter not readable';
-        now = `<p class="small">${shape('sun', n.code === 'solar' ? 'amber' : 'grey', true)} Now: ${esc(gridTxt)}${n.code === 'solar' ? ` · charging on solar at ${esc(n.amps)} A${n.phases === 1 ? ', one phase' : ''}` : ''}. <span class="muted">${esc(n.reason || '')}</span></p>`;
+        now = `<p class="small">${shape('sun', n.code === 'solar' ? 'amber' : 'grey', true)} Now: ${esc(gridTxt)}${n.code === 'solar' ? (n.equalizer ? ' · charging on solar through the Easee Equalizer' : ` · charging on solar at ${esc(n.amps)} A${n.phases === 1 ? ', one phase' : ''}`) : ''}. <span class="muted">${n.equalizer && n.code === 'solar' ? '' : esc(n.reason || '')}</span></p>`;
       }
       return `
           <div class="qsec">
@@ -2780,7 +2818,14 @@
       f.querySelectorAll('.fi-market').forEach((el) => { el.hidden = f.fi_mode.value !== 'market'; });
       f.querySelectorAll('.fi-fixed').forEach((el) => { el.hidden = f.fi_mode.value !== 'fixed'; });
       f.querySelectorAll('.sol-phase').forEach((el) => { el.hidden = !f.phase_switching.checked; });
+      const byEq = !$('sol-who').hidden && f.solar_control.value === 'equalizer';
+      f.querySelectorAll('.sol-app').forEach((el) => { el.hidden = byEq; });
+      const eq = solarEq;
+      $('sol-eq-info').innerHTML = !eq ? '' : byEq
+        ? `${shape('sun', 'amber', true)} ${esc(eq.name)}: surplus charging is <strong>${eq.surplus_on ? 'on' : 'off'}</strong> now. Grid power allowed is passed on as ${tidy(Math.round((Number(f.grid_allow_w.value) || 0) / 690))} A per phase on top of the surplus. The charger stays switched on while charging on solar; the Equalizer starts and stops.`
+        : eq.surplus_on ? `<span class="differ">${esc(eq.name)}: surplus charging is on in the Easee app. With the app following the surplus, they would fight: turn it off in the Easee app, or choose the Equalizer here.</span>` : '';
     }
+    let solarEq = null;
 
     async function loadSolar() {
       const f = $('solar-form');
@@ -2793,6 +2838,9 @@
         return;
       }
       const c = r.settings;
+      solarEq = r.equalizer || null;
+      $('sol-who').hidden = !solarEq && c.solar_control !== 'equalizer';
+      f.solar_control.value = c.solar_control === 'equalizer' ? 'equalizer' : 'app';
       f.enabled.checked = !!c.enabled;
       f.forecast.value = c.forecast;
       f.forecast_entity.innerHTML = '<option value="">— choose —</option>' + r.forecast_sensors.map((x) => `<option value="${esc(x.entity_id)}" ${x.entity_id === c.forecast_entity ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
@@ -2865,6 +2913,7 @@
           grid_allow_w: f.grid_allow_w.value, max_soc: f.max_soc.value, current_control: f.current_control.checked,
           phase_switching: f.phase_switching.checked, phase_method_id: f.phase_method_id.value,
           feed_in: { mode: f.fi_mode.value, fee: f.fi_fee.value, fixed: f.fi_fixed.value, vat_percent: f.fi_vat.value },
+          solar_control: $('sol-who').hidden ? 'app' : f.solar_control.value,
         });
         document.activeElement.blur();
         await loadSolar();
@@ -2888,10 +2937,35 @@
         <p class="small">${shape('battery', 'purple', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
         <p class="small">${c.control.supported.length ? `The app can: ${c.control.supported.map((a) => esc(ACTION_TEXT[a] || a)).join(', ')}.` : '<span class="differ">The app can only read this battery; the plan is advice.</span>'} ${c.control.note ? `<span class="muted">${esc(c.control.note)}</span>` : ''}</p>
         ${c.sign_verified ? '' : '<p class="muted small">The sign of the power sensor is not documented in the integration; check below that charging shows as charging.</p>'}` : '';
+      const range = f.ev_discharge.value === 'range';
+      $('bat-ev-range').hidden = !range;
+      if (range) $('bat-ev-bar').innerHTML = levelBarHtml(Number(f.min_pct.value), Number(f.ev_to_pct.value), Number(f.ev_from_pct.value), Number(f.max_pct.value), c && c.soc);
       const warn = $('bat-ev-warn');
       const cannot = c && c.control.supported.length && !c.control.protects_car && f.ev_discharge.value !== 'always';
       warn.hidden = !cannot;
       warn.textContent = cannot ? `${c.brand} cannot be told to stop discharging from Home Assistant, so while the car charges the battery may still discharge into it.` : '';
+    }
+
+    // The battery levels as one bar: never below / kept for the house / for
+    // the car once started / starts charging the car; with the level now.
+    function levelBarHtml(minP, toP, fromP, maxP, socNow) {
+      const ok = [minP, toP, fromP, maxP].every(Number.isFinite) && minP <= toP && toP < fromP && fromP <= maxP;
+      if (!ok) return '<p class="small differ">The levels do not fit: never below ≤ stop &lt; start ≤ never above.</p>';
+      const seg = (cls, a, b) => (b > a ? `<span class="${cls}" style="width:${b - a}%"></span>` : '');
+      const mark = (p, text, below) => `<span class="levelmark${below ? ' below' : ''}" style="left:${Math.min(97, Math.max(3, p))}%">${text}</span>`;
+      return `
+        <div class="levelwrap">
+          ${mark(toP, `stop ${toP}%`)}${mark(fromP, `start ${fromP}%`)}
+          ${Number.isFinite(socNow) ? mark(socNow, `now ${Math.round(socNow)}%`, true) : ''}
+          <div class="levelbar">${seg('lv-off', 0, minP)}${seg('lv-house', minP, toP)}${seg('lv-car', toP, fromP)}${seg('lv-start', fromP, 100)}</div>
+        </div>
+        <div class="levellegend">
+          <span><i style="background:rgba(var(--rgb-grey),.35)"></i>never used (below ${minP}%)</span>
+          <span><i style="background:rgba(var(--rgb-amber),.55)"></i>only for the house</span>
+          <span><i style="background:rgba(var(--rgb-purple),.45)"></i>for the car, once started</span>
+          <span><i style="background:rgba(var(--rgb-purple),.85)"></i>starts charging the car</span>
+        </div>
+        <p class="muted small">While the car charges, the battery helps from ${fromP}% until it is at ${toP}%. It starts again only when it is back at ${fromP}%.</p>`;
     }
 
     async function loadBattery() {
@@ -2917,6 +2991,8 @@
       } else f.power_sign.value = c.power_sign;
       f.arbitrage.checked = c.arbitrage !== false;
       f.ev_discharge.value = c.ev_discharge;
+      f.ev_from_pct.value = c.ev_from_pct ?? 80;
+      f.ev_to_pct.value = c.ev_to_pct ?? 40;
       f.solar_priority.value = c.solar_priority;
       $('battery-brands').innerHTML = r.brands.map((b) => `${b.read_only ? shape('alert', 'grey', true) : shape('check', 'green', true)} ${esc(b.name)} <span class="muted">(${esc(b.integration)}${b.read_only ? ', read only' : ''})</span>`).join('<br>');
       const allowed = r.control_allowed && r.battery_control_allowed;
@@ -2927,6 +3003,7 @@
     }
 
     $('battery-form').addEventListener('change', syncBattery);
+    $('battery-form').addEventListener('input', (e) => { if (['ev_from_pct', 'ev_to_pct', 'min_pct', 'max_pct'].includes(e.target.name)) syncBattery(); });
     $('battery-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = e.target;
@@ -2941,6 +3018,7 @@
           charge_kw: f.charge_kw.value, discharge_kw: f.discharge_kw.value, min_pct: f.min_pct.value, max_pct: f.max_pct.value,
           wear: f.wear.value, power_sign: f.power_sign.value, arbitrage: f.arbitrage.checked,
           ev_discharge: f.ev_discharge.value, solar_priority: f.solar_priority.value,
+          ev_from_pct: f.ev_from_pct.value, ev_to_pct: f.ev_to_pct.value,
         });
         document.activeElement.blur();
         await loadBattery();
@@ -2951,6 +3029,16 @@
         err.hidden = false;
       }
     });
+
+    // Home: may the battery charge the car?
+    function EV_TEXT(b) {
+      switch (b.ev_discharge) {
+        case 'always': return 'The battery may charge the car.';
+        case 'solar_only': return 'The battery charges the car only with stored solar power.';
+        case 'range': return `The battery charges the car from ${b.ev_from_pct}% down to ${b.ev_to_pct}%${b.ev_range_active ? ' (allowed now)' : ''}.`;
+        default: return 'The battery does not charge the car.';
+      }
+    }
 
     // Home: the battery plan as periods.
     function batteryHtml(d) {
@@ -2973,6 +3061,7 @@
             ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
             <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}
           ${b.saving > 0.005 ? `<p class="small">Expected saving compared with leaving it alone: <strong>${money(b.saving)}</strong>.</p>` : ''}
+          <p class="muted small">${shape('car', b.ev_discharge === 'never' ? 'grey' : 'purple', true)} ${esc(EV_TEXT(b))}</p>
           ${b.control_allowed ? '' : `<p class="muted small">${b.control.supported.length ? 'Advice only: the app steers the battery once Allow home battery control is on.' : esc(b.control.note || 'This battery can only be read.')}</p>`}
         </div>`;
     }
