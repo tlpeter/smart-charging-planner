@@ -31,9 +31,16 @@ const chargeMode = require('./mode');
 const battery = require('./battery');
 const { planBattery } = require('./batteryplan');
 const notifier = require('./notify');
+const { validateImportSettings } = require('./importschema');
 
 const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const STATIC_FILES = new Map([
+  ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
+  ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
+]);
 const APP_VERSION = require('./package.json').version;
 
 // ---------------------------------------------------------------------------
@@ -2384,12 +2391,14 @@ async function sendLive(entry, chosen) {
     entry.waiting = true;
     return;
   }
-  lastLiveSend = { key, at: Date.now() };
   const line = { ...entry, time: Date.now(), live: true, commands: [c], sent: false };
   try {
     await ha.sendControl(c, controller.allowedFor(chosen && chosen.start_stop));
     line.sent = true;
     entry.sent = true;
+    // Only throttle a command that Home Assistant accepted. A transient
+    // failure must be retried at the next control step, not hidden for 15 min.
+    lastLiveSend = { key, at: line.time };
   } catch (err) {
     line.error = err.message;
     entry.error = err.message;
@@ -2511,9 +2520,9 @@ async function importSettings(body, dryRun) {
   if (Number(body.format_version) > 1) throw badRequest('This file comes from a newer version of the app; update the app first');
   const unknown = Object.keys(body.settings).filter((k) => !SETTINGS_KEYS.includes(k));
   if (unknown.length) throw badRequest(`Unknown parts in the file: ${unknown.join(', ')}`);
+  validateImportSettings(body.settings);
   const next = { ...settings.load() };
   for (const k of SETTINGS_KEYS) if (body.settings[k] !== undefined) next[k] = body.settings[k];
-  for (const k of ['vehicles', 'chargers', 'grid']) if (next[k] != null && !Array.isArray(next[k])) throw badRequest(`"${k}" must be a list`);
 
   const { entities, devices, states } = await loadRegistries();
   const notes = [];
@@ -2834,10 +2843,13 @@ routes['POST /api/control/settings'] = async (req) => {
 };
 
 function startBackgroundRefresh() {
-  if (refreshTimer) return;
+  const reconnect = !!refreshTimer;
+  // onConnect runs after every HA reconnect. Recalculate immediately before
+  // the one-minute control loop may use a plan made with stale HA state.
+  refreshPlan(reconnect ? 'Home Assistant reconnected' : 'start', { fresh: reconnect }).catch(() => {});
+  if (reconnect) return;
   const every = options.refresh_minutes * 60000;
   ha.log(`Background refresh every ${options.refresh_minutes} minute(s)`);
-  refreshPlan('start').catch(() => {});
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshPlan('timer').catch(() => {});
   }, every);
@@ -3031,14 +3043,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-    fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (err, data) => {
+  if (req.method === 'GET' && STATIC_FILES.has(url.pathname)) {
+    const [file, type] = STATIC_FILES.get(url.pathname);
+    fs.readFile(path.join(PUBLIC_DIR, file), (err, data) => {
       if (err) {
         res.writeHead(500);
         res.end('Could not load page');
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
       res.end(data);
     });
     return;

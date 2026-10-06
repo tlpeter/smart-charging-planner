@@ -32,7 +32,7 @@ const CAR = world.profile.car;
 const CH = world.profile.charger;
 // The value the car accepts for a wanted limit (rounded up to its step).
 const lim = (v) => Math.max(CAR.limit_min, 50, Math.min(CAR.limit_max, Math.ceil((v - CAR.limit_min) / CAR.limit_step - 1e-9) * CAR.limit_step + CAR.limit_min));
-const ha = fake.start(world, WS_PORT, REST_PORT);
+let ha = fake.start(world, WS_PORT, REST_PORT);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,6 +103,7 @@ async function startApp(options = {}) {
       SCP_PHASE_GAP_MS: '1000',
       SCP_CURRENT_GAP_MS: '1000',
       SCP_EQ_GAP_MS: '1000',
+      SCP_RECONNECT_MS: '100',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -147,7 +148,14 @@ async function run() {
     for (const k of ['vehicle', 'charger', 'prices']) assert(missing.includes(k), `${k} not missing`);
     return `missing: ${missing.join(', ')}`;
   });
-  await test('A2', 'Fresh install: Allow control is off by default', async () => {
+  await test('A2', 'Frontend assets are served separately', async () => {
+    const css = await api('GET', 'styles.css');
+    const js = await api('GET', 'app.js');
+    assert(css.status === 200 && typeof css.body === 'string' && css.body.length > 1000, 'styles.css not served');
+    assert(js.status === 200 && typeof js.body === 'string' && js.body.length > 10000, 'app.js not served');
+    return `${Math.round(css.body.length / 1024)} kB CSS, ${Math.round(js.body.length / 1024)} kB JS`;
+  });
+  await test('A3', 'Fresh install: Allow control is off by default', async () => {
     const s = await ok('GET', 'api/status');
     assert(s.allow_control === false, `allow_control ${s.allow_control}`);
   });
@@ -1128,6 +1136,9 @@ async function run() {
     await refused('POST', 'api/settings/import/preview', { hello: 1 }, 'not a Smart Charging Planner settings file');
     await refused('POST', 'api/settings/import/preview', { ...exported, settings: { ...exported.settings, scripts: [] } }, 'Unknown parts');
     await refused('POST', 'api/settings/import/preview', { ...exported, format_version: 9 }, 'newer version');
+    await refused('POST', 'api/settings/import/preview', { ...exported, settings: { ...exported.settings, vehicles: [null] } }, 'vehicles[0]');
+    await refused('POST', 'api/settings/import/preview', { ...exported, settings: { ...exported.settings, control: [] } }, 'control must be an object');
+    await refused('POST', 'api/settings/import/preview', { ...exported, settings: { ...exported.settings, chargers: [{ max_current_entities: 'sensor.limit' }] } }, 'list of entity IDs');
   });
   await test('M3', 'Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured', async () => {
     const keepDir = dataDir;
@@ -1163,6 +1174,49 @@ async function run() {
     assert(/home battery was left out/.test(n) && /Notifications were switched off/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
     assert(pv.summary.battery === false, 'battery still on');
     return n;
+  });
+
+  // ----- N. Reliability ------------------------------------------------------
+  group = 'N. Reliability';
+  await test('N1', 'A failed charger command is retried on the next control step', async () => {
+    world.plugged = true;
+    world.charging = false;
+    world.limit = 100;
+    world.failNextControl = 2; // manual Charge now + its immediate plan refresh
+    const before = world.calls.length;
+    const started = await ok('POST', 'api/boost', { mode: 'soc', value: 60 });
+    assert(started.send && !started.send.sent, 'the first command should fail in this test');
+    await plan();
+    const sent = callsSince(before).filter((c) => world.profile.charger.isStart(c));
+    assert(sent.length >= 1, 'start command was not retried after the transient failure');
+    await ok('DELETE', 'api/boost');
+    return `${sent.length} successful retry`;
+  });
+
+  await test('N2', 'A Home Assistant reconnect immediately refreshes the cached plan', async () => {
+    world.soc = 40;
+    const before = await plan();
+    const beforeAt = before.computed_at;
+    const beforeNeed = before.plan.needed_kwh;
+    await ha.close();
+    for (let i = 0; i < 30; i++) {
+      const s = await api('GET', 'api/status');
+      if (s.status === 200 && !s.body.connected) break;
+      await sleep(50);
+    }
+    world.soc = 20;
+    ha = fake.start(world, WS_PORT, REST_PORT);
+    let after = null;
+    for (let i = 0; i < 80; i++) {
+      await sleep(50);
+      const s = await api('GET', 'api/status').catch(() => null);
+      if (!s || s.status !== 200 || !s.body.connected) continue;
+      const p = await ok('GET', 'api/plan');
+      if (p.computed_at > beforeAt) { after = p; break; }
+    }
+    assert(after, 'plan was not refreshed after reconnect');
+    assert(after.plan.needed_kwh > beforeNeed, `stale plan: ${beforeNeed} -> ${after.plan.needed_kwh}`);
+    return `${beforeNeed.toFixed(1)} -> ${after.plan.needed_kwh.toFixed(1)} kWh`;
   });
 }
 
