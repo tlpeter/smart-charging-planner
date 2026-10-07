@@ -28,7 +28,7 @@ check('the car with the earliest latest safe start goes first, not the one that 
   assert.strictEqual(r.result.A.amps, 6);
 });
 check('Charge now goes before everything; a car below its minimum before a planned car', () => {
-  const r = share([car('plan', { priority: { latest_safe_start: 1 } }), car('min', { priority: { code: 'min_soc' } }), car('now', { priority: { code: 'boost' } })], 50);
+  const r = share([car('plan', { priority: { latest_safe_start: 1 } }), car('min', { priority: { code: 'below_minimum' } }), car('now', { priority: { code: 'boost' } })], 50);
   assert.deepStrictEqual(r.order, ['now', 'min', 'plan']);
 });
 check('Ready Guard protecting a car goes before a normal plan', () => {

@@ -16,6 +16,7 @@
       <button class="tab" data-tab="history">Activity</button>
       <button class="tab" data-tab="settings">⚙ Settings</button>
     </nav>
+    <nav class="charger-bar" id="charger-bar" hidden></nav>
     <nav class="subtabs" id="history-nav" hidden>
       <button class="subtab" data-sub="savings">Savings</button>
       <button class="subtab" data-sub="log">Log</button>
@@ -114,7 +115,7 @@
           <p class="muted small">Found by the control check above; for example choose the method your own automation used.</p>
           <div class="field"><label>Start / stop charging</label><select name="start_stop_id" form="control-form"></select></div>
           <div class="field"><label>Charging current</label><select name="current_id" form="control-form"></select>
-            <p class="muted small">Only used for charging on solar surplus (Settings › Solar); otherwise the app only starts and pauses the charger and your load balancer keeps setting the current.</p></div>
+            <p class="muted small">Only used for charging on solar surplus (Settings › Solar), and with more than one charger to share the connection; otherwise the app only starts and pauses the charger and your load balancer keeps setting the current.</p></div>
           <div class="buttons"><button class="primary" type="submit" form="control-form">Save</button></div>
         </div>
 

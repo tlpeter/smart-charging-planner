@@ -39,7 +39,7 @@ The test version may contain unfinished or less-tested changes. Its version numb
 - [x] Home battery: plan (charging from the grid, holding), smart sun, battery and car, 10 brands steered
 - [x] Ready Guard: conservative safety margin, latest safe start and automatic full-power fallback
 - [x] More than one car on one charger (an option): recognises the connected car, own departures per car
-- [ ] More than one charger
+- [x] More than one charger (an option): a plan and control per charger, the car with the least room to spare goes first when the connection is too small
 
 ## Tests
 
