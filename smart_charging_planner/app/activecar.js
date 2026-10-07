@@ -54,7 +54,10 @@ function readBool(states, id) {
 
 // chargerPlugged: is a car connected to the charger (from the charger status),
 // chargerCharging: is it charging. Both may be null (unknown).
-function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null, now = Date.now() } = {}) {
+// preferred (more chargers): the id of the car that is usually on this
+// charger; it wins when its plug sensor says plugged in, and the plan is for
+// it while nothing is connected.
+function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null, now = Date.now(), preferred = null } = {}) {
   const st = load();
   const list = vehicles || [];
   let dirty = false;
@@ -100,11 +103,14 @@ function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null,
     const other = sure.length === 1 && sure[0].v.id !== chosen.id ? sure[0].v : null;
     return result(chosen, 'chosen', { candidates, conflict: other ? other.id : null });
   }
+  const usual = preferred ? plugs.find((x) => x.v.id === preferred) : null;
   if (chargerPlugged !== true) {
-    // Nothing connected: plan for the last connected car.
+    // Nothing connected: plan for the usual car, else the last connected car.
     const last = st.last && list.find((v) => v.id === st.last.id);
+    if (usual) return result(usual.v, 'usual', { candidates, connected: false });
     return result(last || list[0], last ? 'last' : 'first', { candidates, connected: false });
   }
+  if (usual && usual.plug === true) return result(usual.v, 'sensor', { candidates });
   if (sure.length === 1) return result(sure[0].v, 'sensor', { candidates });
   if (sure.length > 1 && chargerCharging === true) {
     const ch = sure.filter((x) => x.charging === true);
