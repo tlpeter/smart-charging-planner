@@ -18,21 +18,23 @@
 
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
+const scope = require('./scope');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'activecar.json');
 
-let state; // { choice: { id, at } | null, last: { id, at } | null, plugged: bool | null }
-let current = null; // the last pick: { vehicle, how, ... }
+// Per charger (scope.js): state = { choice: { id, at } | null, last: { id, at } | null, plugged: bool | null },
+// current = the last pick { vehicle, how, ... }.
+const S = scope.store(() => ({ state: undefined, current: null }));
 
 function load() {
-  if (state === undefined) state = readJson(FILE, null) || { choice: null, last: null, plugged: null };
-  return state;
+  if (S().state === undefined) S().state = readJson(scope.file(FILE), null) || { choice: null, last: null, plugged: null };
+  return S().state;
 }
 
 function save() {
   try {
-    writeJsonAtomic(FILE, state);
+    writeJsonAtomic(scope.file(FILE), S().state);
   } catch { /* best effort */ }
 }
 
@@ -73,7 +75,7 @@ function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null,
       dirty = true;
     }
     if (dirty) save();
-    current = {
+    S().current = {
       vehicle,
       vehicle_id: vehicle ? vehicle.id : null,
       how,
@@ -81,7 +83,7 @@ function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null,
       candidates: [],
       ...extra,
     };
-    return current;
+    return S().current;
   };
 
   if (!list.length) return result(null, 'none');
@@ -116,7 +118,7 @@ function pick(vehicles, states, { chargerPlugged = null, chargerCharging = null,
 // Your choice on Home. id null: back to automatic.
 function choose(id, now = Date.now()) {
   load();
-  state.choice = id ? { id, at: now } : null;
+  S().state.choice = id ? { id, at: now } : null;
   save();
 }
 
@@ -127,21 +129,21 @@ function choice() {
 // The last pick, or the first car before anything was picked.
 function vehicleFrom(s) {
   const list = (s && s.vehicles) || [];
-  if (current && current.vehicle_id) {
-    const v = list.find((x) => x.id === current.vehicle_id);
+  if (S().current && S().current.vehicle_id) {
+    const v = list.find((x) => x.id === S().current.vehicle_id);
     if (v) return v;
   }
   return list[0] || null;
 }
 
 function lastPick() {
-  return current;
+  return S().current;
 }
 
 // Tests only.
 function reset() {
-  state = { choice: null, last: null, plugged: null };
-  current = null;
+  S.reset();
+  S().state = { choice: null, last: null, plugged: null };
 }
 
 module.exports = { pick, choose, choice, vehicleFrom, lastPick, readBool, reset };
