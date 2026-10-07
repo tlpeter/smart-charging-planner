@@ -8,6 +8,8 @@ const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
 const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
+const activecar = require('./activecar');
+const MAX_VEHICLES = 6;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
@@ -155,6 +157,61 @@ function valueOf(states, entityId) {
 }
 
 // ---------------------------------------------------------------------------
+// More than one car (activecar.js decides which one is connected).
+
+// "I have more than one car" (Settings › Vehicle) is off by default: then
+// only the first car counts and the app works as with one car.
+function cars(s) {
+  return s.multi_car === true ? s.vehicles : s.vehicles.slice(0, 1);
+}
+
+// The connected car (or the car the app plans for), as the last plan saw it.
+function currentVehicle(s) {
+  return activecar.vehicleFrom({ vehicles: cars(s) });
+}
+
+// The car as the control sees it. With more than one car, "plugged in" comes
+// from the charger status: a car's own plug sensor also says "plugged in" at
+// a public charger.
+function plugView(s, vehicle, charger) {
+  if (!vehicle) return null;
+  if (cars(s).length > 1 && charger && charger.status_entity) return { ...vehicle, plugged_entity: null };
+  return vehicle;
+}
+
+// Pick the connected car from the states (and remember it for the rest).
+function pickVehicle(s, states, now = Date.now()) {
+  const charger = s.chargers[0] || null;
+  const bare = controller.readActual({ vehicle: null, charger, states, now });
+  let chargerPlugged = bare.plugged;
+  const list = cars(s);
+  if (chargerPlugged == null && list.length === 1) chargerPlugged = controller.readActual({ vehicle: list[0], charger, states, now }).plugged;
+  return activecar.pick(list, states, { chargerPlugged, chargerCharging: bare.charging, now });
+}
+
+// Departures: shared by all cars, unless a car has its own (more cars only).
+function ownDepartures(vehicle, s) {
+  return !!(s && s.multi_car === true && vehicle && vehicle.own_departures === true);
+}
+function departuresFor(s, vehicle) {
+  return ownDepartures(vehicle, s) ? normalise(vehicle.departures, s.planning) : normalise(s.departures, s.planning);
+}
+function setDeparturesFor(s, vehicle, dep) {
+  const v = vehicle && s.vehicles.find((x) => x.id === vehicle.id);
+  if (ownDepartures(v, s)) v.departures = dep;
+  else s.departures = dep;
+}
+// ?vehicle=… (or body.vehicle_id): that car; else the connected car.
+function vehicleParam(s, id) {
+  if (id) {
+    const v = cars(s).find((x) => x.id === String(id));
+    if (!v) throw badRequest('That car is not in the app (any more)');
+    return v;
+  }
+  return currentVehicle(s);
+}
+
+// ---------------------------------------------------------------------------
 // API routes
 // ---------------------------------------------------------------------------
 
@@ -197,10 +254,14 @@ const routes = {
 
   // The saved vehicle(s) with their live values.
   'GET /api/vehicles': async () => {
-    const saved = settings.load().vehicles;
+    const all = settings.load();
+    const saved = all.vehicles;
     const states = ha.state.connected ? await ha.call({ type: 'get_states' }) : [];
     return {
-      vehicles: saved.map((v) => ({
+      multi_car: all.multi_car === true,
+      max_vehicles: MAX_VEHICLES,
+      vehicles: saved.map((v, i) => ({
+        used: all.multi_car === true || i === 0,
         ...v,
         live: {
           soc: valueOf(states, v.soc_entity),
@@ -213,7 +274,8 @@ const routes = {
     };
   },
 
-  // Save the chosen vehicle. v1 keeps one vehicle; the list allows more later.
+  // Save a vehicle. With id: change that car. With add: a new car next to
+  // the others. Neither (older pages, the setup wizard): the first car.
   'POST /api/vehicles': async (req) => {
     const body = await readBody(req);
     // Modes: "sensor" (battery level from the car), "manual_soc" (the user
@@ -258,10 +320,26 @@ const routes = {
       vehicle.charge_limit_entity = id;
     }
     const s = settings.load();
-    s.vehicles = [vehicle];
+    const idx = body.id ? s.vehicles.findIndex((v) => v.id === String(body.id)) : -1;
+    if (body.id && idx < 0 && !body.add) throw badRequest('That car is not in the app (any more)');
+    if (body.add && s.multi_car !== true && s.vehicles.length) throw badRequest('Turn on "I have more than one car" first');
+    if (body.add && s.vehicles.length >= MAX_VEHICLES) throw badRequest(`At most ${MAX_VEHICLES} cars`);
+    if (idx >= 0) {
+      // Keep what is not on this form: the car's own departures.
+      const old = s.vehicles[idx];
+      s.vehicles[idx] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+    } else if (body.add || !s.vehicles.length) {
+      s.vehicles.push(vehicle);
+    } else {
+      const old = s.vehicles[0];
+      s.vehicles[0] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+    }
+    settings.vehicleIds(s.vehicles);
     settings.save(s);
-    ha.log('Saved vehicle', vehicle.name, vehicle.soc_entity);
-    return { ok: true, vehicle };
+    const saved = s.vehicles[idx >= 0 ? idx : body.add ? s.vehicles.length - 1 : 0];
+    planCache = null;
+    ha.log('Saved vehicle', saved.name, saved.soc_entity);
+    return { ok: true, vehicle: saved };
   },
 
   // Battery level entered by the user (cars without integration).
@@ -273,10 +351,47 @@ const routes = {
     return { ok: true };
   },
 
-  'DELETE /api/vehicles': async () => {
+  // ?id=…: remove that car. Without id: all cars.
+  'DELETE /api/vehicles': async (req) => {
+    const id = new URL(req.url, 'http://localhost').searchParams.get('id');
     const s = settings.load();
-    s.vehicles = [];
+    if (id) {
+      if (!s.vehicles.some((v) => v.id === id)) throw badRequest('That car is not in the app (any more)');
+      s.vehicles = s.vehicles.filter((v) => v.id !== id);
+      if (activecar.choice() && activecar.choice().id === id) activecar.choose(null);
+    } else {
+      s.vehicles = [];
+      activecar.choose(null);
+    }
     settings.save(s);
+    planCache = null;
+    return { ok: true };
+  },
+
+  // "I have more than one car": on or off. Off: only the first car is used;
+  // the other cars stay saved, so turning it on again brings them back.
+  'POST /api/vehicles/multi': async (req) => {
+    const body = await readBody(req);
+    const s = settings.load();
+    s.multi_car = body.enabled === true;
+    if (!s.multi_car) activecar.choose(null);
+    settings.save(s);
+    planCache = null;
+    ha.log(s.multi_car ? 'More than one car: on' : 'More than one car: off');
+    return { ok: true, multi_car: s.multi_car };
+  },
+
+  // Which car is connected (more than one car): your choice, or automatic.
+  'POST /api/vehicles/connected': async (req) => {
+    const body = await readBody(req);
+    const s = settings.load();
+    const id = body.vehicle_id ? String(body.vehicle_id) : null;
+    if (s.multi_car !== true) throw badRequest('Turn on "I have more than one car" first (Settings › Vehicle)');
+    if (id && !cars(s).some((v) => v.id === id)) throw badRequest('That car is not in the app (any more)');
+    activecar.choose(id);
+    planCache = null;
+    ha.log(id ? `Connected car chosen: ${s.vehicles.find((v) => v.id === id).name}` : 'Connected car: automatic again');
+    refreshPlan('connected car chosen', { fresh: true }).catch(() => {});
     return { ok: true };
   },
 
@@ -480,10 +595,8 @@ const routes = {
     const tz = ha.state.timeZone;
     const now = Date.now();
     const missing = [];
-    const vehicle = s.vehicles[0] || null;
     const charger = s.chargers[0] || null;
     if (!s.prices) missing.push('prices');
-    if (!vehicle) missing.push('vehicle');
 
     let prices = [];
     let priceError = null;
@@ -509,13 +622,17 @@ const routes = {
     }
 
     const states = await ha.call({ type: 'get_states' });
+    // More than one car: plan for the connected one.
+    const carPick = pickVehicle(s, states, now);
+    const vehicle = carPick.vehicle;
+    if (!vehicle) missing.push('vehicle');
     const mode = vehicle ? vehicle.mode || 'sensor' : null;
     const socValue = vehicle && mode === 'sensor' ? valueOf(states, vehicle.soc_entity) : null;
     let soc = socValue ? Number(socValue.state) : NaN;
     const plugged = vehicle && vehicle.plugged_entity ? valueOf(states, vehicle.plugged_entity) : null;
 
     // Cars without integration: follow the session and the energy charged.
-    const actualNow = controller.readActual({ vehicle, charger, states, now });
+    const actualNow = controller.readActual({ vehicle: plugView(s, vehicle, charger), charger, states, now });
     const sess = session.update(actualNow.plugged, now);
 
     // The car's cloud down (battery level unavailable or not read for a long
@@ -589,7 +706,7 @@ const routes = {
     }
 
     const planning = s.planning;
-    const dep = normalise(s.departures, s.planning);
+    const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now });
     // "Ready for" a later day: that becomes the departure; a departure before
@@ -784,7 +901,19 @@ const routes = {
         min_kwh: minKwh,
       } : null,
       departure,
+      // More than one car: which one is connected, and how the app knows.
+      cars: cars(s).length > 1 ? {
+        list: cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s), plug_sensor: !!v.plugged_entity })),
+        connected_id: carPick.vehicle_id,
+        how: carPick.how,
+        ask: !!carPick.ask,
+        candidates: carPick.candidates || [],
+        conflict: carPick.conflict || null,
+        charger_plugged: actualNow.plugged,
+        chosen: !!activecar.choice(),
+      } : null,
       vehicle: vehicle ? {
+        id: vehicle.id,
         name: vehicle.name,
         mode,
         fixed_kwh: vehicle.fixed_kwh || null,
@@ -843,7 +972,7 @@ const routes = {
     const result = {
       time_zone: tz,
       currency: ha.state.currency,
-      ...(await computeSavings({ charger: s.chargers[0], vehicle: s.vehicles[0], priceCfg: s.prices, tz, now })),
+      ...(await computeSavings({ charger: s.chargers[0], vehicle: currentVehicle(s), priceCfg: s.prices, tz, now })),
     };
     savingsCache = { at: now, key: JSON.stringify([s.chargers, s.vehicles, s.prices]), result };
     return result;
@@ -877,11 +1006,13 @@ const routes = {
   },
 
   // Departure times.
-  'GET /api/departures': async () => {
+  // ?vehicle=…: the departures of that car (more cars); else the connected car.
+  'GET /api/departures': async (req) => {
     const s = settings.load();
     const tz = ha.state.timeZone;
     const now = Date.now();
-    const dep = normalise(s.departures, s.planning);
+    const vehicle = vehicleParam(s, new URL(req.url, 'http://localhost').searchParams.get('vehicle'));
+    const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error } = await calendarEvents(dep, tz, now);
     const days = winnersPerDay(collect(dep, { states, events, tz, now }), tz);
@@ -892,6 +1023,9 @@ const routes = {
     return {
       time_zone: tz,
       now,
+      vehicle_id: vehicle ? vehicle.id : null,
+      own_departures: ownDepartures(vehicle, s),
+      cars: cars(s).length > 1 ? cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s) })) : null,
       departures: dep,
       next: days.length ? days[0].winner : null,
       charge_for: chargefor.current(),
@@ -910,7 +1044,8 @@ const routes = {
   'POST /api/departures': async (req) => {
     const body = await readBody(req);
     const s = settings.load();
-    const cur = normalise(s.departures, s.planning);
+    const vehicle = vehicleParam(s, body.vehicle_id);
+    const cur = departuresFor(s, vehicle);
     const soc = (v, name) => {
       const n = Number(v);
       if (!(n >= 10 && n <= 100)) throw badRequest(`${name}: battery level must be between 10 and 100 %`);
@@ -932,7 +1067,7 @@ const routes = {
     if (helper.enabled && !String(helper.datetime_entity || '').startsWith('input_datetime.')) throw badRequest('Choose a date/time helper');
     if (cal.enabled && !String(cal.entity || '').startsWith('calendar.')) throw badRequest('Choose a calendar');
     const match = ['target', 'keyword', 'all'].includes(cal.match) ? cal.match : 'target';
-    s.departures = {
+    setDeparturesFor(s, vehicle, {
       ...cur,
       default_soc: soc(body.default_soc, 'Default'),
       schedule_enabled: !!body.schedule_enabled,
@@ -950,9 +1085,29 @@ const routes = {
         buffer_minutes: buffer,
         soc: soc(cal.soc, 'Calendar'),
       },
-    };
+    });
     settings.save(s);
+    planCache = null;
     return { ok: true };
+  },
+
+  // More cars: a car gets its own departures (starting as a copy of the
+  // shared ones), or uses the shared departures again.
+  'POST /api/departures/own': async (req) => {
+    const body = await readBody(req);
+    const s = settings.load();
+    const v = cars(s).find((x) => x.id === String(body.vehicle_id || ''));
+    if (!v) throw badRequest('That car is not in the app (any more)');
+    if (s.multi_car !== true) throw badRequest('Turn on "I have more than one car" first (Settings › Vehicle)');
+    if (body.own === true) {
+      if (!v.own_departures) v.departures = { ...normalise(s.departures, s.planning), override: null };
+      v.own_departures = true;
+    } else {
+      v.own_departures = false;
+    }
+    settings.save(s);
+    planCache = null;
+    return { ok: true, own_departures: v.own_departures };
   },
 
   // One-off departure. Expires by itself after the departure time.
@@ -964,18 +1119,22 @@ const routes = {
     if (!Number.isFinite(time) || time <= now) throw badRequest('Choose a date and time in the future');
     if (time > now + 7 * 86400000) throw badRequest('Choose a moment within the next 7 days');
     const s = settings.load();
-    const dep = normalise(s.departures, s.planning);
+    const vehicle = vehicleParam(s, body.vehicle_id);
+    const dep = departuresFor(s, vehicle);
     const n = Number(body.soc);
     if (!(n >= 10 && n <= 100)) throw badRequest('Battery level must be between 10 and 100 %');
-    s.departures = { ...dep, override: { time, soc: n } };
+    setDeparturesFor(s, vehicle, { ...dep, override: { time, soc: n } });
     settings.save(s);
+    planCache = null;
     return { ok: true };
   },
 
-  'DELETE /api/departures/override': async () => {
+  'DELETE /api/departures/override': async (req) => {
     const s = settings.load();
-    s.departures = { ...normalise(s.departures, s.planning), override: null };
+    const vehicle = vehicleParam(s, new URL(req.url, 'http://localhost').searchParams.get('vehicle'));
+    setDeparturesFor(s, vehicle, { ...departuresFor(s, vehicle), override: null });
     settings.save(s);
+    planCache = null;
     return { ok: true };
   },
 };
@@ -984,7 +1143,7 @@ const routes = {
 async function tripsPlan(body) {
   const s = settings.load();
   const tz = ha.state.timeZone;
-  const dep = normalise(s.departures, s.planning);
+  const dep = departuresFor(s, vehicleParam(s, body && body.vehicle_id));
   const calendar = dep.calendar.entity;
   if (!calendar) throw badRequest('Choose a calendar on the Planning tab first');
   const events = buildTripEvents(body, tz);
@@ -1131,7 +1290,7 @@ async function manualControl(on, reason) {
   const chosen = chosenMethods(methods, rules);
   const m = chosen && chosen.start_stop;
   const command = controller.startStopCommand(m, on, methods && methods.device_id);
-  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
+  const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
   const entry = {
     time: Date.now(),
     manual: true,
@@ -1176,7 +1335,7 @@ routes['POST /api/boost'] = async (req) => {
   if (cached.plugged_now === false) throw badRequest('The car is not plugged in');
   const s = settings.load();
   const states = await ha.call({ type: 'get_states' });
-  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger: s.chargers[0] || null, states });
+  const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), s.chargers[0] || null), charger: s.chargers[0] || null, states });
   if (actual.plugged === false) throw badRequest('The car is not plugged in');
   const wasCharging = actual.charging === true;
   boost.start(b);
@@ -1211,7 +1370,7 @@ routes['DELETE /api/boost'] = async () => {
 
 // Departures per day for the coming days (the winner of each day).
 async function departureDays(s, tz, now) {
-  const dep = normalise(s.departures, s.planning);
+  const dep = departuresFor(s, currentVehicle(s));
   const states = await ha.call({ type: 'get_states' });
   const { events } = await calendarEvents(dep, tz, now);
   return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3 }), tz) };
@@ -1825,10 +1984,21 @@ routes['GET /api/checklist'] = async () => {
   const s = settings.load();
   const items = [];
   const add = (key, state, title, detail, page) => items.push({ key, state, title, detail, page });
-  const v = s.vehicles[0];
+  const v = currentVehicle(s);
   const c = s.chargers[0];
-  add('vehicle', v ? 'ok' : 'missing', 'Vehicle', v ? `${v.name}${v.capacity_kwh ? `, ${v.capacity_kwh} kWh` : ''}` : 'Not set up', 'vehicle');
-  if (v && (v.mode || 'sensor') !== 'fixed_kwh' && !(v.capacity_kwh > 0)) add('capacity', 'missing', 'Battery capacity', 'Needed to calculate how much to charge', 'vehicle');
+  const carText = (x) => `${x.name}${x.capacity_kwh ? `, ${x.capacity_kwh} kWh` : ''}`;
+  const list = cars(s);
+  add('vehicle', v ? 'ok' : 'missing', list.length > 1 ? `Vehicles (${list.length})` : 'Vehicle', v ? list.map(carText).join(' · ') : 'Not set up', 'vehicle');
+  for (const x of list) {
+    if ((x.mode || 'sensor') !== 'fixed_kwh' && !(x.capacity_kwh > 0)) add(list.length > 1 ? `capacity:${x.id}` : 'capacity', 'missing', list.length > 1 ? `Battery capacity of ${x.name}` : 'Battery capacity', 'Needed to calculate how much to charge', 'vehicle');
+  }
+  if (list.length > 1) {
+    const noPlug = list.filter((x) => !x.plugged_entity);
+    add('car_recognition', noPlug.length <= 1 ? 'ok' : 'optional', 'Recognising the connected car',
+      noPlug.length <= 1
+        ? (noPlug.length ? `By the cars' plug sensors (${noPlug[0].name} has none: it is the one when no other car is plugged in)` : "By the cars' plug sensors")
+        : `${noPlug.map((x) => x.name).join(' and ')} have no "Plugged in" sensor: choose the connected car on Home`, 'vehicle');
+  }
   add('charger', c ? 'ok' : 'missing', 'Charger', c ? c.name : 'Not set up', 'charger');
   if (c) {
     const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
@@ -1840,7 +2010,7 @@ routes['GET /api/checklist'] = async () => {
   if (s.prices && s.prices.source.type !== 'fixed') {
     add('forecast', s.prices.forecast ? 'ok' : 'optional', 'Price forecast', s.prices.forecast ? s.prices.forecast.entity_id : 'Optional: lets the app wait for a cheaper day', 'prices');
   }
-  const dep = normalise(s.departures, s.planning);
+  const dep = departuresFor(s, v);
   const sources = [dep.schedule_enabled && 'weekly schedule', dep.calendar.enabled && 'calendar', dep.helper.enabled && 'helper'].filter(Boolean);
   add('departures', sources.length ? 'ok' : 'warn', 'Departures', sources.length ? sources.join(', ') : 'No departure source: the app charges in the cheapest known hours', 'departures');
   add('control', options.allow_control ? 'ok' : 'warn', 'Allow control', options.allow_control ? 'On: the app starts and pauses the charger' : 'Off: advice only. Turn on in Home Assistant › Apps › Smart Charging Planner › Configuration', null);
@@ -1968,11 +2138,15 @@ async function sendCarLimit(lim, value, reason, live) {
 // at most twice.
 const LIMIT_RETRY_MS = Number(process.env.SCP_LIMIT_GAP_MS) || 15 * 60000;
 const LIMIT_MAX_TRIES = 3;
-let lastLimitSend = null; // { value, at, tries }
+let lastLimitSend = null; // { value, at, tries, vehicle_id }
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
-  const vehicle = s.vehicles[0] || null;
+  // Only the car this plan is for (more cars: the connected one), and not
+  // while Home asks which car is connected.
+  const vehicle = planResult.vehicle ? s.vehicles.find((x) => x.id === planResult.vehicle.id) || null : null;
+  if (planResult.cars && planResult.cars.ask) return;
+  if (lastLimitSend && lastLimitSend.vehicle_id !== (vehicle && vehicle.id)) lastLimitSend = null;
   if (!vehicle || (vehicle.mode || 'sensor') === 'fixed_kwh') return;
   // The car's cloud is down: do not send the limit (it would fail, and the
   // car's API has a limit on the number of calls).
@@ -1998,7 +2172,7 @@ async function manageCarLimit(planResult, actual, states) {
     }
     tries = lastLimitSend.tries + 1;
   }
-  lastLimitSend = { value, at: Date.now(), tries };
+  lastLimitSend = { value, at: Date.now(), tries, vehicle_id: vehicle.id };
   const e = await sendCarLimit(lim, value, tries > 1 ? `${reason} (attempt ${tries})` : reason, true);
   if (e.sent) await notifier.notify('startstop', 'Car charge limit changed', `${e.reason}.`);
   else await notifier.notify('problem', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
@@ -2009,7 +2183,7 @@ async function manageCarLimit(planResult, actual, states) {
 routes['POST /api/vehicle/charge_limit'] = async (req) => {
   const body = await readBody(req);
   const s = settings.load();
-  const vehicle = s.vehicles[0] || null;
+  const vehicle = vehicleParam(s, body.vehicle_id);
   const states = await ha.call({ type: 'get_states' });
   const lim = await carChargeLimit(vehicle, states);
   if (!lim) throw badRequest('No charge limit of the car found');
@@ -2018,7 +2192,7 @@ routes['POST /api/vehicle/charge_limit'] = async (req) => {
   const value = limitValue(lim, body.value);
   const entry = await sendCarLimit(lim, value, 'Set by you', false);
   if (!entry.sent) throw badRequest(entry.error);
-  lastLimitSend = { value, at: Date.now(), tries: 1 };
+  lastLimitSend = { value, at: Date.now(), tries: 1, vehicle_id: vehicle && vehicle.id };
   planCache = null;
   return { ok: true, value, entity_id: lim.entity_id };
 };
@@ -2076,6 +2250,14 @@ function refreshPlan(reason, { fresh = false } = {}) {
       } else if (rg && rg.base_status === 'action_needed' && result.departure && !result.boost) {
         await notifier.notify('problem', 'Ready Guard needs you', rg.message,
           { key: `ready:action:${result.departure.time}`, minGapMs: 6 * 3600000 });
+      }
+      // More cars, and the app cannot tell which one is connected.
+      const cars = result.cars;
+      if (cars && cars.ask && cars.charger_plugged === true) {
+        const guess = (cars.list.find((c) => c.id === cars.connected_id) || {}).name || 'the first car';
+        await notifier.notify('problem', 'Which car is connected?',
+          `A car is plugged in, but the app cannot tell which one. It plans for ${guess} for now. Choose the connected car on Home.`,
+          { key: 'which_car', minGapMs: 6 * 3600000 });
       }
       ha.debug(`Plan refreshed (${reason}):`, p.blocks.length ? `${p.planned_kwh.toFixed(1)} kWh in ${p.periods.length} period(s)` : 'nothing to charge', p.notes.join(',') || '');
       return result;
@@ -2177,7 +2359,7 @@ function solarStep(s, planResult, states, methods, rules, charger) {
       grid_w: net,
     };
   }
-  const actual = controller.readActual({ vehicle: s.vehicles[0] || null, charger, states });
+  const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
   const carW = Number.isFinite(actual.power_w) ? actual.power_w : 0;
   let available = net == null ? null : carW - net + (Number(sol.grid_allow_w) || 0);
   // Smart solar priority: while the car still needs energy, what the home
@@ -2322,7 +2504,7 @@ async function runDryRun(planResult) {
   const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
   lastDryRun = controller.dryRun({
     plan: planResult,
-    vehicle: s.vehicles[0] || null,
+    vehicle: plugView(s, currentVehicle(s), charger),
     charger,
     states,
     methods: chosenMethods(methods, rules),
@@ -2457,11 +2639,11 @@ function chosenMethods(methods, rules) {
 // Assistant.
 async function ruleEntityOptions(s, states, rules) {
   let carIds = new Set();
-  const vehicle = s.vehicles[0] || null;
-  if (vehicle && vehicle.device_id) {
+  const carDevices = new Set(s.vehicles.map((x) => x.device_id).filter(Boolean));
+  if (carDevices.size) {
     try {
       const { entities } = await loadRegistries();
-      carIds = new Set(entities.filter((e) => e.device_id === vehicle.device_id).map((e) => e.entity_id));
+      carIds = new Set(entities.filter((e) => carDevices.has(e.device_id)).map((e) => e.entity_id));
     } catch {
       // no car group
     }
@@ -2507,7 +2689,7 @@ routes['GET /api/control'] = async () => {
     } : null,
     options: await ruleEntityOptions(s, states, rules),
     now: lastDryRun,
-    car_limit: await carChargeLimit(s.vehicles[0] || null, states).catch(() => null),
+    car_limit: await carChargeLimit(currentVehicle(s), states).catch(() => null),
     chosen_start_stop: (() => {
       const c = chosenMethods(methods, rules);
       const cmd = c && controller.startStopCommand(c.start_stop, true, methods && methods.device_id);
@@ -2521,7 +2703,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'chargers', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {
@@ -2560,15 +2742,21 @@ async function importSettings(body, dryRun) {
   const missing = [...ids].filter((id) => !states.some((x) => x.entity_id === id)).sort();
   if (missing.length) notes.push(`Not found in this Home Assistant: ${missing.join(', ')}`);
   // SAFETY: the same checks as when you save these parts by hand.
-  const v = next.vehicles && next.vehicles[0];
-  if (v && v.charge_limit_entity) {
+  next.vehicles = (next.vehicles || []).map((v) => {
+    if (!v || !v.charge_limit_entity) return v;
     const reg = entities.find((e) => e.entity_id === v.charge_limit_entity);
     const st = states.find((x) => x.entity_id === v.charge_limit_entity);
     if (!reg || !st || (v.device_id && reg.device_id !== v.device_id) || !isChargeLimit(reg, st)) {
-      next.vehicles = [{ ...v, charge_limit_entity: null }];
-      notes.push("The car's charge limit was left out: it is not on the car's device here");
+      notes.push(`The charge limit of ${v.name || 'the car'} was left out: it is not on the car's device here`);
+      return { ...v, charge_limit_entity: null };
     }
+    return v;
+  });
+  if (next.vehicles.length > MAX_VEHICLES) {
+    notes.push(`Only the first ${MAX_VEHICLES} cars were taken`);
+    next.vehicles = next.vehicles.slice(0, MAX_VEHICLES);
   }
+  settings.vehicleIds(next.vehicles);
   const b = next.battery;
   if (b && b.soc_entity) {
     const found = battery.detectBatteries(entities, devices, states).find((c) => c.soc_entity === b.soc_entity && c.platform === b.platform);
@@ -2597,7 +2785,7 @@ async function importSettings(body, dryRun) {
   const summary = {
     from_version: body.app_version || null,
     exported_at: body.exported_at || null,
-    vehicle: v ? v.name || v.soc_entity : null,
+    vehicle: next.vehicles.length ? next.vehicles.map((v) => v.name || v.soc_entity).join(', ') : null,
     charger: next.chargers && next.chargers[0] ? next.chargers[0].name || next.chargers[0].status_entity : null,
     prices: next.prices && next.prices.source ? next.prices.source.name || next.prices.source.type : null,
     solar: !!(next.solar && next.solar.enabled),
@@ -2621,20 +2809,23 @@ async function importSettings(body, dryRun) {
 routes['POST /api/settings/import/preview'] = async (req) => importSettings(await readBody(req), true);
 routes['POST /api/settings/import'] = async (req) => importSettings(await readBody(req), false);
 
-// One notification when the car's data drops out, one when it is back.
-let carOffline = null; // { since }
+// One notification when the car's data drops out, one when it is back (per car).
+const carOffline = new Map(); // vehicle id -> { since }
 function carDataChanged(vehicle, cd) {
   const name = vehicle.name || 'The car';
-  if (cd && !cd.ok && !carOffline) {
-    carOffline = { since: Date.now() };
+  const id = vehicle.id || 'car';
+  const multi = cars(settings.load()).length > 1;
+  const key = (k) => (multi ? `${k}:${id}` : k);
+  if (cd && !cd.ok && !carOffline.has(id)) {
+    carOffline.set(id, { since: Date.now() });
     const why = cd.reason === 'stale' ? 'has not been updated for a long time' : 'is not available';
     const what = cd.assumed ? `No earlier level is known, so the app plans as if it is at ${cd.estimate}%.` : `The app plans with an estimate (${cd.estimate}%: the last level ${cd.last_soc}% plus what the charger delivered since).`;
     ha.warn(`Car data: battery level of ${name} ${why}; estimate ${cd.estimate}%`);
-    notifier.notify('problem', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: 'car_offline', minGapMs: 60 * 60000 }).catch(() => {});
-  } else if (cd && cd.ok && carOffline) {
-    carOffline = null;
+    notifier.notify('problem', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: key('car_offline'), minGapMs: 60 * 60000 }).catch(() => {});
+  } else if (cd && cd.ok && carOffline.has(id)) {
+    carOffline.delete(id);
     ha.log(`Car data: battery level of ${name} is back`);
-    notifier.notify('problem', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: 'car_online', minGapMs: 60 * 60000 }).catch(() => {});
+    notifier.notify('problem', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: key('car_online'), minGapMs: 60 * 60000 }).catch(() => {});
   }
 }
 
@@ -2684,6 +2875,7 @@ routes['GET /api/diagnostics'] = async () => {
       blocks: p.plan && p.plan.blocks ? p.plan.blocks.map((b) => ({ start: b.start, end: b.end, kwh: b.kwh, price: b.price, solar_kwh: b.solar_kwh || 0 })) : [],
       prices: p.prices ? { count: p.prices.length, first: p.prices[0] && p.prices[0].start, last: p.prices.length ? p.prices[p.prices.length - 1].end : null, forecast: p.prices.filter((x) => x.forecast).length } : null,
       vehicle: p.vehicle ? { mode: p.vehicle.mode, soc: p.vehicle.soc, soc_state: p.vehicle.soc_state, car_data: p.vehicle.car_data, plugged: p.vehicle.plugged } : null,
+      cars: p.cars ? { count: p.cars.list.length, connected_id: p.cars.connected_id, how: p.cars.how, ask: p.cars.ask, candidates: p.cars.candidates, conflict: p.cars.conflict, chosen: p.cars.chosen, charger_plugged: p.cars.charger_plugged } : null,
       charge_for: p.charge_for, boost: p.boost, solar: p.solar, battery: p.battery ? { enabled: p.battery.enabled, soc: p.battery.soc, control: p.battery.control, error: p.battery.error || null } : null,
     } : null,
     now: lastDryRun,
@@ -2759,7 +2951,6 @@ async function findConflicts() {
   if (conflictsCache && Date.now() - conflictsCache.at < 5 * 60000) return conflictsCache.result;
   const s = settings.load();
   const charger = s.chargers[0] || null;
-  const vehicle = s.vehicles[0] || null;
   const result = { items: [], dismissed: (s.conflicts_dismissed || []).slice(), checked: [] };
   if (!charger) return result;
   const rules = { ...controller.DEFAULT_RULES, ...(s.control || {}) };
@@ -2771,8 +2962,10 @@ async function findConflicts() {
   if (m && m.start_entity) watched.push({ item_type: 'entity', item_id: m.start_entity, what: 'the charger start/stop' });
   if (m && m.stop_entity) watched.push({ item_type: 'entity', item_id: m.stop_entity, what: 'the charger start/stop' });
   if (m && /^action_/.test(m.type) && methods && methods.device_id) watched.push({ item_type: 'device', item_id: methods.device_id, what: 'the charger' });
-  const lim = await carChargeLimit(vehicle, states).catch(() => null);
-  if (lim && lim.entity_id) watched.push({ item_type: 'entity', item_id: lim.entity_id, what: "the car's charge limit" });
+  for (const vehicle of cars(s)) {
+    const lim = await carChargeLimit(vehicle, states).catch(() => null);
+    if (lim && lim.entity_id) watched.push({ item_type: 'entity', item_id: lim.entity_id, what: cars(s).length > 1 ? `the charge limit of ${vehicle.name}` : "the car's charge limit" });
+  }
   const stateOf = (id) => states.find((x) => x.entity_id === id);
   const found = new Map(); // automation entity_id -> { uses: Set, via: Set }
   const add = (id, what, via) => {

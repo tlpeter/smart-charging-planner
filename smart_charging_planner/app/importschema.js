@@ -62,6 +62,12 @@ function validateImportSettings(settings) {
   for (const key of ['feed_in', 'equalizer']) nestedObject(settings.solar, key, 'solar');
   nestedObject(settings.battery, 'saved', 'battery');
 
+  for (const [i, vehicle] of (settings.vehicles || []).entries()) {
+    nestedObject(vehicle, 'departures', `vehicles[${i}]`);
+    for (const key of ['schedule', 'helper', 'calendar', 'override']) nestedObject(vehicle.departures, key, `vehicles[${i}].departures`);
+    if (vehicle.id != null && (typeof vehicle.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(vehicle.id))) bad(`vehicles[${i}].id must be a short id`);
+  }
+
   for (const [i, charger] of (settings.chargers || []).entries()) {
     if (charger.max_current_entities != null) {
       if (!Array.isArray(charger.max_current_entities) ||

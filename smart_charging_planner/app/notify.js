@@ -72,6 +72,8 @@ function sensorsFor(d, n, extra = {}) {
       live: !!(d && d.control_allowed),
       charge_now: !!(d && d.boost),
       last_command: extra.lastCommand || null,
+      vehicle: d && d.vehicle ? d.vehicle.name : null,
+      vehicle_how: d && d.cars ? d.cars.how : null,
     }],
     ['sensor.smart_charging_next_start', next ? iso(next.start) : 'unknown', {
       friendly_name: 'Smart Charging next start', device_class: 'timestamp', icon: 'mdi:clock-start',

@@ -38,7 +38,8 @@ The test version may contain unfinished or less-tested changes. Its version numb
 - [x] Solar: forecast in the plan, charging on surplus with current control and one/three-phase switching
 - [x] Home battery: plan (charging from the grid, holding), smart sun, battery and car, 10 brands steered
 - [x] Ready Guard: conservative safety margin, latest safe start and automatic full-power fallback
-- [ ] Multiple vehicles
+- [x] More than one car on one charger (an option): recognises the connected car, own departures per car
+- [ ] More than one charger
 
 ## Tests
 
