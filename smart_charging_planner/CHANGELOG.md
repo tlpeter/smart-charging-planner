@@ -6,6 +6,7 @@
 - The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and solar charging (its own "up to" level) still go higher right away
 - Home › Plan details explains it ("Battery care: up to 80 % when it is cheapest; the last part to 100 % from Sun 02:00")
 - Tests: settings test J13 (up to 80 % in the cheap night, the rest from 19:00, car limit 80 %; off: everything in the night)
+- Documentation: the README has an overview of every feature and option (where to find it and its default); DOCS.md (the Documentation tab) explains Ready Guard, Battery care, more cars and more chargers, and uses the new page names (Plan, Activity)
 
 ## 0.28.0-dev
 
