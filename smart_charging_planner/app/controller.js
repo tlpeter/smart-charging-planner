@@ -62,8 +62,9 @@ const DEFAULT_RULES = {
   min_choice: 30, // default minimum (%) for the quick choices on Home
 };
 
-let log = null;
-let state = null;
+// Per charger (scope.js).
+const scope = require('./scope');
+const S = scope.store(() => ({ log: null, state: null }));
 
 function readJson(file, fallback) {
   try {
@@ -81,13 +82,13 @@ function writeJson(file, data) {
 }
 
 function loadLog() {
-  if (!log) log = readJson(LOG_FILE, []);
-  return log;
+  if (!S().log) S().log = readJson(scope.file(LOG_FILE), []);
+  return S().log;
 }
 
 function loadState() {
-  if (!state) state = readJson(STATE_FILE, { lock: null });
-  return state;
+  if (!S().state) S().state = readJson(scope.file(STATE_FILE), { lock: null });
+  return S().state;
 }
 
 function findState(states, id) {
@@ -298,8 +299,8 @@ function phaseCommand(m, phases, deviceId) {
 function logSent(entry) {
   const entries = loadLog();
   entries.push({ commands: [], ...entry });
-  log = entries.slice(-KEEP);
-  writeJson(LOG_FILE, log);
+  S().log = entries.slice(-KEEP);
+  writeJson(scope.file(LOG_FILE), S().log);
 }
 
 // The commands the app would send for a decision, with the chosen methods.
@@ -339,7 +340,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   if (decision.new_lock) lock = decision.new_lock;
   if (JSON.stringify(lock) !== JSON.stringify(st.lock)) {
     st.lock = lock;
-    writeJson(STATE_FILE, st);
+    writeJson(scope.file(STATE_FILE), st);
   }
 
   // Live: only start/stop, never the current. With a switch as start/stop
@@ -389,8 +390,8 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     // A copy: the server marks the live entry as sent afterwards, and that
     // gets its own log line.
     entries.push({ ...entry, commands: entry.commands.map((c) => ({ ...c })) });
-    log = entries.slice(-KEEP);
-    writeJson(LOG_FILE, log);
+    S().log = entries.slice(-KEEP);
+    writeJson(scope.file(LOG_FILE), S().log);
   }
   return entry;
 }
@@ -400,14 +401,14 @@ function recentLog(limit = 100) {
 }
 
 function clearLog() {
-  log = [];
-  writeJson(LOG_FILE, log);
+  S().log = [];
+  writeJson(scope.file(LOG_FILE), S().log);
 }
 
 function clearLock() {
   const st = loadState();
   st.lock = null;
-  writeJson(STATE_FILE, st);
+  writeJson(scope.file(STATE_FILE), st);
 }
 
 module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };

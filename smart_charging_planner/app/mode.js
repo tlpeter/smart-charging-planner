@@ -10,17 +10,19 @@
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
+const scope = require('./scope');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'mode.json');
 const MODES = ['plan', 'plan_solar', 'solar'];
 
-let state;
+// Per charger (scope.js).
+const S = scope.store(() => ({ state: undefined }));
 
 function load() {
-  if (state !== undefined) return state;
-  state = readJson(FILE, null);
-  return state;
+  if (S().state !== undefined) return S().state;
+  S().state = readJson(scope.file(FILE), null);
+  return S().state;
 }
 
 // The mode in use. Without solar set up, always "plan".
@@ -32,10 +34,10 @@ function current(solarEnabled) {
 
 function set(mode) {
   if (!MODES.includes(mode)) throw new Error('Unknown mode');
-  state = { mode, at: Date.now() };
-  writeJsonAtomic(FILE, state);
+  S().state = { mode, at: Date.now() };
+  writeJsonAtomic(scope.file(FILE), S().state);
   ha.log(`Charging mode: ${mode}`);
-  return state;
+  return S().state;
 }
 
 module.exports = { MODES, current, set };
