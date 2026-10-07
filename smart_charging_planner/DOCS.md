@@ -12,19 +12,22 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 
 - **Home**: the charging plan with a price chart up to your departure, the expected cost compared with charging right away, and **Quick choices**:
   - **Charge now**: charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged.
-  - **Quickly to a minimum**: charge right away up to 20–45 %, then the plan takes over.
+  - **Quick minimum**: charge right away up to 20–45 %, then the plan takes over.
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
-  - **Ready for tomorrow / the day after tomorrow**: see below.
-- **Planning**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure.
-- **History**: **Savings** per charging session in the last 30 days, and the **Log** of what the app wanted and every command it sent.
+  - **Ready later** (tomorrow / the day after tomorrow): see below.
+  - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
+- **Ready Guard**: whether the car will be ready in time, and the latest safe start. See below.
+- **Plan**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure; adding trips to your calendar.
+- **Activity**: **Savings** per charging session in the last 30 days, and the **Log** of what the app wanted and every command it sent.
 
 **⚙ Settings**
 
 - **Overview**: a checklist "is everything set up well?" with a link to fix each point, and the planning settings from Home Assistant.
 - **Vehicle**, **Charger**, **Grid**, **Prices**, **Solar**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
-- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis and preconditioning.
+- **Battery**: the home battery (see below).
+- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care.
 - **Notifications**: where notifications go, and the sensors in Home Assistant.
-- **Diagnostics**: the connection to Home Assistant, the **Manual test** and the setup wizard.
+- **Diagnostics**: the connection to Home Assistant, the **Manual test**, the setup wizard, **Download diagnostics** and **Export / Import settings**.
 
 ## Ready for tomorrow or the day after tomorrow
 
@@ -34,9 +37,9 @@ Normally the car is ready for the next departure. On Home, **Ready for** lets yo
 - Departures before then get a **minimum** (20–45 %). The app charges that first, in the cheapest hours before that departure, and the rest before the chosen day.
 - You see whether the prices up to then are known, come from the price forecast, or are not known yet.
 - The car's charge limit follows the choice (see below).
-- The choice ends by itself after the chosen time, or with **Back to normal** (on Home or on the Planning tab).
+- The choice ends by itself after the chosen time, or with **Back to normal** (on Home or on the Plan tab).
 - A choice made for a departure on that day (from the schedule, calendar or helper) also ends by itself when that departure is removed, for example when you take a day off. You get a notification. A choice for a day without a departure stays until its time.
-- Home and the Planning tab show when you made the choice and what it was for.
+- Home and the Plan tab show when you made the choice and what it was for.
 
 ## Getting started
 
@@ -46,7 +49,7 @@ Normally the car is ready for the next departure. On Home, **Ready for** lets yo
    2. **Charger**: select **Detect chargers**, check the suggested entities, set the phases and select **Use this charger**.
    3. **Grid** (optional, can be skipped): select **Detect grid meters**, check the suggested sensors, fill in your main fuse and choose your load balancing.
    4. **Prices**: select **Detect price sources**, fill in the costs from your energy contract (or choose **Fixed or day/night tariff**), select **Test** and then **Save**.
-3. On the **Planning** tab, set your weekly schedule, and optionally a helper or calendar.
+3. On the **Plan** tab, set your weekly schedule, and optionally a helper or calendar.
 4. Open **Settings › Overview** to check that everything is set up, then **Home** to see the plan.
 5. Check the planning settings in the app's **Configuration** tab in Home Assistant.
 
@@ -145,6 +148,35 @@ Car integrations depend on the car maker's cloud (Renault, MySkoda, Tesla …), 
 - The car's own charge limit is not changed until the car is back: the call would fail, and car APIs limit the number of calls.
 - You get one notification when the car drops out and one when it is back (at most one of each per hour).
 
+## Ready Guard
+
+Settings › Rules, on by default. For every departure Ready Guard checks whether the plan still has enough real-world margin: it counts with 90 % of the charging power and a safety margin (at least 30 minutes, or 15 % of the charging time when that is more). Home shows the status (on track, watch this plan, action needed, not achievable), the **latest safe start** and why. When the latest safe start is reached, Ready Guard charges continuously at full power, also over cheap hours and solar-only waiting, until the car is ready. With Publish sensors on, `sensor.smart_charging_ready_guard` shows the same.
+
+## Battery care
+
+Settings › Rules, on by default. For a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest, and the rest only in the last 4 hours before the departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be changed; when the rest needs more time than those hours, it starts earlier. The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and charging on solar (up to its own level) still go higher right away. Home › Plan details shows when the last part is charged.
+
+## More than one car
+
+Settings › Vehicle › **I have more than one car** (off by default; with it off, the app works with one car as always). Add up to 6 cars with **+ Add a car**.
+
+- **Which car is connected?** The app looks at each car's **Plugged in** sensor. Exactly one car plugged in: that car. No car says so and one car has no plug sensor: that car. Two cars say so (for example one at a public charger): the one that is charging, otherwise Home asks which car it is (one notification). With nothing plugged in, the plan is for the last car that was connected.
+- **Your choice on Home** (Connected car) wins, until the charger is unplugged. A choice made before plugging in counts for the next car.
+- The plan, Ready Guard, the car's charge limit, "car not reachable" and the checklist follow the connected car. The car's charge limit is never changed while the app is not sure which car is connected.
+- **Departures** are shared by all cars, unless a car has its own (Plan › choose the car › "has its own departures").
+- **One calendar for more cars**: "auto: renault" or "car: EV6" in the event (also "vehicle:", "voertuig:") says which car a trip is for; a trip without it is for every car. The car is found by its **Name in the calendar** (Settings › Vehicle), its name, or its brand when only one car has that brand. A car that is not recognised counts for every car and is marked on Plan. "Add trip" has a **For** choice.
+
+## More than one charger
+
+Settings › Charger › **I have more than one charger** (off by default). Add up to 4 chargers with **+ Add a charger**.
+
+- Every charger has its own plan, Charge now, Ready later, charging mode, control, start/stop and current method, and log. The bar at the top chooses which charger Home, Plan, Rules and Activity show.
+- Every charger can have a **Usual car**. A car another charger already has is not a candidate, so the cars can also be the other way round. With nothing plugged in, a charger plans for its usual car.
+- **Sharing the connection** (needs the grid meter and main fuse in Settings › Grid): when the main fuse is too small for all chargers, Charge now goes first, then a car below its minimum or preconditioning, then a car Ready Guard protects, then the car with the **least room to spare** (the earliest latest safe start: what it still needs and when it leaves). So a car that leaves later for a long trip can go before a car that leaves early but needs little. What is left is shared fairly (at least 6 A each, where the current can be set); a charger that can only start and stop charges at full current or waits. Free current = main fuse − what the house uses now (grid meter minus the chargers) − 1 A. With a load balancer set in Settings › Grid, the load balancer shares and the app does not limit.
+- Only the car that goes first charges on the sun. The home battery and the Easee Equalizer are steered by the first charger.
+- The plans are made per charger and shared at the moment of charging; they do not yet take each other into account.
+- Notifications name the charger. The first charger keeps `sensor.smart_charging_*`; another gets `sensor.smart_charging_<charger>_*`.
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
@@ -192,13 +224,13 @@ Other chargers work when their integration offers a pause/resume or start/stop a
 
 ## Possible conflicts
 
-Automations that also start or stop the charger, or change the car's charge limit, undo what the app does. History › Log and Settings › Rules list automations that are on and use the charger's start/stop entity, the charger device or the car's charge limit (also through a script they call). Home Assistant only tells whether an automation uses an entity, not whether it changes it, so select **Ignore** for harmless ones such as notifications. The app never turns automations off.
+Automations that also start or stop the charger, or change the car's charge limit, undo what the app does. Activity › Log and Settings › Rules list automations that are on and use the charger's start/stop entity, the charger device or the car's charge limit (also through a script they call). Home Assistant only tells whether an automation uses an entity, not whether it changes it, so select **Ignore** for harmless ones such as notifications. The app never turns automations off.
 
 ## Notifications and sensors
 
 Choose where notifications go in **Settings › Notifications** (a list of the notify actions in your Home Assistant, such as `notify.mobile_app_your_phone`) and select **Save**. You get:
 
-- **Problems, always**: a command to the charger failed; the charger did not start (or pause) within 5 minutes after a command; the car will not be ready at the departure because not enough time is left.
+- **Problems, always**: a command to the charger failed; the charger did not start (or pause) within 5 minutes after a command; Ready Guard: the target is at risk or Ready Guard took over; the car is not reachable (and back); which car is connected (more cars).
 - **Every start and pause**: when "Notify every start and pause" is on (the default), with the reason, for example "Planned charging block until Thu 03:10".
 
 Settings › Notifications shows the last notification and has a **Send test notification** button.
@@ -210,6 +242,7 @@ Turn on **Publish sensors** to get these sensors for dashboards and automations:
 - `sensor.smart_charging_planned_energy`, `sensor.smart_charging_planned_cost` and `sensor.smart_charging_saving`
 - `sensor.smart_charging_departure`: the next departure, with the target battery level
 - `binary_sensor.smart_charging_charge_now`: on while Charge now is active
+- `sensor.smart_charging_ready_guard`: the Ready Guard status, latest safe start, margin and shortfall
 
 These sensors are not stored by Home Assistant between restarts; the app writes them again right after Home Assistant is back. The app writes no other entities.
 
@@ -237,7 +270,7 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 - **Allow control**: master switch. While off (the default), the app only gives advice and never changes your charger, vehicle or home battery. When on, the app starts and pauses the charger itself, following the plan, Charge now and the rules in Settings › Rules, with the start/stop method chosen in Settings › Charger. Only start/stop is sent, plus the charging current and phases when charging on solar (Settings › Solar). Automations, scripts and helpers are never touched.
 - **Allow home battery control**: off by default. With Allow control also on, the app steers the home battery following its plan (Settings › Battery). While off, the battery plan is advice only.
-- **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Planning tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Planning tab. This does not allow any charger control.
+- **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Plan tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Plan tab. This does not allow any charger control.
 - **Publish sensors**: write the app's own sensors to Home Assistant (default off). See Notifications and sensors.
 - **Notify every start and pause**: also notify each start and pause, not only problems (default on).
 - **Charging loss margin (%)**: extra energy to plan for, because not all energy from the charger ends up in the battery (default 10).
@@ -249,4 +282,4 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 ## Planned
 
-More cars. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap.
+Plans of more chargers that take each other into account. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap and an overview of all options.
