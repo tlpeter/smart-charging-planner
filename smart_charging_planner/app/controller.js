@@ -327,18 +327,25 @@ function commandsFor(decision, actual, methods, deviceId) {
 }
 
 // One dry-run step. Logs only when something changes.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar }) {
+// share (more chargers, sharing.js): { pause, amps, reason } – wait for
+// another charger, or charge with less current. record = false: only decide
+// (no lock change, no log line), for the first round of sharing.
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
+  if (share && decision.want === 'charge') {
+    if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
+    else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };
+  }
 
   // Keep the lock up to date.
   let lock = st.lock && st.lock.end > now ? st.lock : null;
   if (decision.clear_lock) lock = null;
   if (decision.new_lock) lock = decision.new_lock;
-  if (JSON.stringify(lock) !== JSON.stringify(st.lock)) {
+  if (record && JSON.stringify(lock) !== JSON.stringify(st.lock)) {
     st.lock = lock;
     writeJson(scope.file(STATE_FILE), st);
   }
@@ -373,6 +380,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     amps: decision.amps || null,
     phases: decision.phases || null,
     solar: !!decision.solar,
+    shared: !!decision.shared,
     reason: decision.reason,
     next_start: decision.next_start || null,
     block_end: decision.block_end || null,
@@ -386,7 +394,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   const entries = loadLog();
   const last = entries[entries.length - 1];
   const key = (e) => JSON.stringify([e.plugged, e.charging, e.want, e.code, e.amps, e.commands.map((c) => c.what)]);
-  if (!last || key(last) !== key(entry)) {
+  if (record && (!last || key(last) !== key(entry))) {
     // A copy: the server marks the live entry as sent afterwards, and that
     // gets its own log line.
     entries.push({ ...entry, commands: entry.commands.map((c) => ({ ...c })) });

@@ -14,6 +14,7 @@ const DEFAULTS = {
   vehicles: [],
   multi_car: false, // "I have more than one car" (Settings › Vehicle)
   chargers: [],
+  multi_charger: false, // "I have more than one charger" (Settings › Charger)
   grid: [],
   prices: null,
   planning: { target_soc: 80, ready_by: '07:00', loss_percent: 10, use_house_load: true, continuous: true, min_split_saving: 0.5 },
@@ -43,25 +44,37 @@ function load() {
   }
   s.planning = { ...s.planning, ...planningOptions() };
   // Every vehicle has a stable id (settings from before more cars had none).
-  if (Array.isArray(s.vehicles) && vehicleIds(s.vehicles)) {
+  const a = Array.isArray(s.vehicles) && vehicleIds(s.vehicles);
+  const b = Array.isArray(s.chargers) && chargerIds(s.chargers);
+  if (a || b) {
     try { save(s); } catch { /* read-only: ids again next time, the same ones */ }
   }
   return s;
 }
 
+// Every charger has a stable id: charger1 (also the charger of every app from
+// before more chargers), charger2, …
+function chargerIds(chargers) {
+  return assignIds(chargers, 'charger');
+}
+
 function vehicleIds(vehicles) {
+  return assignIds(vehicles, 'car');
+}
+
+function assignIds(list, prefix) {
   let changed = false;
-  const used = new Set(vehicles.map((v) => v && v.id).filter(Boolean));
+  const used = new Set(list.map((v) => v && v.id).filter(Boolean));
   const seen = new Set();
-  vehicles.forEach((v, i) => {
+  list.forEach((v, i) => {
     if (!v) return;
     if (v.id && !seen.has(v.id)) {
       seen.add(v.id);
       return;
     }
     let n = i + 1;
-    while (used.has(`car${n}`)) n++;
-    v.id = `car${n}`;
+    while (used.has(`${prefix}${n}`)) n++;
+    v.id = `${prefix}${n}`;
     used.add(v.id);
     seen.add(v.id);
     changed = true;
@@ -76,4 +89,4 @@ function save(settings) {
   fs.renameSync(tmp, FILE);
 }
 
-module.exports = { load, save, vehicleIds };
+module.exports = { load, save, vehicleIds, chargerIds };

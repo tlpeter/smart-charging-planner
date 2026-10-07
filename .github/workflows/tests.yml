@@ -35,7 +35,7 @@ jobs:
           --test-coverage-lines=40
           --test-coverage-functions=40
           --test-coverage-branches=30
-          tests/brands.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/activecar.test.js
+          tests/brands.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/activecar.test.js tests/sharing.test.js
 
   unit:
     name: Brands, solar, battery, price forecast
@@ -54,6 +54,7 @@ jobs:
       - run: node tests/forecast.test.js
       - run: node tests/reliability.test.js
       - run: node tests/activecar.test.js
+      - run: node tests/sharing.test.js
 
   settings:
     name: Settings test (${{ matrix.profile }})
