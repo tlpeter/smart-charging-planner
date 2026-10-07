@@ -103,5 +103,31 @@ check('saved cars without an id get stable ids (car1, car2), existing ids are ke
   assert.strictEqual(settings.vehicleIds(list), false);
 });
 
+const { parseCar, matchCar, parsePrecondition } = require('../smart_charging_planner/app/departures');
+check('calendar: "auto:" and "car:" (and "vehicle:", "voertuig:") say which car, in any place of the text', () => {
+  assert.strictEqual(parseCar('doel: 80 precondition: ja auto: renault'), 'renault');
+  assert.strictEqual(parseCar('target: 70\ncar: EV6'), 'EV6');
+  assert.strictEqual(parseCar('car: Model 3, target: 90'), 'Model 3');
+  assert.strictEqual(parseCar('Naar Gent (auto: kia)'), 'kia');
+  assert.strictEqual(parseCar('vehicle=Leaf'), 'Leaf');
+  assert.strictEqual(parseCar('voertuig: Leaf'), 'Leaf');
+  assert.strictEqual(parseCar('automatisch laden doel: 80'), null);
+  assert.strictEqual(parseCar('doel: 80'), null);
+});
+check('calendar: the car is found by its calendar name, its name, or its brand when only one car has it', () => {
+  const list = [{ id: 'a', name: 'JLZ03X', integration: 'renault' }, { id: 'b', name: 'EV6', integration: 'kia_uvo', calendar_name: 'Kia' }, { id: 'c', name: 'Zoe', integration: 'renault', calendar_name: 'zoe' }];
+  assert.strictEqual(matchCar('kia', list).id, 'b');
+  assert.strictEqual(matchCar('EV6', list).id, 'b');
+  assert.strictEqual(matchCar('jlz03x', list).id, 'a');
+  assert.strictEqual(matchCar('Zoë', list).id, 'c');
+  assert.strictEqual(matchCar('renault', list), null); // two Renaults: not sure
+  assert.strictEqual(matchCar('tesla', list), null);
+});
+check('calendar: precondition in Dutch and English', () => {
+  assert.strictEqual(parsePrecondition('precondition: yes'), true);
+  assert.strictEqual(parsePrecondition('voorverwarmen: ja'), true);
+  assert.strictEqual(parsePrecondition('voorconditioneren: nee'), false);
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

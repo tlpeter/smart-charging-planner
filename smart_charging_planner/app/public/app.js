@@ -99,6 +99,9 @@ function durationText(minutes) {
           { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
         ],
         extraInputs: () => `
+          ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
+            <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
+            <div class="muted small">A calendar event with "auto: renault" or "car: renault" is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
           <div class="two">
             <div class="field"><label>Battery capacity in kWh (needed to estimate the level when the car cannot be reached)</label>
               <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
@@ -540,7 +543,7 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -1587,7 +1590,7 @@ function durationText(minutes) {
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
-              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}</td>
+              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
@@ -2009,9 +2012,17 @@ function durationText(minutes) {
       $('trip-mode').textContent = tripWriteAllowed ? 'WRITES TO CALENDAR' : 'TEST MODE';
       $('trip-mode').className = tripWriteAllowed ? 'advice' : 'advice test';
       $('trip-mode-text').innerHTML = tripWriteAllowed
-        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …", the same format this app reads.`
+        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …"${d.cars ? ' and "auto: …"' : ''}, the same format this app reads.`
         : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
       $('trip-add').hidden = !tripWriteAllowed;
+      // More cars: which car the trip is for ("auto: …" in the event), or every car.
+      const carField = $('trip-car-field');
+      carField.hidden = !d.cars;
+      if (d.cars) {
+        const cur = f.trip_car.value;
+        f.trip_car.innerHTML = d.cars.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('') + '<option value="all">Every car</option>';
+        f.trip_car.value = cur && [...f.trip_car.options].some((o) => o.value === cur) ? cur : d.vehicle_id;
+      }
       $('trip-preview').textContent = tripWriteAllowed ? 'Preview' : 'Show what would be added';
       $('trip-preview').className = tripWriteAllowed ? 'secondary' : 'primary';
       const days = f.querySelector('.days');
@@ -2025,8 +2036,10 @@ function durationText(minutes) {
 
     function tripBody() {
       const f = $('trip-form');
+      const forCar = !$('trip-car-field').hidden ? f.trip_car.value : null;
       return {
-        vehicle_id: depCar,
+        vehicle_id: forCar && forCar !== 'all' ? forCar : depCar,
+        for_all_cars: forCar === 'all',
         datetime: f.datetime.value,
         destination: f.destination.value,
         soc: f.soc.value,

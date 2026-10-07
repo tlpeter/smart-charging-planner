@@ -54,7 +54,8 @@ function buildTripEvents(input, tz, now = Date.now()) {
   if (!starts.length) throw badRequest('The chosen weekdays give no departures');
   if (starts.length > MAX_EVENTS) throw badRequest(`That would add ${starts.length} trips; the maximum is ${MAX_EVENTS}`);
 
-  const description = `doel: ${soc} precondition: ${input.precondition ? 'ja' : 'nee'}`;
+  const car = String(input.car || '').replace(/[\n,;:]/g, ' ').trim().slice(0, 30);
+  const description = `doel: ${soc} precondition: ${input.precondition ? 'ja' : 'nee'}${car ? ` auto: ${car}` : ''}`;
   return starts.map((start) => ({
     summary: `Naar ${destination}`,
     location: destination,

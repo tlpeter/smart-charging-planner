@@ -50,6 +50,7 @@
           <div class="field"><label>Target battery level (%)</label><input type="number" name="soc" min="10" max="100" step="1" value="80"></div>
           <div class="field"><label>Precondition</label><label class="check"><input type="checkbox" name="precondition"> Heat or cool the car before leaving</label></div>
         </div>
+        <div class="field" id="trip-car-field" hidden><label>For</label><select name="trip_car"></select></div>
         <div class="field"><label>Repeat on (optional)</label>
           <div class="days"></div></div>
         <div class="field" id="trip-weeks-field" hidden><label>Weeks ahead</label><input type="number" name="weeks" min="1" max="12" step="1" value="4"></div>
@@ -94,7 +95,7 @@
             <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
             <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
           </div>
-          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" is read and shown, but not used yet.</p>
+          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" (or "voorverwarmen: ja") is read and shown, but not used yet. With more than one car, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car.</p>
           <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
           <div class="error form-error" hidden></div>
         </div>

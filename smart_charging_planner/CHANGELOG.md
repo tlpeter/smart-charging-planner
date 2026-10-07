@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.1-dev
+
+- **One calendar for more cars**: "auto: renault" or "car: EV6" in a calendar event says which car the trip is for (Dutch and English both work, also "vehicle:" and "voertuig:"). A trip without it is for every car. The car is found by its new "Name in the calendar" (Settings › Vehicle), its name, or its brand when only one car has that brand; a car that is not recognised counts for every car and is marked on Plan
+- Adding trips (Plan) has a "For" choice with more cars: the trip gets "auto: …" in the event, or nothing for every car
+- "voorverwarmen: ja" / "voorconditioneren: ja" are read like "precondition: ja"
+- Tests: settings test group W7b (one calendar, two cars) and calendar checks in tests/activecar.test.js
+
 ## 0.27.0-dev
 
 - **More than one car on one charger** (an option, off by default): Settings › Vehicle › "I have more than one car". With it off, nothing changes
