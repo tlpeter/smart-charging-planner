@@ -201,6 +201,12 @@ function setDeparturesFor(s, vehicle, dep) {
   if (ownDepartures(v, s)) v.departures = dep;
   else s.departures = dep;
 }
+// Calendar trips with "auto:"/"car:" are only for that car (more cars).
+function carCtx(s, vehicle) {
+  const list = cars(s);
+  return list.length > 1 && vehicle ? { vehicle, list } : null;
+}
+
 // ?vehicle=… (or body.vehicle_id): that car; else the connected car.
 function vehicleParam(s, id) {
   if (id) {
@@ -305,6 +311,8 @@ const routes = {
       charging_entity: body.charging_entity || null,
       plugged_entity: String(body.plugged_entity || '').startsWith('binary_sensor.') || String(body.plugged_entity || '').startsWith('sensor.') ? body.plugged_entity : null,
       capacity_kwh: capacity,
+      // More cars: the name used in calendar events ("auto: renault" / "car: kia").
+      calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
       charge_limit_entity: null, // checked below
       stale_hours: body.stale_hours === undefined || body.stale_hours === '' ? cardata.DEFAULT_STALE_HOURS : Number(body.stale_hours),
     };
@@ -708,14 +716,14 @@ const routes = {
     const planning = s.planning;
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
-    let departure = nextDeparture(dep, { states, events, tz, now });
+    let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle) });
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
     let cf = chargefor.current(now);
     // A choice made for a departure that is gone (removed from the calendar or
     // the schedule) ends by itself. Not when the calendar could not be read.
     if (cf && cf.based_on && !calendarError) {
-      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3 }), tz);
+      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz);
       if (!days.some((d) => d.day === cf.based_on.date)) {
         const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
         chargefor.clear(`the departure it was chosen for is gone: ${what}`);
@@ -1015,7 +1023,7 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error } = await calendarEvents(dep, tz, now);
-    const days = winnersPerDay(collect(dep, { states, events, tz, now }), tz);
+    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle) }), tz);
     const list = (domain) => states
       .filter((x) => x.entity_id.startsWith(domain + '.'))
       .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state }))
@@ -1031,7 +1039,7 @@ const routes = {
       charge_for: chargefor.current(),
       upcoming: days,
       calendar_error: error,
-      calendar_trips: calendarTrips(dep, events, tz, now).filter((t) => t.time < now + 14 * 86400000),
+      calendar_trips: calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000),
       calendar_write_allowed: options.allow_calendar_write === true,
       options: {
         input_datetime: list('input_datetime'),
@@ -1143,10 +1151,14 @@ const routes = {
 async function tripsPlan(body) {
   const s = settings.load();
   const tz = ha.state.timeZone;
-  const dep = departuresFor(s, vehicleParam(s, body && body.vehicle_id));
+  const vehicle = vehicleParam(s, body && body.vehicle_id);
+  const dep = departuresFor(s, vehicle);
   const calendar = dep.calendar.entity;
   if (!calendar) throw badRequest('Choose a calendar on the Planning tab first');
-  const events = buildTripEvents(body, tz);
+  // More cars: the trip says which car ("auto: renault"); "all" = every car.
+  const forAll = !body || body.for_all_cars === true;
+  const car = cars(s).length > 1 && vehicle && !forAll ? (vehicle.calendar_name || vehicle.name) : null;
+  const events = buildTripEvents({ ...body, car }, tz);
   let existing = [];
   try {
     const r = await ha.callAction('calendar', 'get_events', {
@@ -1370,10 +1382,11 @@ routes['DELETE /api/boost'] = async () => {
 
 // Departures per day for the coming days (the winner of each day).
 async function departureDays(s, tz, now) {
-  const dep = departuresFor(s, currentVehicle(s));
+  const vehicle = currentVehicle(s);
+  const dep = departuresFor(s, vehicle);
   const states = await ha.call({ type: 'get_states' });
   const { events } = await calendarEvents(dep, tz, now);
-  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3 }), tz) };
+  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz) };
 }
 
 function dayStart(tz, offset, now) {

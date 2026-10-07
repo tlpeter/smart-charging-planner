@@ -1321,6 +1321,36 @@ async function run() {
     assert(q.vehicle.id === firstId && q.departure.soc === 80, JSON.stringify(q.departure));
     return `EV6 → ${p.departure.soc}% · ${CAR.name} → ${q.departure.soc}%`;
   });
+  await test('W7b', 'One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car', async () => {
+    await ok('POST', 'api/departures/own', { vehicle_id: ev6Id, own: false });
+    await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    world.events = [
+      { summary: 'Naar werk', description: `doel: 90 precondition: ja auto: ${CAR.name}`, start: isoLocal(at(1, 7, 0), tz), end: isoLocal(at(1, 8, 0), tz) },
+      { summary: 'To Ghent', description: 'target: 70\ncar: kia', start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
+      { summary: 'Weekend', description: 'doel: 85', start: isoLocal(at(2, 9, 0), tz), end: isoLocal(at(2, 10, 0), tz) },
+      { summary: 'Tesla trip', description: 'doel: 60, car: tesla', start: isoLocal(at(3, 9, 0), tz), end: isoLocal(at(3, 10, 0), tz) },
+    ];
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const e = await plan();
+    assert(e.vehicle.id === ev6Id && e.departure.time === at(1, 6, 0) && e.departure.soc === 70, `EV6: ${JSON.stringify(e.departure)}`);
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    const r = await plan();
+    assert(r.vehicle.id === firstId && r.departure.time === at(1, 7, 0) && r.departure.soc === 90, `${CAR.name}: ${JSON.stringify(r.departure)}`);
+    const d = await ok('GET', `api/departures?vehicle=${firstId}`);
+    const titles = d.calendar_trips.map((t) => t.title);
+    assert(titles.includes('Naar werk') && titles.includes('Weekend') && !titles.includes('To Ghent') && titles.includes('Tesla trip'), titles.join(', '));
+    const tesla = d.calendar_trips.find((t) => t.title === 'Tesla trip');
+    assert(tesla.car_unknown === true && tesla.car === 'tesla', JSON.stringify(tesla));
+    const pv = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: true });
+    assert(pv.events[0].description === 'doel: 75 precondition: ja auto: EV6', pv.events[0].description);
+    const all = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, for_all_cars: true, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: false });
+    assert(all.events[0].description === 'doel: 75 precondition: nee', all.events[0].description);
+    world.events = [];
+    await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+    return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+  });
   await test('W8', 'Turned off: the first car only, as before; the EV6 stays saved; removing it works', async () => {
     await ok('POST', 'api/vehicles/multi', { enabled: false });
     world.car1Plug = false;

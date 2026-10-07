@@ -117,16 +117,54 @@ function parseTarget(text) {
 }
 
 // "precondition: ja" / "yes" / "on" -> true, "nee" / "no" / "off" -> false.
+// Dutch: "voorverwarmen: ja", "voorconditioneren: ja".
 function parsePrecondition(text) {
-  const m = String(text || '').match(/precondition(?:ing)?\s*[:=]\s*(\w+)/i);
+  const m = String(text || '').match(/(?:precondition(?:ing)?|voorverwarm(?:en)?|voorconditioner(?:en)?)\s*[:=]\s*(\w+)/i);
   if (!m) return null;
   if (/^(ja|yes|on|true|aan|1)$/i.test(m[1])) return true;
   if (/^(nee|no|off|false|uit|0)$/i.test(m[1])) return false;
   return null;
 }
 
+// Which car a trip is for: "auto: renault", "car: EV6" (also "vehicle:",
+// "voertuig:"). The value ends at a new line, a comma or semicolon, or the
+// next "word:" (e.g. "doel: 80 auto: renault precondition: ja").
+function parseCar(text) {
+  const m = String(text || '').match(/(?:^|[\s,;(])(?:auto|car|vehicle|voertuig)\s*[:=]\s*([^\n,;]+?)(?=\s+[\p{L}_]+\s*[:=]|[\n,;)]|$)/imu);
+  const v = m ? m[1].trim() : '';
+  return v ? v.slice(0, 40) : null;
+}
+
+const norm = (x) => String(x || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '');
+
+// The car a calendar tag means: its "name in the calendar", its name, or
+// (when only one car has it) its brand integration, e.g. "renault", "kia".
+// null: no car matches (or more than one does).
+function matchCar(tag, cars) {
+  const t = norm(tag);
+  if (!t || !cars || !cars.length) return null;
+  const first = norm(String(tag).trim().split(/\s+/)[0]);
+  for (const key of [(v) => v.calendar_name, (v) => v.name]) {
+    const hit = cars.filter((v) => key(v) && norm(key(v)) === t);
+    if (hit.length === 1) return hit[0];
+  }
+  const brand = (v) => [norm(v.integration), norm(String(v.integration || '').split('_')[0])].filter(Boolean);
+  for (const k of [t, first]) {
+    const hit = cars.filter((v) => brand(v).includes(k));
+    if (hit.length === 1) return hit[0];
+  }
+  for (const key of [(v) => v.calendar_name, (v) => v.name]) {
+    const hit = cars.filter((v) => key(v) && norm(key(v)) === first);
+    if (hit.length === 1) return hit[0];
+  }
+  return null;
+}
+
 // Calendar events that are trips, with their details.
-function calendarTrips(dep, events, tz, now) {
+// carCtx (more cars): { vehicle, list } – a trip for another car is left out;
+// a trip without "auto:"/"car:" is for every car; an unknown car counts for
+// every car and is marked.
+function calendarTrips(dep, events, tz, now, carCtx = null) {
   const c = dep.calendar;
   if (!c.enabled || !events) return [];
   const keyword = String(c.keyword || '').trim().toLowerCase();
@@ -142,6 +180,15 @@ function calendarTrips(dep, events, tz, now) {
     if (!Number.isFinite(ms)) continue;
     const time = ms - (Number(c.buffer_minutes) || 0) * 60000;
     if (time <= now) continue;
+    const tag = parseCar(text);
+    let carId = null;
+    let carUnknown = false;
+    if (tag && carCtx && carCtx.list && carCtx.list.length > 1) {
+      const car = matchCar(tag, carCtx.list);
+      if (car && carCtx.vehicle && car.id !== carCtx.vehicle.id) continue;
+      carId = car ? car.id : null;
+      carUnknown = !car;
+    }
     out.push({
       time,
       event_start: ms,
@@ -151,13 +198,16 @@ function calendarTrips(dep, events, tz, now) {
       title: e.summary || '',
       location: e.location || null,
       precondition: parsePrecondition(text),
+      car: tag,
+      car_id: carId,
+      car_unknown: carUnknown,
     });
   }
   return out.sort((a, b) => a.time - b.time);
 }
 
-function fromCalendar(dep, events, tz, now) {
-  return calendarTrips(dep, events, tz, now);
+function fromCalendar(dep, events, tz, now, carCtx) {
+  return calendarTrips(dep, events, tz, now, carCtx);
 }
 
 function fromOverride(dep, now) {
@@ -192,10 +242,10 @@ function winnersPerDay(candidates, tz) {
     });
 }
 
-function collect(dep, { states, events, tz, now, days = 7 }) {
+function collect(dep, { states, events, tz, now, days = 7, cars = null }) {
   return [
     ...fromOverride(dep, now),
-    ...fromCalendar(dep, events, tz, now),
+    ...fromCalendar(dep, events, tz, now, cars),
     ...fromHelper(dep, states, tz, now),
     ...fromSchedule(dep, tz, now, days),
   ];
@@ -208,5 +258,5 @@ function nextDeparture(dep, ctx) {
 
 module.exports = {
   DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
-  calendarTrips, parseTarget, parsePrecondition,
+  calendarTrips, parseTarget, parsePrecondition, parseCar, matchCar,
 };

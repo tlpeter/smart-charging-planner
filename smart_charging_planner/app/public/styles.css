@@ -853,3 +853,4 @@
     .car-picker { flex-wrap: wrap; gap: 8px; }
     .car-picker button { display: inline-flex; align-items: center; gap: 6px; }
     .car-picker button svg { width: 16px; height: 16px; fill: currentColor; }
+    .warn-text { color: rgb(var(--rgb-orange)); }
