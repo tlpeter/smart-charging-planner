@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28.1-dev
+
+- **Battery care** (Settings › Rules, on by default): for a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest and the rest only in the last 4 hours before departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be set; when the rest needs more time, it starts earlier
+- The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and solar charging (its own "up to" level) still go higher right away
+- Home › Plan details explains it ("Battery care: up to 80 % when it is cheapest; the last part to 100 % from Sun 02:00")
+- Tests: settings test J13 (up to 80 % in the cheap night, the rest from 19:00, car limit 80 %; off: everything in the night)
+
 ## 0.28.0-dev
 
 - **More than one charger** (an option, off by default): Settings › Charger › "I have more than one charger". With it off, nothing changes

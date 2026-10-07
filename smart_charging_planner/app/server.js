@@ -15,7 +15,7 @@ const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
-const { chargePowerKw, energyNeededKwh, planCharging, planStaged, periods } = require('./planner');
+const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
@@ -927,7 +927,29 @@ const routes = {
     const minKwh = interim && vehicle && mode !== 'fixed_kwh'
       ? energyNeededKwh(soc, Math.min(cf.min_soc, targetSoc), vehicle.capacity_kwh, planning.loss_percent) : 0;
     const solarOnly = cm === 'solar';
-    const plan = interim && minKwh > 0.01
+    // Battery care (Settings › Rules, on by default): a target above the care
+    // level (e.g. 100 %) is charged up to that level whenever it is cheapest,
+    // the rest only in the last hours before the departure.
+    const careRules = rulesFor(s);
+    let care = null;
+    if (careRules.battery_care_enabled !== false && departure && !interim && vehicle && mode !== 'fixed_kwh'
+      && vehicle.capacity_kwh > 0 && Number.isFinite(soc) && neededKwh > 0.01) {
+      const careSoc = Number(careRules.battery_care_soc) || 80;
+      if (targetSoc > careSoc) {
+        const careKwh = soc < careSoc ? energyNeededKwh(soc, careSoc, vehicle.capacity_kwh, planning.loss_percent) : 0;
+        const topKwh = Math.max(0, neededKwh - careKwh);
+        const hours = Math.max(Number(careRules.battery_care_hours) || 4, powerKw > 0 ? topKwh / powerKw + 0.5 : 0);
+        care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
+      }
+    }
+    const plan = care
+      ? planCare({
+        prices, now, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
+        continuous: planning.continuous !== false,
+        minSplitSaving: Number(planning.min_split_saving) || 0,
+        solarOnly,
+      })
+      : interim && minKwh > 0.01
       ? planStaged({
         prices, now, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
@@ -940,6 +962,11 @@ const routes = {
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       });
+    if (care) {
+      if (plan.care) care.window_start = plan.care.window_start;
+      plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
+      plan.notes.push('battery_care');
+    }
     if (solarInfo.forecast_error) plan.notes.push('solar_forecast_error');
     if (solarOnly) plan.notes.push('solar_only');
     if (!departure) plan.notes.unshift('no_departure');
@@ -2211,6 +2238,12 @@ function limitGoal(planResult, b) {
   let wanted = Number(planResult && planResult.planning && planResult.planning.wanted_soc);
   let reason = planResult && planResult.charge_for ? 'Ready-for choice' : 'Planned target';
   if (!Number.isFinite(wanted)) wanted = NaN;
+  // Battery care: up to the care level until the last hours before departure.
+  const care = planResult && planResult.plan && planResult.plan.care;
+  if (!b && care && Date.now() < care.window_start && Number.isFinite(wanted) && wanted > care.soc) {
+    wanted = care.soc;
+    reason = 'Battery care';
+  }
   if (b && b.mode === 'soc' && !(b.value <= wanted)) { wanted = b.value; reason = 'Charge now'; }
   // Charging on solar surplus goes up to its own maximum.
   const sol = planResult && planResult.solar;
@@ -2235,7 +2268,9 @@ function limitPreview(planResult, goalSoc) {
   const lim = planResult && planResult.car_limit;
   if (!lim || lim.value == null) return { supported: false, reason: 'none' };
   const managed = !!planResult.manages_car_limit;
-  const wantedPlan = Number(planResult.planning && planResult.planning.wanted_soc);
+  let wantedPlan = Number(planResult.planning && planResult.planning.wanted_soc);
+  const care = planResult.plan && planResult.plan.care;
+  if (care && Date.now() < care.window_start && wantedPlan > care.soc && !(goalSoc > care.soc && planResult.boost)) wantedPlan = care.soc;
   const goal = Math.max(Number.isFinite(goalSoc) ? goalSoc : 0, Number.isFinite(wantedPlan) ? wantedPlan : 0);
   if (!lim.writable) return { supported: false, reason: 'read_only', now: lim.value, name: lim.name, goal };
   if (!managed) return { supported: true, managed: false, reason: options.allow_control ? 'off' : 'control_off', now: lim.value, name: lim.name, goal };
@@ -3372,6 +3407,9 @@ routes['POST /api/control/settings'] = async (req) => {
     hysteresis: num(b.hysteresis, 'Hysteresis', 0, 1),
     ready_guard_enabled: b.ready_guard_enabled !== false,
     ready_guard_margin_minutes: num(b.ready_guard_margin_minutes ?? 30, 'Ready Guard margin', 30, 120),
+    battery_care_enabled: b.battery_care_enabled !== false,
+    battery_care_soc: num(b.battery_care_soc ?? 80, 'Battery care level', 50, 95),
+    battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
     car_limit_off: b.car_limit_off === true,
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };

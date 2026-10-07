@@ -58,6 +58,9 @@ const DEFAULT_RULES = {
   hysteresis: 0.03,
   ready_guard_enabled: true,
   ready_guard_margin_minutes: 30,
+  battery_care_enabled: true, // above battery_care_soc only in the last battery_care_hours before departure
+  battery_care_soc: 80,
+  battery_care_hours: 4,
   car_limit_off: false, // true: never change the car's own charge limit
   min_choice: 30, // default minimum (%) for the quick choices on Home
 };

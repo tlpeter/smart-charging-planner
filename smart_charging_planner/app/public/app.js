@@ -23,7 +23,7 @@ function durationText(minutes) {
     // amounts and identifiers remain normal inputs.
     const RANGE_FIELDS = {
       soc: '%', default_soc: '%', min_choice: '%', min_soc: '%',
-      force_minutes: ' min', ready_guard_margin_minutes: ' min', forecast_factor: '×', max_soc: '%',
+      force_minutes: ' min', ready_guard_margin_minutes: ' min', battery_care_soc: '%', battery_care_hours: ' h', forecast_factor: '×', max_soc: '%',
       grid_allow: ' W', delay_start_minutes: ' min', delay_stop_minutes: ' min',
       capacity_kwh: ' kWh', efficiency: '', charge_kw: ' kW', discharge_kw: ' kW',
       min_pct: '%', max_pct: '%', ev_from_pct: '%', ev_to_pct: '%',
@@ -1026,7 +1026,9 @@ function durationText(minutes) {
       const vehicleLine = `${esc(v.name)} · ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} → ${d.planning.target_soc}%`}${d.departure ? ` · ${esc(dayHm(d.departure.time))}` : ' · no departure'}${nowText ? ` · ${esc(nowText)}` : ''}`;
       const notes = p.notes.map((n) => n === 'car_limit'
         ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
-        : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
+        : n === 'battery_care' && p.care
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long. <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `
         ${connectedCarHtml(d)}
@@ -1974,6 +1976,9 @@ function durationText(minutes) {
       f.hysteresis.value = r.hysteresis;
       f.ready_guard_enabled.checked = r.ready_guard_enabled !== false;
       f.ready_guard_margin_minutes.value = r.ready_guard_margin_minutes ?? 30;
+      f.battery_care_enabled.checked = r.battery_care_enabled !== false;
+      f.battery_care_soc.value = r.battery_care_soc ?? 80;
+      f.battery_care_hours.value = r.battery_care_hours ?? 4;
       f.car_limit_off.checked = !!r.car_limit_off;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
@@ -2006,6 +2011,9 @@ function durationText(minutes) {
           force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
           ready_guard_enabled: f.ready_guard_enabled.checked,
           ready_guard_margin_minutes: f.ready_guard_margin_minutes.value,
+          battery_care_enabled: f.battery_care_enabled.checked,
+          battery_care_soc: f.battery_care_soc.value,
+          battery_care_hours: f.battery_care_hours.value,
           car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
         });
         document.activeElement.blur();

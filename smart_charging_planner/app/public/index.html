@@ -149,6 +149,14 @@
             <div class="field"><label>Minimum safety margin before departure</label><input name="ready_guard_margin_minutes" type="number" min="30" max="120" step="5"></div>
             <p class="muted small">Ready Guard also adds 15% of the required charging time when that is more. At the latest safe start it temporarily ignores price and solar-only waiting.</p>
           </div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="battery_care_enabled"> <strong>Battery care: charge above a level only just before departure</strong></label>
+          <div class="sub" data-when="battery_care_enabled">
+            <div class="two">
+              <div class="field"><label>Charge up to this level any time</label><input name="battery_care_soc" type="number" min="50" max="95" step="5"></div>
+              <div class="field"><label>The rest in the last hours before departure</label><input name="battery_care_hours" type="number" min="1" max="24" step="1"></div>
+            </div>
+            <p class="muted small">For a target above this level (for example 100% for a long trip), the app charges up to the level whenever it is cheapest, and the rest only in the last hours before departure, so the battery does not stand full for days. The car's own charge limit follows. When the rest needs more time than these hours, it starts earlier.</p>
+          </div>
           <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>
 
