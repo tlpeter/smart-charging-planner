@@ -846,3 +846,10 @@
       .settings-tile { min-height: 74px; padding: 12px; }
       .savebar { bottom: 6px; }
     }
+
+    /* More than one car */
+    .connected-car h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
+    .connected-car.attention { box-shadow: inset 4px 0 0 rgb(var(--rgb-orange)); }
+    .car-picker { flex-wrap: wrap; gap: 8px; }
+    .car-picker button { display: inline-flex; align-items: center; gap: 6px; }
+    .car-picker button svg { width: 16px; height: 16px; fill: currentColor; }

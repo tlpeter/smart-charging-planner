@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.27.0-dev
+
+- **More than one car on one charger** (an option, off by default): Settings › Vehicle › "I have more than one car". With it off, nothing changes
+- With it on: add up to 6 cars (with or without a car integration) and switch between them in Settings › Vehicle
+- The app recognises which car is connected by each car's "Plugged in" sensor. A car without one is recognised when no other car says it is plugged in. When both say they are plugged in (for example one at a public charger), the car that is charging decides; otherwise Home asks which car it is, with one notification
+- Home shows the connected car and lets you choose it yourself; your choice holds until the charger is unplugged. With nothing plugged in, the plan is for the last car that was connected
+- The plan, Ready Guard, the car's charge limit, "car not reachable" and the checklist follow the connected car. The car's charge limit is never changed while the app is not sure which car is connected
+- Departures are shared by all cars, unless a car has its own (Plan › choose the car › "has its own departures"): schedule, calendar, helper and one-off departure per car
+- With more than one car, "plugged in" for the charger comes from the charger status, because a car's own plug sensor also says "plugged in" at a public charger
+- The status sensor (sensor.smart_charging_status) has the connected car as attribute; diagnostics and export/import include the cars and the option
+- Tests: settings test group W (option off, adding a car, recognising the car, asking, your choice, a car without a plug sensor, own departures, turning it off) and tests/activecar.test.js
+
 ## 0.26.2-dev
 
 - Plan, Activity and every Settings subpage now share the same Mushroom-style page headers, cards, spacing, controls and responsive layout as Home

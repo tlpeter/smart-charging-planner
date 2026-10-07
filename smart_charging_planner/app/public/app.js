@@ -328,10 +328,13 @@ function durationText(minutes) {
         const errBox = f.querySelector('.form-error');
         errBox.hidden = true;
         try {
-          await api('POST', 'api/vehicles', {
+          const r = await api('POST', 'api/vehicles', {
             mode: f.mode.value, name: f.name.value || 'My vehicle',
             capacity_kwh: f.capacity_kwh.value, fixed_kwh: f.fixed_kwh.value,
+            ...vehicleTarget(),
           });
+          if (r.vehicle) { vehicleAdding = false; vehicleSel = r.vehicle.id; }
+          formFilled.vehicle = false;
           $('vehicle-results').innerHTML = '';
           loadSaved('vehicle');
         } catch (err) {
@@ -341,10 +344,70 @@ function durationText(minutes) {
       });
     }
 
+    // ---------- More than one car (an option, off by default) ----------
+    let multiCar = false;
+    let vehicleSel = null; // id of the car shown in Settings › Vehicle
+    let vehicleAdding = false; // "Add a car" pressed: the forms are for a new car
+
+    function vehicleTarget() {
+      return vehicleAdding ? { add: true } : (vehicleSel ? { id: vehicleSel } : {});
+    }
+
+    function multiCarCard(data) {
+      const box = $('vehicle-multi');
+      if (!box) return;
+      const list = data.vehicles || [];
+      if (!list.length) { box.innerHTML = ''; return; }
+      const unused = list.filter((v) => !v.used);
+      const chips = multiCar ? `
+        <div class="buttons car-picker">
+          ${list.map((v) => `<button type="button" class="${!vehicleAdding && v.id === vehicleSel ? 'primary' : 'secondary'}" data-car="${esc(v.id)}">${icon('car')}<span>${esc(v.name)}</span></button>`).join('')}
+          ${list.length < (data.max_vehicles || 6) ? `<button type="button" class="${vehicleAdding ? 'primary' : 'secondary'}" data-car-add>+ Add a car</button>` : ''}
+        </div>
+        ${list.length > 1 ? `<p class="muted small">The app recognises the connected car by each car's <strong>Plugged in</strong> sensor. A car without one is recognised when no other car says it is plugged in. When the app is not sure, Home asks you which car is connected.</p>` : '<p class="muted small">Add your other car with <strong>+ Add a car</strong>.</p>'}` : '';
+      box.innerHTML = `
+        <div class="card">
+          <label class="check"><input type="checkbox" id="multi-car" ${multiCar ? 'checked' : ''}> I have more than one car</label>
+          <p class="muted small">For more than one car on this charger: the app recognises which car is connected and plans for that car. Leave it off with one car.</p>
+          ${!multiCar && unused.length ? `<p class="muted small">${unused.length} other car${unused.length > 1 ? 's are' : ' is'} saved but not used while this is off.</p>` : ''}
+          ${chips}
+        </div>`;
+      $('multi-car').onchange = async (e) => {
+        try {
+          await api('POST', 'api/vehicles/multi', { enabled: e.target.checked });
+        } catch (err) {
+          e.target.checked = !e.target.checked;
+          alert(err.message);
+          return;
+        }
+        vehicleAdding = false;
+        loadSaved('vehicle');
+      };
+      box.querySelectorAll('[data-car]').forEach((b) => {
+        b.onclick = () => {
+          vehicleAdding = false;
+          vehicleSel = b.dataset.car;
+          formFilled.vehicle = false;
+          $('vehicle-results').innerHTML = '';
+          loadSaved('vehicle');
+        };
+      });
+      const add = box.querySelector('[data-car-add]');
+      if (add) add.onclick = () => {
+        vehicleAdding = true;
+        formFilled.vehicle = false;
+        $('vehicle-results').innerHTML = '';
+        const f = $('noint-form');
+        if (f) f.reset();
+        loadSaved('vehicle');
+      };
+    }
+
     // ---------- Section flow ----------
     function sectionShell(kind) {
       const cfg = SECTIONS[kind];
       $('tab-' + kind).innerHTML = `
+        ${kind === 'vehicle' ? '<div id="vehicle-multi"></div>' : ''}
         <div class="card" id="${kind}-intro">
           <h2>Find your ${cfg.noun}</h2>
           <p class="muted">${esc(cfg.intro)}</p>
@@ -368,7 +431,21 @@ function durationText(minutes) {
       const box = $(`${kind}-saved`);
       try {
         const data = await api('GET', cfg.api);
-        const list = data[cfg.listKey];
+        let list = data[cfg.listKey];
+        if (kind === 'vehicle') {
+          multiCar = !!data.multi_car;
+          if (!multiCar) vehicleAdding = false;
+          if (list.length && !list.some((v) => v.id === vehicleSel)) vehicleSel = list[0].id;
+          if (!multiCar && list.length) vehicleSel = list[0].id;
+          multiCarCard(data);
+          if (vehicleAdding) {
+            $(`${kind}-intro`).querySelector('h2').textContent = 'Add a car';
+            list = [];
+          } else {
+            $(`${kind}-intro`).querySelector('h2').textContent = `Find your ${cfg.noun}`;
+            list = list.filter((v) => v.id === vehicleSel);
+          }
+        }
         if (!list.length) {
           box.innerHTML = '';
           formFilled[kind] = false;
@@ -406,7 +483,8 @@ function durationText(minutes) {
         }
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
-          await api('DELETE', cfg.api);
+          await api('DELETE', kind === 'vehicle' && item.id ? `${cfg.api}?id=${encodeURIComponent(item.id)}` : cfg.api);
+          if (kind === 'vehicle') vehicleSel = null;
           $(`${kind}-results`).innerHTML = '';
           formFilled[kind] = false;
           savedItems[kind] = null;
@@ -553,8 +631,10 @@ function durationText(minutes) {
         data.integration = c.integration;
       }
       const errBox = form.querySelector('.form-error');
+      if (kind === 'vehicle') Object.assign(data, vehicleTarget());
       try {
-        await api('POST', cfg.api, data);
+        const r = await api('POST', cfg.api, data);
+        if (kind === 'vehicle' && r.vehicle) { vehicleAdding = false; vehicleSel = r.vehicle.id; }
         formFilled[kind] = false;
         await loadSaved(kind);
         const okBtn = $(`${kind}-results`).querySelector('form[data-mine] button[type=submit]');
@@ -845,6 +925,7 @@ function durationText(minutes) {
         : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `
+        ${connectedCarHtml(d)}
         ${readyGuardHtml(d)}
         <div class="overview-grid">
           <div class="overview-main">
@@ -884,6 +965,51 @@ function durationText(minutes) {
             ${batteryHtml(d)}
           </aside>
         </div>`;
+    }
+
+    // ---------- More than one car: which one is connected ----------
+    function connectedCarHtml(d) {
+      const c = d.cars;
+      if (!c) return '';
+      const cur = c.list.find((x) => x.id === c.connected_id);
+      const name = cur ? esc(cur.name) : 'a car';
+      const conflictCar = c.conflict ? c.list.find((x) => x.id === c.conflict) : null;
+      const HOW = {
+        chosen: `Chosen by you. Back to automatic when the car is unplugged.${conflictCar ? ` <strong>Note:</strong> ${esc(conflictCar.name)} says it is plugged in.` : ''}`,
+        sensor: `Recognised by its plug sensor.`,
+        charging_sensor: `Recognised by its charging sensor.`,
+        no_other: `No other car says it is plugged in.`,
+        last: `No car connected. The plan is for ${name}, the last car that was connected.`,
+        first: `No car connected. The plan is for ${name}.`,
+        guess: `The app cannot tell which car is connected and plans for ${name} for now. <strong>Which car is it?</strong>`,
+      };
+      const connected = c.charger_plugged !== false && !['last', 'first'].includes(c.how);
+      return `
+        <div class="card connected-car${c.ask ? ' attention' : ''}">
+          <div class="card-title-row"><div>
+            <div class="ready-kicker">${connected ? "CONNECTED CAR" : "NEXT CAR"}</div>
+            <h2>${shape('car', c.ask ? 'orange' : 'blue', true)}${name}</h2>
+          </div></div>
+          <p class="muted small">${HOW[c.how] || ''}</p>
+          <div class="buttons car-picker">
+            ${c.list.map((x) => `<button type="button" class="${c.chosen && x.id === c.connected_id ? 'primary' : 'secondary'}" data-connect="${esc(x.id)}">${esc(x.name)}</button>`).join('')}
+            <button type="button" class="${c.chosen ? 'secondary' : 'primary'}" data-connect="">Automatic</button>
+          </div>
+        </div>`;
+    }
+
+    function bindCars() {
+      document.querySelectorAll('[data-connect]').forEach((b) => {
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            await api('POST', 'api/vehicles/connected', { vehicle_id: b.dataset.connect || null });
+          } catch (err) {
+            alert(err.message);
+          }
+          loadOverview(true);
+        };
+      });
     }
 
     // ---------- Charge now ----------
@@ -1353,6 +1479,7 @@ function durationText(minutes) {
         };
         bindBoost();
         bindModes();
+        bindCars();
         loadChargeFor();
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
@@ -1393,14 +1520,31 @@ function durationText(minutes) {
       return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
     }
 
+    let depCar = null; // more cars: the car whose departures are shown
+
+    function depCarHtml(d) {
+      if (!d.cars) return '';
+      const car = d.cars.find((c) => c.id === d.vehicle_id) || d.cars[0];
+      const others = d.cars.filter((c) => c.id !== car.id);
+      return `
+        <div class="buttons car-picker">${d.cars.map((c) => `<button type="button" class="${c.id === car.id ? 'primary' : 'secondary'}" data-depcar="${esc(c.id)}">${icon('car')}<span>${esc(c.name)}</span></button>`).join('')}</div>
+        <label class="check"><input type="checkbox" id="dep-own" ${d.own_departures ? 'checked' : ''}> ${esc(car.name)} has its own departures</label>
+        <p class="muted small">${d.own_departures
+          ? `The schedule, calendar and one-off departure below are only for ${esc(car.name)}.`
+          : `${esc(car.name)} uses the shared departures${others.some((o) => !o.own_departures) ? `, the same as ${others.filter((o) => !o.own_departures).map((o) => esc(o.name)).join(' and ')}` : ''}. Changes below apply to every car that uses them.`}</p>`;
+    }
+
     async function loadDepartures() {
       try {
-        const d = await api('GET', 'api/departures');
+        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}` : 'api/departures');
         depTz = d.time_zone;
         const dep = d.departures;
+        if (d.cars) depCar = d.vehicle_id;
+        else depCar = null;
 
         $('dep-next').innerHTML = `
-          <h2>Next departure</h2>
+          ${depCarHtml(d)}
+          <h2>Next departure${d.cars ? ` · ${esc((d.cars.find((c) => c.id === d.vehicle_id) || {}).name || '')}` : ''}</h2>
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
@@ -1412,6 +1556,19 @@ function durationText(minutes) {
             </table>
             <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
           </details>` : ''}`;
+        $('dep-next').querySelectorAll('[data-depcar]').forEach((b) => {
+          b.onclick = () => { depCar = b.dataset.depcar; $('dep-form').reset(); loadDepartures(); };
+        });
+        if ($('dep-own')) {
+          $('dep-own').onchange = async (e) => {
+            try {
+              await api('POST', 'api/departures/own', { vehicle_id: depCar, own: e.target.checked });
+            } catch (err) {
+              alert(err.message);
+            }
+            loadDepartures();
+          };
+        }
         if ($('dep-cf-clear')) {
           $('dep-cf-clear').onclick = async () => {
             $('dep-cf-clear').disabled = true;
@@ -1450,17 +1607,18 @@ function durationText(minutes) {
           <div class="error" id="ov-error" hidden></div>`;
         $('ov-set').onclick = async () => {
           try {
-            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value });
+            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, vehicle_id: depCar });
             loadDepartures();
           } catch (err) {
             $('ov-error').textContent = err.message;
             $('ov-error').hidden = false;
           }
         };
-        if (ov) $('ov-clear').onclick = async () => { await api('DELETE', 'api/departures/override'); loadDepartures(); };
+        if (ov) $('ov-clear').onclick = async () => { await api('DELETE', depCar ? `api/departures/override?vehicle=${encodeURIComponent(depCar)}` : 'api/departures/override'); loadDepartures(); };
 
         const f = $('dep-form');
-        if (document.activeElement.form === f) return; // don't overwrite while editing
+        if (document.activeElement.form === f && f.dataset.car === String(depCar)) return; // don't overwrite while editing
+        f.dataset.car = String(depCar);
         f.schedule_enabled.checked = dep.schedule_enabled;
         f.default_soc.value = dep.default_soc;
         $('dep-days').innerHTML = DAY_KEYS.map((k) => `
@@ -1494,6 +1652,7 @@ function durationText(minutes) {
         schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value };
       }
       const body = {
+        vehicle_id: depCar,
         schedule_enabled: f.schedule_enabled.checked,
         schedule,
         default_soc: f.default_soc.value,
@@ -1867,6 +2026,7 @@ function durationText(minutes) {
     function tripBody() {
       const f = $('trip-form');
       return {
+        vehicle_id: depCar,
         datetime: f.datetime.value,
         destination: f.destination.value,
         soc: f.soc.value,

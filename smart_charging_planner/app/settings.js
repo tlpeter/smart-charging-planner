@@ -12,6 +12,7 @@ const FILE = path.join(DATA_DIR, 'settings.json');
 const DEFAULTS = {
   // A list from the start, so more vehicles can be added later.
   vehicles: [],
+  multi_car: false, // "I have more than one car" (Settings › Vehicle)
   chargers: [],
   grid: [],
   prices: null,
@@ -41,7 +42,31 @@ function load() {
     s = JSON.parse(JSON.stringify(DEFAULTS));
   }
   s.planning = { ...s.planning, ...planningOptions() };
+  // Every vehicle has a stable id (settings from before more cars had none).
+  if (Array.isArray(s.vehicles) && vehicleIds(s.vehicles)) {
+    try { save(s); } catch { /* read-only: ids again next time, the same ones */ }
+  }
   return s;
+}
+
+function vehicleIds(vehicles) {
+  let changed = false;
+  const used = new Set(vehicles.map((v) => v && v.id).filter(Boolean));
+  const seen = new Set();
+  vehicles.forEach((v, i) => {
+    if (!v) return;
+    if (v.id && !seen.has(v.id)) {
+      seen.add(v.id);
+      return;
+    }
+    let n = i + 1;
+    while (used.has(`car${n}`)) n++;
+    v.id = `car${n}`;
+    used.add(v.id);
+    seen.add(v.id);
+    changed = true;
+  });
+  return changed;
 }
 
 function save(settings) {
@@ -51,4 +76,4 @@ function save(settings) {
   fs.renameSync(tmp, FILE);
 }
 
-module.exports = { load, save };
+module.exports = { load, save, vehicleIds };

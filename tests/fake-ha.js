@@ -43,7 +43,7 @@ const PROFILES = {
       states: (w) => [
         ['sensor.jlz03x_battery', w.soc, { friendly_name: 'JLZ03X Battery', ...PCT, device_class: 'battery' }],
         ['sensor.jlz03x_range', '150', { friendly_name: 'JLZ03X Range', unit_of_measurement: 'km', device_class: 'distance' }],
-        ['binary_sensor.jlz03x_plugged_in', w.plugged ? 'on' : 'off', { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' }],
+        ['binary_sensor.jlz03x_plugged_in', (w.car1Plug ?? w.plugged) ? 'on' : 'off', { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' }],
         ['binary_sensor.jlz03x_charging', w.charging ? 'on' : 'off', { friendly_name: 'JLZ03X Charging', device_class: 'battery_charging' }],
         ['number.jlz03x_target_charge_level', w.limit, { friendly_name: 'JLZ03X Target charge level', ...PCT, min: 55, max: 100, step: 5 }],
         ['number.jlz03x_minimum_charge_level', '15', { friendly_name: 'JLZ03X Minimum charge level', ...PCT, min: 15, max: 45, step: 5 }],
@@ -104,7 +104,7 @@ const PROFILES = {
         ['sensor.enyaq_range', '210', { friendly_name: 'Enyaq Range', unit_of_measurement: 'km', device_class: 'distance' }],
         ['sensor.enyaq_charging_state', w.charging ? 'charging' : w.plugged ? 'ready_for_charging' : 'connect_cable', { friendly_name: 'Enyaq Charging State', device_class: 'enum' }],
         ['sensor.enyaq_charging_power', carKw(w), { friendly_name: 'Enyaq Charging Power', ...KW }],
-        ['binary_sensor.enyaq_charger_connected', w.plugged ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
+        ['binary_sensor.enyaq_charger_connected', (w.car1Plug ?? w.plugged) ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
         ['binary_sensor.enyaq_charge_lock', 'on', { friendly_name: 'Enyaq Charge Lock', device_class: 'lock' }],
         ['number.enyaq_charge_limit', w.limit, { friendly_name: 'Enyaq Charge Limit', ...PCT, min: 50, max: 100, step: 10 }],
         ['switch.enyaq_charging', w.charging ? 'on' : 'off', { friendly_name: 'Enyaq Charging' }],
@@ -190,8 +190,15 @@ function entityList(w) {
   const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : ch.text.paused;
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
+  // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
+  const car2 = w.car2 ? [
+    ['sensor.ev6_battery_level', String(w.car2.soc), { friendly_name: 'EV6 Battery level', unit_of_measurement: '%', device_class: 'battery' }, 'car2'],
+    ...(w.car2.noPlugSensor ? [] : [['binary_sensor.ev6_plugged_in', w.car2.plug ? 'on' : 'off', { friendly_name: 'EV6 Plugged in', device_class: 'plug' }, 'car2']]),
+    ['binary_sensor.ev6_charging', w.car2.charging ? 'on' : 'off', { friendly_name: 'EV6 Charging', device_class: 'battery_charging' }, 'car2'],
+  ] : [];
   return [
     ...car,
+    ...car2,
     ...charger,
     ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
@@ -220,7 +227,7 @@ function entityList(w) {
   ];
 }
 
-const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen', eq: 'easee' };
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen', eq: 'easee', car2: 'kia_uvo' };
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
@@ -250,6 +257,7 @@ function devices(w) {
     { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
     { id: 'plant', name: 'Sigen Plant', manufacturer: 'Sigenergy', model: 'SigenStor' },
     ...(w.profile.charger.equalizer ? [{ id: 'eq', name: 'Equalizer', manufacturer: 'Easee', model: 'Equalizer' }] : []),
+    ...(w.car2 ? [{ id: 'car2', name: 'EV6', manufacturer: 'Kia', model: 'EV6' }] : []),
     ...(w.otherBattery ? Object.keys(w.otherBattery.devices).map((id) => ({ id, name: w.otherBattery.names[id] || id })) : []),
   ];
 }
