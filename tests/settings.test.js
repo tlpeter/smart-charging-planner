@@ -393,7 +393,8 @@ async function run() {
 
   // ----- G. Rules (Allow control off) --------------------------------------
   group = 'G. Rules';
-  const rules = (o = {}) => ({ start_stop_id: '', current_id: 'none', min_soc_enabled: false, min_soc: 20, min_soc_entity: '', min_soc_max_price: '', preheat_entity: '', force_minutes: 0, hysteresis: 0.03, car_limit_off: false, min_choice: 30, ...o });
+  // Battery care off here (it changes when the car limit goes up); group J tests it on its own.
+  const rules = (o = {}) => ({ start_stop_id: '', current_id: 'none', min_soc_enabled: false, min_soc: 20, min_soc_entity: '', min_soc_max_price: '', preheat_entity: '', force_minutes: 0, hysteresis: 0.03, car_limit_off: false, min_choice: 30, battery_care_enabled: false, ...o });
   const decision = async () => { await plan(); return (await ok('GET', 'api/control')).now; };
   await test('G1', 'Refused: default minimum 50 %, force window 700 min, hysteresis 2', async () => {
     await refused('POST', 'api/control/settings', rules({ min_choice: 50 }), 'between 20 and 45');
@@ -649,6 +650,29 @@ async function run() {
     assert(n2.code === 'at_target' && n2.want === 'pause', `at 85 %: ${n2.want}/${n2.code}`);
     await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     return `limit ${world.limit} %, at 85 %: ${n2.code}`;
+  });
+  await test('J13', 'Battery care (on by default): target 100 % tomorrow 23:00 — up to 80 % in the cheap night, the last part only in the 4 hours before departure; the car limit stays at 80 % until then', async () => {
+    await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4 }));
+    world.soc = 50;
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 100 } }) }));
+    await sleep(2100);
+    const p = await plan();
+    await sleep(800);
+    const c = p.plan.care;
+    assert(c && c.soc === 80 && c.target === 100 && p.plan.notes.includes('battery_care'), JSON.stringify(c));
+    assert(c.window_start === at(1, 19), `window ${new Date(c.window_start).toISOString()}`);
+    const before = p.plan.blocks.filter((b) => b.start < c.window_start).reduce((a, b) => a + b.kwh, 0);
+    const inWindow = p.plan.blocks.filter((b) => b.start >= c.window_start).reduce((a, b) => a + b.kwh, 0);
+    assert(Math.abs(before - c.care_kwh) < 0.1 && Math.abs(inWindow - (p.plan.needed_kwh - c.care_kwh)) < 0.1, `before ${before}, in window ${inWindow}, care ${c.care_kwh}, needed ${p.plan.needed_kwh}`);
+    assert(world.limit === lim(80), `limit ${world.limit}`);
+    // Off: everything in the cheap night again, and the limit goes up to 100 %.
+    await ok('POST', 'api/control/settings', rules({ battery_care_enabled: false }));
+    const q = await plan();
+    await sleep(800);
+    assert(!q.plan.care && q.plan.blocks.every((b) => b.start < at(1, 19)) && world.limit === lim(100), `blocks ${q.plan.blocks.map((b) => new Date(b.start).toISOString().slice(11, 16))}, limit ${world.limit}`);
+    world.soc = 20;
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    return `up to 80 %: ${before.toFixed(1)} kWh in the night · last ${inWindow.toFixed(1)} kWh from 19:00 · car limit 80 %`;
   });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
