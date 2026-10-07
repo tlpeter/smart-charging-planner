@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.28.0-dev
+
+- **More than one charger** (an option, off by default): Settings › Charger › "I have more than one charger". With it off, nothing changes
+- With it on: add up to 4 chargers. Every charger has its own plan, Charge now, Ready for, charging mode, control, start/stop and current method, and log. A bar at the top chooses the charger that Home, Plan, Rules and Activity show
+- Every charger can have a usual car. The app finds the car on each charger from the cars' plug sensors; a car that another charger already has is not a candidate, so the cars can also be the other way round. With nothing plugged in, a charger plans for its usual car
+- **Sharing the connection**: when the main fuse is too small for all chargers, the car with the least room to spare goes first: the earliest "latest safe start" (Ready Guard: what it still needs and when it leaves). So a car that leaves later for a long trip can go before a car that leaves early but needs little. Charge now goes before everything, then a car below its minimum or preconditioning, then a car Ready Guard protects
+- What is left is shared fairly by the other chargers (at least 6 A each, where the current can be set); a charger that can only start and stop charges with its full current or waits. Free current = main fuse − what the house uses now (grid meter minus the chargers) − 1 A. With a load balancer (Settings › Grid) the load balancer shares and the app does not limit
+- Solar: only the car that goes first charges on the sun. The home battery and the Easee Equalizer are steered by the first charger
+- Home shows all chargers at a glance: which car, its target, whether it charges, waits or goes first, and how much current is free
+- Notifications name the charger; the first charger keeps sensor.smart_charging_*, another charger gets sensor.smart_charging_<charger>_*
+- The checklist says how the connection is shared (or that the grid meter and main fuse are needed)
+- Export/import and diagnostics include the chargers, the option and the last sharing
+- Internal: everything the app keeps per charger lives in a scope per charger (scope.js); the first charger keeps its old files
+- Tests: settings test group X (option off, adding a charger, a plan per charger, sharing 16 A + 6 A, waiting when the house uses more, cars the other way round, sensors per charger, turning it off) and tests/sharing.test.js
+
 ## 0.27.1-dev
 
 - **One calendar for more cars**: "auto: renault" or "car: EV6" in a calendar event says which car the trip is for (Dutch and English both work, also "vehicle:" and "voertuig:"). A trip without it is for every car. The car is found by its new "Name in the calendar" (Settings › Vehicle), its name, or its brand when only one car has that brand; a car that is not recognised counts for every car and is marked on Plan

@@ -19,7 +19,7 @@
 
 const MIN_A = 6;
 
-const FIRST = { boost: 0, manual: 0, min_soc: 1, preheat: 1 };
+const FIRST = { boost: 0, below_minimum: 1, preheat: 1, ready_guard: 2 };
 
 function rank(c) {
   const p = c.priority || {};

@@ -68,9 +68,17 @@ function durationText(minutes) {
       if (event.target.matches('input[data-mushroom-range]')) refreshRangeValues(event.target.closest('.field') || document);
     });
 
+    // More chargers: every request is for the charger chosen in the bar.
+    let multiCharger = false;
+    let chargerSel = null;
+    let chargerAdding = false;
+    let chargerCars = [];
+    let chargerOptionOn = false;
+
     async function api(method, url, body) {
       // Changes are always sent as JSON: the app refuses anything else.
       const write = method !== 'GET';
+      if (multiCharger && chargerSel && !/[?&]charger=/.test(url)) url += `${url.includes('?') ? '&' : '?'}charger=${encodeURIComponent(chargerSel)}`;
       const res = await fetch(url, {
         method,
         headers: write ? { 'Content-Type': 'application/json' } : undefined,
@@ -152,7 +160,10 @@ function durationText(minutes) {
           </div>
           ${follow.length ? `<label class="check"><input type="checkbox" name="follow_limits" checked> Follow the charger's own limit (now ${esc(c.suggested_max_current)} A) live</label>
             <input type="hidden" name="max_current_entities" value="${esc(follow.join(','))}">` : ''}
-          ${limitList}${disabledNote}`;
+          ${limitList}${disabledNote}
+          ${chargerOptionOn && chargerCars.length > 1 ? `<div class="field"><label>Usual car on this charger</label>
+            <select name="vehicle_id"><option value="">— any —</option>${chargerCars.map((v) => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')}</select>
+            <div class="muted small">When this car says it is plugged in, it is on this charger; the app still notices when the cars are the other way round.</div></div>` : ''}`;
         },
         extraRows: (c) => [
           ['Phases', String(c.phases)],
@@ -406,11 +417,82 @@ function durationText(minutes) {
       };
     }
 
+    // ---------- More than one charger (an option, off by default) ----------
+    function multiChargerCard(data, on) {
+      const box = $('charger-multi');
+      if (!box) return;
+      const list = data.chargers || [];
+      if (!list.length) { box.innerHTML = ''; return; }
+      const unused = list.filter((c) => !c.used);
+      box.innerHTML = `
+        <div class="card">
+          <label class="check"><input type="checkbox" id="multi-charger" ${on ? 'checked' : ''}> I have more than one charger</label>
+          <p class="muted small">For more than one charger at home: every charger gets its own plan and control. When the connection is too small for all of them, the car with the least room to spare goes first (it leaves soonest for what it still needs) and the rest is shared. Leave it off with one charger.</p>
+          ${!on && unused.length ? `<p class="muted small">${unused.length} other charger${unused.length > 1 ? 's are' : ' is'} saved but not used while this is off.</p>` : ''}
+          ${on ? `<div class="buttons car-picker">
+            ${list.map((c) => `<button type="button" class="${!chargerAdding && c.id === chargerSel ? 'primary' : 'secondary'}" data-charger="${esc(c.id)}">${icon('charger')}<span>${esc(c.name)}</span></button>`).join('')}
+            ${list.length < (data.max_chargers || 4) ? `<button type="button" class="${chargerAdding ? 'primary' : 'secondary'}" data-charger-add>+ Add a charger</button>` : ''}
+          </div>
+          <p class="muted small">The charger you choose here (or in the bar at the top) is the one Home, Plan, Rules and Activity show.</p>` : ''}
+        </div>`;
+      $('multi-charger').onchange = async (e) => {
+        try {
+          await api('POST', 'api/chargers/multi', { enabled: e.target.checked });
+        } catch (err) {
+          e.target.checked = !e.target.checked;
+          alert(err.message);
+          return;
+        }
+        chargerAdding = false;
+        await loadChargerBar();
+        loadSaved('charger');
+      };
+      box.querySelectorAll('[data-charger]').forEach((b) => {
+        b.onclick = () => selectCharger(b.dataset.charger);
+      });
+      const add = box.querySelector('[data-charger-add]');
+      if (add) add.onclick = () => {
+        chargerAdding = true;
+        formFilled.charger = false;
+        $('charger-results').innerHTML = '';
+        loadSaved('charger');
+      };
+    }
+
+    // The bar at the top: which charger the pages show.
+    async function loadChargerBar() {
+      const bar = $('charger-bar');
+      try {
+        const d = await api('GET', 'api/chargers?charger=');
+        chargerCars = d.cars || [];
+        const used = (d.chargers || []).filter((c) => c.used);
+        multiCharger = !!d.multi_charger && used.length > 1;
+        if (!used.some((c) => c.id === chargerSel)) chargerSel = used.length ? used[0].id : null;
+        if (!multiCharger) { bar.hidden = true; bar.innerHTML = ''; return; }
+        bar.hidden = false;
+        bar.innerHTML = used.map((c) => `<button type="button" class="charger-chip${c.id === chargerSel ? ' active' : ''}" data-bar="${esc(c.id)}">${icon('charger')}<span>${esc(c.name)}</span></button>`).join('');
+        bar.querySelectorAll('[data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
+      } catch {
+        bar.hidden = true;
+      }
+    }
+
+    function selectCharger(id) {
+      chargerAdding = false;
+      chargerSel = id;
+      formFilled.charger = false;
+      if ($('charger-results')) $('charger-results').innerHTML = '';
+      document.querySelectorAll('#charger-bar [data-bar]').forEach((b) => b.classList.toggle('active', b.dataset.bar === id));
+      for (const k of Object.keys(SECTIONS)) formFilled[k] = false;
+      loadSaved('charger');
+      showTab(currentShow);
+    }
+
     // ---------- Section flow ----------
     function sectionShell(kind) {
       const cfg = SECTIONS[kind];
       $('tab-' + kind).innerHTML = `
-        ${kind === 'vehicle' ? '<div id="vehicle-multi"></div>' : ''}
+        ${kind === 'vehicle' ? '<div id="vehicle-multi"></div>' : ''}${kind === 'charger' ? '<div id="charger-multi"></div>' : ''}
         <div class="card" id="${kind}-intro">
           <h2>Find your ${cfg.noun}</h2>
           <p class="muted">${esc(cfg.intro)}</p>
@@ -447,6 +529,22 @@ function durationText(minutes) {
           } else {
             $(`${kind}-intro`).querySelector('h2').textContent = `Find your ${cfg.noun}`;
             list = list.filter((v) => v.id === vehicleSel);
+          }
+        }
+        if (kind === 'charger') {
+          if (data.cars) chargerCars = data.cars;
+          const on = !!data.multi_charger;
+          chargerOptionOn = on;
+          if (!on) chargerAdding = false;
+          multiCharger = on && list.filter((c) => c.used).length > 1;
+          if (list.length && !list.some((c) => c.id === chargerSel && c.used)) chargerSel = (list.find((c) => c.used) || list[0]).id;
+          multiChargerCard({ ...data, chargers: list }, on);
+          if (chargerAdding) {
+            $(`${kind}-intro`).querySelector('h2').textContent = 'Add a charger';
+            list = [];
+          } else {
+            $(`${kind}-intro`).querySelector('h2').textContent = `Find your ${cfg.noun}`;
+            list = list.filter((c) => c.id === chargerSel);
           }
         }
         if (!list.length) {
@@ -486,8 +584,9 @@ function durationText(minutes) {
         }
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
-          await api('DELETE', kind === 'vehicle' && item.id ? `${cfg.api}?id=${encodeURIComponent(item.id)}` : cfg.api);
+          await api('DELETE', (kind === 'vehicle' || kind === 'charger') && item.id ? `${cfg.api}?id=${encodeURIComponent(item.id)}` : cfg.api);
           if (kind === 'vehicle') vehicleSel = null;
+          if (kind === 'charger') { chargerSel = null; await loadChargerBar(); }
           $(`${kind}-results`).innerHTML = '';
           formFilled[kind] = false;
           savedItems[kind] = null;
@@ -543,7 +642,7 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -635,9 +734,11 @@ function durationText(minutes) {
       }
       const errBox = form.querySelector('.form-error');
       if (kind === 'vehicle') Object.assign(data, vehicleTarget());
+      if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
         const r = await api('POST', cfg.api, data);
         if (kind === 'vehicle' && r.vehicle) { vehicleAdding = false; vehicleSel = r.vehicle.id; }
+        if (kind === 'charger' && r.charger) { chargerAdding = false; chargerSel = r.charger.id; await loadChargerBar(); }
         formFilled[kind] = false;
         await loadSaved(kind);
         const okBtn = $(`${kind}-results`).querySelector('form[data-mine] button[type=submit]');
@@ -984,9 +1085,11 @@ function durationText(minutes) {
         no_other: `No other car says it is plugged in.`,
         last: `No car connected. The plan is for ${name}, the last car that was connected.`,
         first: `No car connected. The plan is for ${name}.`,
+        usual: `No car connected. The plan is for ${name}, the usual car on this charger.`,
+        only: `The other car is on another charger, so this is ${name}.`,
         guess: `The app cannot tell which car is connected and plans for ${name} for now. <strong>Which car is it?</strong>`,
       };
-      const connected = c.charger_plugged !== false && !['last', 'first'].includes(c.how);
+      const connected = c.charger_plugged !== false && !['last', 'first', 'usual'].includes(c.how);
       return `
         <div class="card connected-car${c.ask ? ' attention' : ''}">
           <div class="card-title-row"><div>
@@ -1466,11 +1569,41 @@ function durationText(minutes) {
       return `<p class="muted small" style="margin-top:10px">Typical house load (last ${h.days} days${h.charger_subtracted ? ', without the charger' : ''}): about ${kw(night)} at night, up to ${kw(prof[peakHour])} around ${String(peakHour).padStart(2, '0')}:00. Main fuse ${esc(h.main_fuse)} A.</p>`;
     }
 
+    // More chargers: every charger at a glance, on top of Home.
+    function chargersOverviewHtml(o) {
+      if (!o || !o.multi_charger) return '';
+      const sh = o.share;
+      const rank = sh && sh.order ? sh.order : [];
+      const row = (c) => {
+        const status = c.plugged === false ? 'No car connected'
+          : c.charging ? `Charging${c.power_w ? ` · ${(c.power_w / 1000).toFixed(1)} kW` : ''}${c.shared && c.amps ? ` · ${c.amps} A (shared)` : ''}`
+            : c.code === 'shared_wait' ? 'Waiting for the other charger'
+              : c.want === 'charge' ? 'Starting' : 'Waiting for the plan';
+        const first = rank.length > 1 && rank[0] === c.id ? '<span class="chip">goes first</span>' : '';
+        return `<button type="button" class="charger-row${c.id === chargerSel ? ' active' : ''}" data-bar="${esc(c.id)}">
+          ${shape('charger', c.charging ? 'green' : c.code === 'shared_wait' ? 'orange' : 'blue', true)}
+          <span class="charger-row-main"><strong>${esc(c.name)}</strong> ${first}
+            <span class="muted small">${c.vehicle ? `${esc(c.vehicle.name)}${c.vehicle.soc != null ? ` · ${esc(c.vehicle.soc)}%` : ''}` : 'No car'}${c.ask ? ' · which car?' : ''}${c.departure ? ` → ${esc(c.departure.soc)}% ${esc(dayHm(c.departure.time))}` : ''}</span></span>
+          <span class="charger-row-state small">${esc(status)}${c.ready_guard ? `<br><span class="muted">${esc(c.ready_guard.label)}</span>` : ''}</span>
+        </button>`;
+      };
+      const how = !sh ? '' : sh.how === 'load_balancer' ? 'Your load balancer shares the connection.'
+        : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A).`
+          : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
+      return `<div class="card chargers-card">
+        <div class="ready-kicker">CHARGERS</div>
+        ${o.chargers.map(row).join('')}
+        <p class="muted small">${how} When there is not enough for all, the car with the least room to spare goes first; the rest is shared.</p>
+      </div>`;
+    }
+
     async function loadOverview(force = false) {
       try {
         const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
         lastPlan = d;
-        $('overview-body').innerHTML = overviewHtml(d);
+        const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
+        $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
+        $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
         drawChart(d);
@@ -2945,6 +3078,7 @@ function durationText(minutes) {
         </header>`);
     }
 
+    let currentShow = 'overview';
     function showTab(name) {
       if (name === 'control') name = 'ctlset';
       let main = name;
@@ -2958,6 +3092,7 @@ function durationText(minutes) {
       $('history-nav').hidden = main !== 'history';
       document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
       const show = sub || main;
+      currentShow = show;
       ensurePageHeading(show);
       document.querySelectorAll('main > section').forEach((s) => { s.hidden = s.id !== 'tab-' + show; });
       if (show === 'status') loadNotifyStatus();
@@ -2995,7 +3130,7 @@ function durationText(minutes) {
     $('charger-extra').appendChild($('method-card'));
     loadStatus();
     loadPrices();
-    checkWizard().then((active) => { if (!active) loadOverview(); });
+    loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);
       if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview();
