@@ -177,6 +177,12 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 - The plans are made per charger and shared at the moment of charging; they do not yet take each other into account.
 - Notifications name the charger. The first charger keeps `sensor.smart_charging_*`; another gets `sensor.smart_charging_<charger>_*`.
 
+## Calendars
+
+Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "doel: 80" (or "target: 80") in the event's notes or title; "precondition: ja" and, with more cars, "auto: renault" work the same way.
+
+**Add trip** (Plan) needs a calendar Home Assistant can add events to. Apple iCloud calendars are read only in Home Assistant: the calendar is marked "read only" in the list, and Add trip says so. Add those trips in the calendar app itself (for example on your iPhone); the app reads them as usual.
+
 ## Looking ahead: the next stop, next goal and what a trip costs
 
 Always on. Home shows a card with:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.2-dev
+
+- **Apple iCloud calendars** (Home Assistant 2026.10+: each iCloud calendar is a calendar entity) work for departures like any other calendar: "doel: 80", "precondition: ja" and "auto: …" are read from the event
+- iCloud calendars are read only in Home Assistant: the calendar list marks read-only calendars, and Add trip says so (and refuses with a clear reason) instead of failing; add those trips in the calendar app itself. The app checks the calendar's "create event" feature, so this works for every read-only calendar
+- Docs: which calendars work
+- Tests: settings test Z1 (departure from a read-only iCloud calendar, adding refused)
+
 ## 0.29.1-dev
 
 - Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Spijkenisse therefore moves in front of a later 100% trip automatically

@@ -1475,6 +1475,22 @@ async function run() {
     });
   }
 
+  // ----- Z. Apple iCloud calendar (read only, Home Assistant 2026.10+) ------
+  group = 'Z. Apple iCloud calendar (read only)';
+  await test('Z1', 'An iCloud calendar is read: "doel: 90" becomes the departure; it is marked read only and adding trips to it is refused with a clear reason', async () => {
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.icloud_peter', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    world.events = [{ summary: 'Naar Gent', description: 'doel: 90', start: isoLocal(at(1, 9), tz), end: isoLocal(at(1, 10), tz) }];
+    const p = await plan();
+    assert(p.departure && p.departure.source === 'calendar' && p.departure.soc === 90 && p.departure.time === at(1, 9), JSON.stringify(p.departure));
+    const d = await ok('GET', 'api/departures');
+    const opt = (id) => d.options.calendar.find((c) => c.entity_id === id);
+    assert(d.calendar_writable === false && opt('calendar.icloud_peter').writable === false && opt('calendar.auto').writable === true, JSON.stringify(d.options.calendar));
+    await refused('POST', 'api/trips', { datetime: isoLocal(at(2, 8), tz).slice(0, 16), destination: 'Gent', soc: 80, precondition: false }, 'read only');
+    world.events = [];
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+    return `departure from iCloud: ${p.departure.soc}% · adding refused`;
+  });
+
   // ----- X. More than one charger (an option) -------------------------------
   // Two Easee chargers: "Laadpaal" (the first) and "Garage"; two cars.
   if (world.profile === fake.PROFILES.renault_easee) {

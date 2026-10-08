@@ -218,7 +218,9 @@ function entityList(w) {
     ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
-    ['calendar.auto', 'off', { friendly_name: 'Auto' }, null],
+    ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
+    // An Apple iCloud calendar (Home Assistant 2026.10+): read only.
+    ['calendar.icloud_peter', 'off', { friendly_name: 'iCloud Peter', supported_features: 0 }, null],
     // Inverter (Fronius): solar power now.
     ['sensor.solarnet_power_photovoltaics', String(w.pvW ?? 0), { friendly_name: 'SolarNet Power photovoltaics', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
     ['sensor.solarnet_power_grid', String(gridW(w)), { friendly_name: 'SolarNet Power grid', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
@@ -321,7 +323,8 @@ function start(w, wsPort, restPort) {
         case 'call_service': {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
           if (m.domain === 'calendar' && m.service === 'get_events') {
-            return ok({ context: {}, response: { 'calendar.auto': { events: w.events } } });
+            const cal = (m.target && [].concat(m.target.entity_id)[0]) || 'calendar.auto';
+            return ok({ context: {}, response: { [cal]: { events: w.events } } });
           }
           // Like Home Assistant: an action with a device_id field (Easee)
           // validates it as text; a target device arrives as a list.
