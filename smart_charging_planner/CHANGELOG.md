@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.28.1
+
+- **Battery care** (Settings › Rules, on by default): for a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest and the rest only in the last 4 hours before departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be set; when the rest needs more time, it starts earlier
+- The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and solar charging (its own "up to" level) still go higher right away
+- Home › Plan details explains it ("Battery care: up to 80 % when it is cheapest; the last part to 100 % from Sun 02:00")
+- Tests: settings test J13 (up to 80 % in the cheap night, the rest from 19:00, car limit 80 %; off: everything in the night)
+- Documentation: the README has an overview of every feature and option (where to find it and its default); DOCS.md (the Documentation tab) explains Ready Guard, Battery care, more cars and more chargers, and uses the new page names (Plan, Activity)
+
+## 0.28.0
+
+- **More than one charger** (an option, off by default): Settings › Charger › "I have more than one charger". With it off, nothing changes
+- With it on: add up to 4 chargers. Every charger has its own plan, Charge now, Ready for, charging mode, control, start/stop and current method, and log. A bar at the top chooses the charger that Home, Plan, Rules and Activity show
+- Every charger can have a usual car. The app finds the car on each charger from the cars' plug sensors; a car that another charger already has is not a candidate, so the cars can also be the other way round. With nothing plugged in, a charger plans for its usual car
+- **Sharing the connection**: when the main fuse is too small for all chargers, the car with the least room to spare goes first: the earliest "latest safe start" (Ready Guard: what it still needs and when it leaves). So a car that leaves later for a long trip can go before a car that leaves early but needs little. Charge now goes before everything, then a car below its minimum or preconditioning, then a car Ready Guard protects
+- What is left is shared fairly by the other chargers (at least 6 A each, where the current can be set); a charger that can only start and stop charges with its full current or waits. Free current = main fuse − what the house uses now (grid meter minus the chargers) − 1 A. With a load balancer (Settings › Grid) the load balancer shares and the app does not limit
+- Solar: only the car that goes first charges on the sun. The home battery and the Easee Equalizer are steered by the first charger
+- Home shows all chargers at a glance: which car, its target, whether it charges, waits or goes first, and how much current is free
+- Notifications name the charger; the first charger keeps sensor.smart_charging_*, another charger gets sensor.smart_charging_<charger>_*
+- The checklist says how the connection is shared (or that the grid meter and main fuse are needed)
+- Export/import and diagnostics include the chargers, the option and the last sharing
+- Internal: everything the app keeps per charger lives in a scope per charger (scope.js); the first charger keeps its old files
+- Tests: settings test group X (option off, adding a charger, a plan per charger, sharing 16 A + 6 A, waiting when the house uses more, cars the other way round, sensors per charger, turning it off) and tests/sharing.test.js
+
+## 0.27.1
+
+- **One calendar for more cars**: "auto: renault" or "car: EV6" in a calendar event says which car the trip is for (Dutch and English both work, also "vehicle:" and "voertuig:"). A trip without it is for every car. The car is found by its new "Name in the calendar" (Settings › Vehicle), its name, or its brand when only one car has that brand; a car that is not recognised counts for every car and is marked on Plan
+- Adding trips (Plan) has a "For" choice with more cars: the trip gets "auto: …" in the event, or nothing for every car
+- "voorverwarmen: ja" / "voorconditioneren: ja" are read like "precondition: ja"
+- Tests: settings test group W7b (one calendar, two cars) and calendar checks in tests/activecar.test.js
+
+## 0.27.0
+
+- **More than one car on one charger** (an option, off by default): Settings › Vehicle › "I have more than one car". With it off, nothing changes
+- With it on: add up to 6 cars (with or without a car integration) and switch between them in Settings › Vehicle
+- The app recognises which car is connected by each car's "Plugged in" sensor. A car without one is recognised when no other car says it is plugged in. When both say they are plugged in (for example one at a public charger), the car that is charging decides; otherwise Home asks which car it is, with one notification
+- Home shows the connected car and lets you choose it yourself; your choice holds until the charger is unplugged. With nothing plugged in, the plan is for the last car that was connected
+- The plan, Ready Guard, the car's charge limit, "car not reachable" and the checklist follow the connected car. The car's charge limit is never changed while the app is not sure which car is connected
+- Departures are shared by all cars, unless a car has its own (Plan › choose the car › "has its own departures"): schedule, calendar, helper and one-off departure per car
+- With more than one car, "plugged in" for the charger comes from the charger status, because a car's own plug sensor also says "plugged in" at a public charger
+- The status sensor (sensor.smart_charging_status) has the connected car as attribute; diagnostics and export/import include the cars and the option
+- Tests: settings test group W (option off, adding a car, recognising the car, asking, your choice, a car without a plug sensor, own departures, turning it off) and tests/activecar.test.js
+
+## 0.26.2
+
+- Plan, Activity and every Settings subpage now share the same Mushroom-style page headers, cards, spacing, controls and responsive layout as Home
+- Settings Overview is a clear tile dashboard with status badges and direct links to Vehicle, Charger, Grid, Prices, Solar, Battery, Rules, Notifications and Diagnostics
+- Plan uses a compact two-column desktop layout with a prominent next-departure card, clearer forms and mobile-friendly stacking
+- Activity gives savings, charging decisions and log tables a stronger visual hierarchy without hiding technical detail
+- Forms use consistent inset field tiles, switches, sliders and sticky save actions; status rows and tables use the same card language throughout
+- Each functional area has a calm accent colour, including solar, battery, grid, prices and charging rules
+
+## 0.26.1
+
+- **Home rebuilt around one Ready Guard card**: the duplicate status card is gone; technical plan information is available in a compact expandable section
+- Desktop uses a focused two-column layout with the price plan on the left and Mushroom-style quick choices on the right; mobile collapses to one column
+- Quick choices use clear action tiles, pill controls and a live minimum slider instead of long form-like rows
+- Ready Guard only shows relevant facts: an already reached target no longer says "Continuous charging"; the battery bar shows both the current level and target marker
+- The chart reserves separate label lanes for now, latest safe start and ready by, so close markers no longer overlap
+- Settings use the same card, switch and slider language throughout; battery, solar and control sliders keep their own calm accent colours
+- Long durations are readable ("3 d 14 h"), incomplete future prices are described honestly, and an unavailable optional forecast no longer marks an otherwise complete plan at risk
+- Tests include the Ready Guard price-forecast regression
+
+## 0.26.0
+
+- **Ready Guard / plan reliability**: every departure now gets an honest status (on track, at risk, action needed or not achievable), based on conservative charging power, connection, battery-data freshness and price coverage
+- Ready Guard calculates a latest safe start with at least 30 minutes of margin; once that point is reached it temporarily overrides cheap-hour and solar-only waiting and charges continuously at full power
+- Home has a clear Mushroom-style Ready Guard card with target progress, safety facts and the reasons behind the status; the price chart marks the latest safe start
+- The full app uses a calmer Mushroom-inspired palette, softer cards and clearer navigation; bounded battery, target, timing and solar settings use touch-friendly sliders with live values
+- A Home Assistant sensor exposes Ready Guard state, timing, margin and shortfall for dashboards and automations
+- Tests cover Ready Guard decisions, advice-only mode and impossible targets
+
+
 ## 0.25.5
 
 - Reliability: a charger command that Home Assistant rejects or cannot deliver is retried at the next control step instead of being suppressed for 15 minutes

@@ -12,10 +12,11 @@
     <div id="wizard" class="card" hidden></div>
     <nav class="tabs" id="main-nav">
       <button class="tab active" data-tab="overview">Home</button>
-      <button class="tab" data-tab="departures">Planning</button>
-      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="departures">Plan</button>
+      <button class="tab" data-tab="history">Activity</button>
       <button class="tab" data-tab="settings">⚙ Settings</button>
     </nav>
+    <nav class="charger-bar" id="charger-bar" hidden></nav>
     <nav class="subtabs" id="history-nav" hidden>
       <button class="subtab" data-sub="savings">Savings</button>
       <button class="subtab" data-sub="log">Log</button>
@@ -50,6 +51,7 @@
           <div class="field"><label>Target battery level (%)</label><input type="number" name="soc" min="10" max="100" step="1" value="80"></div>
           <div class="field"><label>Precondition</label><label class="check"><input type="checkbox" name="precondition"> Heat or cool the car before leaving</label></div>
         </div>
+        <div class="field" id="trip-car-field" hidden><label>For</label><select name="trip_car"></select></div>
         <div class="field"><label>Repeat on (optional)</label>
           <div class="days"></div></div>
         <div class="field" id="trip-weeks-field" hidden><label>Weeks ahead</label><input type="number" name="weeks" min="1" max="12" step="1" value="4"></div>
@@ -94,7 +96,7 @@
             <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
             <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
           </div>
-          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" is read and shown, but not used yet.</p>
+          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" (or "voorverwarmen: ja") is read and shown, but not used yet. With more than one car, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car.</p>
           <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
           <div class="error form-error" hidden></div>
         </div>
@@ -113,7 +115,7 @@
           <p class="muted small">Found by the control check above; for example choose the method your own automation used.</p>
           <div class="field"><label>Start / stop charging</label><select name="start_stop_id" form="control-form"></select></div>
           <div class="field"><label>Charging current</label><select name="current_id" form="control-form"></select>
-            <p class="muted small">Only used for charging on solar surplus (Settings › Solar); otherwise the app only starts and pauses the charger and your load balancer keeps setting the current.</p></div>
+            <p class="muted small">Only used for charging on solar surplus (Settings › Solar), and with more than one charger to share the connection; otherwise the app only starts and pauses the charger and your load balancer keeps setting the current.</p></div>
           <div class="buttons"><button class="primary" type="submit" form="control-form">Save</button></div>
         </div>
 
@@ -142,6 +144,19 @@
           </div>
           <div class="field"><label>Keep charging while the car preconditions (heats or cools)</label><select name="preheat_entity"></select>
             <p class="muted small">While this entity is "on", the charger stays on, so heating or cooling the car uses grid power instead of the battery. For example the car's HVAC status, or your own helper. Only entities of your car and entities about preconditioning, HVAC or airco are listed.</p></div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="ready_guard_enabled"> <strong>Use Ready Guard for every departure</strong></label>
+          <div class="sub" data-when="ready_guard_enabled">
+            <div class="field"><label>Minimum safety margin before departure</label><input name="ready_guard_margin_minutes" type="number" min="30" max="120" step="5"></div>
+            <p class="muted small">Ready Guard also adds 15% of the required charging time when that is more. At the latest safe start it temporarily ignores price and solar-only waiting.</p>
+          </div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="battery_care_enabled"> <strong>Battery care: charge above a level only just before departure</strong></label>
+          <div class="sub" data-when="battery_care_enabled">
+            <div class="two">
+              <div class="field"><label>Charge up to this level any time</label><input name="battery_care_soc" type="number" min="50" max="95" step="5"></div>
+              <div class="field"><label>The rest in the last hours before departure</label><input name="battery_care_hours" type="number" min="1" max="24" step="1"></div>
+            </div>
+            <p class="muted small">For a target above this level (for example 100% for a long trip), the app charges up to the level whenever it is cheapest, and the rest only in the last hours before departure, so the battery does not stand full for days. The car's own charge limit follows. When the rest needs more time than these hours, it starts earlier.</p>
+          </div>
           <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>
 

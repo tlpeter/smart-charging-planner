@@ -393,7 +393,8 @@ async function run() {
 
   // ----- G. Rules (Allow control off) --------------------------------------
   group = 'G. Rules';
-  const rules = (o = {}) => ({ start_stop_id: '', current_id: 'none', min_soc_enabled: false, min_soc: 20, min_soc_entity: '', min_soc_max_price: '', preheat_entity: '', force_minutes: 0, hysteresis: 0.03, car_limit_off: false, min_choice: 30, ...o });
+  // Battery care off here (it changes when the car limit goes up); group J tests it on its own.
+  const rules = (o = {}) => ({ start_stop_id: '', current_id: 'none', min_soc_enabled: false, min_soc: 20, min_soc_entity: '', min_soc_max_price: '', preheat_entity: '', force_minutes: 0, hysteresis: 0.03, car_limit_off: false, min_choice: 30, battery_care_enabled: false, ...o });
   const decision = async () => { await plan(); return (await ok('GET', 'api/control')).now; };
   await test('G1', 'Refused: default minimum 50 %, force window 700 min, hysteresis 2', async () => {
     await refused('POST', 'api/control/settings', rules({ min_choice: 50 }), 'between 20 and 45');
@@ -428,7 +429,7 @@ async function run() {
     await ok('POST', 'api/control/settings', rules({ force_minutes: 180 }));
     const n = await decision();
     await ok('DELETE', 'api/departures/override');
-    assert(n.want === 'charge' && ['force_window', 'planned', 'locked_block'].includes(n.code), `${n.want}/${n.code}`);
+    assert(n.want === 'charge' && ['ready_guard', 'force_window', 'planned', 'locked_block'].includes(n.code), `${n.want}/${n.code}`);
     return n.code;
   });
   await test('G6', 'Not in a planned block and not charging → pause', async () => {
@@ -649,6 +650,29 @@ async function run() {
     assert(n2.code === 'at_target' && n2.want === 'pause', `at 85 %: ${n2.want}/${n2.code}`);
     await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     return `limit ${world.limit} %, at 85 %: ${n2.code}`;
+  });
+  await test('J13', 'Battery care (on by default): target 100 % tomorrow 23:00 — up to 80 % in the cheap night, the last part only in the 4 hours before departure; the car limit stays at 80 % until then', async () => {
+    await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4 }));
+    world.soc = 50;
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 100 } }) }));
+    await sleep(2100);
+    const p = await plan();
+    await sleep(800);
+    const c = p.plan.care;
+    assert(c && c.soc === 80 && c.target === 100 && p.plan.notes.includes('battery_care'), JSON.stringify(c));
+    assert(c.window_start === at(1, 19), `window ${new Date(c.window_start).toISOString()}`);
+    const before = p.plan.blocks.filter((b) => b.start < c.window_start).reduce((a, b) => a + b.kwh, 0);
+    const inWindow = p.plan.blocks.filter((b) => b.start >= c.window_start).reduce((a, b) => a + b.kwh, 0);
+    assert(Math.abs(before - c.care_kwh) < 0.1 && Math.abs(inWindow - (p.plan.needed_kwh - c.care_kwh)) < 0.1, `before ${before}, in window ${inWindow}, care ${c.care_kwh}, needed ${p.plan.needed_kwh}`);
+    assert(world.limit === lim(80), `limit ${world.limit}`);
+    // Off: everything in the cheap night again, and the limit goes up to 100 %.
+    await ok('POST', 'api/control/settings', rules({ battery_care_enabled: false }));
+    const q = await plan();
+    await sleep(800);
+    assert(!q.plan.care && q.plan.blocks.every((b) => b.start < at(1, 19)) && world.limit === lim(100), `blocks ${q.plan.blocks.map((b) => new Date(b.start).toISOString().slice(11, 16))}, limit ${world.limit}`);
+    world.soc = 20;
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    return `up to 80 %: ${before.toFixed(1)} kWh in the night · last ${inWindow.toFixed(1)} kWh from 19:00 · car limit 80 %`;
   });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
@@ -1218,6 +1242,272 @@ async function run() {
     assert(after.plan.needed_kwh > beforeNeed, `stale plan: ${beforeNeed} -> ${after.plan.needed_kwh}`);
     return `${beforeNeed.toFixed(1)} -> ${after.plan.needed_kwh.toFixed(1)} kWh`;
   });
+
+  // ----- W. More than one car on one charger (an option) --------------------
+  group = 'W. More than one car on one charger';
+  const EV6 = { name: 'EV6', device_id: 'car2', integration: 'kia_uvo', soc_entity: 'sensor.ev6_battery_level', plugged_entity: 'binary_sensor.ev6_plugged_in', charging_entity: 'binary_sensor.ev6_charging', capacity_kwh: 77 };
+  const carsNow = async () => (await ok('GET', 'api/vehicles')).vehicles;
+  world.soc = 40;
+  world.charging = false;
+  world.plugged = true;
+  world.car2 = { soc: 30, plug: false, charging: false };
+  await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+  await test('W1', 'Off by default: one car as before; adding a second car or choosing a car is refused', async () => {
+    const v = await ok('GET', 'api/vehicles');
+    assert(v.multi_car === false && v.vehicles.length === 1 && v.vehicles[0].id, JSON.stringify(v));
+    await refused('POST', 'api/vehicles', { ...EV6, add: true }, 'more than one car');
+    await refused('POST', 'api/vehicles/connected', { vehicle_id: v.vehicles[0].id }, 'more than one car');
+    const p = await plan();
+    assert(p.cars === null && p.vehicle.name === CAR.name, JSON.stringify(p.cars));
+    return `one car: ${p.vehicle.name} (${v.vehicles[0].id})`;
+  });
+  let firstId;
+  let ev6Id;
+  await test('W2', 'Turned on: a second car is added next to the first; the first keeps its id and settings', async () => {
+    firstId = (await carsNow())[0].id;
+    await ok('POST', 'api/vehicles/multi', { enabled: true });
+    const r = await ok('POST', 'api/vehicles', { ...EV6, add: true });
+    ev6Id = r.vehicle.id;
+    const list = await carsNow();
+    assert(list.length === 2 && list[0].id === firstId && list[0].name === CAR.name && list[1].id === ev6Id && ev6Id !== firstId, JSON.stringify(list.map((x) => [x.id, x.name])));
+    assert(list[0].soc_entity === CAR.soc && list[0].charge_limit_entity === CAR.limit, 'first car changed');
+    const exp = await ok('GET', 'api/settings/export');
+    assert(exp.settings.multi_car === true && exp.settings.vehicles.length === 2, 'export without the second car');
+    return list.map((x) => `${x.name} (${x.id})`).join(', ');
+  });
+  await test('W3', 'Only the EV6 says it is plugged in: the plan is for the EV6 (its level, its capacity)', async () => {
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const p = await plan();
+    assert(p.vehicle.id === ev6Id && p.vehicle.soc === 30 && p.cars.how === 'sensor' && !p.cars.ask, JSON.stringify({ v: p.vehicle.name, soc: p.vehicle.soc, cars: p.cars }));
+    // 30 -> 80 % of 77 kWh, with 10 % loss margin.
+    assert(Math.abs(p.plan.needed_kwh - 77 * 0.5 * 1.1) < 0.6, `needed ${p.plan.needed_kwh}`);
+    return `${p.vehicle.name} at ${p.vehicle.soc}% · needs ${p.plan.needed_kwh.toFixed(1)} kWh`;
+  });
+  await test('W4', `Only ${CAR.name} says it is plugged in: the plan is for ${CAR.name}`, async () => {
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    const p = await plan();
+    assert(p.vehicle.id === firstId && p.vehicle.soc === 40 && p.cars.how === 'sensor', JSON.stringify(p.cars));
+    return `${p.vehicle.name} at ${p.vehicle.soc}%`;
+  });
+  await test('W5', 'Both say plugged in (one at a public charger): the app asks once, does not change a car limit; your choice wins until the charger is unplugged', async () => {
+    const n0 = world.calls.length;
+    world.limit = 60;
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const p = await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    assert(p.cars.ask === true && p.cars.how === 'guess', JSON.stringify(p.cars));
+    const asked = callsSince(n0).filter((c) => c.domain === 'notify' && c.data.title === 'Which car is connected?');
+    assert(asked.length === 1, `notifications ${asked.length}`);
+    assert(!callsSince(n0).some((c) => c.domain === 'number' && c.target && c.target.entity_id === CAR.limit), 'car limit sent while the app is not sure which car is connected');
+    await ok('POST', 'api/vehicles/connected', { vehicle_id: ev6Id });
+    const c = await plan();
+    assert(c.vehicle.id === ev6Id && c.cars.how === 'chosen' && c.cars.chosen && !c.cars.ask, JSON.stringify(c.cars));
+    world.plugged = false; // the charger is unplugged: the choice is used up
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    const u = await plan();
+    assert(!u.cars.chosen && u.cars.how === 'last' && u.vehicle.id === ev6Id, JSON.stringify(u.cars));
+    world.plugged = true;
+    world.limit = 80;
+    return `asked once; chosen: ${c.vehicle.name}; unplugged: ${u.cars.how} = ${u.vehicle.name}`;
+  });
+  await test('W6', 'A car without a plug sensor is the one when no other car says it is plugged in', async () => {
+    await ok('POST', 'api/vehicles', { ...EV6, id: ev6Id, plugged_entity: '' });
+    world.car1Plug = false;
+    world.car2 = { soc: 35, plug: false, charging: false, noPlugSensor: true };
+    const p = await plan();
+    assert(p.vehicle.id === ev6Id && p.cars.how === 'no_other' && p.vehicle.soc === 35, JSON.stringify(p.cars));
+    const c = await ok('GET', 'api/checklist');
+    assert(c.items.some((i) => i.key === 'car_recognition' && i.state === 'ok'), JSON.stringify(c.items.map((i) => i.key)));
+    await ok('POST', 'api/vehicles', { ...EV6, id: ev6Id });
+    world.car2 = { soc: 30, plug: true, charging: false };
+    return `${p.vehicle.name} (${p.cars.how})`;
+  });
+  await test('W7', 'Own departures for the EV6 (60 %); the other car keeps the shared ones (80 %)', async () => {
+    await ok('POST', 'api/departures/own', { vehicle_id: ev6Id, own: true });
+    const d = await ok('GET', `api/departures?vehicle=${ev6Id}`);
+    assert(d.own_departures === true && d.cars.length === 2, JSON.stringify({ own: d.own_departures }));
+    await ok('POST', 'api/departures', depBody({ vehicle_id: ev6Id, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '06:00', soc: 60 } }) }));
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const p = await plan();
+    assert(p.vehicle.id === ev6Id && p.departure && p.departure.soc === 60, JSON.stringify(p.departure));
+    const shared = await ok('GET', `api/departures?vehicle=${firstId}`);
+    assert(shared.own_departures === false && shared.next && shared.next.soc === 80, JSON.stringify(shared.next));
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    const q = await plan();
+    assert(q.vehicle.id === firstId && q.departure.soc === 80, JSON.stringify(q.departure));
+    return `EV6 → ${p.departure.soc}% · ${CAR.name} → ${q.departure.soc}%`;
+  });
+  await test('W7b', 'One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car', async () => {
+    await ok('POST', 'api/departures/own', { vehicle_id: ev6Id, own: false });
+    await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    world.events = [
+      { summary: 'Naar werk', description: `doel: 90 precondition: ja auto: ${CAR.name}`, start: isoLocal(at(1, 7, 0), tz), end: isoLocal(at(1, 8, 0), tz) },
+      { summary: 'To Ghent', description: 'target: 70\ncar: kia', start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
+      { summary: 'Weekend', description: 'doel: 85', start: isoLocal(at(2, 9, 0), tz), end: isoLocal(at(2, 10, 0), tz) },
+      { summary: 'Tesla trip', description: 'doel: 60, car: tesla', start: isoLocal(at(3, 9, 0), tz), end: isoLocal(at(3, 10, 0), tz) },
+    ];
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const e = await plan();
+    assert(e.vehicle.id === ev6Id && e.departure.time === at(1, 6, 0) && e.departure.soc === 70, `EV6: ${JSON.stringify(e.departure)}`);
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    const r = await plan();
+    assert(r.vehicle.id === firstId && r.departure.time === at(1, 7, 0) && r.departure.soc === 90, `${CAR.name}: ${JSON.stringify(r.departure)}`);
+    const d = await ok('GET', `api/departures?vehicle=${firstId}`);
+    const titles = d.calendar_trips.map((t) => t.title);
+    assert(titles.includes('Naar werk') && titles.includes('Weekend') && !titles.includes('To Ghent') && titles.includes('Tesla trip'), titles.join(', '));
+    const tesla = d.calendar_trips.find((t) => t.title === 'Tesla trip');
+    assert(tesla.car_unknown === true && tesla.car === 'tesla', JSON.stringify(tesla));
+    const pv = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: true });
+    assert(pv.events[0].description === 'doel: 75 precondition: ja auto: EV6', pv.events[0].description);
+    const all = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, for_all_cars: true, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: false });
+    assert(all.events[0].description === 'doel: 75 precondition: nee', all.events[0].description);
+    world.events = [];
+    await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+    return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+  });
+  await test('W8', 'Turned off: the first car only, as before; the EV6 stays saved; removing it works', async () => {
+    await ok('POST', 'api/vehicles/multi', { enabled: false });
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    const p = await plan();
+    assert(p.cars === null && p.vehicle.id === firstId, JSON.stringify(p.cars));
+    // Shared departures again for everything.
+    assert(p.departure && p.departure.soc === 80, JSON.stringify(p.departure));
+    const list = await carsNow();
+    assert(list.length === 2 && list[1].used === false, JSON.stringify(list.map((x) => [x.name, x.used])));
+    await ok('DELETE', `api/vehicles?id=${ev6Id}`);
+    const after = await carsNow();
+    assert(after.length === 1 && after[0].id === firstId, JSON.stringify(after.map((x) => x.name)));
+    world.car1Plug = undefined;
+    world.car2 = null;
+    return 'back to one car';
+  });
+
+  // ----- X. More than one charger (an option) -------------------------------
+  // Two Easee chargers: "Laadpaal" (the first) and "Garage"; two cars.
+  if (world.profile === fake.PROFILES.renault_easee) {
+    group = 'X. More than one charger';
+    const GARAGE = { name: 'Garage', device_id: 'ch2', integration: 'easee', status_entity: 'sensor.garage_status', power_entity: 'sensor.garage_power', switch_entity: 'switch.garage_charger_enabled', phases: 3, max_current: 16 };
+    const planOf = (id) => ok('GET', `api/plan?refresh=1&charger=${id}`);
+    const overview = () => ok('GET', 'api/chargers/overview');
+    world.plugged = true;
+    world.charging = false;
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    world.ch2 = { plugged: true, charging: false, amps: 16 };
+    world.houseW = 850;
+    await ok('POST', 'api/vehicles/multi', { enabled: true });
+    const ev6 = (await ok('POST', 'api/vehicles', { ...EV6, add: true })).vehicle.id;
+    const car1 = (await carsNow())[0].id;
+    let ch1;
+    let ch2;
+    await test('X1', 'Off by default: one charger as before; adding a second charger is refused', async () => {
+      const c = await ok('GET', 'api/chargers');
+      assert(c.multi_charger === false && c.chargers.length === 1 && c.chargers[0].id, JSON.stringify(c.chargers.map((x) => x.id)));
+      ch1 = c.chargers[0].id;
+      await refused('POST', 'api/chargers', { ...GARAGE, add: true }, 'more than one charger');
+      const o = await overview();
+      assert(o.multi_charger === false && o.chargers.length === 1, JSON.stringify(o));
+      return `one charger: ${c.chargers[0].name} (${ch1})`;
+    });
+    await test('X2', 'Turned on: the Garage charger is added with its usual car (EV6); the first charger keeps its settings', async () => {
+      await ok('POST', 'api/chargers/multi', { enabled: true });
+      ch2 = (await ok('POST', 'api/chargers', { ...GARAGE, add: true, vehicle_id: ev6 })).charger.id;
+      const first = (await ok('GET', 'api/chargers')).chargers[0];
+      await ok('POST', 'api/chargers', { id: ch1, name: first.name, device_id: first.device_id, integration: first.integration, status_entity: first.status_entity, power_entity: first.power_entity, switch_entity: first.switch_entity, phases: first.phases, max_current: first.max_current, vehicle_id: car1 });
+      const list = (await ok('GET', 'api/chargers')).chargers;
+      assert(list.length === 2 && list[0].id === ch1 && list[1].id === ch2 && list[0].vehicle_id === car1 && list[1].vehicle_id === ev6, JSON.stringify(list.map((x) => [x.id, x.vehicle_id])));
+      await ok('POST', `api/control/settings?charger=${ch2}`, rules({ current_id: '' }));
+      await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '' }));
+      return list.map((x) => `${x.name} (${x.id}) → ${x.vehicle_id}`).join(', ');
+    });
+    await test('X3', 'Each charger has its own plan: Laadpaal for the first car, Garage for the EV6 (both plugged in)', async () => {
+      const a = await planOf(ch1);
+      const b = await planOf(ch2);
+      assert(a.vehicle.id === car1 && b.vehicle.id === ev6, `${a.vehicle.name} / ${b.vehicle.name}`);
+      assert(Math.abs(b.plan.needed_kwh - 77 * 0.5 * 1.1) < 0.6 && b.plan.needed_kwh > a.plan.needed_kwh, `${a.plan.needed_kwh} / ${b.plan.needed_kwh}`);
+      const o = await overview();
+      assert(o.chargers.length === 2 && o.chargers[1].vehicle.name === 'EV6', JSON.stringify(o.chargers.map((x) => x.vehicle)));
+      return `${a.vehicle.name}: ${a.plan.needed_kwh.toFixed(1)} kWh · EV6: ${b.plan.needed_kwh.toFixed(1)} kWh`;
+    });
+    await test('X4', 'Both must charge now (below the minimum), main fuse 25 A: the EV6 (least room to spare) gets 16 A, the other the rest (6 A)', async () => {
+      await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' });
+      await ok('POST', 'api/departures', depBody({ vehicle_id: car1, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+      await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
+      const n0 = world.calls.length;
+      await planOf(ch1);
+      await planOf(ch2);
+      await sleep(400);
+      const o = await overview();
+      const [a, b] = o.chargers;
+      assert(o.share && o.share.order[0] === ch2, `order ${JSON.stringify(o.share)}`);
+      assert(b.want === 'charge' && !b.shared && a.want === 'charge' && a.shared && a.amps === 6, JSON.stringify(o.chargers.map((x) => [x.name, x.want, x.code, x.amps, x.shared])));
+      const calls = callsSince(n0);
+      assert(world.ch2.charging === true && world.charging === true, `garage ${world.ch2.charging}, laadpaal ${world.charging}`);
+      assert(calls.some((c) => c.domain === 'easee' && c.service === 'set_charger_dynamic_limit' && c.data.device_id === 'ch' && c.data.current === 6), calls.map((c) => `${c.domain}.${c.service} ${JSON.stringify(c.data)}`).join(' | '));
+      return `available ${o.share.available_a} A: Garage (EV6) ${b.amps || 16} A, Laadpaal ${a.amps} A`;
+    });
+    await test('X5', 'The house uses more (4.6 kW): too little left for the second car: it waits, the EV6 keeps charging', async () => {
+      world.houseW = 4600;
+      await planOf(ch1);
+      await planOf(ch2);
+      await sleep(400);
+      const o = await overview();
+      const [a, b] = o.chargers;
+      assert(b.want === 'charge' && a.want === 'pause' && a.code === 'shared_wait', JSON.stringify(o.chargers.map((x) => [x.name, x.want, x.code, x.reason])));
+      assert(world.ch2.charging === true && world.charging === false, `garage ${world.ch2.charging}, laadpaal ${world.charging}`);
+      world.houseW = 850;
+      return `Laadpaal: ${a.reason}`;
+    });
+    await test('X6', 'Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car', async () => {
+      world.car1Plug = false;
+      world.ch2 = { plugged: false, charging: false, amps: 16 };
+      const a = await planOf(ch1);
+      const b = await planOf(ch2);
+      assert(a.vehicle.id === ev6 && a.cars.how === 'sensor', JSON.stringify(a.cars));
+      assert(b.vehicle.id === car1, `Garage plans for ${b.vehicle.name} (${b.cars && b.cars.how})`);
+      world.car1Plug = true;
+      world.ch2 = { plugged: true, charging: false, amps: 16 };
+      return `Laadpaal → ${a.vehicle.name} · Garage → ${b.vehicle.name}`;
+    });
+    await test('X7', 'Sensors and messages say which charger: sensor.smart_charging_garage_status; the first charger keeps its names', async () => {
+      await stopApp();
+      await startApp({ allow_control: true, notify_start_stop: false, publish_sensors: true });
+      await planOf(ch1);
+      await planOf(ch2);
+      await sleep(400);
+      const urls = world.rest.map((r) => r.url);
+      assert(urls.some((u) => u.includes('sensor.smart_charging_garage_status')) && urls.some((u) => u.includes('sensor.smart_charging_status')), urls.filter((u) => u.includes('smart_charging')).slice(0, 6).join(' '));
+      await stopApp();
+      await startApp({ allow_control: true, notify_start_stop: false });
+    });
+    await test('X8', 'Turned off: the first charger only, as before; the Garage stays saved', async () => {
+      await ok('POST', `api/control/settings?charger=${ch1}`, rules());
+      await ok('POST', 'api/chargers/multi', { enabled: false });
+      const p = await plan();
+      assert(p.vehicle && (await overview()).chargers.length === 1, 'still more chargers');
+      await refused('GET', `api/plan?charger=${ch2}`, undefined, 'not in the app');
+      const list = (await ok('GET', 'api/chargers')).chargers;
+      assert(list.length === 2 && list[1].used === false, JSON.stringify(list.map((x) => x.used)));
+      await ok('DELETE', `api/chargers?id=${ch2}`);
+      await ok('POST', 'api/vehicles/multi', { enabled: false });
+      await ok('DELETE', `api/vehicles?id=${ev6}`);
+      world.ch2 = null;
+      world.car2 = null;
+      world.car1Plug = undefined;
+      return 'back to one charger';
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

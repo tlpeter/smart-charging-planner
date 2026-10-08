@@ -20,7 +20,7 @@ mode.set('solar');
 
 const expected = {
   'boost.json': (v) => v.mode === 'soc' && v.value === 70,
-  'cardata.json': (v) => v.entity_id === 'sensor.car_soc' && v.soc === 42,
+  'cardata.json': (v) => v.entities['sensor.car_soc'].soc === 42,
   'chargefor.json': (v) => v.day === 'tomorrow' && v.soc === 80,
   'mode.json': (v) => v.mode === 'solar',
 };

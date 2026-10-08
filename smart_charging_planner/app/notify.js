@@ -9,6 +9,14 @@
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
+const scope = require('./scope');
+
+// More chargers: which charger a message or sensor is about. Set by the
+// server: () => null (one charger) or { name, slug, primary }.
+let chargerContext = () => null;
+function setChargerContext(fn) {
+  chargerContext = fn;
+}
 
 // The chosen notify action (Settings › Notifications in the app).
 function target() {
@@ -25,6 +33,11 @@ let lastNotification = null; // { at, title, message, sent, error }
 // action is set). key + minGapMs: do not repeat the same message too often.
 async function notify(kind, title, message, { key = null, minGapMs = 0 } = {}) {
   if (!target()) return { sent: false, reason: 'off' };
+  const ctx = chargerContext();
+  if (ctx) {
+    title = `${title} · ${ctx.name}`;
+    if (key) key = `${key}@${scope.id()}`;
+  }
   if (kind === 'startstop' && !options.notify_start_stop) return { sent: false, reason: 'start_stop_off' };
   if (key) {
     const at = lastSentByKey.get(key);
@@ -72,6 +85,8 @@ function sensorsFor(d, n, extra = {}) {
       live: !!(d && d.control_allowed),
       charge_now: !!(d && d.boost),
       last_command: extra.lastCommand || null,
+      vehicle: d && d.vehicle ? d.vehicle.name : null,
+      vehicle_how: d && d.cars ? d.cars.how : null,
     }],
     ['sensor.smart_charging_next_start', next ? iso(next.start) : 'unknown', {
       friendly_name: 'Smart Charging next start', device_class: 'timestamp', icon: 'mdi:clock-start',
@@ -100,6 +115,17 @@ function sensorsFor(d, n, extra = {}) {
     ['binary_sensor.smart_charging_charge_now', d && d.boost ? 'on' : 'off', {
       friendly_name: 'Smart Charging charge now', icon: 'mdi:lightning-bolt',
     }],
+    ['sensor.smart_charging_ready_guard', d && d.reliability ? d.reliability.status : 'unknown', {
+      friendly_name: 'Smart Charging Ready Guard',
+      icon: 'mdi:shield-check',
+      base_status: d && d.reliability ? d.reliability.base_status : null,
+      message: d && d.reliability ? d.reliability.message : null,
+      protecting: !!(d && d.reliability && d.reliability.protect),
+      latest_safe_start: d && d.reliability ? iso(d.reliability.latest_safe_start) : null,
+      expected_ready: d && d.reliability ? iso(d.reliability.expected_ready) : null,
+      safety_margin_minutes: d && d.reliability ? d.reliability.safety_margin_minutes : null,
+      shortfall_kwh: d && d.reliability ? d.reliability.shortfall_kwh : null,
+    }],
   ];
 }
 
@@ -107,8 +133,14 @@ function sensorsFor(d, n, extra = {}) {
 async function publishSensors(d, n, extra) {
   if (options.publish_sensors !== true || !d) return;
   let count = 0;
+  // More chargers: the first charger keeps sensor.smart_charging_*; another
+  // gets sensor.smart_charging_<charger>_*.
+  const ctx = chargerContext();
+  const rename = (id) => (ctx && !ctx.primary ? id.replace(/^(\w+\.smart_charging)_/, `$1_${ctx.slug}_`) : id);
   try {
-    for (const [id, state, attrs] of sensorsFor(d, n, extra)) {
+    for (const [rawId, state, rawAttrs] of sensorsFor(d, n, extra)) {
+      const id = rename(rawId);
+      const attrs = ctx ? { ...rawAttrs, friendly_name: `${rawAttrs.friendly_name} (${ctx.name})`, charger: ctx.name } : rawAttrs;
       const json = JSON.stringify([state, attrs]);
       if (published.get(id) === json) continue;
       await ha.setState(id, state, attrs);
@@ -134,4 +166,4 @@ function status() {
   };
 }
 
-module.exports = { notify, publishSensors, sensorsFor, status, target };
+module.exports = { notify, publishSensors, sensorsFor, status, target, setChargerContext };

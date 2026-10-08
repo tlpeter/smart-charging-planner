@@ -28,7 +28,9 @@ const batKw = (w) => {
   if (b.mode === 'Standby') return 0;
   return b.autoKw || 0;
 };
-const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 + batKw(w) * 1000 - (w.pvW ?? 0));
+// A second charger (more chargers test): w.ch2 = { plugged, charging, amps }.
+const ch2Kw = (w) => (w.ch2 && w.ch2.charging ? Math.round((w.ch2.amps ?? 16) * 3 * 230) / 1000 : 0);
+const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 + ch2Kw(w) * 1000 + batKw(w) * 1000 - (w.pvW ?? 0));
 const PCT = { unit_of_measurement: '%' };
 const KW = { unit_of_measurement: 'kW', device_class: 'power' };
 
@@ -43,7 +45,7 @@ const PROFILES = {
       states: (w) => [
         ['sensor.jlz03x_battery', w.soc, { friendly_name: 'JLZ03X Battery', ...PCT, device_class: 'battery' }],
         ['sensor.jlz03x_range', '150', { friendly_name: 'JLZ03X Range', unit_of_measurement: 'km', device_class: 'distance' }],
-        ['binary_sensor.jlz03x_plugged_in', w.plugged ? 'on' : 'off', { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' }],
+        ['binary_sensor.jlz03x_plugged_in', (w.car1Plug ?? w.plugged) ? 'on' : 'off', { friendly_name: 'JLZ03X Plugged in', device_class: 'plug' }],
         ['binary_sensor.jlz03x_charging', w.charging ? 'on' : 'off', { friendly_name: 'JLZ03X Charging', device_class: 'battery_charging' }],
         ['number.jlz03x_target_charge_level', w.limit, { friendly_name: 'JLZ03X Target charge level', ...PCT, min: 55, max: 100, step: 5 }],
         ['number.jlz03x_minimum_charge_level', '15', { friendly_name: 'JLZ03X Minimum charge level', ...PCT, min: 15, max: 45, step: 5 }],
@@ -104,7 +106,7 @@ const PROFILES = {
         ['sensor.enyaq_range', '210', { friendly_name: 'Enyaq Range', unit_of_measurement: 'km', device_class: 'distance' }],
         ['sensor.enyaq_charging_state', w.charging ? 'charging' : w.plugged ? 'ready_for_charging' : 'connect_cable', { friendly_name: 'Enyaq Charging State', device_class: 'enum' }],
         ['sensor.enyaq_charging_power', carKw(w), { friendly_name: 'Enyaq Charging Power', ...KW }],
-        ['binary_sensor.enyaq_charger_connected', w.plugged ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
+        ['binary_sensor.enyaq_charger_connected', (w.car1Plug ?? w.plugged) ? 'on' : 'off', { friendly_name: 'Enyaq Charger Connected', device_class: 'plug' }],
         ['binary_sensor.enyaq_charge_lock', 'on', { friendly_name: 'Enyaq Charge Lock', device_class: 'lock' }],
         ['number.enyaq_charge_limit', w.limit, { friendly_name: 'Enyaq Charge Limit', ...PCT, min: 50, max: 100, step: 10 }],
         ['switch.enyaq_charging', w.charging ? 'on' : 'off', { friendly_name: 'Enyaq Charging' }],
@@ -190,9 +192,22 @@ function entityList(w) {
   const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : ch.text.paused;
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
+  // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
+  const car2 = w.car2 ? [
+    ['sensor.ev6_battery_level', String(w.car2.soc), { friendly_name: 'EV6 Battery level', unit_of_measurement: '%', device_class: 'battery' }, 'car2'],
+    ...(w.car2.noPlugSensor ? [] : [['binary_sensor.ev6_plugged_in', w.car2.plug ? 'on' : 'off', { friendly_name: 'EV6 Plugged in', device_class: 'plug' }, 'car2']]),
+    ['binary_sensor.ev6_charging', w.car2.charging ? 'on' : 'off', { friendly_name: 'EV6 Charging', device_class: 'battery_charging' }, 'car2'],
+  ] : [];
+  const ch2 = w.ch2 ? [
+    ['sensor.garage_status', !w.ch2.plugged ? 'disconnected' : w.ch2.charging ? 'charging' : 'awaiting_start', { friendly_name: 'Garage Status', device_class: 'enum' }, 'ch2'],
+    ['sensor.garage_power', String(ch2Kw(w)), { friendly_name: 'Garage Power', ...KW }, 'ch2'],
+    ['switch.garage_charger_enabled', w.ch2.charging ? 'on' : 'off', { friendly_name: 'Garage Charger enabled' }, 'ch2'],
+  ] : [];
   return [
     ...car,
+    ...car2,
     ...charger,
+    ...ch2,
     ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
@@ -220,7 +235,7 @@ function entityList(w) {
   ];
 }
 
-const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen', eq: 'easee' };
+const PLATFORM_OF = { p1: 'dsmr', ez: 'energyzero', inv: 'fronius', plant: 'sigen', eq: 'easee', car2: 'kia_uvo', ch2: 'easee' };
 
 function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
@@ -250,6 +265,8 @@ function devices(w) {
     { id: 'inv', name: 'SolarNet', manufacturer: 'Fronius', model: 'Symo' },
     { id: 'plant', name: 'Sigen Plant', manufacturer: 'Sigenergy', model: 'SigenStor' },
     ...(w.profile.charger.equalizer ? [{ id: 'eq', name: 'Equalizer', manufacturer: 'Easee', model: 'Equalizer' }] : []),
+    ...(w.car2 ? [{ id: 'car2', name: 'EV6', manufacturer: 'Kia', model: 'EV6' }] : []),
+    ...(w.ch2 ? [{ id: 'ch2', name: 'Garage', manufacturer: 'Easee', model: 'Charge' }] : []),
     ...(w.otherBattery ? Object.keys(w.otherBattery.devices).map((id) => ({ id, name: w.otherBattery.names[id] || id })) : []),
   ];
 }
@@ -334,6 +351,12 @@ function start(w, wsPort, restPort) {
             w.eqCurrent = call.data.current;
             // Like the Equalizer: with surplus charging on and no sun, the car waits.
             if (w.eqSurplus && (w.pvW ?? 0) < 1400) w.charging = false;
+          }
+          // The second charger (Easee "Garage"): its switch, or an Easee action for its device.
+          if (w.ch2 && (tid === 'switch.garage_charger_enabled' || (m.domain === 'easee' && call.data.device_id === 'ch2'))) {
+            if (tid === 'switch.garage_charger_enabled') w.ch2.charging = m.service === 'turn_on' && !!w.ch2.plugged;
+            if (m.service === 'set_charger_dynamic_limit') w.ch2.amps = call.data.current;
+            return ok({ context: {} });
           }
           const amps = w.profile.charger.currentOf && w.profile.charger.currentOf(call);
           if (amps != null) w.amps = amps;

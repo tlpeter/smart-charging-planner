@@ -6,21 +6,23 @@
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
+const scope = require('./scope');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'boost.json');
 const MODES = ['target', 'soc', 'kwh'];
 
-let state;
+// Per charger (scope.js).
+const S = scope.store(() => ({ state: undefined }));
 
 function load() {
-  if (state !== undefined) return state;
-  state = readJson(FILE, null);
-  return state;
+  if (S().state !== undefined) return S().state;
+  S().state = readJson(scope.file(FILE), null);
+  return S().state;
 }
 
 function save() {
-  writeJsonAtomic(FILE, state);
+  writeJsonAtomic(scope.file(FILE), S().state);
 }
 
 function current() {
@@ -28,17 +30,17 @@ function current() {
 }
 
 function start({ mode, value }, now = Date.now()) {
-  state = { mode, value: mode === 'target' ? null : value, started: now };
+  S().state = { mode, value: mode === 'target' ? null : value, started: now };
   save();
-  ha.log(`Charge now started (${mode}${state.value != null ? ' ' + state.value : ''})`);
-  return state;
+  ha.log(`Charge now started (${mode}${S().state.value != null ? ' ' + S().state.value : ''})`);
+  return S().state;
 }
 
 function update(fields) {
   if (!load()) return null;
-  Object.assign(state, fields);
+  Object.assign(S().state, fields);
   save();
-  return state;
+  return S().state;
 }
 
 // Ends Charge now and returns how it was, so the caller can undo the start.
@@ -46,7 +48,7 @@ function stop(reason) {
   const prev = load();
   if (!prev) return null;
   ha.log(`Charge now ended (${reason})`);
-  state = null;
+  S().state = null;
   save();
   return prev;
 }

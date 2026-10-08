@@ -10,29 +10,30 @@
 const fs = require('fs');
 const path = require('path');
 const ha = require('./ha');
+const scope = require('./scope');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'session.json');
 const CACHE_MS = 60000;
 
-let state = null;
-let energyCache = null; // { key, at, kwh }
+// Per charger (scope.js).
+const S = scope.store(() => ({ state: null, energyCache: null })); // energyCache: { key, at, kwh }
 
 function load() {
-  if (state) return state;
+  if (S().state) return S().state;
   try {
-    state = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    S().state = JSON.parse(fs.readFileSync(scope.file(FILE), 'utf8'));
   } catch {
-    state = { plugged: null, since: null, since_known: false, manual_soc: null };
+    S().state = { plugged: null, since: null, since_known: false, manual_soc: null };
   }
-  return state;
+  return S().state;
 }
 
 function save() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const tmp = FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state));
-  fs.renameSync(tmp, FILE);
+  const tmp = scope.file(FILE) + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(S().state));
+  fs.renameSync(tmp, scope.file(FILE));
 }
 
 // Called at every refresh with the current plugged-in state.
@@ -73,7 +74,7 @@ function setManualSoc(value, now = Date.now()) {
 async function energySince(powerEntity, from, now = Date.now()) {
   if (!powerEntity || !from || from >= now) return 0;
   const key = `${powerEntity}|${from}`;
-  if (energyCache && energyCache.key === key && now - energyCache.at < CACHE_MS) return energyCache.kwh;
+  if (S().energyCache && S().energyCache.key === key && now - S().energyCache.at < CACHE_MS) return S().energyCache.kwh;
   const data = await ha.call({
     type: 'recorder/statistics_during_period',
     start_time: new Date(from).toISOString(),
@@ -92,7 +93,7 @@ async function energySince(powerEntity, from, now = Date.now()) {
     const end = Math.min(r.end || r.start + 300000, now);
     if (end > start) kwh += (Math.max(0, r.mean) / 1000) * ((end - start) / 3600000);
   }
-  energyCache = { key, at: now, kwh };
+  S().energyCache = { key, at: now, kwh };
   return kwh;
 }
 
