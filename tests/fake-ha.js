@@ -340,6 +340,11 @@ function start(w, wsPort, restPort) {
           }
           w.calls.push(call);
           const tid = call.target && call.target.entity_id;
+          // Like Home Assistant: a created event is in the calendar right away.
+          if (m.domain === 'calendar' && m.service === 'create_event') {
+            const d = call.data;
+            w.events.push({ summary: d.summary, description: d.description, location: d.location, start: String(d.start_date_time).replace(' ', 'T'), end: String(d.end_date_time).replace(' ', 'T') });
+          }
           if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) w.limit = call.data.value;
           if (w.hasBattery && tid) {
             if (tid === 'switch.sigen_plant_remote_ems_controlled_by_home_assistant') w.bat.ems = m.service === 'turn_on' ? 'on' : 'off';

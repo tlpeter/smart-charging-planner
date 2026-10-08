@@ -37,7 +37,7 @@ const NOT_COVERED = [
   'Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.',
   'Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.',
   'Two real chargers on one connection: the test checks the decisions, not how fast real chargers follow a lower current.',
-  'Adding trips with "Allow adding trips to calendar" on (only test mode is tested).',
+  'Adding trips to a real calendar (Google, Local calendar, CalDAV): the fake calendar shows a new event right away; a real one can take a moment.',
   'The page itself (buttons, forms): checked with screenshots during development, not in this test.',
 ];
 

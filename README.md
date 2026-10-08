@@ -61,7 +61,7 @@ Home also shows the **Ready Guard** card (will the car be ready in time, and the
 | **Helper** | An `input_datetime` (and optionally an `input_number` for the level), for example from a dashboard. |
 | **One-off departure** | A trip that differs from normal; removed after it has passed. |
 | **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Naar Thuis" (or a trip to "Thuis"/your home) is used as the way back. |
-| **Add trip** | Writes trips to your calendar as "Naar &lt;destination&gt;" with "doel: … precondition: …" (test mode until **Allow adding trips to calendar** is on). |
+| **Add trip** | Writes trips to the calendar the app reads, as "Naar &lt;destination&gt;" with the destination as location and "doel: … precondition: …"; optional **Back home at** (test mode until **Allow adding trips to calendar** is on). With one car there is nothing to choose: the trip is for that car. |
 | **Own departures per car** (more cars) | A car can have its own schedule, calendar and one-off departure; otherwise all cars share them. |
 
 When several sources give a departure on one day: one-off, then calendar, then helper, then schedule.

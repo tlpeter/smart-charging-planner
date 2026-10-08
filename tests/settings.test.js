@@ -1511,6 +1511,103 @@ async function run() {
     return `departure from iCloud: ${p.departure.soc}% · adding refused`;
   });
 
+  // ----- U. Add trip, writing to the calendar --------------------------------
+  // "Allow adding trips to calendar" on: what Add trip writes, and that the trip
+  // counts right away on Plan and Home (Looking ahead), with what it costs.
+  group = 'U. Add trip (writes to the calendar)';
+  {
+    await stopApp();
+    await startApp({ allow_control: true, notify_start_stop: false, allow_calendar_write: true });
+    const ADDR = 'Stationsplein 1, 3511 ED Utrecht';
+    world.places = { ...(world.places || {}), [ADDR]: { lat: 52.09, lon: 5.11 } };
+    world.routeKm = 75;
+    world.events = [];
+    world.soc = 60;
+    const calOn = (o = {}) => depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80, ...o } });
+    const trip = (o = {}) => ({ datetime: isoLocal(at(1, 8), tz).slice(0, 16), destination: ADDR, back: '17:30', soc: 90, precondition: true, ...o });
+    // Home asks for the plan without "refresh": what the page really sees.
+    const home = async (until) => {
+      let p;
+      for (let i = 0; i < 30; i++) {
+        p = await ok('GET', 'api/plan');
+        if (!until || until(p)) return p;
+        await sleep(200);
+      }
+      return p;
+    };
+    await ok('POST', 'api/departures', calOn());
+    await test('U1', 'One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at"', async () => {
+      const d = await ok('GET', 'api/departures');
+      assert(d.cars === null && d.calendar_write_allowed === true && d.calendar_writable === true, JSON.stringify({ cars: d.cars, w: d.calendar_write_allowed }));
+      const pv = await ok('POST', 'api/trips/preview', trip());
+      const e = pv.events[0];
+      assert(pv.events.length === 1 && e.summary === `Naar ${ADDR}` && e.location === ADDR && e.description === 'doel: 90 precondition: ja', JSON.stringify(e));
+      assert(e.start === at(1, 8) && e.end === at(1, 17, 30), `${new Date(e.start).toISOString()} – ${new Date(e.end).toISOString()}`);
+      await refused('POST', 'api/trips/preview', trip({ back: '25:00' }), 'Back home');
+      return `${e.summary} · ${e.description}`;
+    });
+    await test('U2', 'Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30', async () => {
+      await home(); // the page already had a plan
+      const n = world.calls.length;
+      const r = await ok('POST', 'api/trips', trip());
+      const created = callsSince(n).filter((c) => c.domain === 'calendar' && c.service === 'create_event');
+      assert(r.created === 1 && created.length === 1 && created[0].target.entity_id === 'calendar.auto' && created[0].data.location === ADDR, JSON.stringify({ r, created }));
+      const p = await home((x) => x.next && x.next.trip && x.next.trip.status === 'ok' && x.next.trip.how === 'route');
+      assert(p.departure && p.departure.source === 'calendar' && p.departure.time === at(1, 8) && p.departure.soc === 90, `departure ${JSON.stringify(p.departure)}`);
+      const t = p.next && p.next.trip;
+      assert(p.next.current.location === ADDR && t.status === 'ok' && t.km === 75 && t.pct > 0 && t.return_at === at(1, 17, 30), JSON.stringify(p.next));
+      return `next stop ${p.next.current.title} · ${t.km} km → ${t.pct}% there and back · back ${t.soc_after}%`;
+    });
+    await test('U3', 'Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost', async () => {
+      const r = await ok('POST', 'api/trips', trip());
+      assert(r.created === 0 && r.skipped === 1, JSON.stringify(r));
+      assert(world.events.length === 1, `${world.events.length} events`);
+      const d = await ok('GET', 'api/departures');
+      const ct = d.calendar_trips.find((x) => x.location === ADDR);
+      assert(ct && ct.cost && ct.cost.status === 'ok' && ct.precondition === true, JSON.stringify(d.calendar_trips));
+    });
+    await test('U4', 'Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts', async () => {
+      await ok('POST', 'api/departures', calOn({ match: 'keyword', keyword: 'EV' }));
+      const p = await home((x) => x.departure && x.departure.time === at(1, 8));
+      assert(p.departure && p.departure.source === 'calendar' && p.departure.time === at(1, 8) && p.departure.soc === 90, JSON.stringify(p.departure));
+      await ok('POST', 'api/departures', calOn());
+    });
+    await test('U5', 'Calendar not used for departures: Add trip is refused (the trip would never count), nothing written', async () => {
+      await ok('POST', 'api/departures', depBody({ calendar: { enabled: false, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+      const n = world.calls.length;
+      await refused('POST', 'api/trips/preview', trip(), 'Turn on the calendar');
+      await refused('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16) }), 'Turn on the calendar');
+      assert(!callsSince(n).some((c) => c.service === 'create_event'), 'written');
+      await ok('POST', 'api/departures', calOn());
+    });
+    await test('U6', 'More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
+      await ok('POST', 'api/vehicles/multi', { enabled: true });
+      const ev6 = (await ok('POST', 'api/vehicles', { ...EV6, add: true })).vehicle.id;
+      const car1 = (await carsNow())[0].id;
+      try {
+        world.events = [];
+        const d = await ok('GET', 'api/departures');
+        assert(d.cars && d.cars.length === 2, 'no car to choose');
+        await ok('POST', 'api/trips', trip({ vehicle_id: ev6 }));
+        await ok('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16), destination: 'Utrecht', for_all_cars: true }));
+        assert(world.events[0].description.includes('auto: EV6') && !world.events[1].description.includes('auto:'), JSON.stringify(world.events.map((e) => e.description)));
+        const forCar1 = (await ok('GET', `api/departures?vehicle=${car1}`)).calendar_trips.map((x) => x.title);
+        const forEv6 = (await ok('GET', `api/departures?vehicle=${ev6}`)).calendar_trips.map((x) => x.title);
+        assert(forCar1.length === 1 && forCar1[0] === 'Naar Utrecht' && forEv6.length === 2, JSON.stringify({ forCar1, forEv6 }));
+        return `${car1}: ${forCar1.join(', ')} · EV6: ${forEv6.join(', ')}`;
+      } finally {
+        await ok('POST', 'api/vehicles/multi', { enabled: false });
+        await ok('DELETE', `api/vehicles?id=${ev6}`);
+        world.car2 = null;
+      }
+    });
+    world.events = [];
+    world.soc = 40;
+    await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+    await stopApp();
+    await startApp({ allow_control: true, notify_start_stop: false });
+  }
+
   // ----- X. More than one charger (an option) -------------------------------
   // Two Easee chargers: "Laadpaal" (the first) and "Garage"; two cars.
   if (world.profile === fake.PROFILES.renault_easee) {

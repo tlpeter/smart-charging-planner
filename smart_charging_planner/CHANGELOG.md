@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.6-dev
+
+- Fix: a trip added with **Add trip** did not show up on Plan and under Looking ahead until the next refresh (up to 5 minutes). Now it counts right away
+- Fix: when OpenStreetMap has found an address (or the route), Plan and Home show what the trip costs right away instead of "Looking up the distance…" until the next refresh
+- Fix: with the calendar read by keyword ("EV"), a trip added by the app was not read back (it has "doel: 80" but not the keyword). Events with "doel:" or "target:" in the description now always count
+- Add trip is refused when the calendar is not used for departures (the trip would never count); the form already hid itself then
+- Add trip: optional **Back home at**: the event lasts until then, so Looking ahead knows when the car is back (without it: 15 minutes, so the car was "back" right after leaving)
+- With one car Add trip has no car to choose: the trip is for that car (the **For** choice only appears with more than one car)
+- Tests: group U, Add trip for real (written to the calendar, shown right away on Plan and Home, duplicates, keyword calendar, calendar off, more cars)
+
 ## 0.29.5-dev
 
 - **Test plan written automatically**: after every push GitHub runs all tests and writes `tests/TESTPLAN.md` from the results (settings, every unit test with every check, and the charger × battery matrix), and saves it in the branch when it changed. The plan can no longer fall behind the code

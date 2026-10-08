@@ -358,6 +358,13 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
 // Learning the car's use from trips (tripcost.js): when the car is unplugged
 // around a departure with a known distance, and when it is plugged in again.
 const tripWatch = new Map(); // vehicle id -> { plugged }
+// An address or route was found: plans are recalculated on the next request,
+// so Plan and Home show what the trip costs without waiting for the refresh.
+// (The plan is kept until then: it is only marked as outdated.)
+tripcost.onUpdate(() => {
+  for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+});
+
 function tripLearning(vehicle, plugged, soc, carData, next, now) {
   if (!vehicle || !vehicle.id || plugged == null) return;
   const w = tripWatch.get(vehicle.id) || { plugged: null };
@@ -1262,6 +1269,9 @@ const routes = {
       await ha.createCalendarEvent(plan.calendar, toHaData(e, ha.state.timeZone));
       created++;
     }
+    // The new trip counts right away (Plan and Looking ahead), for every charger.
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
     return { ok: true, created, skipped: plan.events.length - created };
   },
 
@@ -1424,7 +1434,8 @@ async function tripsPlan(body) {
   const vehicle = vehicleParam(s, body && body.vehicle_id);
   const dep = departuresFor(s, vehicle);
   const calendar = dep.calendar.entity;
-  if (!calendar) throw badRequest('Choose a calendar on the Planning tab first');
+  // Only a calendar the app reads: a trip in another calendar would never count.
+  if (!calendar || !dep.calendar.enabled) throw badRequest('Turn on the calendar under Plan › Departures and choose a calendar first: the app only reads trips from that calendar');
   // More cars: the trip says which car ("auto: renault"); "all" = every car.
   const forAll = !body || body.for_all_cars === true;
   const car = cars(s).length > 1 && vehicle && !forAll ? (vehicle.calendar_name || vehicle.name) : null;
