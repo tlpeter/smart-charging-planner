@@ -138,7 +138,9 @@ With more chargers and too little room on the main fuse: Charge now first, then 
 
 ## Tests
 
-`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox. See `tests/TESTPLAN.md` for the test plan and the last result.
+**[tests/TESTPLAN.md](tests/TESTPLAN.md)** shows every test and the result of the last run. GitHub writes it after every push, so it always matches the code; `node tests/testplan.js all` runs everything and writes it here (several minutes).
+
+`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox.
 
 `node tests/solar.test.js` checks solar brand by brand: inverters, forecasts, the value of own solar power and charging on surplus.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.5-dev
+
+- **Test plan written automatically**: after every push GitHub runs all tests and writes `tests/TESTPLAN.md` from the results (settings, every unit test with every check, and the charger × battery matrix), and saves it in the branch when it changed. The plan can no longer fall behind the code
+- `node tests/testplan.js all` does the same on your own computer
+- The test plan now also lists the unit tests (more cars, more chargers, look ahead, Ready Guard, …) and has a summary at the top; doubled lines are gone
+- The saved test plan is a small extra commit by GitHub ("Test plan: results of …"); pull before pushing again
+- The results of each test run are also shown on the run's summary page in GitHub Actions
+
 ## 0.29.4-dev
 
 - Fix: looking ahead took a trip home **after another trip** as the way back. Example: Outdoorvalley on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
