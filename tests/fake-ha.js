@@ -286,7 +286,7 @@ function start(w, wsPort, restPort) {
       const fail = (message) => s.send(JSON.stringify({ id: m.id, type: 'result', success: false, error: { code: 'x', message } }));
       if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: '2026.9.4' }));
       switch (m.type) {
-        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: '2026.9.4' });
+        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: '2026.9.4', latitude: 51.37, longitude: 5.19, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
         case 'config/entity_registry/list': return ok(registry(w));
@@ -372,6 +372,22 @@ function start(w, wsPort, restPort) {
     });
   });
   const rest = http.createServer((req, res) => {
+    // OpenStreetMap (trip distances): Nominatim search and OSRM route.
+    // w.places: { 'address text': { lat, lon } }; w.routeKm: the road distance (or null: route fails).
+    if (req.url.startsWith('/search')) {
+      const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
+      w.geoCalls = (w.geoCalls || 0) + 1;
+      const hit = (w.places || {})[q];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(hit ? [{ lat: String(hit.lat), lon: String(hit.lon) }] : []));
+      return;
+    }
+    if (req.url.startsWith('/route/')) {
+      if (w.routeKm === null) { res.writeHead(503); res.end('{}'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000 }] }));
+      return;
+    }
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.0-dev
+
+- **Looking ahead**: Home shows the **next goal** after the coming departure, also when the current target is already reached and also when the prices for then are not known yet
+- **What a trip costs**: for a calendar trip with an address in its location, the distance by road (OpenStreetMap: Nominatim and OSRM; the straight line × 1.3 when no route is found) and the battery % there and back (+10 % margin). A later trip home in the calendar ("Naar Thuis", or to "Thuis") is used as the way back
+- The expected battery level when the car is back, and the expected charging for the next goal from then, in **orange** in the chart (with a "next goal" marker); the card is orange when the car is expected back below the next goal. An expectation only: nothing is steered by it
+- Use per km, best first: learned from your own trips (battery level when the car leaves and when it is back), the car's range sensor, or the new **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km)
+- The Plan tab shows the distance and % per calendar trip
+- Home location and country from Home Assistant (Settings → System → General); every address is looked up once and remembered (places.json), one lookup per second
+- Tests: settings test group Y (next goal with a reached target, trip cost, return trip, no route, not an address) and tests/tripcost.test.js
+
 ## 0.28.1-dev
 
 - **Battery care** (Settings › Rules, on by default): for a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest and the rest only in the last 4 hours before departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be set; when the rest needs more time, it starts earlier
