@@ -188,7 +188,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.19 | ✓ charges in 2 block(s), saving €1.10 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.18 | ✓ charges in 2 block(s), saving €1.08 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -223,7 +223,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 53 kB, 10 entities, 14 log lines | ✓ 48 kB, 10 entities, 14 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 53 kB, 10 entities, 14 log lines | ✓ 49 kB, 10 entities, 14 log lines |
 
 ## M. Settings export and import
 
