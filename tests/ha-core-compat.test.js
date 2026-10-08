@@ -69,6 +69,20 @@ async function onboard() {
   return token.access_token;
 }
 
+async function waitForCoreComponents(token) {
+  const required = ['energy', 'recorder', 'search', 'websocket_api'];
+  let last = [];
+  for (let i = 0; i < 90; i++) {
+    const config = await responseJson(`${HA_URL}/api/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    last = Array.isArray(config.components) ? config.components : [];
+    if (required.every((component) => last.includes(component))) return;
+    await sleep(1000);
+  }
+  throw new Error(`Home Assistant did not finish loading: missing ${required.filter((component) => !last.includes(component)).join(', ')}`);
+}
+
 function websocketContract(token) {
   const commands = [
     { type: 'get_config' },
@@ -153,6 +167,7 @@ async function waitForApp() {
 async function run() {
   await waitForHomeAssistant();
   const token = await onboard();
+  await waitForCoreComponents(token);
   const wsVersion = await websocketContract(token);
   assert.equal(wsVersion, EXPECTED_VERSION, `WebSocket connected to unexpected Home Assistant version ${wsVersion}`);
 
