@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 142 of 142 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 133 of 133 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 148 of 148 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 139 of 139 ✓ |
 | Unit tests (9 files) | 315 of 315 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.5-dev.
+Version: 0.29.6-dev.
 
 # Settings
 
@@ -188,7 +188,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.18 | ✓ charges in 2 block(s), saving €1.08 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.16 | ✓ charges in 2 block(s), saving €1.07 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -271,6 +271,17 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | Z1 | An iCloud calendar is read: "doel: 90" becomes the departure; it is marked read only and adding trips to it is refused with a clear reason | ✓ departure from iCloud: 90% · adding refused | ✓ departure from iCloud: 90% · adding refused |
 
+## U. Add trip (writes to the calendar)
+
+| # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
+|---|---|---|---|
+| U1 | One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at" | ✓ Naar Stationsplein 1, 3511 ED Utrecht · doel: 90 precondition: ja | ✓ Naar Stationsplein 1, 3511 ED Utrecht · doel: 90 precondition: ja |
+| U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop Naar Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop Naar Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
+| U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ |
+| U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ |
+| U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ |
+| U6 | More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht |
+
 ## X. More than one charger
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
@@ -292,7 +303,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.
 - Two real chargers on one connection: the test checks the decisions, not how fast real chargers follow a lower current.
-- Adding trips with "Allow adding trips to calendar" on (only test mode is tested).
+- Adding trips to a real calendar (Google, Local calendar, CalDAV): the fake calendar shows a new event right away; a real one can take a moment.
 - The page itself (buttons, forms): checked with screenshots during development, not in this test.
 
 # Unit tests
