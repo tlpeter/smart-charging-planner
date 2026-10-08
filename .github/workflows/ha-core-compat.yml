@@ -20,7 +20,7 @@ env:
 
 jobs:
   compatibility:
-    name: Core ${{ env.HA_CORE_VERSION }}
+    name: Core 2026.10.0
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -30,7 +30,7 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: smart_charging_planner/app
-      - name: Start Home Assistant Core ${{ env.HA_CORE_VERSION }}
+      - name: Start Home Assistant Core 2026.10.0
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/ha-core-config"
@@ -47,4 +47,3 @@ jobs:
       - name: Stop Home Assistant
         if: always()
         run: docker rm --force scp-ha-core
-
