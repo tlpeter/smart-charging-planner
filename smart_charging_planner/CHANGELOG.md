@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.1-dev
+
+- Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Spijkenisse therefore moves in front of a later 100% trip automatically
+- The fast Home Assistant simulator now reports Core 2026.10.0
+- A separate free GitHub Actions compatibility test starts a real, isolated Home Assistant Core 2026.10.0 container every Monday, on relevant `dev` changes and on demand. It checks the WebSocket contracts and the app's vehicle, charger, grid, price, control and solar discovery routes
+
 ## 0.29.0-dev
 
 - **Looking ahead**: Home shows the **next goal** after the coming departure, also when the current target is already reached and also when the prices for then are not known yet

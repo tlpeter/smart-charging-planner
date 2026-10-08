@@ -177,10 +177,11 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 - The plans are made per charger and shared at the moment of charging; they do not yet take each other into account.
 - Notifications name the charger. The first charger keeps `sensor.smart_charging_*`; another gets `sensor.smart_charging_<charger>_*`.
 
-## Looking ahead: the next goal and what a trip costs
+## Looking ahead: the next stop, next goal and what a trip costs
 
-Always on. Home shows a card **After &lt;the next departure&gt;** with:
+Always on. Home shows a card with:
 
+- **The next stop**: the first upcoming trip with the battery level it requires. When another trip is added before it in the calendar, that trip automatically becomes the next stop.
 - **The next goal**: the first departure after the car is back (a trip home, such as "Naar Thuis", does not count as a goal). It is shown also when the current target is already reached, and also when the prices for then are not known yet (then without cost).
 - **What this trip costs**: when the calendar event has an address in its location (for example "Hoeksekade 141 2661 JL Bergschenhoek"). Words like "Werk" or "Thuis" are not addresses; put the full address in the location to see the cost.
   - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).

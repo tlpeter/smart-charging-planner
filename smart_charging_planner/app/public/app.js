@@ -1115,7 +1115,7 @@ function durationText(minutes) {
       const e = n.expected;
       const low = !!(e && e.below_goal);
       const tripLine = tripText(n.trip);
-      const cur = `${esc(dayHm(n.current.time))}${n.current.title ? ` · ${esc(n.current.title)}` : ''}`;
+      const stop = `${esc(dayHm(n.current.time))}${n.current.target_soc != null ? ` · ${esc(n.current.target_soc)}%` : ''}${n.current.title ? ` · ${esc(n.current.title)}` : ''}`;
       const back = n.trip.soc_after != null && n.trip.pct != null
         ? `Back home around ${esc(dayHm(n.trip.return_at))}${n.trip.return_trip ? ` (${esc(n.trip.return_trip.title)})` : ''} with about <strong class="${low ? 'warn-text' : ''}">${esc(tidy(n.trip.soc_after))}%</strong>.` : '';
       let exp = '';
@@ -1128,8 +1128,15 @@ function durationText(minutes) {
         exp = 'What the trip costs is not known, so no charging is expected yet.';
       }
       return `<div class="card next-goal${low ? ' low' : ''}">
-        <div class="ready-kicker">AFTER ${esc(cur.toUpperCase())}</div>
-        ${n.goal ? `<h2>${shape('flag', low ? 'orange' : 'blue', true)}Next goal: ${esc(dayHm(n.goal.time))} · ${esc(n.goal.soc)}%${n.goal.title ? ` · ${esc(n.goal.title)}` : ''}</h2>` : '<h2>No next departure in the coming week</h2>'}
+        <div class="ready-kicker">LOOKING AHEAD</div>
+        <div class="next-point next-stop">
+          <div class="next-point-label">Next stop</div>
+          <h2>${shape('car', 'blue', true)}${stop}</h2>
+        </div>
+        <div class="next-point next-target">
+          <div class="next-point-label">Next goal</div>
+          ${n.goal ? `<h2>${shape('flag', low ? 'orange' : 'blue', true)}${esc(dayHm(n.goal.time))} · ${esc(n.goal.soc)}%${n.goal.title ? ` · ${esc(n.goal.title)}` : ''}</h2>` : '<h2>No later departure in the coming week</h2>'}
+        </div>
         ${tripLine ? `<p class="small">This trip: ${tripLine}</p>` : ''}
         ${back ? `<p class="small">${back}</p>` : ''}
         ${exp ? `<p class="small ${low ? 'warn-text' : 'muted'}">${exp}</p>` : ''}

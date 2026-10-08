@@ -1401,7 +1401,12 @@ async function run() {
   {
     const ADDR = 'Hoeksekade 141 2661 JL Bergschenhoek';
     const ADDR2 = 'Stuivezandsestraat 50, 4921 XR Made';
-    world.places = { [ADDR]: { lat: 51.98, lon: 4.49 }, [ADDR2]: { lat: 51.68, lon: 4.79 } };
+    const ADDR3 = 'Nieuwstraat 2, 3201 EE Spijkenisse';
+    world.places = {
+      [ADDR]: { lat: 51.98, lon: 4.49 },
+      [ADDR2]: { lat: 51.68, lon: 4.79 },
+      [ADDR3]: { lat: 51.85, lon: 4.33 },
+    };
     world.routeKm = 60;
     const calBody = depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } });
     const ev = (title, desc, location, d, h, endH) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h), tz), end: isoLocal(at(d, endH), tz) });
@@ -1437,7 +1442,18 @@ async function run() {
       assert(n.goal.title === 'Naar Werk', JSON.stringify(n.goal));
       return `back ${new Date(n.trip.return_at).toISOString().slice(11, 16)} UTC · next ${n.goal.title}`;
     });
-    await test('Y3', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
+    await test('Y3', 'An extra calendar trip becomes the next stop, and the 100% long trip after it becomes the next goal instead of the later work trip', async () => {
+      world.events = [
+        ev('Naar Spijkenisse', 'doel: 60', ADDR3, 1, 15, 17),
+        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 2, 6, 18),
+        ev('Naar Werk', 'doel: 80', 'Werk', 4, 7, 8),
+      ];
+      const n = (await settle()).next;
+      assert(n.current.title === 'Naar Spijkenisse' && n.current.target_soc === 60, JSON.stringify(n.current));
+      assert(n.goal && n.goal.title === 'Naar Outdoorvalley' && n.goal.soc === 100, JSON.stringify(n.goal));
+      return `next stop ${n.current.title} ${n.current.target_soc}% · next goal ${n.goal.title} ${n.goal.soc}%`;
+    });
+    await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [
         ev('Naar The Outdoor Pact', 'doel: 90', ADDR2, 1, 18, 21),

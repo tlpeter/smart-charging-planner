@@ -50,7 +50,7 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
-**Looking ahead** (always on): after the next departure, Home shows the **next goal**, also when the current target is already reached. When the trip has an address in the calendar event, the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %), the expected battery level when the car is back, and the expected charging for the next goal, in **orange** in the chart. Without known prices for then, the goal is shown without cost. It is an expectation and never steers anything.
+**Looking ahead** (always on): Home shows the **next stop** with its required battery level and, below it, the **next goal** after the car is back. Add an extra trip to the calendar and it automatically becomes the next stop; the later trip becomes the next goal. When the next stop has an address in the calendar event, the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %), the expected battery level when the car is back, and the expected charging for the next goal, in **orange** in the chart. Without known prices for then, the goal is shown without cost. It is an expectation and never steers anything.
 
 ### Plan: departures
 
