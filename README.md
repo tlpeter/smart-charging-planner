@@ -57,7 +57,7 @@ Home also shows the **Ready Guard** card (will the car be ready in time, and the
 | Source | What it does |
 | --- | --- |
 | **Weekly schedule** | A time and battery level per weekday. |
-| **Calendar** | Trips from a Home Assistant calendar. Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
+| **Calendar** | Trips from any Home Assistant calendar: Google, Local calendar, CalDAV, and Apple iCloud (Home Assistant 2026.10+, read only: add trips in the calendar app itself). Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
 | **Helper** | An `input_datetime` (and optionally an `input_number` for the level), for example from a dashboard. |
 | **One-off departure** | A trip that differs from normal; removed after it has passed. |
 | **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Naar Thuis" (or a trip to "Thuis"/your home) is used as the way back. |

@@ -1244,6 +1244,9 @@ const routes = {
 
   'POST /api/trips': async (req) => {
     const plan = await tripsPlan(await readBody(req));
+    if (!plan.calendar_writable) {
+      throw badRequest(`${plan.calendar} is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add the trip in the calendar app itself, or choose a calendar that can (Google, Local calendar, CalDAV).`);
+    }
     if (!plan.write_allowed) {
       throw badRequest('Test mode: nothing was added. Turn on "Allow adding trips to calendar" in the app\'s Configuration tab to add trips.');
     }
@@ -1301,10 +1304,11 @@ const routes = {
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,
+      calendar_writable: calendarWritable(states, dep.calendar.entity),
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
-        calendar: list('calendar'),
+        calendar: list('calendar').map((c) => ({ ...c, writable: calendarWritable(states, c.entity_id) })),
       },
     };
   },
@@ -1429,12 +1433,23 @@ async function tripsPlan(body) {
   } catch (err) {
     ha.warn('Could not check for duplicate trips:', err.message);
   }
+  const writable = calendarWritable(await ha.call({ type: 'get_states' }), calendar);
   return {
     calendar,
     write_allowed: options.allow_calendar_write === true,
+    calendar_writable: writable,
     events: markDuplicates(events, existing, tz),
     time_zone: tz,
   };
+}
+
+// Can the app add events to this calendar? Home Assistant's calendar feature
+// "create event" (bit 1 of supported_features). Apple iCloud calendars
+// (Home Assistant 2026.10+) are read only. Unknown (no attribute): assume yes.
+function calendarWritable(states, entityId) {
+  const st = entityId ? states.find((x) => x.entity_id === entityId) : null;
+  if (!st || !st.attributes || st.attributes.supported_features == null) return true;
+  return (Number(st.attributes.supported_features) & 1) === 1;
 }
 
 // Calendar events for the next 15 days, when the calendar source is on.

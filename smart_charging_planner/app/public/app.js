@@ -1839,7 +1839,7 @@ function durationText(minutes) {
         f.helper_datetime.innerHTML = entityOptions(d.options.input_datetime, dep.helper.datetime_entity, '— choose —');
         f.helper_soc.innerHTML = entityOptions(d.options.input_number, dep.helper.soc_entity, '— none: use the default level —');
         f.cal_enabled.checked = dep.calendar.enabled;
-        f.cal_entity.innerHTML = entityOptions(d.options.calendar, dep.calendar.entity, '— choose —');
+        f.cal_entity.innerHTML = entityOptions(d.options.calendar.map((c) => ({ ...c, name: c.writable ? c.name : `${c.name} – read only` })), dep.calendar.entity, '— choose —');
         f.cal_match.value = dep.calendar.match || 'target';
         f.cal_keyword.value = dep.calendar.keyword;
         $('cal-keyword-field').hidden = f.cal_match.value !== 'keyword';
@@ -2226,7 +2226,12 @@ function durationText(minutes) {
       $('trip-mode-text').innerHTML = tripWriteAllowed
         ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …"${d.cars ? ' and "auto: …"' : ''}, the same format this app reads.`
         : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
-      $('trip-add').hidden = !tripWriteAllowed;
+      $('trip-add').hidden = !tripWriteAllowed || d.calendar_writable === false;
+      if (d.calendar_writable === false) {
+        $('trip-mode').textContent = 'READ ONLY CALENDAR';
+        $('trip-mode').className = 'advice test';
+        $('trip-mode-text').innerHTML = `<strong>${esc(d.departures.calendar.entity)}</strong> is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add trips in the calendar app itself (for example on your iPhone) with "doel: 80" in the notes, or choose a calendar that can (Google, Local calendar, CalDAV). The app reads the trips from this calendar as usual.`;
+      }
       // More cars: which car the trip is for ("auto: …" in the event), or every car.
       const carField = $('trip-car-field');
       carField.hidden = !d.cars;
