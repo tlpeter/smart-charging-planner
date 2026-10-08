@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.29.3-dev
+
+- Ready Guard's **Expected ready** time now follows the end of the actual scheduled charging blocks instead of pretending charging starts continuously right now
+- The uninterrupted charging estimate remains separate and is still used internally when Ready Guard must take over
+
 ## 0.29.2-dev
 
 - **Apple iCloud calendars** (Home Assistant 2026.10+: each iCloud calendar is a calendar entity) work for departures like any other calendar: "doel: 80", "precondition: ja" and "auto: …" are read from the event

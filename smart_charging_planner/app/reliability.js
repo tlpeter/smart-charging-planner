@@ -87,6 +87,7 @@ function evaluateReadyGuard(input = {}) {
     latest_safe_start: null,
     expected_ready: null,
     planned_ready: null,
+    continuous_ready: null,
     safety_margin_minutes: null,
     buffer_minutes: null,
     shortfall_kwh: null,
@@ -124,6 +125,7 @@ function evaluateReadyGuard(input = {}) {
       needed_kwh: 0,
       expected_ready: now,
       planned_ready: now,
+      continuous_ready: now,
       buffer_minutes: Math.max(0, Math.round((deadline - now) / MINUTE)),
       shortfall_kwh: 0,
     };
@@ -132,11 +134,16 @@ function evaluateReadyGuard(input = {}) {
   const chargeMs = (neededKwh / conservativePowerKw) * HOUR;
   const safetyMs = Math.max(MIN_MARGIN_MS, requestedMargin * MINUTE, chargeMs * 0.15);
   const latestSafeStart = deadline - chargeMs - safetyMs;
-  const expectedReady = now + chargeMs;
+  // "Expected ready" describes the plan the user sees, so use the end of
+  // its final charging block when that plan contains all required energy.
+  // Keep the uninterrupted estimate separate: Ready Guard needs that value
+  // when it overrides the price plan and starts charging continuously.
+  const continuousReady = now + chargeMs;
   const plannedReady = blocks.length ? Math.max(...blocks.map((b) => finite(b.end) || 0)) || null : null;
   const maxPossibleKwh = Math.max(0, (deadline - now) / HOUR) * conservativePowerKw;
   const shortfallKwh = Math.max(0, neededKwh - maxPossibleKwh);
   const planShort = plannedKwh + EPSILON_KWH < neededKwh;
+  const expectedReady = !planShort && plannedReady ? plannedReady : continuousReady;
   const dataRisk = !!(input.carData && input.carData.ok === false);
   const priceRisk = PRICE_RISK.some((n) => notes.includes(n));
   const noBuffer = now >= latestSafeStart;
@@ -197,10 +204,11 @@ function evaluateReadyGuard(input = {}) {
     latest_safe_start: latestSafeStart,
     expected_ready: expectedReady,
     planned_ready: plannedReady,
+    continuous_ready: continuousReady,
     safety_margin_minutes: Math.round(safetyMs / MINUTE),
     buffer_minutes: plannedReady ? Math.round((deadline - plannedReady) / MINUTE) : null,
     shortfall_kwh: round(shortfallKwh),
-    guard_until: Math.min(deadline, expectedReady),
+    guard_until: Math.min(deadline, continuousReady),
   };
 }
 
