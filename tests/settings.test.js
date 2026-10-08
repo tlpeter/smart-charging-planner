@@ -104,6 +104,9 @@ async function startApp(options = {}) {
       SCP_CURRENT_GAP_MS: '1000',
       SCP_EQ_GAP_MS: '1000',
       SCP_RECONNECT_MS: '100',
+      SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
+      SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
+      SCP_GEOCODE_GAP_MS: '50',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1392,6 +1395,69 @@ async function run() {
     world.car2 = null;
     return 'back to one car';
   });
+
+  // ----- Y. Looking ahead: the next goal and what a trip costs --------------
+  group = 'Y. Looking ahead: the next goal and what a trip costs';
+  {
+    const ADDR = 'Hoeksekade 141 2661 JL Bergschenhoek';
+    const ADDR2 = 'Stuivezandsestraat 50, 4921 XR Made';
+    world.places = { [ADDR]: { lat: 51.98, lon: 4.49 }, [ADDR2]: { lat: 51.68, lon: 4.79 } };
+    world.routeKm = 60;
+    const calBody = depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } });
+    const ev = (title, desc, location, d, h, endH) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h), tz), end: isoLocal(at(d, endH), tz) });
+    const settle = async () => { await plan(); await sleep(400); await plan(); await sleep(300); return plan(); };
+    await test('Y1', 'Target reached (100 %), trip with an address tomorrow: the next goal (Werk, 80 %) is shown, the trip costs ~46 % there and back (60 km by road, 18 kWh/100 km, +10 %), so ~54 % is expected after it, with the expected charging (orange) after the car is back', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      await ok('POST', 'api/departures', calBody);
+      world.soc = 100;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
+      ];
+      const p = await settle();
+      const n = p.next;
+      assert(n && n.current.title === 'Naar Outdoorvalley' && n.current.soc_at_departure === 100, JSON.stringify(n && n.current));
+      assert(n.trip.status === 'ok' && n.trip.km === 60 && n.trip.how === 'route' && n.trip.use === 'consumption', JSON.stringify(n.trip));
+      const pct = 120 * (18 / 100 / CAR.capacity) * 100 * 1.1;
+      assert(Math.abs(n.trip.pct - pct) < 0.2 && Math.abs(n.trip.soc_after - (100 - pct)) < 0.2, `pct ${n.trip.pct} (${pct.toFixed(1)}), after ${n.trip.soc_after}`);
+      assert(n.trip.return_at === at(1, 18), `back ${new Date(n.trip.return_at).toISOString()}`);
+      assert(n.goal && n.goal.title === 'Naar Werk' && n.goal.soc === 80 && n.goal.time === at(3, 7), JSON.stringify(n.goal));
+      const e = n.expected;
+      assert(e && e.below_goal && e.needed_kwh > 5 && e.blocks.length && e.blocks.every((b) => b.expected && b.start >= at(1, 18)), JSON.stringify({ ...e, blocks: e && e.blocks.length }));
+      return `trip ${n.trip.km} km → ${n.trip.pct}% · back ~${n.trip.soc_after}% · next: ${n.goal.title} ${n.goal.soc}% · expected ${e.needed_kwh} kWh, ${e.planned_kwh.toFixed(1)} kWh in known prices`;
+    });
+    await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 10),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
+        ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
+      ];
+      const n = (await settle()).next;
+      assert(n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis' && n.trip.return_at === at(1, 17), JSON.stringify(n.trip));
+      assert(n.goal.title === 'Naar Werk', JSON.stringify(n.goal));
+      return `back ${new Date(n.trip.return_at).toISOString().slice(11, 16)} UTC · next ${n.goal.title}`;
+    });
+    await test('Y3', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
+      world.routeKm = null;
+      world.events = [
+        ev('Naar The Outdoor Pact', 'doel: 90', ADDR2, 1, 18, 21),
+        ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
+      ];
+      const n = (await settle()).next;
+      assert(n.trip.status === 'ok' && n.trip.how === 'estimate' && n.trip.km > 30 && n.trip.km < 80, JSON.stringify(n.trip));
+      world.events = [ev('Naar Werk', 'doel: 80', 'Werk', 1, 7, 8), ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8)];
+      const m = (await settle()).next;
+      assert(m.trip.status === 'unknown' && m.trip.pct === null && m.goal && m.goal.time === at(3, 7), JSON.stringify(m));
+      const d = await ok('GET', 'api/departures');
+      assert(d.calendar_trips.every((t) => t.cost && t.cost.status === 'unknown'), JSON.stringify(d.calendar_trips.map((t) => t.cost)));
+      world.routeKm = 60;
+      world.events = [];
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
+      await ok('POST', 'api/vehicles', vehicleBody());
+      world.soc = 40;
+      return `estimate ${n.trip.km} km (straight line × 1.3)`;
+    });
+  }
 
   // ----- X. More than one charger (an option) -------------------------------
   // Two Easee chargers: "Laadpaal" (the first) and "Garage"; two cars.

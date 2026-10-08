@@ -189,9 +189,11 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
       carId = car ? car.id : null;
       carUnknown = !car;
     }
+    const endMs = parseLocal(String(e.end || ''), tz);
     out.push({
       time,
       event_start: ms,
+      event_end: Number.isFinite(endMs) && endMs > ms ? endMs : null,
       soc: target ?? (Number(c.soc) || dep.default_soc),
       soc_from_event: target != null,
       source: 'calendar',

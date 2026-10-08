@@ -50,6 +50,8 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
+**Looking ahead** (always on): after the next departure, Home shows the **next goal**, also when the current target is already reached. When the trip has an address in the calendar event, the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %), the expected battery level when the car is back, and the expected charging for the next goal, in **orange** in the chart. Without known prices for then, the goal is shown without cost. It is an expectation and never steers anything.
+
 ### Plan: departures
 
 | Source | What it does |
@@ -58,6 +60,7 @@ Home also shows the **Ready Guard** card (will the car be ready in time, and the
 | **Calendar** | Trips from a Home Assistant calendar. Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
 | **Helper** | An `input_datetime` (and optionally an `input_number` for the level), for example from a dashboard. |
 | **One-off departure** | A trip that differs from normal; removed after it has passed. |
+| **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Naar Thuis" (or a trip to "Thuis"/your home) is used as the way back. |
 | **Add trip** | Writes trips to your calendar as "Naar &lt;destination&gt;" with "doel: … precondition: …" (test mode until **Allow adding trips to calendar** is on). |
 | **Own departures per car** (more cars) | A car can have its own schedule, calendar and one-off departure; otherwise all cars share them. |
 
@@ -68,7 +71,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | Page | Options (default) |
 | --- | --- |
 | **Overview** | Checklist: is everything set up well, with a link to fix each point. |
-| **Vehicle** | Detect the car or choose its sensors (battery level, range, charging, plugged in, the car's own charge limit). Battery capacity. **Car data counts as old after** (3 h): when the car's cloud is down, the plan goes on with an estimate. **No car integration?**: enter the level when you plug in, or a fixed amount per session. **I have more than one car** (off): add up to 6 cars, each with an optional **Name in the calendar**. |
+| **Vehicle** | Detect the car or choose its sensors (battery level, range, charging, plugged in, the car's own charge limit). Battery capacity. **Use per 100 km** (optional, for trip estimates; the app learns it from your own trips, otherwise it uses the range sensor or 18 kWh/100 km). **Car data counts as old after** (3 h): when the car's cloud is down, the plan goes on with an estimate. **No car integration?**: enter the level when you plug in, or a fixed amount per session. **I have more than one car** (off): add up to 6 cars, each with an optional **Name in the calendar**. |
 | **Charger** | Detect the charger or choose its entities, phases, maximum current (optionally follow the charger's own limit live). **Control check** and **How the app starts and stops charging** (start/stop method and current method). **I have more than one charger** (off): up to 4 chargers, each with its own plan and control, and a **Usual car**. |
 | **Grid** | Grid meter (for example P1), **main fuse** and load balancer. Needed for the house load, solar, and sharing the connection between chargers. |
 | **Prices** | A dynamic price source (EnergyZero, Nord Pool, Tibber, …) with your purchase fee, energy tax and VAT, or **Fixed or day/night tariff**. Optional **price forecast** with a safety margin, so the plan can wait for a cheaper day. |

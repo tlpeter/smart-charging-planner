@@ -1,6 +1,6 @@
 {
   "name": "smart-charging-planner",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Plans EV and home battery charging around dynamic electricity prices.",
   "main": "server.js",
   "private": true,

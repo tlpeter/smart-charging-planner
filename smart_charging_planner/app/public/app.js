@@ -116,6 +116,9 @@ function durationText(minutes) {
             <div class="field"><label>Car data counts as old after (hours)</label>
               <input name="stale_hours" type="number" min="0.5" max="48" step="0.5" value="3"></div>
           </div>
+          <div class="field"><label>Use per 100 km in kWh (optional, for trip estimates)</label>
+            <input name="consumption_kwh_100km" type="number" min="8" max="40" step="0.5" placeholder="18">
+            <div class="muted small">For how much battery a trip in your calendar costs. The app learns this from your own trips (battery level when you leave and when you are back); until then it uses the car's range sensor, or this value.</div></div>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
           ['Battery level from', { sensor: 'the car (sensor)', manual_soc: 'entered by you at plug-in', fixed_kwh: `fixed amount: ${esc(v.fixed_kwh)} kWh per session` }[v.mode || 'sensor']],
@@ -642,7 +645,7 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -815,6 +818,9 @@ function durationText(minutes) {
       const y1v = ticks[ticks.length - 1];
       const Y = (v) => m.t + ih - ((v - y0v) / (y1v - y0v)) * ih;
       const planned = new Set(d.plan.blocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
+      // Expected charging after the next trip (orange; not steered).
+      const expBlocks = d.next && d.next.expected ? d.next.expected.blocks : [];
+      const expected = new Set(expBlocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
 
       // Bar width per block: real prices can be per 15 minutes, a forecast per hour.
       let bars = '';
@@ -830,7 +836,10 @@ function durationText(minutes) {
         const blk = isPlanned ? d.plan.blocks.find((b) => p.start <= b.start && b.start < p.end) : null;
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
         const planColor = onSolar ? 'var(--solar)' : 'var(--accent)';
-        const fill = p.forecast ? (isPlanned ? (onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : 'url(#fc-bar)') : isPlanned ? planColor : 'var(--bar)';
+        const isExp = !isPlanned && expected.has(p.start);
+        const fill = p.forecast
+          ? (isPlanned ? (onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          : isPlanned ? planColor : isExp ? 'var(--expected)' : 'var(--bar)';
         const past = p.end <= Date.now() ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
@@ -838,7 +847,7 @@ function durationText(minutes) {
         const path = up
           ? `M${x},${top + h} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${top + h} Z`
           : `M${x},${top} V${top + h - r} Q${x},${top + h} ${x + r},${top + h} H${x + bw - r} Q${x + bw},${top + h} ${x + bw},${top + h - r} V${top} Z`;
-        const outline = p.forecast ? ` stroke="${isPlanned ? 'var(--accent)' : 'var(--bar)'}" stroke-width="1"` : '';
+        const outline = p.forecast ? ` stroke="${isPlanned ? 'var(--accent)' : isExp ? 'var(--expected)' : 'var(--bar)'}" stroke-width="1"` : '';
         bars += `<path d="${path}" fill="${fill}"${past}${outline}/>`;
         bars += `<rect class="hit" data-i="${i}" x="${X(p.start)}" y="${m.t}" width="${slot}" height="${ih}" fill="transparent"/>`;
       });
@@ -901,12 +910,23 @@ function durationText(minutes) {
           <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--text)">ready by</text>`);
       }
 
+      // The next goal (after the trip), orange.
+      const ng = d.next && d.next.goal;
+      if (ng && ng.time > t0 && ng.time <= t1 && !(d.plan.deadline && Math.abs(ng.time - d.plan.deadline) < 60000)) {
+        const gx = X(ng.time);
+        const anchor = gx < 90 ? 'start' : 'end';
+        const tx = anchor === 'start' ? gx + 4 : gx - 4;
+        marks.push(`<line x1="${gx}" x2="${gx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--expected)" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--expected)">next goal</text>`);
+      }
+
       wrap.innerHTML = `
         <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Electricity price per interval with planned charging highlighted">
           <defs>
             <pattern id="fc-bar" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--bar)"/></pattern>
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
+            <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
           ${grid}${bars}${solarCurve}${batteryMarks}
           <line x1="${m.l}" x2="${W - m.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>
@@ -1033,13 +1053,14 @@ function durationText(minutes) {
       return `
         ${connectedCarHtml(d)}
         ${readyGuardHtml(d)}
+        ${nextGoalHtml(d)}
         <div class="overview-grid">
           <div class="overview-main">
             <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}</div>
+              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected && d.next.expected.blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after the trip</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1071,6 +1092,49 @@ function durationText(minutes) {
             ${batteryHtml(d)}
           </aside>
         </div>`;
+    }
+
+    // ---------- Looking ahead: after this trip, the next goal ----------
+    function tripText(t) {
+      if (!t) return '';
+      const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
+      const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
+      switch (t.status) {
+        case 'ok': return `~${esc(Math.round(t.km))} km one way${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+        case 'home': return 'At home: no trip';
+        case 'pending': return 'Looking up the distance (OpenStreetMap)…';
+        case 'no_consumption': return `~${esc(tidy(t.km))} km; set the battery capacity or the use per 100 km (Settings › Vehicle) to see what it costs`;
+        case 'no_home': return 'Set your home location in Home Assistant (Settings › System › General) to see what trips cost';
+        default: return t.reason === 'not_an_address' ? 'Put the address in the event\'s location to see what the trip costs' : t.reason === 'not_found' ? 'Address not found on OpenStreetMap' : '';
+      }
+    }
+
+    function nextGoalHtml(d) {
+      const n = d.next;
+      if (!n || (!n.goal && n.trip.pct == null)) return '';
+      const e = n.expected;
+      const low = !!(e && e.below_goal);
+      const tripLine = tripText(n.trip);
+      const cur = `${esc(dayHm(n.current.time))}${n.current.title ? ` · ${esc(n.current.title)}` : ''}`;
+      const back = n.trip.soc_after != null && n.trip.pct != null
+        ? `Back home around ${esc(dayHm(n.trip.return_at))}${n.trip.return_trip ? ` (${esc(n.trip.return_trip.title)})` : ''} with about <strong class="${low ? 'warn-text' : ''}">${esc(tidy(n.trip.soc_after))}%</strong>.` : '';
+      let exp = '';
+      if (n.goal && e) {
+        exp = !e.below_goal ? `Enough for the next goal: no charging expected.`
+          : e.blocks.length
+            ? `Expected: <strong>~${esc(tidy(e.needed_kwh))} kWh</strong> to charge ${e.periods.length ? `(${e.periods.map((x) => `${esc(dayHm(x.start))}–${esc(hm(x.end))}`).join(', ')})` : ''}${e.cost != null ? ` · ~${money(e.cost)}` : ''}${e.uses_forecast ? ' · partly forecast prices' : ''}${e.planned_kwh < e.needed_kwh - 0.1 ? ' · the rest when more prices are known' : ''}.`
+            : `Expected: <strong>~${esc(tidy(e.needed_kwh))} kWh</strong> to charge; prices for then are not known yet.`;
+      } else if (n.goal && n.trip.pct == null) {
+        exp = 'What the trip costs is not known, so no charging is expected yet.';
+      }
+      return `<div class="card next-goal${low ? ' low' : ''}">
+        <div class="ready-kicker">AFTER ${esc(cur.toUpperCase())}</div>
+        ${n.goal ? `<h2>${shape('flag', low ? 'orange' : 'blue', true)}Next goal: ${esc(dayHm(n.goal.time))} · ${esc(n.goal.soc)}%${n.goal.title ? ` · ${esc(n.goal.title)}` : ''}</h2>` : '<h2>No next departure in the coming week</h2>'}
+        ${tripLine ? `<p class="small">This trip: ${tripLine}</p>` : ''}
+        ${back ? `<p class="small">${back}</p>` : ''}
+        ${exp ? `<p class="small ${low ? 'warn-text' : 'muted'}">${exp}</p>` : ''}
+        <p class="muted small">An expectation: the real plan follows when the car is back and plugged in.</p>
+      </div>`;
     }
 
     // ---------- More than one car: which one is connected ----------
@@ -1725,7 +1789,7 @@ function durationText(minutes) {
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
-              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
+              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && t.cost.status !== 'unknown' ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;

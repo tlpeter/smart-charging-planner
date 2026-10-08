@@ -22,6 +22,7 @@
       --rgb-green: 56, 142, 108;
       --rgb-amber: 210, 154, 40;
       --rgb-orange: 210, 119, 45;
+      --expected: rgb(210, 119, 45);
       --rgb-blue: 86, 119, 232;
       --rgb-red: 198, 83, 83;
       --rgb-grey: 125, 132, 136;
@@ -51,6 +52,7 @@
         --rgb-green: 114, 198, 161;
         --rgb-amber: 225, 179, 77;
         --rgb-orange: 225, 142, 76;
+        --expected: rgb(225, 142, 76);
         --rgb-blue: 140, 166, 255;
         --rgb-red: 238, 133, 133;
         --rgb-grey: 157, 164, 170;
@@ -870,3 +872,8 @@
       .charger-row-main { flex: 1 1 calc(100% - 60px); }
       .charger-row-state { width: 100%; text-align: left; padding-left: 44px; }
     }
+
+    /* Looking ahead: the next goal */
+    .next-goal h2 { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; font-size: 18px; }
+    .next-goal.low { box-shadow: inset 4px 0 0 var(--expected); }
+    .next-goal .warn-text, .next-goal strong.warn-text { color: var(--expected); }

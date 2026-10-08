@@ -177,6 +177,20 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 - The plans are made per charger and shared at the moment of charging; they do not yet take each other into account.
 - Notifications name the charger. The first charger keeps `sensor.smart_charging_*`; another gets `sensor.smart_charging_<charger>_*`.
 
+## Looking ahead: the next goal and what a trip costs
+
+Always on. Home shows a card **After &lt;the next departure&gt;** with:
+
+- **The next goal**: the first departure after the car is back (a trip home, such as "Naar Thuis", does not count as a goal). It is shown also when the current target is already reached, and also when the prices for then are not known yet (then without cost).
+- **What this trip costs**: when the calendar event has an address in its location (for example "Hoeksekade 141 2661 JL Bergschenhoek"). Words like "Werk" or "Thuis" are not addresses; put the full address in the location to see the cost.
+  - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
+  - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
+  - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
+- **Back home**: when (the end of the calendar event, or of the trip home) and with about how much battery.
+- **Expected charging** for the next goal, from the moment the car is back, in the cheapest hours: in **orange** in the chart, with "next goal" marked. The card is orange when the car is expected back below the next goal.
+
+This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
