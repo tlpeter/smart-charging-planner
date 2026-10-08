@@ -1,5 +1,9 @@
 'use strict';
 
+// Keep the fast simulator aligned with the pinned Core compatibility test.
+// Override this only when checking a future Home Assistant release locally.
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.0';
+
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
 //   renault_easee  Renault Megane E-Tech (renault) + Easee Charge (easee)
@@ -284,9 +288,9 @@ function start(w, wsPort, restPort) {
       const m = JSON.parse(raw);
       const ok = (result) => s.send(JSON.stringify({ id: m.id, type: 'result', success: true, result }));
       const fail = (message) => s.send(JSON.stringify({ id: m.id, type: 'result', success: false, error: { code: 'x', message } }));
-      if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: '2026.9.4' }));
+      if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: HA_VERSION }));
       switch (m.type) {
-        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: '2026.9.4', latitude: 51.37, longitude: 5.19, country: 'NL' });
+        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 5.19, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
         case 'config/entity_registry/list': return ok(registry(w));

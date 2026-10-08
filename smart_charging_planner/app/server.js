@@ -313,7 +313,13 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   // The next goal: the first departure after the car is back that is not the way home.
   const nextDep = all.find((x) => x.time > returnAt && !(x.source === 'calendar' && isReturnTrip(trips.find((t) => t.time === x.time))));
   const out = {
-    current: { time: departure.time, title: departure.title || cur.title || null, location: cur.location || null, soc_at_departure: socAtDep },
+    current: {
+      time: departure.time,
+      title: departure.title || cur.title || null,
+      location: cur.location || null,
+      target_soc: departure.soc,
+      soc_at_departure: socAtDep,
+    },
     trip: { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter },
     goal: null,
     expected: null,

@@ -1,0 +1,50 @@
+name: Home Assistant Core compatibility
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/ha-core-compat.yml'
+      - 'smart_charging_planner/app/**'
+      - 'tests/ha-core/**'
+      - 'tests/ha-core-compat.test.js'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  HA_CORE_VERSION: '2026.10.0'
+
+jobs:
+  compatibility:
+    name: Core ${{ env.HA_CORE_VERSION }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: smart_charging_planner/app
+      - name: Start Home Assistant Core ${{ env.HA_CORE_VERSION }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ha-core-config"
+          cp tests/ha-core/configuration.yaml "$RUNNER_TEMP/ha-core-config/configuration.yaml"
+          docker run --detach --name scp-ha-core \
+            --publish 8123:8123 \
+            --volume "$RUNNER_TEMP/ha-core-config:/config" \
+            "ghcr.io/home-assistant/home-assistant:${HA_CORE_VERSION}"
+      - name: Test Smart Charging Planner against real Core
+        run: node tests/ha-core-compat.test.js
+      - name: Home Assistant log on failure
+        if: failure()
+        run: docker logs scp-ha-core
+      - name: Stop Home Assistant
+        if: always()
+        run: docker rm --force scp-ha-core
+
