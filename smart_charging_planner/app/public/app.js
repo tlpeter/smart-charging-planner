@@ -1,3 +1,14 @@
+// Readable duration: "45 min", "3 h 20 min", "3 d 14 h".
+function durationText(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return `${m} min`;
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const rest = m % 60;
+  if (d) return h ? `${d} d ${h} h` : `${d} d`;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
 // All URLs are relative, so requests go through the ingress path.
 
     // Material Design Icons (as used by Home Assistant and Mushroom), from @mdi/js 7.4.47 (Apache-2.0).
@@ -8,9 +19,66 @@
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+    // Bounded, intuitive settings become Mushroom-style sliders. Precise
+    // amounts and identifiers remain normal inputs.
+    const RANGE_FIELDS = {
+      soc: '%', default_soc: '%', min_choice: '%', min_soc: '%',
+      force_minutes: ' min', ready_guard_margin_minutes: ' min', battery_care_soc: '%', battery_care_hours: ' h', forecast_factor: '×', max_soc: '%',
+      grid_allow: ' W', delay_start_minutes: ' min', delay_stop_minutes: ' min',
+      capacity_kwh: ' kWh', efficiency: '', charge_kw: ' kW', discharge_kw: ' kW',
+      min_pct: '%', max_pct: '%', ev_from_pct: '%', ev_to_pct: '%',
+      loss_percent: '%', stale_hours: ' h',
+    };
+    function rangeText(input) {
+      const n = Number(input.value);
+      if (input.name === 'efficiency' || input.name === 'forecast_factor') return `${Math.round(n * 100)}%`;
+      return `${Number.isFinite(n) ? n : '–'}${input.dataset.unit || RANGE_FIELDS[input.name] || ''}`;
+    }
+    function refreshRangeValues(root = document) {
+      root.querySelectorAll('input[data-mushroom-range]').forEach((input) => {
+        const out = input.closest('.field') && input.closest('.field').querySelector('.range-value');
+        if (out) out.textContent = rangeText(input);
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const value = Number(input.value);
+        if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(value)) {
+          input.style.setProperty('--range-pos', `${Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))}%`);
+        }
+      });
+    }
+    function enhanceRangeControls(root = document) {
+      root.querySelectorAll('input[type="number"]').forEach((input) => {
+        if (!(input.name in RANGE_FIELDS) || !input.hasAttribute('min') || !input.hasAttribute('max')) return;
+        input.type = 'range';
+        input.dataset.mushroomRange = '1';
+        const field = input.closest('.field');
+        const label = field && field.querySelector('label');
+        if (label && !label.querySelector('.range-value')) {
+          const out = document.createElement('output');
+          out.className = 'range-value';
+          label.appendChild(out);
+        }
+      });
+      refreshRangeValues(root);
+    }
+    document.addEventListener('input', (event) => {
+      if (event.target.matches('input[data-mushroom-range]')) refreshRangeValues(event.target.closest('.field') || document);
+    });
+    document.addEventListener('change', (event) => {
+      if (event.target.matches('input[data-mushroom-range]')) refreshRangeValues(event.target.closest('.field') || document);
+    });
+
+    // More chargers: every request is for the charger chosen in the bar.
+    let multiCharger = false;
+    let chargerSel = null;
+    let chargerAdding = false;
+    let chargerCars = [];
+    let chargerOptionOn = false;
+
     async function api(method, url, body) {
       // Changes are always sent as JSON: the app refuses anything else.
       const write = method !== 'GET';
+      if (multiCharger && chargerSel && !/[?&]charger=/.test(url)) url += `${url.includes('?') ? '&' : '?'}charger=${encodeURIComponent(chargerSel)}`;
       const res = await fetch(url, {
         method,
         headers: write ? { 'Content-Type': 'application/json' } : undefined,
@@ -39,6 +107,9 @@
           { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
         ],
         extraInputs: () => `
+          ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
+            <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
+            <div class="muted small">A calendar event with "auto: renault" or "car: renault" is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
           <div class="two">
             <div class="field"><label>Battery capacity in kWh (needed to estimate the level when the car cannot be reached)</label>
               <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
@@ -89,7 +160,10 @@
           </div>
           ${follow.length ? `<label class="check"><input type="checkbox" name="follow_limits" checked> Follow the charger's own limit (now ${esc(c.suggested_max_current)} A) live</label>
             <input type="hidden" name="max_current_entities" value="${esc(follow.join(','))}">` : ''}
-          ${limitList}${disabledNote}`;
+          ${limitList}${disabledNote}
+          ${chargerOptionOn && chargerCars.length > 1 ? `<div class="field"><label>Usual car on this charger</label>
+            <select name="vehicle_id"><option value="">— any —</option>${chargerCars.map((v) => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')}</select>
+            <div class="muted small">When this car says it is plugged in, it is on this charger; the app still notices when the cars are the other way round.</div></div>` : ''}`;
         },
         extraRows: (c) => [
           ['Phases', String(c.phases)],
@@ -268,10 +342,13 @@
         const errBox = f.querySelector('.form-error');
         errBox.hidden = true;
         try {
-          await api('POST', 'api/vehicles', {
+          const r = await api('POST', 'api/vehicles', {
             mode: f.mode.value, name: f.name.value || 'My vehicle',
             capacity_kwh: f.capacity_kwh.value, fixed_kwh: f.fixed_kwh.value,
+            ...vehicleTarget(),
           });
+          if (r.vehicle) { vehicleAdding = false; vehicleSel = r.vehicle.id; }
+          formFilled.vehicle = false;
           $('vehicle-results').innerHTML = '';
           loadSaved('vehicle');
         } catch (err) {
@@ -281,10 +358,141 @@
       });
     }
 
+    // ---------- More than one car (an option, off by default) ----------
+    let multiCar = false;
+    let vehicleSel = null; // id of the car shown in Settings › Vehicle
+    let vehicleAdding = false; // "Add a car" pressed: the forms are for a new car
+
+    function vehicleTarget() {
+      return vehicleAdding ? { add: true } : (vehicleSel ? { id: vehicleSel } : {});
+    }
+
+    function multiCarCard(data) {
+      const box = $('vehicle-multi');
+      if (!box) return;
+      const list = data.vehicles || [];
+      if (!list.length) { box.innerHTML = ''; return; }
+      const unused = list.filter((v) => !v.used);
+      const chips = multiCar ? `
+        <div class="buttons car-picker">
+          ${list.map((v) => `<button type="button" class="${!vehicleAdding && v.id === vehicleSel ? 'primary' : 'secondary'}" data-car="${esc(v.id)}">${icon('car')}<span>${esc(v.name)}</span></button>`).join('')}
+          ${list.length < (data.max_vehicles || 6) ? `<button type="button" class="${vehicleAdding ? 'primary' : 'secondary'}" data-car-add>+ Add a car</button>` : ''}
+        </div>
+        ${list.length > 1 ? `<p class="muted small">The app recognises the connected car by each car's <strong>Plugged in</strong> sensor. A car without one is recognised when no other car says it is plugged in. When the app is not sure, Home asks you which car is connected.</p>` : '<p class="muted small">Add your other car with <strong>+ Add a car</strong>.</p>'}` : '';
+      box.innerHTML = `
+        <div class="card">
+          <label class="check"><input type="checkbox" id="multi-car" ${multiCar ? 'checked' : ''}> I have more than one car</label>
+          <p class="muted small">For more than one car on this charger: the app recognises which car is connected and plans for that car. Leave it off with one car.</p>
+          ${!multiCar && unused.length ? `<p class="muted small">${unused.length} other car${unused.length > 1 ? 's are' : ' is'} saved but not used while this is off.</p>` : ''}
+          ${chips}
+        </div>`;
+      $('multi-car').onchange = async (e) => {
+        try {
+          await api('POST', 'api/vehicles/multi', { enabled: e.target.checked });
+        } catch (err) {
+          e.target.checked = !e.target.checked;
+          alert(err.message);
+          return;
+        }
+        vehicleAdding = false;
+        loadSaved('vehicle');
+      };
+      box.querySelectorAll('[data-car]').forEach((b) => {
+        b.onclick = () => {
+          vehicleAdding = false;
+          vehicleSel = b.dataset.car;
+          formFilled.vehicle = false;
+          $('vehicle-results').innerHTML = '';
+          loadSaved('vehicle');
+        };
+      });
+      const add = box.querySelector('[data-car-add]');
+      if (add) add.onclick = () => {
+        vehicleAdding = true;
+        formFilled.vehicle = false;
+        $('vehicle-results').innerHTML = '';
+        const f = $('noint-form');
+        if (f) f.reset();
+        loadSaved('vehicle');
+      };
+    }
+
+    // ---------- More than one charger (an option, off by default) ----------
+    function multiChargerCard(data, on) {
+      const box = $('charger-multi');
+      if (!box) return;
+      const list = data.chargers || [];
+      if (!list.length) { box.innerHTML = ''; return; }
+      const unused = list.filter((c) => !c.used);
+      box.innerHTML = `
+        <div class="card">
+          <label class="check"><input type="checkbox" id="multi-charger" ${on ? 'checked' : ''}> I have more than one charger</label>
+          <p class="muted small">For more than one charger at home: every charger gets its own plan and control. When the connection is too small for all of them, the car with the least room to spare goes first (it leaves soonest for what it still needs) and the rest is shared. Leave it off with one charger.</p>
+          ${!on && unused.length ? `<p class="muted small">${unused.length} other charger${unused.length > 1 ? 's are' : ' is'} saved but not used while this is off.</p>` : ''}
+          ${on ? `<div class="buttons car-picker">
+            ${list.map((c) => `<button type="button" class="${!chargerAdding && c.id === chargerSel ? 'primary' : 'secondary'}" data-charger="${esc(c.id)}">${icon('charger')}<span>${esc(c.name)}</span></button>`).join('')}
+            ${list.length < (data.max_chargers || 4) ? `<button type="button" class="${chargerAdding ? 'primary' : 'secondary'}" data-charger-add>+ Add a charger</button>` : ''}
+          </div>
+          <p class="muted small">The charger you choose here (or in the bar at the top) is the one Home, Plan, Rules and Activity show.</p>` : ''}
+        </div>`;
+      $('multi-charger').onchange = async (e) => {
+        try {
+          await api('POST', 'api/chargers/multi', { enabled: e.target.checked });
+        } catch (err) {
+          e.target.checked = !e.target.checked;
+          alert(err.message);
+          return;
+        }
+        chargerAdding = false;
+        await loadChargerBar();
+        loadSaved('charger');
+      };
+      box.querySelectorAll('[data-charger]').forEach((b) => {
+        b.onclick = () => selectCharger(b.dataset.charger);
+      });
+      const add = box.querySelector('[data-charger-add]');
+      if (add) add.onclick = () => {
+        chargerAdding = true;
+        formFilled.charger = false;
+        $('charger-results').innerHTML = '';
+        loadSaved('charger');
+      };
+    }
+
+    // The bar at the top: which charger the pages show.
+    async function loadChargerBar() {
+      const bar = $('charger-bar');
+      try {
+        const d = await api('GET', 'api/chargers?charger=');
+        chargerCars = d.cars || [];
+        const used = (d.chargers || []).filter((c) => c.used);
+        multiCharger = !!d.multi_charger && used.length > 1;
+        if (!used.some((c) => c.id === chargerSel)) chargerSel = used.length ? used[0].id : null;
+        if (!multiCharger) { bar.hidden = true; bar.innerHTML = ''; return; }
+        bar.hidden = false;
+        bar.innerHTML = used.map((c) => `<button type="button" class="charger-chip${c.id === chargerSel ? ' active' : ''}" data-bar="${esc(c.id)}">${icon('charger')}<span>${esc(c.name)}</span></button>`).join('');
+        bar.querySelectorAll('[data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
+      } catch {
+        bar.hidden = true;
+      }
+    }
+
+    function selectCharger(id) {
+      chargerAdding = false;
+      chargerSel = id;
+      formFilled.charger = false;
+      if ($('charger-results')) $('charger-results').innerHTML = '';
+      document.querySelectorAll('#charger-bar [data-bar]').forEach((b) => b.classList.toggle('active', b.dataset.bar === id));
+      for (const k of Object.keys(SECTIONS)) formFilled[k] = false;
+      loadSaved('charger');
+      showTab(currentShow);
+    }
+
     // ---------- Section flow ----------
     function sectionShell(kind) {
       const cfg = SECTIONS[kind];
       $('tab-' + kind).innerHTML = `
+        ${kind === 'vehicle' ? '<div id="vehicle-multi"></div>' : ''}${kind === 'charger' ? '<div id="charger-multi"></div>' : ''}
         <div class="card" id="${kind}-intro">
           <h2>Find your ${cfg.noun}</h2>
           <p class="muted">${esc(cfg.intro)}</p>
@@ -308,7 +516,37 @@
       const box = $(`${kind}-saved`);
       try {
         const data = await api('GET', cfg.api);
-        const list = data[cfg.listKey];
+        let list = data[cfg.listKey];
+        if (kind === 'vehicle') {
+          multiCar = !!data.multi_car;
+          if (!multiCar) vehicleAdding = false;
+          if (list.length && !list.some((v) => v.id === vehicleSel)) vehicleSel = list[0].id;
+          if (!multiCar && list.length) vehicleSel = list[0].id;
+          multiCarCard(data);
+          if (vehicleAdding) {
+            $(`${kind}-intro`).querySelector('h2').textContent = 'Add a car';
+            list = [];
+          } else {
+            $(`${kind}-intro`).querySelector('h2').textContent = `Find your ${cfg.noun}`;
+            list = list.filter((v) => v.id === vehicleSel);
+          }
+        }
+        if (kind === 'charger') {
+          if (data.cars) chargerCars = data.cars;
+          const on = !!data.multi_charger;
+          chargerOptionOn = on;
+          if (!on) chargerAdding = false;
+          multiCharger = on && list.filter((c) => c.used).length > 1;
+          if (list.length && !list.some((c) => c.id === chargerSel && c.used)) chargerSel = (list.find((c) => c.used) || list[0]).id;
+          multiChargerCard({ ...data, chargers: list }, on);
+          if (chargerAdding) {
+            $(`${kind}-intro`).querySelector('h2').textContent = 'Add a charger';
+            list = [];
+          } else {
+            $(`${kind}-intro`).querySelector('h2').textContent = `Find your ${cfg.noun}`;
+            list = list.filter((c) => c.id === chargerSel);
+          }
+        }
         if (!list.length) {
           box.innerHTML = '';
           formFilled[kind] = false;
@@ -346,7 +584,9 @@
         }
         box.querySelector('[data-act=remove]').onclick = async () => {
           if (!confirm(`Remove this ${cfg.noun} from the app?`)) return;
-          await api('DELETE', cfg.api);
+          await api('DELETE', (kind === 'vehicle' || kind === 'charger') && item.id ? `${cfg.api}?id=${encodeURIComponent(item.id)}` : cfg.api);
+          if (kind === 'vehicle') vehicleSel = null;
+          if (kind === 'charger') { chargerSel = null; await loadChargerBar(); }
           $(`${kind}-results`).innerHTML = '';
           formFilled[kind] = false;
           savedItems[kind] = null;
@@ -402,7 +642,7 @@
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -493,8 +733,12 @@
         data.integration = c.integration;
       }
       const errBox = form.querySelector('.form-error');
+      if (kind === 'vehicle') Object.assign(data, vehicleTarget());
+      if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
-        await api('POST', cfg.api, data);
+        const r = await api('POST', cfg.api, data);
+        if (kind === 'vehicle' && r.vehicle) { vehicleAdding = false; vehicleSel = r.vehicle.id; }
+        if (kind === 'charger' && r.charger) { chargerAdding = false; chargerSel = r.charger.id; await loadChargerBar(); }
         formFilled[kind] = false;
         await loadSaved(kind);
         const okBtn = $(`${kind}-results`).querySelector('form[data-mine] button[type=submit]');
@@ -556,8 +800,10 @@
       const wrap = $('chart');
       if (!wrap || !d.prices.length) return;
       const W = Math.max(320, wrap.clientWidth);
-      const H = 240;
-      const m = { l: 44, r: 8, t: 12, b: 28 };
+      const H = 272;
+      // Three dedicated marker lanes prevent "now", "safe start" and
+      // "ready by" from colliding when they are only minutes apart.
+      const m = { l: 44, r: 8, t: 46, b: 28 };
       const iw = W - m.l - m.r;
       const ih = H - m.t - m.b;
       const t0 = d.prices[0].start;
@@ -635,13 +881,24 @@
       const nowX = X(nowMs);
       const marks = [];
       if (nowMs > t0 && nowMs < t1) {
+        const anchor = nowX > W - 70 ? 'end' : 'start';
+        const tx = anchor === 'end' ? nowX - 4 : nowX + 4;
         marks.push(`<line x1="${nowX}" x2="${nowX}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5"/>
-          <text x="${nowX + 4}" y="${m.t + 10}" font-size="11" fill="var(--text)">now</text>`);
+          <text x="${tx}" y="13" text-anchor="${anchor}" font-size="11" fill="var(--text)">now</text>`);
+      }
+      if (d.reliability && d.reliability.latest_safe_start > t0 && d.reliability.latest_safe_start < t1) {
+        const sx = X(d.reliability.latest_safe_start);
+        const anchor = sx > W - 90 ? 'end' : 'start';
+        const tx = anchor === 'end' ? sx - 4 : sx + 4;
+        marks.push(`<line x1="${sx}" x2="${sx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <text x="${tx}" y="28" text-anchor="${anchor}" font-size="11" fill="var(--warning)">latest safe start</text>`);
       }
       if (d.departure && d.plan.deadline && d.plan.deadline > t0 && d.plan.deadline <= t1) {
         const dx = X(d.plan.deadline);
+        const anchor = dx < 90 ? 'start' : 'end';
+        const tx = anchor === 'start' ? dx + 4 : dx - 4;
         marks.push(`<line x1="${dx}" x2="${dx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="4 3"/>
-          <text x="${dx - 4}" y="${m.t + 10}" font-size="11" text-anchor="end" fill="var(--text)">ready by</text>`);
+          <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--text)">ready by</text>`);
       }
 
       wrap.innerHTML = `
@@ -686,6 +943,53 @@
       return shape('sleep', 'grey');
     }
 
+    function readyGuardHtml(d) {
+      const r = d.reliability;
+      if (!r) return '';
+      const visual = {
+        on_track: ['check', 'green'],
+        at_risk: ['clock', 'amber'],
+        action_needed: ['alert', 'orange'],
+        not_achievable: ['alert', 'red'],
+        advice_only: ['status', 'blue'],
+        no_goal: ['clock', 'grey'],
+        off: ['sleep', 'grey'],
+      }[r.status] || ['status', 'grey'];
+      const fact = (label, value) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+      const done = r.needed_kwh === 0;
+      const facts = [
+        d.departure ? fact('Ready by', dayHm(d.departure.time)) : fact('Ready by', 'Not set'),
+        !done && r.latest_safe_start ? fact('Latest safe start', dayHm(r.latest_safe_start)) : '',
+        !done && r.expected_ready ? fact('Expected ready', dayHm(r.expected_ready)) : '',
+        !done && r.safety_margin_minutes != null ? fact('Safety margin', durationText(r.safety_margin_minutes)) : '',
+      ].join('');
+      const chips = (r.factors || []).map((f) =>
+        `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');
+      const current = d.vehicle && Number.isFinite(Number(d.vehicle.soc)) ? Number(d.vehicle.soc) : null;
+      const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
+      const progress = current != null ? Math.max(0, Math.min(100, current)) : 0;
+      const targetPos = target != null ? Math.max(0, Math.min(100, target)) : null;
+      return `<div class="card ready-card ready-${esc(r.status)}">
+        <div class="ready-head">
+          <div class="entity">${shape(visual[0], visual[1])}<div class="txt">
+            <div class="ready-kicker">READY GUARD</div>
+            <div class="ready-title">${esc(r.label)}</div>
+            <div class="secondary">${esc(r.message)}</div>
+          </div></div>
+          <div class="ready-meta">
+            <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'AUTOMATIC' : 'ADVICE ONLY'}</span>
+            <span class="src">Updated ${esc(hm(d.computed_at))} · <a href="#" id="refresh-now">Refresh</a></span>
+          </div>
+        </div>
+        ${current != null && target != null ? `<div class="ready-level">
+          <div class="ready-level-label"><span>Battery <strong>${esc(current)}%</strong></span><span>Target <strong>${esc(target)}%</strong></span></div>
+          <div class="ready-track"><span style="width:${progress}%"></span><i style="left:${targetPos}%"></i></div>
+        </div>` : ''}
+        <div class="ready-facts">${facts}</div>
+        <div class="reliability-chips">${chips}</div>
+      </div>`;
+    }
+
     function overviewHtml(d) {
       if (d.missing.length) {
         const tabs = { prices: 'Prices', vehicle: 'Vehicle' };
@@ -697,76 +1001,123 @@
       let headline;
       if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
       else if (p.notes.includes('fixed_waiting')) headline = 'Waiting for the car to be plugged in';
-      else if (p.notes.includes('already_at_target')) headline = v.mode === 'fixed_kwh' ? 'The fixed amount has been charged' : 'No charging needed';
+      else if (p.notes.includes('already_at_target')) headline = 'No charging scheduled';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
       else if (!p.blocks.length) headline = 'No price blocks available before the deadline';
-      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh: ${periodsList}${p.periods.some((x) => x.forecast) ? ' (partly on forecast prices)' : ''}`;
-      if (d.boost && p.blocks.length) headline = `Charge now: ${p.planned_kwh.toFixed(1)} kWh, ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
+      else headline = `Charge ${p.planned_kwh.toFixed(1)} kWh · ${periodsList}${p.periods.some((x) => x.forecast) ? ' · partly forecast' : ''}`;
+      if (d.boost && p.blocks.length) headline = `Charge now · ready around ${dayHm(p.blocks[p.blocks.length - 1].end)}`;
 
       const pw = d.power || null;
-      let nowText = '';
-      if (pw && pw.now_w != null) nowText = pw.now_w > 500 ? `charging now at ${(pw.now_w / 1000).toFixed(1)} kW` : 'not charging now';
+      const nowText = pw && pw.now_w != null ? (pw.now_w > 500 ? `charging at ${(pw.now_w / 1000).toFixed(1)} kW` : 'not charging') : '';
       let planText = '';
       if (pw) {
         const limit = `${pw.phases} × ${tidy(pw.amps)} A = ${pw.theoretical_kw.toFixed(1)} kW${d.assumed_current ? ', assumed' : pw.max_source === 'manual' ? ', set manually' : pw.max_name ? `, max from ${pw.max_name}` : ''}`;
         if (pw.learned && pw.learned.available) {
           planText = pw.learned.kw < pw.theoretical_kw - 0.05
-            ? `Plan uses ${pw.planned_kw.toFixed(1)} kW: what the car really charged at in the last ${pw.learned.days} days (the charger allows ${limit})`
-            : `Plan uses ${pw.planned_kw.toFixed(1)} kW: the charger maximum (${limit}); measured in the last ${pw.learned.days} days: ${pw.learned.kw.toFixed(1)} kW`;
+            ? `Plan uses ${pw.planned_kw.toFixed(1)} kW from recent charging (charger allows ${limit})`
+            : `Plan uses ${pw.planned_kw.toFixed(1)} kW · ${limit}`;
         } else {
-          const why = pw.learned && pw.learned.reason === 'no_power_sensor' ? 'choose a charging power sensor in Settings › Charger to use the real charging power'
-            : pw.learned && pw.learned.reason === 'error' ? 'the real charging power could not be read'
-            : 'not enough charging measured yet to learn the real charging power';
-          planText = `Plan uses ${pw.planned_kw.toFixed(1)} kW (${limit}); ${why}`;
+          planText = `Plan uses ${pw.planned_kw.toFixed(1)} kW · ${limit}`;
         }
-        if (d.house_load.available && p.blocks.length && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += '; less in some blocks because of house load';
+        if (d.house_load.available && p.blocks.some((b) => b.power_kw < pw.planned_kw - 0.05)) planText += ' · reduced in some blocks for house load';
       }
       const cd = v.car_data;
-      const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' (estimated)' : ''}` : esc(v.soc_state || 'unknown');
+      const socText = v.soc != null ? `${cd && !cd.ok ? '~' : ''}${v.soc}%${v.mode === 'manual_soc' || (cd && !cd.ok) ? ' estimated' : ''}` : esc(v.soc_state || 'unknown');
+      const vehicleLine = `${esc(v.name)} · ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} → ${d.planning.target_soc}%`}${d.departure ? ` · ${esc(dayHm(d.departure.time))}` : ' · no departure'}${nowText ? ` · ${esc(nowText)}` : ''}`;
+      const notes = p.notes.map((n) => n === 'car_limit'
+        ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
+        : n === 'battery_care' && p.care
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long. <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
+
       return `
-        <div class="card">
-          <div class="row" style="border:none;padding:0;align-items:center">
-            <span class="advice${d.control_allowed ? ' live' : ''}">${d.control_allowed ? 'LIVE · THE APP CONTROLS THE CHARGER' : 'ADVICE ONLY · NOTHING IS CONTROLLED'}</span>
-            <span class="src">Updated ${esc(hm(d.computed_at))} · every ${esc(d.refresh_minutes)} min · <a href="#" id="refresh-now">Refresh now</a></span>
+        ${connectedCarHtml(d)}
+        ${readyGuardHtml(d)}
+        <div class="overview-grid">
+          <div class="overview-main">
+            <div class="card chart-card">
+              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
+              <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
+              <div class="chart-wrap" id="chart"></div>
+              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}</div>
+              ${houseLoadHtml(d)}
+              ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
+                <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
+                ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
+                </table></details>` : ''}
+            </div>
+
+            <details class="card plan-details">
+              <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
+              <div class="plan-detail-body">
+                <p class="plan-vehicle">${vehicleLine}</p>
+                ${planText ? `<p class="muted small">${esc(planText)}</p>` : ''}
+                ${cd && !cd.ok ? `<div class="note"><strong>Car not reachable:</strong> battery data is ${cd.reason === 'stale' ? 'old' : 'unavailable'}; the plan uses ${esc(cd.estimate)}%.</div>` : ''}
+                ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))}; the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
+                ${!d.boost ? limitLine(d.limit, true) : ''}
+                ${p.cost != null ? `<div class="stats">
+                  <div class="stat">${shape('cash', 'blue', true)}<div><div class="v">${money(p.cost)}</div><div class="l">${d.boost ? 'Cost now' : 'Planned cost'}</div></div></div>
+                  ${!d.boost ? `<div class="stat">${shape('savings', 'green', true)}<div><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div></div>` : ''}
+                </div>` : ''}
+                ${vehicleSessionHtml(d)}
+                ${continuousNote(p)}
+                ${notes}
+                ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
+              </div>
+            </details>
           </div>
-          <div class="entity" style="margin:12px 0 4px">
-            ${overviewShape(d, p, pw)}
-            <div class="txt"><div class="headline">${esc(headline)}</div>
-            <div class="secondary">${esc(v.name)}: ${v.mode === 'fixed_kwh' ? `${esc(v.fixed_kwh)} kWh per session` : `${socText} now → ${d.planning.target_soc}%${d.planning.wanted_soc > d.planning.target_soc ? ' (car limit)' : ''}`}${d.departure ? ` by ${esc(dayHm(d.departure.time))}${d.departure.event_start && d.departure.event_start !== d.departure.time ? ` (leave ${esc(hm(d.departure.event_start))})` : ''} <a href="#" data-goto="departures" class="src">(${esc(SOURCE_NAMES[d.departure.source])}${d.departure.title ? ': ' + esc(d.departure.title) : ''})</a>` : ' <a href="#" data-goto="departures" class="src">(no departure)</a>'}${v.plugged ? ` · plugged in: ${esc(v.plugged)}` : ''}${nowText ? ` · ${esc(nowText)}` : ''}</div></div>
+          <aside class="overview-side">
+            ${quickHtml(d)}
+            ${batteryHtml(d)}
+          </aside>
+        </div>`;
+    }
+
+    // ---------- More than one car: which one is connected ----------
+    function connectedCarHtml(d) {
+      const c = d.cars;
+      if (!c) return '';
+      const cur = c.list.find((x) => x.id === c.connected_id);
+      const name = cur ? esc(cur.name) : 'a car';
+      const conflictCar = c.conflict ? c.list.find((x) => x.id === c.conflict) : null;
+      const HOW = {
+        chosen: `Chosen by you. Back to automatic when the car is unplugged.${conflictCar ? ` <strong>Note:</strong> ${esc(conflictCar.name)} says it is plugged in.` : ''}`,
+        sensor: `Recognised by its plug sensor.`,
+        charging_sensor: `Recognised by its charging sensor.`,
+        no_other: `No other car says it is plugged in.`,
+        last: `No car connected. The plan is for ${name}, the last car that was connected.`,
+        first: `No car connected. The plan is for ${name}.`,
+        usual: `No car connected. The plan is for ${name}, the usual car on this charger.`,
+        only: `The other car is on another charger, so this is ${name}.`,
+        guess: `The app cannot tell which car is connected and plans for ${name} for now. <strong>Which car is it?</strong>`,
+      };
+      const connected = c.charger_plugged !== false && !['last', 'first', 'usual'].includes(c.how);
+      return `
+        <div class="card connected-car${c.ask ? ' attention' : ''}">
+          <div class="card-title-row"><div>
+            <div class="ready-kicker">${connected ? "CONNECTED CAR" : "NEXT CAR"}</div>
+            <h2>${shape('car', c.ask ? 'orange' : 'blue', true)}${name}</h2>
+          </div></div>
+          <p class="muted small">${HOW[c.how] || ''}</p>
+          <div class="buttons car-picker">
+            ${c.list.map((x) => `<button type="button" class="${c.chosen && x.id === c.connected_id ? 'primary' : 'secondary'}" data-connect="${esc(x.id)}">${esc(x.name)}</button>`).join('')}
+            <button type="button" class="${c.chosen ? 'secondary' : 'primary'}" data-connect="">Automatic</button>
           </div>
-          ${planText ? `<p class="muted small" style="margin-top:-6px">${esc(planText)}</p>` : ''}
-          ${cd && !cd.ok ? `<div class="note">${shape('alert', 'orange', true)} <strong>Car not reachable</strong>: the battery level ${cd.reason === 'stale' ? 'has not been updated' : 'has not been available'}${cd.since ? ` since ${esc(dayHm(cd.since))}` : ''} (the car's cloud may be down). ${cd.assumed ? `No earlier level is known, so the plan assumes ${esc(cd.estimate)}%.` : `The plan uses ${esc(cd.estimate)}%: the last level ${esc(cd.last_soc)}%${cd.kwh_since > 0 ? ` plus ${esc(tidy(cd.kwh_since))} kWh charged since` : ''}.`} The car's charge limit is not changed until it is back.</div>` : ''}
-          ${p.stage && d.charge_for ? `<p class="small">At least ${esc(d.charge_for.min_soc)}% before ${esc(dayHm(p.stage.first_deadline))} (${tidy(p.stage.first_kwh)} kWh), the rest before ${esc(dayHm(d.departure.time))}.</p>` : ''}
-          ${!d.boost ? limitLine(d.limit, true) : ''}
-          ${d.boost ? (p.cost != null ? `
-          <div class="stats">
-            <div class="stat">${shape('bolt', 'amber', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Cost of charging now</div></div></div>
-          </div>` : '') : p.cost != null ? `
-          <div class="stats">
-            <div class="stat">${shape('cash', 'blue', true)}<div><div class="v">${money(p.cost)}</div><div class="l">Planned cost</div></div></div>
-            <div class="stat">${shape('bolt', 'grey', true)}<div><div class="v">${money(p.reference_cost)}</div><div class="l">Charging right away</div></div></div>
-            <div class="stat">${shape('savings', 'green', true)}<div><div class="v">${money(p.savings)}</div><div class="l">Saving</div></div></div>
-          </div>` : ''}
-          ${vehicleSessionHtml(d)}
-          ${continuousNote(p)}
-          ${p.notes.map((n) => n === 'car_limit' ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed) : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('')}
-          ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
-        </div>
-        ${quickHtml(d)}
-        ${batteryHtml(d)}
-        <div class="card">
-          <h2>Prices and plan</h2>
-          <p class="muted small">All-in price per kWh${d.prices.length && d.prices[1] ? `, per ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minutes` : ''}</p>
-          <div class="chart-wrap" id="chart"></div>
-          <div class="legend"><span><i style="background:var(--accent)"></i>Planned charging</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((a) => a.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery charges · grey: holds</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Planned on solar · line: expected sun for the car</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i style="background:repeating-linear-gradient(45deg,var(--bar) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--bar)"></i>Forecast (striped)</span>' : ''}</div>
-          ${houseLoadHtml(d)}
-          ${p.periods.length ? `
-          <details><summary class="small muted" style="margin-top:12px;cursor:pointer">Show plan as table</summary>
-            <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
-            ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}${x.solar_kwh ? ` <span class="muted small">(${tidy(x.solar_kwh)} kWh sun)</span>` : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
-            </table></details>` : ''}
-        </div>
-`;
+        </div>`;
+    }
+
+    function bindCars() {
+      document.querySelectorAll('[data-connect]').forEach((b) => {
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            await api('POST', 'api/vehicles/connected', { vehicle_id: b.dataset.connect || null });
+          } catch (err) {
+            alert(err.message);
+          }
+          loadOverview(true);
+        };
+      });
     }
 
     // ---------- Charge now ----------
@@ -839,36 +1190,36 @@
       if (d.boost) return boostHtml(d);
       const v = d.vehicle || {};
       const opts = [];
-      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Up to the plan's target (${d.planning.target_soc}%)</option>`);
-      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Up to a battery level</option>');
-      opts.push('<option value="kwh">A fixed amount (kWh)</option>');
+      if (d.normal_plan && d.normal_plan.needed_kwh != null) opts.push(`<option value="target">Plan target (${d.planning.target_soc}%)</option>`);
+      if (v.soc != null && v.mode !== 'fixed_kwh') opts.push('<option value="soc">Battery level</option>');
+      opts.push('<option value="kwh">Fixed amount (kWh)</option>');
       const canMin = v.soc != null && v.mode !== 'fixed_kwh';
-      const mins = [20, 25, 30, 35, 40, 45];
       return `
         <div class="card quick">
-          <h2>${shape('bolt', 'amber', true)} Quick choices</h2>
+          <div class="card-title-row"><h2>${shape('bolt', 'amber', true)} Quick choices</h2><span class="src">Temporary</span></div>
           ${modeHtml(d)}
-          <div class="qsec">
-            <div class="qhead">${shape('bolt', 'grey', true)}<div><strong>Charge now</strong><div class="muted small">Right away instead of in the cheapest hours.</div></div></div>
-            <form id="boost-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <select name="mode">${opts.join('')}</select>
-              <input name="value" type="number" step="any" min="0" style="width:100px" hidden>
-              <span class="muted small" id="boost-unit"></span>
-              <button class="secondary" type="submit">Check</button>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('bolt', 'blue', true)}<div><strong>Charge now</strong><div class="muted small">Start immediately, up to a goal you choose.</div></div></div>
+            <form id="boost-form" class="choice-form">
+              <select name="mode" aria-label="Charge now goal">${opts.join('')}</select>
+              <div class="choice-value"><input name="value" type="number" step="any" min="0" hidden><span class="muted small" id="boost-unit"></span></div>
+              <button class="primary" type="submit">Continue</button>
             </form>
             <div id="boost-check">${boostMessage}</div>
           </div>
           ${canMin ? `
-          <div class="qsec">
-            <div class="qhead">${shape('battery', 'grey', true)}<div><strong>Quickly to a minimum</strong><div class="muted small">Charge right away up to a minimum, then the plan takes over.</div></div></div>
-            <form id="min-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <select name="value">${mins.map((m) => `<option value="${m}" ${m === minDefault ? 'selected' : ''}>${m}%</option>`).join('')}</select>
-              <button class="secondary" type="submit">Check</button>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('battery', 'purple', true)}<div><strong>Quick minimum</strong><div class="muted small">Charge immediately to this level, then resume the plan.</div></div></div>
+            <form id="min-form" class="choice-form slider-choice">
+              <div class="field"><label>Minimum <output class="range-value">${minDefault}%</output></label>
+                <input name="value" type="range" min="20" max="45" step="5" value="${minDefault}" data-mushroom-range="1" data-unit="%">
+              </div>
+              <button class="secondary" type="submit">Continue</button>
             </form>
             <div id="min-check"></div>
           </div>` : ''}
-          <div class="qsec">
-            <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready for</strong><div class="muted small">Normally the car is ready for the next departure. Choose a later day when that is cheaper.</div></div></div>
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready later</strong><div class="muted small">Move the goal to tomorrow or the day after when that is cheaper.</div></div></div>
             <div id="cf-box"><p class="muted small">Loading…</p></div>
           </div>
         </div>`;
@@ -892,9 +1243,9 @@
         now = `<p class="small">${shape('sun', n.code === 'solar' ? 'amber' : 'grey', true)} Now: ${esc(gridTxt)}${n.code === 'solar' ? (n.equalizer ? ' · charging on solar through the Easee Equalizer' : ` · charging on solar at ${esc(n.amps)} A${n.phases === 1 ? ', one phase' : ''}`) : ''}. <span class="muted">${n.equalizer && n.code === 'solar' ? '' : esc(n.reason || '')}</span></p>`;
       }
       return `
-          <div class="qsec">
-            <div class="qhead">${shape('sun', sol.mode === 'plan' ? 'grey' : 'amber', true)}<div><strong>How to charge</strong><div class="muted small">${esc(MODE_TEXT[sol.mode])}</div></div></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="qsec action-tile mode-tile">
+            <div class="qhead">${shape('sun', sol.mode === 'plan' ? 'grey' : 'amber', true)}<div><strong>Charging mode</strong><div class="muted small">${esc(MODE_TEXT[sol.mode])}</div></div></div>
+            <div class="mode-pills">
               ${[['plan', 'Price plan'], ['plan_solar', 'Plan + solar'], ['solar', 'Solar only']].map(([k, l]) => `<button class="${sol.mode === k ? 'primary' : 'secondary'} mode-btn" data-mode="${k}">${l}</button>`).join('')}
             </div>
             ${now}
@@ -953,7 +1304,10 @@
       }
       minDefault = c.min_default;
       const mf = $('min-form');
-      if (mf && !mf.contains(document.activeElement)) mf.value.value = String(c.min_default);
+      if (mf && !mf.contains(document.activeElement)) {
+        mf.value.value = String(c.min_default);
+        refreshRangeValues(mf);
+      }
       const a = c.active;
       if (a) {
         box.innerHTML = `
@@ -1217,11 +1571,43 @@
       return `<p class="muted small" style="margin-top:10px">Typical house load (last ${h.days} days${h.charger_subtracted ? ', without the charger' : ''}): about ${kw(night)} at night, up to ${kw(prof[peakHour])} around ${String(peakHour).padStart(2, '0')}:00. Main fuse ${esc(h.main_fuse)} A.</p>`;
     }
 
+    // More chargers: every charger at a glance, on top of Home.
+    function chargersOverviewHtml(o) {
+      if (!o || !o.multi_charger) return '';
+      const sh = o.share;
+      const rank = sh && sh.order ? sh.order : [];
+      const row = (c) => {
+        const status = c.plugged === false ? 'No car connected'
+          : c.charging ? `Charging${c.power_w ? ` · ${(c.power_w / 1000).toFixed(1)} kW` : ''}${c.shared && c.amps ? ` · ${c.amps} A (shared)` : ''}`
+            : c.code === 'shared_wait' ? 'Waiting for the other charger'
+              : c.want === 'charge' ? 'Starting' : 'Waiting for the plan';
+        const first = rank.length > 1 && rank[0] === c.id ? '<span class="chip">goes first</span>' : '';
+        return `<button type="button" class="charger-row${c.id === chargerSel ? ' active' : ''}" data-bar="${esc(c.id)}">
+          ${shape('charger', c.charging ? 'green' : c.code === 'shared_wait' ? 'orange' : 'blue', true)}
+          <span class="charger-row-main"><strong>${esc(c.name)}</strong> ${first}
+            <span class="muted small">${c.vehicle ? `${esc(c.vehicle.name)}${c.vehicle.soc != null ? ` · ${esc(c.vehicle.soc)}%` : ''}` : 'No car'}${c.ask ? ' · which car?' : ''}${c.departure ? ` → ${esc(c.departure.soc)}% ${esc(dayHm(c.departure.time))}` : ''}</span></span>
+          <span class="charger-row-state small">${esc(status)}${c.ready_guard ? `<br><span class="muted">${esc(c.ready_guard.label)}</span>` : ''}</span>
+        </button>`;
+      };
+      const how = !sh ? '' : sh.how === 'load_balancer' ? 'Your load balancer shares the connection.'
+        : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A).`
+          : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
+      return `<div class="card chargers-card">
+        <div class="ready-kicker">CHARGERS</div>
+        ${o.chargers.map(row).join('')}
+        <p class="muted small">${how} When there is not enough for all, the car with the least room to spare goes first; the rest is shared.</p>
+      </div>`;
+    }
+
     async function loadOverview(force = false) {
       try {
         const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
         lastPlan = d;
-        $('overview-body').innerHTML = overviewHtml(d);
+        const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
+        $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
+        $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
+        enhanceRangeControls($('overview-body'));
+        refreshRangeValues($('overview-body'));
         drawChart(d);
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
@@ -1231,6 +1617,7 @@
         };
         bindBoost();
         bindModes();
+        bindCars();
         loadChargeFor();
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
@@ -1271,14 +1658,31 @@
       return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
     }
 
+    let depCar = null; // more cars: the car whose departures are shown
+
+    function depCarHtml(d) {
+      if (!d.cars) return '';
+      const car = d.cars.find((c) => c.id === d.vehicle_id) || d.cars[0];
+      const others = d.cars.filter((c) => c.id !== car.id);
+      return `
+        <div class="buttons car-picker">${d.cars.map((c) => `<button type="button" class="${c.id === car.id ? 'primary' : 'secondary'}" data-depcar="${esc(c.id)}">${icon('car')}<span>${esc(c.name)}</span></button>`).join('')}</div>
+        <label class="check"><input type="checkbox" id="dep-own" ${d.own_departures ? 'checked' : ''}> ${esc(car.name)} has its own departures</label>
+        <p class="muted small">${d.own_departures
+          ? `The schedule, calendar and one-off departure below are only for ${esc(car.name)}.`
+          : `${esc(car.name)} uses the shared departures${others.some((o) => !o.own_departures) ? `, the same as ${others.filter((o) => !o.own_departures).map((o) => esc(o.name)).join(' and ')}` : ''}. Changes below apply to every car that uses them.`}</p>`;
+    }
+
     async function loadDepartures() {
       try {
-        const d = await api('GET', 'api/departures');
+        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}` : 'api/departures');
         depTz = d.time_zone;
         const dep = d.departures;
+        if (d.cars) depCar = d.vehicle_id;
+        else depCar = null;
 
         $('dep-next').innerHTML = `
-          <h2>Next departure</h2>
+          ${depCarHtml(d)}
+          <h2>Next departure${d.cars ? ` · ${esc((d.cars.find((c) => c.id === d.vehicle_id) || {}).name || '')}` : ''}</h2>
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
@@ -1290,6 +1694,19 @@
             </table>
             <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
           </details>` : ''}`;
+        $('dep-next').querySelectorAll('[data-depcar]').forEach((b) => {
+          b.onclick = () => { depCar = b.dataset.depcar; $('dep-form').reset(); loadDepartures(); };
+        });
+        if ($('dep-own')) {
+          $('dep-own').onchange = async (e) => {
+            try {
+              await api('POST', 'api/departures/own', { vehicle_id: depCar, own: e.target.checked });
+            } catch (err) {
+              alert(err.message);
+            }
+            loadDepartures();
+          };
+        }
         if ($('dep-cf-clear')) {
           $('dep-cf-clear').onclick = async () => {
             $('dep-cf-clear').disabled = true;
@@ -1308,7 +1725,7 @@
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
-              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}</td>
+              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
@@ -1328,17 +1745,18 @@
           <div class="error" id="ov-error" hidden></div>`;
         $('ov-set').onclick = async () => {
           try {
-            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value });
+            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, vehicle_id: depCar });
             loadDepartures();
           } catch (err) {
             $('ov-error').textContent = err.message;
             $('ov-error').hidden = false;
           }
         };
-        if (ov) $('ov-clear').onclick = async () => { await api('DELETE', 'api/departures/override'); loadDepartures(); };
+        if (ov) $('ov-clear').onclick = async () => { await api('DELETE', depCar ? `api/departures/override?vehicle=${encodeURIComponent(depCar)}` : 'api/departures/override'); loadDepartures(); };
 
         const f = $('dep-form');
-        if (document.activeElement.form === f) return; // don't overwrite while editing
+        if (document.activeElement.form === f && f.dataset.car === String(depCar)) return; // don't overwrite while editing
+        f.dataset.car = String(depCar);
         f.schedule_enabled.checked = dep.schedule_enabled;
         f.default_soc.value = dep.default_soc;
         $('dep-days').innerHTML = DAY_KEYS.map((k) => `
@@ -1372,6 +1790,7 @@
         schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value };
       }
       const body = {
+        vehicle_id: depCar,
         schedule_enabled: f.schedule_enabled.checked,
         schedule,
         default_soc: f.default_soc.value,
@@ -1555,6 +1974,11 @@
       f.preheat_entity.innerHTML = entityOptions(d.options.preheat, r.preheat_entity, '— none —');
       f.force_minutes.value = r.force_minutes;
       f.hysteresis.value = r.hysteresis;
+      f.ready_guard_enabled.checked = r.ready_guard_enabled !== false;
+      f.ready_guard_margin_minutes.value = r.ready_guard_margin_minutes ?? 30;
+      f.battery_care_enabled.checked = r.battery_care_enabled !== false;
+      f.battery_care_soc.value = r.battery_care_soc ?? 80;
+      f.battery_care_hours.value = r.battery_care_hours ?? 4;
       f.car_limit_off.checked = !!r.car_limit_off;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
@@ -1585,6 +2009,11 @@
           min_soc_enabled: f.min_soc_enabled.checked, min_soc: f.min_soc.value, min_soc_entity: f.min_soc_entity.value,
           min_soc_max_price: f.min_soc_max_price.value, preheat_entity: f.preheat_entity.value,
           force_minutes: f.force_minutes.value, hysteresis: f.hysteresis.value,
+          ready_guard_enabled: f.ready_guard_enabled.checked,
+          ready_guard_margin_minutes: f.ready_guard_margin_minutes.value,
+          battery_care_enabled: f.battery_care_enabled.checked,
+          battery_care_soc: f.battery_care_soc.value,
+          battery_care_hours: f.battery_care_hours.value,
           car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
         });
         document.activeElement.blur();
@@ -1724,9 +2153,17 @@
       $('trip-mode').textContent = tripWriteAllowed ? 'WRITES TO CALENDAR' : 'TEST MODE';
       $('trip-mode').className = tripWriteAllowed ? 'advice' : 'advice test';
       $('trip-mode-text').innerHTML = tripWriteAllowed
-        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …", the same format this app reads.`
+        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …"${d.cars ? ' and "auto: …"' : ''}, the same format this app reads.`
         : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
       $('trip-add').hidden = !tripWriteAllowed;
+      // More cars: which car the trip is for ("auto: …" in the event), or every car.
+      const carField = $('trip-car-field');
+      carField.hidden = !d.cars;
+      if (d.cars) {
+        const cur = f.trip_car.value;
+        f.trip_car.innerHTML = d.cars.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('') + '<option value="all">Every car</option>';
+        f.trip_car.value = cur && [...f.trip_car.options].some((o) => o.value === cur) ? cur : d.vehicle_id;
+      }
       $('trip-preview').textContent = tripWriteAllowed ? 'Preview' : 'Show what would be added';
       $('trip-preview').className = tripWriteAllowed ? 'secondary' : 'primary';
       const days = f.querySelector('.days');
@@ -1740,7 +2177,10 @@
 
     function tripBody() {
       const f = $('trip-form');
+      const forCar = !$('trip-car-field').hidden ? f.trip_car.value : null;
       return {
+        vehicle_id: forCar && forCar !== 'all' ? forCar : depCar,
+        for_all_cars: forCar === 'all',
         datetime: f.datetime.value,
         destination: f.destination.value,
         soc: f.soc.value,
@@ -2509,24 +2949,36 @@
       try {
         const r = await api('GET', 'api/checklist');
         const look = { ok: ['check', 'green'], warn: ['alert', 'orange'], missing: ['alert', 'red'], optional: ['check', 'grey'] };
-        const row = (i) => `
-          <div class="check-item">
+        const stateLabel = { ok: 'Ready', warn: 'Check', missing: 'Required', optional: 'Optional' };
+        const tile = (i) => {
+          const tag = i.page ? 'a' : 'div';
+          const attrs = i.page ? ` href="#" data-goto="${esc(i.page)}"` : '';
+          return `<${tag} class="settings-tile state-${esc(i.state)}"${attrs}>
             ${shape(...look[i.state], true)}
-            <div class="txt"><strong>${esc(i.title)}</strong>${i.state === 'optional' ? ' <span class="muted small">(optional)</span>' : ''}<div class="d">${esc(i.detail)}</div></div>
-            ${i.page ? `<a href="#" data-goto="${esc(i.page)}" class="small">${i.state === 'ok' || i.state === 'optional' ? 'View' : 'Fix'}</a>` : ''}
-          </div>`;
+            <span class="settings-tile-copy"><strong>${esc(i.title)}</strong><small>${esc(i.detail)}</small></span>
+            <span class="settings-state">${esc(stateLabel[i.state] || i.state)}</span>
+          </${tag}>`;
+        };
         const todo = r.items.filter((i) => i.state === 'missing' || i.state === 'warn');
+        const complete = r.ready && !todo.length;
         box.innerHTML = `
-          <div class="card">
-            <h2>${shape(r.ready && !todo.length ? 'check' : 'alert', r.ready ? (todo.length ? 'orange' : 'green') : 'red', true)} ${r.ready ? (todo.length ? 'Ready, with a few points' : 'Everything is set up') : 'Not ready yet'}</h2>
-            <p class="muted small">Settings are things you set once. What you choose day to day (Charge now, Ready for tomorrow) is on Home; departures are on Planning.</p>
-            ${r.items.map(row).join('')}
+          <div class="card settings-hero ${complete ? 'is-ready' : r.ready ? 'has-warnings' : 'needs-work'}">
+            <div class="entity">
+              ${shape(complete ? 'check' : 'alert', complete ? 'green' : r.ready ? 'orange' : 'red')}
+              <div class="txt">
+                <span class="page-eyebrow">SETUP STATUS</span>
+                <div class="headline">${r.ready ? (todo.length ? 'Ready, with a few points' : 'Everything is set up') : 'Not ready yet'}</div>
+                <div class="secondary">Open a tile to view or adjust that part. Daily choices stay on Home; departures live under Plan.</div>
+              </div>
+              <span class="settings-count">${todo.length ? `${todo.length} to check` : 'All clear'}</span>
+            </div>
           </div>
+          <div class="settings-grid">${r.items.map(tile).join('')}</div>
           ${lastPlan && lastPlan.planning ? (() => { const d = lastPlan; return `
-          <div class="card">
+          <div class="card settings-note-card">
             <h2>${shape('control', 'grey', true)} Planning settings in Home Assistant</h2>
             <p class="muted small">Charging loss margin ${esc(d.planning.loss_percent)} % · ${d.planning.continuous !== false ? `one continuous period, unless splitting saves at least ${money(d.planning.min_split_saving)}` : 'split charging allowed'} · house load ${d.planning.use_house_load !== false ? 'on' : 'off'} · Allow control ${d.control_allowed ? 'on' : 'off'}.</p>
-            <p class="muted small">These, and the safety switches, are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
+            <p class="muted small">These options and the safety switches are managed in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
           </div>`; })() : ''}`;
       } catch (err) {
         box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
@@ -2601,6 +3053,40 @@
     let historySub = 'savings';
 
     // Show a tab. Sub pages can be named directly ('charger', 'log').
+    const PAGE_META = {
+      departures: ['PLAN', 'Plan departures', 'Choose when the car must be ready and which battery level you need.', 'departures', 'blue'],
+      savings: ['ACTIVITY', 'Savings', 'See what smart charging changed compared with charging immediately.', 'savings', 'green'],
+      log: ['ACTIVITY', 'Charging activity', 'Follow decisions, charger commands and conflicts in one place.', 'log', 'blue'],
+      setup: ['SETTINGS', 'Settings overview', 'Check the complete setup and jump straight to anything that needs attention.', 'settings', 'blue'],
+      vehicle: ['SETTINGS', 'Vehicle', 'Choose the battery and connection data the plan should use.', 'car', 'green'],
+      charger: ['SETTINGS', 'Charger', 'Connect the charger and verify how it can be controlled.', 'charger', 'blue'],
+      grid: ['SETTINGS', 'Grid', 'Set the grid meter and the electrical limits the plan must respect.', 'grid', 'orange'],
+      prices: ['SETTINGS', 'Prices', 'Configure real electricity prices and an optional multi-day forecast.', 'prices', 'green'],
+      solar: ['SETTINGS', 'Solar', 'Plan with solar production and control charging on live surplus.', 'sun', 'amber'],
+      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'purple'],
+      ctlset: ['SETTINGS', 'Charging rules', 'Fine-tune safety, timing and the way the app controls charging.', 'control', 'green'],
+      status: ['SETTINGS', 'Notifications', 'Choose where updates are sent and inspect published sensors.', 'status', 'blue'],
+      diag: ['SETTINGS', 'Diagnostics', 'Check the connection, test control and export troubleshooting data.', 'alert', 'grey'],
+    };
+
+    function ensurePageHeading(name) {
+      const section = $('tab-' + name);
+      const meta = PAGE_META[name];
+      if (!section || !meta) return;
+      section.classList.add('app-page', 'page-' + name);
+      if (section.querySelector(':scope > .page-heading')) return;
+      section.insertAdjacentHTML('afterbegin', `
+        <header class="page-heading">
+          ${shape(meta[3], meta[4])}
+          <div>
+            <span class="page-eyebrow">${esc(meta[0])}</span>
+            <h2>${esc(meta[1])}</h2>
+            <p>${esc(meta[2])}</p>
+          </div>
+        </header>`);
+    }
+
+    let currentShow = 'overview';
     function showTab(name) {
       if (name === 'control') name = 'ctlset';
       let main = name;
@@ -2614,6 +3100,8 @@
       $('history-nav').hidden = main !== 'history';
       document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
       const show = sub || main;
+      currentShow = show;
+      ensurePageHeading(show);
       document.querySelectorAll('main > section').forEach((s) => { s.hidden = s.id !== 'tab-' + show; });
       if (show === 'status') loadNotifyStatus();
       if (show === 'diag') { loadStatus(); loadControl(); }
@@ -2624,6 +3112,7 @@
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
       if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
+      [0, 250, 1000].forEach((delay) => setTimeout(() => refreshRangeValues(), delay));
     }
     document.querySelectorAll('#main-nav .tab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
     document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
@@ -2643,11 +3132,13 @@
       sectionShell(kind);
       loadSaved(kind);
     }
+    enhanceRangeControls();
+    setTimeout(() => refreshRangeValues(), 0);
     // The start/stop method is part of setting up the charger.
     $('charger-extra').appendChild($('method-card'));
     loadStatus();
     loadPrices();
-    checkWizard().then((active) => { if (!active) loadOverview(); });
+    loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);
       if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview();

@@ -11,14 +11,15 @@
 //   3. battery below the minimum (and price ok)   -> charge
 //   4. preconditioning active                     -> charge
 //   5. Charge now / quickly to a minimum (Home)   -> charge
-//   6. solar surplus (Plan + solar, Solar only)   -> charge on solar
+//   6. Ready Guard at/after the latest safe start -> charge continuously
+//   7. solar surplus (Plan + solar, Solar only)   -> charge on solar
 //      (a planned grid block goes first in Plan + solar; Solar only: else pause)
-//   7. battery at the target                      -> pause
-//   8. within the force window before departure   -> charge
-//   9. inside a locked (already started) block    -> keep charging
-//  10. inside a planned block                     -> charge (and lock it)
-//  11. already charging and price close enough    -> keep charging (hysteresis)
-//  12. otherwise                                  -> pause
+//   8. battery at the target                      -> pause
+//   9. within the force window before departure   -> charge
+//  10. inside a locked (already started) block    -> keep charging
+//  11. inside a planned block                     -> charge (and lock it)
+//  12. already charging and price close enough    -> keep charging (hysteresis)
+//  13. otherwise                                  -> pause
 
 const fs = require('fs');
 const path = require('path');
@@ -55,12 +56,18 @@ const DEFAULT_RULES = {
   preheat_entity: null,
   force_minutes: 0,
   hysteresis: 0.03,
+  ready_guard_enabled: true,
+  ready_guard_margin_minutes: 30,
+  battery_care_enabled: true, // above battery_care_soc only in the last battery_care_hours before departure
+  battery_care_soc: 80,
+  battery_care_hours: 4,
   car_limit_off: false, // true: never change the car's own charge limit
   min_choice: 30, // default minimum (%) for the quick choices on Home
 };
 
-let log = null;
-let state = null;
+// Per charger (scope.js).
+const scope = require('./scope');
+const S = scope.store(() => ({ log: null, state: null }));
 
 function readJson(file, fallback) {
   try {
@@ -78,13 +85,13 @@ function writeJson(file, data) {
 }
 
 function loadLog() {
-  if (!log) log = readJson(LOG_FILE, []);
-  return log;
+  if (!S().log) S().log = readJson(scope.file(LOG_FILE), []);
+  return S().log;
 }
 
 function loadState() {
-  if (!state) state = readJson(STATE_FILE, { lock: null });
-  return state;
+  if (!S().state) S().state = readJson(scope.file(STATE_FILE), { lock: null });
+  return S().state;
 }
 
 function findState(states, id) {
@@ -168,6 +175,17 @@ function decide(ctx) {
     return charge('Charge now, started by you', 'boost', { amps: blk ? ampsFor(blk.power_kw, phases, maxAmps) : maxAmps, clear_lock: true });
   }
 
+  // Ready Guard: once the separate safety margin is gone, continuous
+  // full-power charging wins over price optimisation and solar-only mode.
+  const guard = plan && plan.reliability;
+  if (guard && guard.protect) {
+    const end = guard.guard_until || departure || (now + 3600000);
+    return charge(guard.reason || 'Ready Guard is protecting the departure target', 'ready_guard', {
+      block_end: end,
+      clear_lock: true,
+    });
+  }
+
   // Solar: charge on surplus (live, ctx.solar from solarctl). In "plan and
   // solar" a planned block with grid power goes first (full power); in
   // "solar only" nothing is charged from the grid by the plan.
@@ -209,7 +227,7 @@ function decide(ctx) {
   // 9. Hysteresis: already charging and the price is close to the planned ones.
   const hyst = Number(rules.hysteresis) || 0;
   // Only to keep a planned session going, not after charging on solar.
-  const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window'].includes(ctx.prevCode);
+  const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window', 'ready_guard'].includes(ctx.prevCode);
   if (actual.charging === true && hyst > 0 && keepGoing && Number.isFinite(priceNow) && p.blocks.length) {
     const maxPlanned = Math.max(...p.blocks.map((b) => b.price));
     if (priceNow <= maxPlanned + hyst) return charge(`Already charging and the price is within ${hyst.toFixed(2)} of the planned price`, 'hysteresis');
@@ -284,8 +302,8 @@ function phaseCommand(m, phases, deviceId) {
 function logSent(entry) {
   const entries = loadLog();
   entries.push({ commands: [], ...entry });
-  log = entries.slice(-KEEP);
-  writeJson(LOG_FILE, log);
+  S().log = entries.slice(-KEEP);
+  writeJson(scope.file(LOG_FILE), S().log);
 }
 
 // The commands the app would send for a decision, with the chosen methods.
@@ -312,20 +330,27 @@ function commandsFor(decision, actual, methods, deviceId) {
 }
 
 // One dry-run step. Logs only when something changes.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar }) {
+// share (more chargers, sharing.js): { pause, amps, reason } – wait for
+// another charger, or charge with less current. record = false: only decide
+// (no lock change, no log line), for the first round of sharing.
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  const decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
+  if (share && decision.want === 'charge') {
+    if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
+    else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };
+  }
 
   // Keep the lock up to date.
   let lock = st.lock && st.lock.end > now ? st.lock : null;
   if (decision.clear_lock) lock = null;
   if (decision.new_lock) lock = decision.new_lock;
-  if (JSON.stringify(lock) !== JSON.stringify(st.lock)) {
+  if (record && JSON.stringify(lock) !== JSON.stringify(st.lock)) {
     st.lock = lock;
-    writeJson(STATE_FILE, st);
+    writeJson(scope.file(STATE_FILE), st);
   }
 
   // Live: only start/stop, never the current. With a switch as start/stop
@@ -358,6 +383,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     amps: decision.amps || null,
     phases: decision.phases || null,
     solar: !!decision.solar,
+    shared: !!decision.shared,
     reason: decision.reason,
     next_start: decision.next_start || null,
     block_end: decision.block_end || null,
@@ -371,12 +397,12 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   const entries = loadLog();
   const last = entries[entries.length - 1];
   const key = (e) => JSON.stringify([e.plugged, e.charging, e.want, e.code, e.amps, e.commands.map((c) => c.what)]);
-  if (!last || key(last) !== key(entry)) {
+  if (record && (!last || key(last) !== key(entry))) {
     // A copy: the server marks the live entry as sent afterwards, and that
     // gets its own log line.
     entries.push({ ...entry, commands: entry.commands.map((c) => ({ ...c })) });
-    log = entries.slice(-KEEP);
-    writeJson(LOG_FILE, log);
+    S().log = entries.slice(-KEEP);
+    writeJson(scope.file(LOG_FILE), S().log);
   }
   return entry;
 }
@@ -386,14 +412,14 @@ function recentLog(limit = 100) {
 }
 
 function clearLog() {
-  log = [];
-  writeJson(LOG_FILE, log);
+  S().log = [];
+  writeJson(scope.file(LOG_FILE), S().log);
 }
 
 function clearLock() {
   const st = loadState();
   st.lock = null;
-  writeJson(STATE_FILE, st);
+  writeJson(scope.file(STATE_FILE), st);
 }
 
 module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };

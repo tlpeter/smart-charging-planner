@@ -184,6 +184,67 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
   };
 }
 
+// Battery care: charge up to a level (e.g. 80 %) whenever it is cheapest, and
+// the part above it only in the hours before the departure (windowStart ..
+// deadline), so the battery does not stand full for days. careKwh: the energy
+// up to that level; neededKwh: up to the target.
+function planCare({ prices, now, deadline, windowStart, careKwh, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
+  const opts = { powerKw, continuous, minSplitSaving, solarOnly };
+  const topKwh = Math.max(0, (neededKwh || 0) - Math.max(0, careKwh || 0));
+  if (!(topKwh > 0.01) || !(windowStart < deadline) || !(deadline > now)) {
+    return planCharging({ prices, now, deadline, neededKwh, ...opts });
+  }
+  // The window starts at the start of a price block, so both parts share blocks.
+  const at = prices.find((p) => p.start <= windowStart && windowStart < p.end);
+  if (at) windowStart = at.start;
+  const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
+  // The top part first, only in the window.
+  const top = planCharging({ prices, now: Math.max(now, windowStart), deadline, neededKwh: topKwh, ...opts });
+  const used = new Map(top.blocks.map((b) => [b.block_start, b]));
+  const rest = prices.map((p) => {
+    const start = Math.max(p.start, now);
+    const power = Number.isFinite(p.power_kw) ? p.power_kw : powerKw;
+    const u = used.get(Math.max(p.start, now, windowStart));
+    if (!u || p.end <= windowStart) return p;
+    const hours = (Math.min(p.end, deadline) - start) / 3600000;
+    const left = Math.max(0, hours * power - u.kwh);
+    const out = { ...p, power_kw: hours > 0 ? left / hours : 0 };
+    if (Number.isFinite(p.solar_kw) && hours > 0) out.solar_kw = Math.max(0, p.solar_kw - (u.solar_kwh || 0) / hours);
+    return out;
+  });
+  const base = careKwh > 0.01 ? planCharging({ prices: rest, now, deadline, neededKwh: careKwh, ...opts }) : { blocks: [], planned_kwh: 0, cost: 0, notes: [] };
+  const byStart = new Map();
+  const add = (b) => {
+    const prev = byStart.get(b.block_start);
+    if (prev) {
+      prev.total = (prev.total * prev.kwh + b.price * b.kwh) / (prev.kwh + b.kwh);
+      prev.kwh += b.kwh;
+      prev.solar_kwh += b.solar_kwh || 0;
+      prev.start = Math.min(prev.start, b.block_start);
+      prev.end = Math.max(prev.end, b.block_end);
+      return;
+    }
+    const src = prices.find((p) => p.start <= b.block_start && b.block_start < p.end);
+    const power = src && Number.isFinite(src.power_kw) ? src.power_kw : powerKw;
+    byStart.set(b.block_start, { start: b.block_start, end: b.block_end, power, kwh: b.kwh, total: b.price, forecast: !!b.forecast, solar_kwh: b.solar_kwh || 0 });
+  };
+  base.blocks.forEach(add);
+  top.blocks.forEach(add);
+  const merged = placeBlocks([...byStart.values()]);
+  const notes = [...new Set([...base.notes, ...top.notes].filter((n) => n !== 'already_at_target'))];
+  const cost = (base.cost || 0) + (top.cost || 0);
+  return {
+    ...whole,
+    blocks: merged,
+    planned_kwh: base.planned_kwh + top.planned_kwh,
+    cost,
+    savings: whole.reference_cost - cost,
+    notes,
+    care: { window_start: windowStart, care_kwh: careKwh, top_kwh: topKwh, top_planned_kwh: top.planned_kwh },
+    continuous: undefined,
+  };
+}
+
 // prices: [{start, end, total, power_kw?}] sorted, now: ms, deadline: ms.
 // power_kw per block overrides powerKw (e.g. less room when the house uses more).
 // continuous: prefer one uninterrupted period unless splitting saves at least
@@ -302,4 +363,4 @@ function periods(blocks) {
   return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh, ...(p.forecast ? { forecast: true } : {}), ...(p.solar_kwh > 0.001 ? { solar_kwh: p.solar_kwh } : {}) }));
 }
 
-module.exports = { chargePowerKw, energyNeededKwh, nextDeadline, planCharging, planStaged, placeBlocks, periods };
+module.exports = { planCare, chargePowerKw, energyNeededKwh, nextDeadline, planCharging, planStaged, placeBlocks, periods };

@@ -14,11 +14,14 @@ const FILE = path.join(DATA_DIR, 'cardata.json');
 const INVALID = new Set(['unknown', 'unavailable', '', 'none', 'null']);
 const DEFAULT_STALE_HOURS = 3;
 
-let last; // { entity_id, soc, at }
+let last; // { entities: { [entity_id]: { soc, at } } } – one per car
 
 function load() {
   if (last !== undefined) return last;
-  last = readJson(FILE, null);
+  const saved = readJson(FILE, null);
+  if (saved && saved.entities) last = saved;
+  else if (saved && saved.entity_id) last = { entities: { [saved.entity_id]: { soc: saved.soc, at: saved.at } } }; // one car, before more cars
+  else last = { entities: {} };
   return last;
 }
 
@@ -50,16 +53,16 @@ function check(st, now, staleHours = DEFAULT_STALE_HOURS) {
 }
 
 function remember(entityId, soc, at) {
-  const cur = load();
-  if (cur && cur.entity_id === entityId && cur.soc === soc && cur.at === at) return;
-  last = { entity_id: entityId, soc, at: at || Date.now() };
+  const cur = load().entities[entityId];
+  if (cur && cur.soc === soc && cur.at === at) return;
+  last.entities[entityId] = { soc, at: at || Date.now() };
   save();
 }
 
 // The last good level of this entity, or null.
 function lastGood(entityId) {
-  const cur = load();
-  return cur && cur.entity_id === entityId ? cur : null;
+  const cur = load().entities[entityId];
+  return cur ? { entity_id: entityId, ...cur } : null;
 }
 
 module.exports = { check, remember, lastGood, DEFAULT_STALE_HOURS };
