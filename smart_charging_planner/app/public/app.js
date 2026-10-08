@@ -2259,6 +2259,7 @@ function durationText(minutes) {
         for_all_cars: forCar === 'all',
         datetime: f.datetime.value,
         destination: f.destination.value,
+        back: f.back.value,
         soc: f.soc.value,
         precondition: f.precondition.checked,
         weekdays: DAY_KEYS.filter((k) => f[`rep_${k}`].checked),
@@ -2269,7 +2270,7 @@ function durationText(minutes) {
     function tripTable(r) {
       const rows = r.events.map((e) => `<tr>
         <td>${esc(depWhen(e.start))}</td>
-        <td>${esc(e.summary)}<div class="src">${esc(e.description)}</div></td>
+        <td>${esc(e.summary)}<div class="src">${esc(e.description)}</div>${e.end - e.start > 15 * 60000 ? `<div class="src">Back home ${esc(depWhen(e.end))}</div>` : ''}</td>
         <td class="n">${e.duplicate ? '<span class="muted small">already in calendar</span>' : 'new'}</td></tr>`).join('');
       return `<table class="periods"><tr><th>Leave</th><th>Event</th><th class="n"></th></tr>${rows}</table>`;
     }

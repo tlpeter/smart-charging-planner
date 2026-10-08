@@ -175,7 +175,10 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
     const text = `${e.summary || ''}\n${e.description || ''}`;
     const target = parseTarget(e.description) ?? parseTarget(e.summary);
     if (c.match === 'target' && target == null) continue;
-    if (c.match === 'keyword' && keyword && !text.toLowerCase().includes(keyword)) continue;
+    // A trip in this app's own format ("doel: 80", what Add trip writes) always
+    // counts, also when the calendar is read by keyword.
+    const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
+    if (c.match === 'keyword' && keyword && !ownFormat && !text.toLowerCase().includes(keyword)) continue;
     const ms = parseLocal(start, tz);
     if (!Number.isFinite(ms)) continue;
     const time = ms - (Number(c.buffer_minutes) || 0) * 60000;

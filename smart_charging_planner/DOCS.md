@@ -181,7 +181,9 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 
 Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "doel: 80" (or "target: 80") in the event's notes or title; "precondition: ja" and, with more cars, "auto: renault" work the same way.
 
-**Add trip** (Plan) needs a calendar Home Assistant can add events to. Apple iCloud calendars are read only in Home Assistant: the calendar is marked "read only" in the list, and Add trip says so. Add those trips in the calendar app itself (for example on your iPhone); the app reads them as usual.
+**Add trip** (Plan) writes to the calendar the app reads departures from (Plan › Departures › Calendar must be on). The trip counts right away: on Plan and, when it is the next departure, as **Next stop** under Looking ahead on Home; a later trip is the **Next goal** or waits its turn. With an address as destination the app works out what the trip costs. **Back home at** (optional) is when the event ends: then the app knows when the car is back; without it the event lasts 15 minutes. **For** (which car) only appears with more than one car.
+
+Add trip needs a calendar Home Assistant can add events to. Apple iCloud calendars are read only in Home Assistant: the calendar is marked "read only" in the list, and Add trip says so. Add those trips in the calendar app itself (for example on your iPhone); the app reads them as usual.
 
 ## Looking ahead: the next stop, next goal and what a trip costs
 

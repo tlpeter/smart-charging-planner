@@ -158,6 +158,7 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
       }
       load().places[key] = p ? { ...p, found: true, at: Date.now() } : { found: false, at: Date.now() };
       save();
+      changed();
     });
     return { status: 'pending' };
   }
@@ -177,6 +178,7 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
       }
       load().routes[rkey] = { km, at: Date.now() };
       save();
+      changed();
     });
   }
   return { status: 'ok', km: Math.round(straight * ROAD_FACTOR * 10) / 10, how: 'estimate', lat: place.lat, lon: place.lon };
@@ -257,6 +259,17 @@ function setUserAgent(version) {
   userAgent = `SmartChargingPlanner/${version} (Home Assistant app; https://github.com/tlpeter/smart-charging-planner)`;
 }
 
+// A place or route was looked up: the plan can show the trip's cost now.
+const listeners = [];
+function onUpdate(fn) {
+  listeners.push(fn);
+}
+function changed() {
+  for (const fn of listeners) {
+    try { fn(); } catch { /* a listener never stops the lookup */ }
+  }
+}
+
 // Tests only.
 function reset() {
   cache = { places: {}, routes: {}, learned: {}, away: {} };
@@ -267,4 +280,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { distance, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { distance, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

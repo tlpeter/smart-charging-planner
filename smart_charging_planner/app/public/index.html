@@ -45,8 +45,9 @@
         <p class="muted small" id="trip-mode-text"></p>
         <div class="two">
           <div class="field"><label>Leave at</label><input type="datetime-local" name="datetime" required></div>
-          <div class="field"><label>Destination</label><input name="destination" maxlength="80" placeholder="e.g. Thuis" required></div>
+          <div class="field"><label>Destination</label><input name="destination" maxlength="80" placeholder="Address or place, e.g. Stationsplein 1, Utrecht" required></div>
         </div>
+        <div class="field"><label>Back home at (optional)</label><input type="time" name="back"><div class="muted small">With an address the app works out what the trip costs (there and back) and, after you are back, what it expects to charge for the next goal.</div></div>
         <div class="two">
           <div class="field"><label>Target battery level (%)</label><input type="number" name="soc" min="10" max="100" step="1" value="80"></div>
           <div class="field"><label>Precondition</label><label class="check"><input type="checkbox" name="precondition"> Heat or cool the car before leaving</label></div>
