@@ -1453,6 +1453,26 @@ async function run() {
       assert(n.goal && n.goal.title === 'Naar Outdoorvalley' && n.goal.soc === 100, JSON.stringify(n.goal));
       return `next stop ${n.current.title} ${n.current.target_soc}% · next goal ${n.goal.title} ${n.goal.soc}%`;
     });
+    await test('Y2b', 'Outdoorvalley on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday\'s Naar Werk, the company address is found without the company name', async () => {
+      world.places = { ...world.places, 'Pieter Zeemanweg 57, 3316 GZ Dordrecht, Nederland': { lat: 51.80, lon: 4.70 }, 'Voorste Heikant 6A, 5541 NR Reusel, Nederland': { lat: 51.3705, lon: 5.1905 } };
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 6, 20),
+        ev('Naar Werk', 'doel: 80', 'IQ Messenger, Pieter Zeemanweg 57, 3316 GZ Dordrecht, Nederland', 2, 6, 7),
+        ev('Naar Thuis', 'doel: 80 precondition: ja', 'Voorste Heikant 6A, 5541 NR Reusel, Nederland', 2, 16, 17),
+        ev('Naar Werk', 'doel: 80', 'Werk', 4, 6, 7),
+      ];
+      await settle();
+      await sleep(600);
+      const n = (await settle()).next;
+      assert(!n.trip.return_trip && n.trip.return_at === at(1, 20), JSON.stringify({ back: n.trip.return_trip, at: new Date(n.trip.return_at).toISOString() }));
+      assert(n.goal && n.goal.title === 'Naar Werk' && n.goal.time === at(2, 6), JSON.stringify(n.goal));
+      const d = await ok('GET', 'api/departures');
+      const werk = d.calendar_trips.find((t) => t.time === at(2, 6));
+      const thuis = d.calendar_trips.find((t) => t.time === at(2, 16));
+      assert(werk.cost && werk.cost.status === 'ok', JSON.stringify(werk.cost));
+      assert(thuis.cost === null, `the trip home has a cost: ${JSON.stringify(thuis.cost)}`);
+      return `back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~${werk.cost.km} km`;
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

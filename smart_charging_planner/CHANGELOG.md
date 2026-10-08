@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.4-dev
+
+- Fix: looking ahead took a trip home **after another trip** as the way back. Example: Outdoorvalley on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
+- A trip to your own home address (within 1 km of the home in Home Assistant) counts as a trip home, like "Thuis"
+- Addresses with a company or place name in front ("IQ Messenger, Pieter Zeemanweg 57, …") are found: when OpenStreetMap does not find the whole text, the app tries again without the first part
+- Plan shows "Address not found on OpenStreetMap" for a trip whose address cannot be found
+- Tests: settings test Y2b (this calendar)
+
 ## 0.29.3-dev
 
 - Ready Guard's **Expected ready** time now follows the end of the actual scheduled charging blocks instead of pretending charging starts continuously right now

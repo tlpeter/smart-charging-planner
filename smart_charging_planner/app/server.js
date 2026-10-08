@@ -286,7 +286,10 @@ function pickVehicle(s, states, now = Date.now()) {
 
 const RETURN_TITLE = /^\s*(naar\s+(huis|thuis)|terug|home|back home|to home)\b/i;
 function isReturnTrip(t) {
-  return !!t && (tripcost.isHome(t.location) || RETURN_TITLE.test(t.title || ''));
+  if (!t) return false;
+  if (tripcost.isHome(t.location) || RETURN_TITLE.test(t.title || '')) return true;
+  // Your own home address as location (within 1 km of the home in Home Assistant).
+  return !!t.location && tripcost.distance(t.location).status === 'home';
 }
 
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
@@ -300,9 +303,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const share = neededKwh > 0 ? Math.min(1, (plan.planned_kwh || 0) / neededKwh) : 1;
     socAtDep = Math.round((socAtDep + (targetSoc - socAtDep) * share) * 10) / 10;
   }
-  // The way back: a later trip home in the calendar (within 36 hours), else there and back.
-  const back = cur.location && !tripcost.isHome(cur.location)
-    ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000 && isReturnTrip(t)) : null;
+  // The way back: the very next calendar trip, when that is a trip home (within
+  // 36 hours). Another trip first (for example to work the next morning)
+  // means this trip has no trip home in the calendar: there and back.
+  const following = cur.location && !tripcost.isHome(cur.location)
+    ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
+  const back = following && isReturnTrip(following) ? following : null;
   const trip = cur.location && mode !== 'fixed_kwh'
     ? tripcost.tripCost({ location: cur.location, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: Number.isFinite(soc) ? soc : socAtDep })
     : { status: 'unknown', reason: 'no_location', pct: null };

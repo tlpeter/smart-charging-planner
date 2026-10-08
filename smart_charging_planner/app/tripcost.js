@@ -142,7 +142,16 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
     enqueue(`place:${key}`, async () => {
       let p = null;
       try {
-        p = await geocode(text, country);
+        // Not found: try again without the first part ("IQ Messenger, Pieter
+        // Zeemanweg 57, …" → "Pieter Zeemanweg 57, …"): a company or place
+        // name in front of the address.
+        const parts = text.split(',').map((x) => x.trim()).filter(Boolean);
+        for (let i = 0; i < parts.length && !p; i++) {
+          if (i > 0) await new Promise((r) => setTimeout(r, GAP_MS));
+          const q = parts.slice(i).join(', ');
+          if (i > 0 && !/\d/.test(q) && parts.length - i < 2) break; // only a country or town left
+          p = await geocode(q, country);
+        }
       } catch (err) {
         ha.debug('OpenStreetMap could not look up', text, '-', err.message);
         return; // not stored: tried again next time
