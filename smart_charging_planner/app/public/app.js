@@ -1117,13 +1117,20 @@ function durationText(minutes) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
+      const via = t.place ? ` <span class="muted">(${esc(t.place)}, from My places)</span>` : '';
       switch (t.status) {
-        case 'ok': return `~${esc(Math.round(t.km))} km one way${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+        case 'ok': return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
         case 'home': return 'At home: no trip';
         case 'pending': return 'Looking up the distance (OpenStreetMap)…';
         case 'no_consumption': return `~${esc(tidy(t.km))} km; set the battery capacity or the use per 100 km (Settings › Vehicle) to see what it costs`;
         case 'no_home': return 'Set your home location in Home Assistant (Settings › System › General) to see what trips cost';
-        default: return t.reason === 'not_an_address' ? 'Put the address in the event\'s location to see what the trip costs' : t.reason === 'not_found' ? 'Address not found on OpenStreetMap' : '';
+        default: {
+          const add = t.ask ? ` · <a href="#" data-addplace="${esc(t.ask)}">Add "${esc(t.ask)}" to My places</a>` : '';
+          if (t.reason === 'not_an_address') return `Not an address, so the distance is not known${add}`;
+          if (t.reason === 'not_found') return `${t.place ? `The address of ${esc(t.place)}` : 'The address'} was not found on OpenStreetMap${add}`;
+          if (t.reason === 'no_location') return t.ask ? `No location in the event${add}` : '';
+          return '';
+        }
       }
     }
 
@@ -2325,6 +2332,58 @@ function durationText(minutes) {
       }
     }
 
+    // ---------- My places ----------
+    function placeRow(p = {}) {
+      const row = document.createElement('div');
+      row.className = 'two place-row';
+      row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Werk" value="${esc(p.name || '')}"></div>
+        <div class="field"><label>Address</label><div class="place-addr"><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
+      row.querySelector('button').onclick = () => row.remove();
+      $('places-list').appendChild(row);
+      return row;
+    }
+    async function loadPlaces() {
+      try {
+        const r = await api('GET', 'api/places');
+        $('places-list').innerHTML = '';
+        r.places.forEach((p) => placeRow(p));
+        if (!r.places.length) placeRow();
+      } catch (err) {
+        $('places-error').textContent = err.message;
+        $('places-error').hidden = false;
+      }
+    }
+    $('place-add').addEventListener('click', () => placeRow().querySelector('input').focus());
+    $('places-save').addEventListener('click', async () => {
+      const err = $('places-error');
+      err.hidden = true;
+      const places = [...document.querySelectorAll('#places-list .place-row')]
+        .map((row) => ({ name: row.querySelector('[name=place_name]').value.trim(), address: row.querySelector('[name=place_address]').value.trim() }))
+        .filter((p) => p.name || p.address);
+      try {
+        const r = await api('POST', 'api/places', { places });
+        $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost (the address is looked up in the background).</p>`;
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+    // "Add to My places" from Home: the Plan tab with the name filled in.
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-addplace]');
+      if (!a) return;
+      e.preventDefault();
+      showTab('departures');
+      const name = a.dataset.addplace;
+      const rows = [...document.querySelectorAll('#places-list .place-row')];
+      const empty = rows.find((r) => !r.querySelector('[name=place_name]').value && !r.querySelector('[name=place_address]').value);
+      const row = empty || placeRow();
+      row.querySelector('[name=place_name]').value = name;
+      row.scrollIntoView({ block: 'center' });
+      row.querySelector('[name=place_address]').focus();
+    });
+
     $('trip-preview').addEventListener('click', () => tripSend(false));
     $('trip-form').addEventListener('submit', (e) => { e.preventDefault(); tripSend(true); });
 
@@ -3243,6 +3302,7 @@ function durationText(minutes) {
     $('charger-extra').appendChild($('method-card'));
     loadStatus();
     loadPrices();
+    loadPlaces();
     loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);

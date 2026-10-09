@@ -901,3 +901,10 @@
     @media (max-width: 560px) {
       .tl-time { display: block; min-width: 0; margin: 0; font-size: 12px; }
     }
+
+    /* My places (Plan) */
+    .place-addr { display: flex; gap: 8px; align-items: center; }
+    .place-addr input { flex: 1 1 auto; min-width: 0; }
+    .place-addr .small-btn { flex: 0 0 auto; padding: 8px 12px; }
+    .two.place-row { grid-template-columns: 1fr 2fr; }
+    @media (max-width: 520px) { .two.place-row { grid-template-columns: 1fr; } }

@@ -50,7 +50,7 @@ function validateImportSettings(settings) {
   objectAt(settings, 'settings');
   walk(settings);
 
-  for (const key of ['vehicles', 'chargers', 'grid']) objectList(settings, key);
+  for (const key of ['vehicles', 'chargers', 'grid', 'places']) objectList(settings, key);
   for (const key of ['prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery']) {
     if (settings[key] != null) objectAt(settings[key], key);
   }

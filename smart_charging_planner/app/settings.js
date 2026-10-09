@@ -21,6 +21,7 @@ const DEFAULTS = {
   departures: null, // filled by departures.js defaults on first use
   control: null, // control rules and chosen methods (controller.js defaults)
   notify: { service: null }, // notify action chosen in the app
+  places: [], // My places: [{ name, address }] (Plan › My places)
 };
 
 // The planning settings come from the app's Configuration tab in Home
