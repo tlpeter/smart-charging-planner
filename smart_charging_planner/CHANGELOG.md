@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.12-dev
+
+- **Prices and plan shows what was charged**: past blocks in which the charger really charged are now **yellow**, with the kWh in the tooltip. Read from the charger power sensor (Home Assistant's 5-minute statistics)
+- The chart now always reaches back at least **12 hours**, also early in the morning: yesterday's prices come from the price history the app keeps (as far as it has them)
+- Fix: when a trip distance came in while the plan was being calculated, the plan could keep showing the old estimate until the next refresh
+- Tests: settings test E10
+
 ## 0.29.11-dev
 
 - **Notifications to more than one phone**: add recipients in Settings › Notifications, each with its own notify action (a phone or a notify group)

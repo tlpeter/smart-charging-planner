@@ -317,6 +317,23 @@ async function run() {
     await refused('POST', 'api/prices', { source: ez, price_type: 'all_in', forecast_entity: 'switch.x' }, 'forecast sensor');
     await refused('POST', 'api/prices', { source: ez, price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_margin: 0.6 }, 'margin');
   });
+  await test('E10', 'Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never', async () => {
+    await ok('POST', 'api/prices', { source: { type: 'fixed' }, fixed: { mode: 'day_night', normal: 0.30, low: 0.20, low_from: '23:00', low_to: '07:00', weekend_low: false } });
+    world.chargedKw = 11;
+    try {
+      const p = await plan();
+      const now = p.now;
+      assert(p.prices[0].start <= now - 12 * 3600000 + 3600000, `chart starts ${((now - p.prices[0].start) / 3600000).toFixed(1)} h back`);
+      assert(Array.isArray(p.charged) && p.charged.length >= 11, `charged blocks ${p.charged && p.charged.length}`);
+      assert(p.charged.every((c) => c.start < now), 'a future block is marked charged');
+      const full = p.charged.find((c) => c.end <= now);
+      assert(full && Math.abs(full.kwh - 11 * (full.end - full.start) / 3600000) < 0.05, `kWh ${full && full.kwh}`);
+      return `${p.charged.length} charged blocks, from ${((now - p.prices[0].start) / 3600000).toFixed(1)} h back`;
+    } finally {
+      world.chargedKw = 0;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
 
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';

@@ -321,6 +321,15 @@ function start(w, wsPort, restPort) {
             for (let t = Date.parse(m.start_time); t < Date.parse(m.end_time); t += 300000) rows.push({ start: t, end: t + 300000, mean: w.chargedKw * 1000 });
             out[w.profile.charger.power] = rows;
           }
+          // w.chargedSlots: [{ from, to, kw }]: the charger only charged in these windows.
+          if (w.chargedSlots && m.statistic_ids.includes(w.profile.charger.power)) {
+            const rows = [];
+            for (let t = Date.parse(m.start_time); t < Date.parse(m.end_time); t += 300000) {
+              const slot = w.chargedSlots.find((x) => t >= x.from && t < x.to);
+              rows.push({ start: t, end: t + 300000, mean: slot ? slot.kw * 1000 : 0 });
+            }
+            out[w.profile.charger.power] = rows;
+          }
           return ok(out);
         }
         case 'call_service': {

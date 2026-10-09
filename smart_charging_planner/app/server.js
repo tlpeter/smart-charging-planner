@@ -13,7 +13,7 @@ const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
@@ -26,6 +26,8 @@ const { checkControl } = require('./control');
 const controller = require('./controller');
 const session = require('./session');
 const { learnedPower } = require('./chargepower');
+const { chargedBlocks } = require('./charged');
+const pricehistory = require('./pricehistory');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
 const equalizer = require('./equalizer');
@@ -312,6 +314,22 @@ function chartEnd(next) {
 }
 const AHEAD_STEPS = 6;
 
+// The chart looks back at least this far, to show what was charged.
+const LOOK_BACK_MS = 12 * 3600000;
+
+// Prices from before today's list, so the chart reaches back 12 hours.
+// Taken from the price history (or the fixed tariff); empty when unknown.
+function earlierPrices(cfg, firstStart, now, tz) {
+  const from = Math.floor((now - LOOK_BACK_MS) / 3600000) * 3600000;
+  if (!cfg || !cfg.source || !firstStart || from >= firstStart) return [];
+  const list = cfg.source.type === 'fixed'
+    ? fixedTariff(cfg.source, { start: from, end: firstStart }, tz)
+    : pricehistory.range(cfg.source.id, from, firstStart);
+  return list
+    .filter((p) => p.end <= firstStart && Number.isFinite(p.price))
+    .map((p) => ({ start: p.start, end: p.end, total: totalPrice(p.price, cfg) }));
+}
+
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
@@ -447,7 +465,11 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // (The plan is kept until then: it is only marked as outdated.)
 tripcost.setSavedPlaces(() => settings.load().places || []);
 tripcost.onUpdate(() => {
-  for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+  // Also count it, so a plan that was being calculated right now is not kept as fresh.
+  for (const x of ST.all.values()) {
+    if (x.planCache) x.planCache.at = 0;
+    x.tripUpdates = (x.tripUpdates || 0) + 1;
+  }
 });
 
 function tripLearning(vehicle, plugged, soc, carData, next, now) {
@@ -1241,6 +1263,19 @@ const routes = {
       }
     }
 
+    // The chart shows the prices up to the departure (forecast included),
+    // and at least the last 12 hours with what was really charged.
+    const chartPrices = (prices.length ? earlierPrices(s.prices, prices[0].start, now, tz) : [])
+      .concat(prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))));
+    let charged = [];
+    if (charger && charger.power_entity) {
+      try {
+        charged = await chargedBlocks(charger.power_entity, chartPrices.filter((p) => p.start < now), now);
+      } catch (err) {
+        ha.debug('Charged history not available:', err.message);
+      }
+    }
+
     return {
       time_zone: tz,
       currency: ha.state.currency,
@@ -1295,12 +1330,12 @@ const routes = {
         now_w: actualNow.power_w,
         charging_now: actualNow.charging,
       },
-      // The chart shows the prices up to the departure (forecast included).
-      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))).map((p) => ({
+      prices: chartPrices.map((p) => ({
         start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
         ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
         ...(Number.isFinite(p.pv_kw) ? { pv_kw: p.pv_kw, solar_kw: p.solar_kw, solar_price: p.solar_price } : {}),
       })),
+      charged,
       forecast: forecastInfo,
       solar: solarInfo,
       house_load: houseLoad.available ? {
@@ -2660,6 +2695,7 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
   }
   ST().planRunning = (async () => {
     try {
+      const updatesBefore = ST().tripUpdates || 0;
       const result = await computePlan();
       // What the car's own limit will be, for Home.
       try {
@@ -2667,7 +2703,9 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
       } catch {
         result.limit = null;
       }
-      ST().planCache = { at: Date.now(), result };
+      // A trip distance came in during the calculation: show this result,
+      // but calculate again on the next request.
+      ST().planCache = { at: (ST().tripUpdates || 0) === updatesBefore ? Date.now() : 0, result };
       if (!noControl) {
         try {
           await runDryRun(result);
