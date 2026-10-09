@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 152 of 152 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 143 of 143 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 155 of 155 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 146 of 146 ✓ |
 | Unit tests (9 files) | 317 of 317 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.10-dev.
+Version: 0.29.11-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 42 kB CSS, 206 kB JS | ✓ 42 kB CSS, 206 kB JS |
+| A2 | Frontend assets are served separately | ✓ 42 kB CSS, 210 kB JS | ✓ 42 kB CSS, 210 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -131,6 +131,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | H1 | Refused: a notify action that does not exist | ✓ Choose a notify action from the list | ✓ Choose a notify action from the list |
 | H2 | Choose mobile_app_pixel_8 and send a test notification | ✓ | ✓ |
 | H3 | Test notification refused when no notify action is chosen | ✓ | ✓ |
+| H4 | Two recipients, each with its own messages: the test goes to one; a recipient without a notify action is refused | ✓ test → mobile_app_iphone_anna | ✓ test → mobile_app_iphone_anna |
+| H5 | Settings from before recipients (one notify action, "Notify every start and pause" off) become one recipient "My phone" with start, pause and home battery messages off | ✓ | ✓ |
 
 ## I. Configuration tab in Home Assistant
 
@@ -161,7 +163,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | J12 | Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 % | ✓ limit 85 %, at 85 %: at_target | ✓ limit 90 %, at 85 %: at_target |
 | J13 | Battery care (on by default): target 100 % tomorrow 23:00 — up to 80 % in the cheap night, the last part only in the 4 hours before departure; the car limit stays at 80 % until then | ✓ up to 80 %: 17.2 kWh in the night · last 11.4 kWh from 19:00 · car limit 80 % | ✓ up to 80 %: 25.4 kWh in the night · last 16.9 kWh from 19:00 · car limit 80 % |
 | J10 | Car unplugged: Charge now is refused | ✓ | ✓ |
-| J11 | Notify every start and pause off: start is not notified | ✓ no notifications | ✓ no notifications |
+| J11 | A recipient with "Charging started" and "Charging paused" off: start is not notified; other messages still are | ✓ only: Car charge limit changed | ✓ only: Car charge limit changed |
 
 ## S. Solar
 
@@ -188,7 +190,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.47 | ✓ charges in 3 block(s), saving €1.47 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.46 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -229,10 +231,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 3 kB | ✓ 13 parts, 4 kB |
+| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 4 kB | ✓ 13 parts, 4 kB |
 | M2 | Refused: not a settings file, a file with unknown parts, a newer format | ✓ | ✓ |
 | M3 | Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured | ✓ car JLZ03X, charger Laadpaal, prices EnergyZero | ✓ car Enyaq, charger Wallbox Pulsar Plus, prices EnergyZero |
-| M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here |
+| M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here |
 
 ## N. Reliability
 
@@ -253,6 +255,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | W6 | A car without a plug sensor is the one when no other car says it is plugged in | ✓ EV6 (no_other) | ✓ EV6 (no_other) |
 | W7 | Own departures for the EV6 (60 %); the other car keeps the shared ones (80 %) | ✓ EV6 → 60% · JLZ03X → 80% | ✓ EV6 → 60% · Enyaq → 80% |
 | W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✓ EV6 → 70% (car: kia) · JLZ03X → 90% · new trip: "doel: 75 precondition: ja auto: EV6" | ✓ EV6 → 70% (car: kia) · Enyaq → 90% · new trip: "doel: 75 precondition: ja auto: EV6" |
+| W9 | Notifications per car: Peter gets both cars, Anna only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Peter | ✓ EV6 → mobile_app_iphone_anna, mobile_app_pixel_8 · JLZ03X → mobile_app_pixel_8 | ✓ EV6 → mobile_app_iphone_anna, mobile_app_pixel_8 · Enyaq → mobile_app_pixel_8 |
 | W8 | Turned off: the first car only, as before; the EV6 stays saved; removing it works | ✓ back to one car | ✓ back to one car |
 
 ## Y. Looking ahead: the next goal and what a trip costs
