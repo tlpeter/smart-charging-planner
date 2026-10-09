@@ -318,13 +318,16 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   // The way back: the very next calendar trip, when that is a trip home (within
   // 36 hours). Another trip first (for example to work the next morning)
   // means this trip has no trip home in the calendar: there and back.
+  // The car's range sensor gives the range at the level NOW, so the use per
+  // km always comes from the level now, not from the level when leaving.
+  const rangeSoc = () => (Number.isFinite(soc) ? soc : socAtDep);
   function tripOf(cur, socLeave) {
     const where = cur.location || tripcost.placeFor(null, cur.title).place; // the location, or a saved place by the title
     const following = where && !tripcost.isHome(cur.location)
       ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
     const back = following && isReturnTrip(following) ? following : null;
     const trip = where && !fixed
-      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: socLeave })
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: rangeSoc() })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
     const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
     const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;

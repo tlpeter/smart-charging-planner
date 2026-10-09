@@ -1544,6 +1544,22 @@ async function run() {
       world.soc = 100;
       return `zone Werk → ${leaves[0].trip.km} km (${leaves[0].trip.how})`;
     });
+    await test('Y8', 'Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ range_entity: CAR.range }));
+      world.soc = 50;
+      world.events = [
+        ev('Naar A', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar B', 'doel: 90', ADDR3, 2, 8, 18),
+      ];
+      const p = await settle();
+      const leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      const [a, b] = leaves.map((x) => x.trip);
+      assert(a.status === 'ok' && b.status === 'ok' && a.km === b.km, JSON.stringify([a, b]));
+      assert(Math.abs(a.pct - b.pct) < 0.2, `first ${a.pct}%, second ${b.pct}% for the same distance`);
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      world.soc = 100;
+      return `${a.km} km → ${a.pct}% both times`;
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.29.10-dev
+
+- Fix: with the car's range sensor, later trips in the timeline cost far too much (Naar Werk 93 % instead of about 47 %, so "back home 0 %"). The range is the range at the battery level now, but it was divided by the level when leaving (80 %). Now the use per km always comes from the level now, so the same distance costs the same every time
+- Tests: settings test Y8
+
 ## 0.29.9-dev
 
 - **Zones in Home Assistant** are used as places, automatically: a zone "Werk" makes "Naar Werk" (location "Werk", or a title "Naar Werk" with "IQ Messenger" as location) show what the trip costs, with the zone's GPS position. No address needed
