@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.9-dev
+
+- **Zones in Home Assistant** are used as places, automatically: a zone "Werk" makes "Naar Werk" (location "Werk", or a title "Naar Werk" with "IQ Messenger" as location) show what the trip costs, with the zone's GPS position. No address needed
+- Plan › My places lists the zones the app found; a name in My places goes before a zone with the same name. The Home zone is your home
+- Docs: which place a trip goes to (location, address, title, zone, My places)
+- Tests: settings test Y7 and a tripcost check
+
 ## 0.29.8-dev
 
 - **My places** (Plan): give names you use in the calendar an address, for example "Werk" → "Pieter Zeemanweg 57, Dordrecht". A trip whose location is that name ("Werk", "IQ Messenger"), or whose title is "Naar Werk", then shows what it costs, and the timeline knows the battery level when you are back. A real address in the event still wins

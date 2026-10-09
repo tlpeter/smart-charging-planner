@@ -84,10 +84,10 @@ check('straight line: Reusel to Bergschenhoek is about 100 km', () => {
 check('My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested', () => {
   t.setSavedPlaces([{ name: 'Werk', address: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht' }, { name: 'IQ Messenger', address: 'Pieter Zeemanweg 57, Dordrecht' }]);
   try {
-    assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
-    assert.deepStrictEqual(t.placeFor('iq messenger', 'Naar kantoor'), { location: 'Pieter Zeemanweg 57, Dordrecht', place: 'IQ Messenger' });
-    assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
-    assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
+    assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor('iq messenger', 'Naar kantoor'), { location: 'Pieter Zeemanweg 57, Dordrecht', place: 'IQ Messenger', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk', kind: 'saved' });
     assert.deepStrictEqual(t.placeFor('Stationsplein 1, Utrecht', 'Naar Werk'), { location: 'Stationsplein 1, Utrecht', place: null });
     assert.deepStrictEqual(t.placeFor('Gent', 'Naar Gent'), { location: 'Gent', place: null });
     assert.deepStrictEqual(t.placeFor('Thuis', 'Naar Thuis'), { location: 'Thuis', place: null });
@@ -95,6 +95,30 @@ check('My places: "Werk" (location or title "Naar Werk") uses its address; a rea
     assert.strictEqual(t.askName('Werk', ''), 'Werk');
     assert.strictEqual(t.askName(null, 'Naar Thuis'), null);
   } finally {
+    t.setSavedPlaces([]);
+  }
+});
+
+check('Zones in Home Assistant: "Werk" (by name or by the title) is a point with GPS; the home zone is not a place; My places go first', () => {
+  t.setZones([
+    { entity_id: 'zone.home', attributes: { friendly_name: 'Thuis', latitude: 51.37, longitude: 5.19 } },
+    { entity_id: 'zone.werk', attributes: { friendly_name: 'Werk', latitude: 51.80, longitude: 4.70 } },
+    { entity_id: 'zone.sportschool_reusel', attributes: { friendly_name: 'Basic-Fit', latitude: 51.36, longitude: 5.17 } },
+  ]);
+  try {
+    const w = t.placeFor('Werk', 'Naar Werk');
+    assert.strictEqual(w.kind, 'zone');
+    assert.deepStrictEqual(w.point, { lat: 51.8, lon: 4.7 });
+    assert.strictEqual(t.placeFor('IQ Messenger', 'Naar Werk').kind, 'zone');
+    assert.strictEqual(t.placeFor('sportschool reusel', '').place, 'Basic-Fit');
+    assert.strictEqual(t.zoneList().length, 2);
+    const d = t.pointDistance({ lat: 51.80, lon: 4.70 }, { lat: 51.37, lon: 5.19 });
+    assert.ok(d.status === 'ok' && d.how === 'estimate' && d.km > 70 && d.km < 100, JSON.stringify(d));
+    assert.strictEqual(t.pointDistance({ lat: 51.3701, lon: 5.1901 }, { lat: 51.37, lon: 5.19 }).status, 'home');
+    t.setSavedPlaces([{ name: 'Werk', address: 'Pieter Zeemanweg 57, Dordrecht' }]);
+    assert.strictEqual(t.placeFor('Werk', '').kind, 'saved');
+  } finally {
+    t.setZones([]);
     t.setSavedPlaces([]);
   }
 });

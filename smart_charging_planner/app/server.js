@@ -305,6 +305,7 @@ const AHEAD_STEPS = 6;
 
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
   if (!departure || !vehicle) return null;
+  tripcost.setZones(states);
   const horizon = now + AHEAD_DAYS * 86400000;
   const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow }).sort((a, b) => a.time - b.time);
   const trips = calendarTrips(dep, events, tz, now, carCtxNow);
@@ -349,7 +350,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     timeline.push({ type: 'charge', expected: false, start: planPeriods[0].start, end: planPeriods[planPeriods.length - 1].end, periods: planPeriods, kwh: Math.round((plan.planned_kwh || 0) * 10) / 10, cost: plan.blocks.length ? plan.cost ?? null : null, soc_to: socAtDep });
   }
   const leave = (x, t, tr, socLeave, target) => {
-    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, ask: tr.ask || null } : null });
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
     if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
@@ -1324,7 +1325,11 @@ const routes = {
   },
 
   // My places: names you use in the calendar ("Werk") with their address.
-  'GET /api/places': async () => ({ places: settings.load().places || [] }),
+  // Zones in Home Assistant are used too (automatically), shown as a list.
+  'GET /api/places': async () => {
+    try { tripcost.setZones(await ha.call({ type: 'get_states' })); } catch { /* the list shows the last known zones */ }
+    return { places: settings.load().places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })) };
+  },
 
   'POST /api/places': async (req) => {
     const body = await readBody(req);
@@ -1412,6 +1417,7 @@ const routes = {
       calendar_error: error,
       calendar_trips: (() => {
         // What each trip costs (there and back), from its destination (tripcost.js).
+        tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
         return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000).map((t) => ({

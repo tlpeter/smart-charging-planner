@@ -1117,7 +1117,7 @@ function durationText(minutes) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
-      const via = t.place ? ` <span class="muted">(${esc(t.place)}, from My places)</span>` : '';
+      const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
         case 'ok': return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
         case 'home': return 'At home: no trip';
@@ -2348,6 +2348,9 @@ function durationText(minutes) {
         $('places-list').innerHTML = '';
         r.places.forEach((p) => placeRow(p));
         if (!r.places.length) placeRow();
+        $('places-zones').innerHTML = r.zones && r.zones.length
+          ? `Zones in Home Assistant, used automatically: <strong>${r.zones.map((z) => esc(z.name)).join(', ')}</strong>. A name here goes before a zone with the same name.`
+          : 'No zones in Home Assistant besides Home. Zones you add there (Settings › Areas, labels & zones › Zones) are used automatically.';
       } catch (err) {
         $('places-error').textContent = err.message;
         $('places-error').hidden = false;

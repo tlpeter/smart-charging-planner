@@ -1525,6 +1525,25 @@ async function run() {
       world.soc = 100;
       return `Werk → ${after[0].trip.km} km, ${after[0].trip.pct}% there and back`;
     });
+    await test('Y7', 'Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "IQ Messenger"; Plan lists the zone, not Home', async () => {
+      world.zones = [{ entity_id: 'zone.werk', name: 'Werk', lat: 51.80, lon: 4.70 }];
+      world.soc = 80;
+      world.events = [
+        ev('Naar Werk', 'doel: 80', 'IQ Messenger', 1, 6, 7),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
+        ev('Naar Werk', 'doel: 80', 'Werk', 2, 6, 7),
+      ];
+      const p = await settle();
+      const leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      assert(leaves.length === 2 && leaves.every((x) => x.trip.status === 'ok' && x.trip.place === 'Werk' && x.trip.place_kind === 'zone' && x.trip.pct > 0), JSON.stringify(leaves.map((x) => x.trip)));
+      const r = await ok('GET', 'api/places');
+      assert(r.zones.length === 1 && r.zones[0].name === 'Werk', JSON.stringify(r.zones));
+      const d = await ok('GET', 'api/departures');
+      assert(d.calendar_trips.filter((x) => x.title === 'Naar Werk').every((x) => x.cost && x.cost.place_kind === 'zone'), JSON.stringify(d.calendar_trips.map((x) => x.cost)));
+      world.zones = [];
+      world.soc = 100;
+      return `zone Werk → ${leaves[0].trip.km} km (${leaves[0].trip.how})`;
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [
