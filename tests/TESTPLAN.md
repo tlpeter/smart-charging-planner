@@ -92,7 +92,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E5 | All-in price: used as it is | ✓ | ✓ |
 | E6 | Refused: purchase fee 2, VAT 80 | ✓ | ✓ |
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
-| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 5,6 | ✓ planned hours 5,6 |
+| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 6 | ✓ planned hours 6 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
 
 ## F. Planning (departures)
