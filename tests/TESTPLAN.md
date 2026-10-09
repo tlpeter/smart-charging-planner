@@ -19,7 +19,7 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 | Unit tests (9 files) | 317 of 317 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.10-dev.
+Version: 0.29.10.
 
 # Settings
 
