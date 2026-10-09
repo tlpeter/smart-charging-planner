@@ -10,7 +10,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 
 **Use**
 
-- **Home**: the charging plan with a price chart up to your departure, the expected cost compared with charging right away, and **Quick choices**:
+- **Home**: the charging plan with a price chart from at least 12 hours back (blocks the car really charged in are **yellow**, from the charger power sensor) up to your departure, the expected cost compared with charging right away, and **Quick choices**:
   - **Charge now**: charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged.
   - **Quick minimum**: charge right away up to 20–45 %, then the plan takes over.
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.

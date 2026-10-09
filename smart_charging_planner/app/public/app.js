@@ -799,6 +799,13 @@ function durationText(minutes) {
       return ticks;
     }
 
+    // Length of the current price block (older or forecast blocks can differ).
+    function blockMinutes(prices) {
+      const now = Date.now();
+      const p = prices.find((x) => x.start <= now && now < x.end) || prices.find((x) => !x.forecast) || prices[0];
+      return (p.end - p.start) / 60000;
+    }
+
     function drawChart(d) {
       const wrap = $('chart');
       if (!wrap || !d.prices.length) return;
@@ -821,6 +828,8 @@ function durationText(minutes) {
       // Expected charging after the next trip (orange; not steered).
       const expBlocks = d.next ? d.next.expected_blocks || (d.next.expected ? d.next.expected.blocks : []) : [];
       const expected = new Set(expBlocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
+      // What was really charged in past blocks (yellow).
+      const charged = new Map((d.charged || []).map((c) => [c.start, c.kwh]));
 
       // Bar width per block: real prices can be per 15 minutes, a forecast per hour.
       let bars = '';
@@ -837,10 +846,11 @@ function durationText(minutes) {
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
         const planColor = onSolar ? 'var(--solar)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
-        const fill = p.forecast
+        const didCharge = charged.has(p.start);
+        const fill = didCharge ? 'var(--charged)' : p.forecast
           ? (isPlanned ? (onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
           : isPlanned ? planColor : isExp ? 'var(--expected)' : 'var(--bar)';
-        const past = p.end <= Date.now() ? ' opacity="0.45"' : '';
+        const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
         const up = p.total >= 0;
@@ -960,7 +970,9 @@ function durationText(minutes) {
           const room = p.amps != null ? `<br><span class="src">Room for charger: ${p.amps ? `${Math.floor(p.amps)} A (${p.power_kw.toFixed(1)} kW)` : 'too little'}</span>` : '';
           const solText = Number.isFinite(p.solar_kw) ? `<br><span class="src">Sun: ${p.pv_kw.toFixed(1)} kW expected, ${p.solar_kw.toFixed(1)} kW left for the car, worth ${p.solar_price.toFixed(4)} /kWh</span>` : '';
           const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${blk ? `<br><span style="color:${blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
+          const done = (d.charged || []).find((c) => c.start === p.start);
+          const doneText = done ? `<br><span style="color:var(--charged)">■</span> Charged ${done.kwh.toFixed(1)} kWh` : '';
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -1075,10 +1087,10 @@ function durationText(minutes) {
         <div class="overview-grid">
           <div class="overview-main">
             <div class="card chart-card">
-              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
+              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
