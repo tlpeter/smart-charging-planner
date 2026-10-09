@@ -1,5 +1,85 @@
 # Changelog
 
+## 0.29.10
+
+- Fix: with the car's range sensor, later trips in the timeline cost far too much (Naar Werk 93 % instead of about 47 %, so "back home 0 %"). The range is the range at the battery level now, but it was divided by the level when leaving (80 %). Now the use per km always comes from the level now, so the same distance costs the same every time
+- Tests: settings test Y8
+
+## 0.29.9
+
+- **Zones in Home Assistant** are used as places, automatically: a zone "Werk" makes "Naar Werk" (location "Werk", or a title "Naar Werk" with "IQ Messenger" as location) show what the trip costs, with the zone's GPS position. No address needed
+- Plan › My places lists the zones the app found; a name in My places goes before a zone with the same name. The Home zone is your home
+- Docs: which place a trip goes to (location, address, title, zone, My places)
+- Tests: settings test Y7 and a tripcost check
+
+## 0.29.8
+
+- **My places** (Plan): give names you use in the calendar an address, for example "Werk" → "Pieter Zeemanweg 57, Dordrecht". A trip whose location is that name ("Werk", "IQ Messenger"), or whose title is "Naar Werk", then shows what it costs, and the timeline knows the battery level when you are back. A real address in the event still wins
+- When the distance of a trip is not known, Home says why ("Not an address", "not found on OpenStreetMap") and offers **Add "Werk" to My places**, which opens Plan with the name filled in
+- My places are part of the settings export and import
+- Tests: settings test Y6 and a tripcost check
+
+## 0.29.7
+
+- **Looking ahead is now a timeline** of the coming days (up to 7 days, 6 departures), in the order things happen: charging (blue, the real plan), leaving (target and what the trip costs), back home (with about how much battery), expected charging (orange), leaving again, … The battery level is on the right of each step. Replaces "Next stop" and "Next goal", which repeated Ready Guard and were hard to follow
+- **The chart** goes on past the departure to the expected charging (at most 3 days ahead): expected charging in orange, the time the car is away shaded ("away"), later departures as orange dashed lines with their target
+- A trip that costs more than the battery holds says so ("charge on the way")
+- Tests: settings test Y5 (a week with trips, back home and expected charging)
+
+## 0.29.6
+
+- Fix: a trip added with **Add trip** did not show up on Plan and under Looking ahead until the next refresh (up to 5 minutes). Now it counts right away
+- Fix: when OpenStreetMap has found an address (or the route), Plan and Home show what the trip costs right away instead of "Looking up the distance…" until the next refresh
+- Fix: with the calendar read by keyword ("EV"), a trip added by the app was not read back (it has "doel: 80" but not the keyword). Events with "doel:" or "target:" in the description now always count
+- Add trip is refused when the calendar is not used for departures (the trip would never count); the form already hid itself then
+- Add trip: optional **Back home at**: the event lasts until then, so Looking ahead knows when the car is back (without it: 15 minutes, so the car was "back" right after leaving)
+- With one car Add trip has no car to choose: the trip is for that car (the **For** choice only appears with more than one car)
+- Tests: group U, Add trip for real (written to the calendar, shown right away on Plan and Home, duplicates, keyword calendar, calendar off, more cars)
+
+## 0.29.5
+
+- **Test plan written automatically**: after every push GitHub runs all tests and writes `tests/TESTPLAN.md` from the results (settings, every unit test with every check, and the charger × battery matrix), and saves it in the branch when it changed. The plan can no longer fall behind the code
+- `node tests/testplan.js all` does the same on your own computer
+- The test plan now also lists the unit tests (more cars, more chargers, look ahead, Ready Guard, …) and has a summary at the top; doubled lines are gone
+- The saved test plan is a small extra commit by GitHub ("Test plan: results of …"); pull before pushing again
+- The results of each test run are also shown on the run's summary page in GitHub Actions
+
+## 0.29.4
+
+- Fix: looking ahead took a trip home **after another trip** as the way back. Example: Outdoorvalley on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
+- A trip to your own home address (within 1 km of the home in Home Assistant) counts as a trip home, like "Thuis"
+- Addresses with a company or place name in front ("IQ Messenger, Pieter Zeemanweg 57, …") are found: when OpenStreetMap does not find the whole text, the app tries again without the first part
+- Plan shows "Address not found on OpenStreetMap" for a trip whose address cannot be found
+- Tests: settings test Y2b (this calendar)
+
+## 0.29.3
+
+- Ready Guard's **Expected ready** time now follows the end of the actual scheduled charging blocks instead of pretending charging starts continuously right now
+- The uninterrupted charging estimate remains separate and is still used internally when Ready Guard must take over
+
+## 0.29.2
+
+- **Apple iCloud calendars** (Home Assistant 2026.10+: each iCloud calendar is a calendar entity) work for departures like any other calendar: "doel: 80", "precondition: ja" and "auto: …" are read from the event
+- iCloud calendars are read only in Home Assistant: the calendar list marks read-only calendars, and Add trip says so (and refuses with a clear reason) instead of failing; add those trips in the calendar app itself. The app checks the calendar's "create event" feature, so this works for every read-only calendar
+- Docs: which calendars work
+- Tests: settings test Z1 (departure from a read-only iCloud calendar, adding refused)
+
+## 0.29.1
+
+- Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Spijkenisse therefore moves in front of a later 100% trip automatically
+- The fast Home Assistant simulator now reports Core 2026.10.0
+- A separate free GitHub Actions compatibility test starts a real, isolated Home Assistant Core 2026.10.0 container every Monday, on relevant `dev` changes and on demand. It checks the WebSocket contracts and the app's vehicle, charger, grid, price, control and solar discovery routes
+
+## 0.29.0
+
+- **Looking ahead**: Home shows the **next goal** after the coming departure, also when the current target is already reached and also when the prices for then are not known yet
+- **What a trip costs**: for a calendar trip with an address in its location, the distance by road (OpenStreetMap: Nominatim and OSRM; the straight line × 1.3 when no route is found) and the battery % there and back (+10 % margin). A later trip home in the calendar ("Naar Thuis", or to "Thuis") is used as the way back
+- The expected battery level when the car is back, and the expected charging for the next goal from then, in **orange** in the chart (with a "next goal" marker); the card is orange when the car is expected back below the next goal. An expectation only: nothing is steered by it
+- Use per km, best first: learned from your own trips (battery level when the car leaves and when it is back), the car's range sensor, or the new **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km)
+- The Plan tab shows the distance and % per calendar trip
+- Home location and country from Home Assistant (Settings → System → General); every address is looked up once and remembered (places.json), one lookup per second
+- Tests: settings test group Y (next goal with a reached target, trip cost, return trip, no route, not an address) and tests/tripcost.test.js
+
 ## 0.28.1
 
 - **Battery care** (Settings › Rules, on by default): for a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest and the rest only in the last 4 hours before departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be set; when the rest needs more time, it starts earlier

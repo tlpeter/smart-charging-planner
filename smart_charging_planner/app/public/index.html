@@ -45,8 +45,9 @@
         <p class="muted small" id="trip-mode-text"></p>
         <div class="two">
           <div class="field"><label>Leave at</label><input type="datetime-local" name="datetime" required></div>
-          <div class="field"><label>Destination</label><input name="destination" maxlength="80" placeholder="e.g. Thuis" required></div>
+          <div class="field"><label>Destination</label><input name="destination" maxlength="80" placeholder="Address or place, e.g. Stationsplein 1, Utrecht" required></div>
         </div>
+        <div class="field"><label>Back home at (optional)</label><input type="time" name="back"><div class="muted small">With an address the app works out what the trip costs (there and back) and, after you are back, what it expects to charge for the next goal.</div></div>
         <div class="two">
           <div class="field"><label>Target battery level (%)</label><input type="number" name="soc" min="10" max="100" step="1" value="80"></div>
           <div class="field"><label>Precondition</label><label class="check"><input type="checkbox" name="precondition"> Heat or cool the car before leaving</label></div>
@@ -62,6 +63,18 @@
         <div class="error form-error" hidden></div>
         <div id="trip-result"></div>
       </form>
+      <div class="card" id="places-card">
+        <h2>My places</h2>
+        <p class="muted small">Names you use in the calendar, such as "Werk" or "IQ Messenger", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("Naar Werk") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <p class="muted small" id="places-zones"></p>
+        <div id="places-list"></div>
+        <div class="buttons">
+          <button class="secondary" type="button" id="place-add">Add place</button>
+          <button class="primary" type="button" id="places-save">Save</button>
+        </div>
+        <div class="error form-error" id="places-error" hidden></div>
+        <div id="places-result"></div>
+      </div>
       <div class="card" id="dep-override"></div>
       <form id="dep-form">
         <div class="card">

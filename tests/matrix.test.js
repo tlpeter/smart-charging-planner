@@ -191,6 +191,8 @@ async function startApp(options) {
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
       SCP_CURRENT_GAP_MS: '1000',
+      SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
+      SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

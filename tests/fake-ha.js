@@ -1,5 +1,9 @@
 'use strict';
 
+// Keep the fast simulator aligned with the pinned Core compatibility test.
+// Override this only when checking a future Home Assistant release locally.
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.0';
+
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
 //   renault_easee  Renault Megane E-Tech (renault) + Easee Charge (easee)
@@ -214,7 +218,9 @@ function entityList(w) {
     ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
-    ['calendar.auto', 'off', { friendly_name: 'Auto' }, null],
+    ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
+    // An Apple iCloud calendar (Home Assistant 2026.10+): read only.
+    ['calendar.icloud_peter', 'off', { friendly_name: 'iCloud Peter', supported_features: 0 }, null],
     // Inverter (Fronius): solar power now.
     ['sensor.solarnet_power_photovoltaics', String(w.pvW ?? 0), { friendly_name: 'SolarNet Power photovoltaics', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
     ['sensor.solarnet_power_grid', String(gridW(w)), { friendly_name: 'SolarNet Power grid', unit_of_measurement: 'W', device_class: 'power' }, 'inv'],
@@ -232,6 +238,9 @@ function entityList(w) {
     ...(w.otherBattery ? w.otherBattery.list.map(([id, , a, dev]) => [id, String(w.store.get(id)), a, dev]) : []),
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
+    // Zones: home, and w.zones = [{ entity_id, name, lat, lon }].
+    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 5.19, radius: 100 }, null],
+    ...(w.zones || []).map((z) => [z.entity_id, '0', { friendly_name: z.name, latitude: z.lat, longitude: z.lon, radius: 100 }, null]),
   ];
 }
 
@@ -284,9 +293,9 @@ function start(w, wsPort, restPort) {
       const m = JSON.parse(raw);
       const ok = (result) => s.send(JSON.stringify({ id: m.id, type: 'result', success: true, result }));
       const fail = (message) => s.send(JSON.stringify({ id: m.id, type: 'result', success: false, error: { code: 'x', message } }));
-      if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: '2026.9.4' }));
+      if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: HA_VERSION }));
       switch (m.type) {
-        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: '2026.9.4' });
+        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 5.19, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
         case 'config/entity_registry/list': return ok(registry(w));
@@ -317,7 +326,8 @@ function start(w, wsPort, restPort) {
         case 'call_service': {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
           if (m.domain === 'calendar' && m.service === 'get_events') {
-            return ok({ context: {}, response: { 'calendar.auto': { events: w.events } } });
+            const cal = (m.target && [].concat(m.target.entity_id)[0]) || 'calendar.auto';
+            return ok({ context: {}, response: { [cal]: { events: w.events } } });
           }
           // Like Home Assistant: an action with a device_id field (Easee)
           // validates it as text; a target device arrives as a list.
@@ -333,6 +343,11 @@ function start(w, wsPort, restPort) {
           }
           w.calls.push(call);
           const tid = call.target && call.target.entity_id;
+          // Like Home Assistant: a created event is in the calendar right away.
+          if (m.domain === 'calendar' && m.service === 'create_event') {
+            const d = call.data;
+            w.events.push({ summary: d.summary, description: d.description, location: d.location, start: String(d.start_date_time).replace(' ', 'T'), end: String(d.end_date_time).replace(' ', 'T') });
+          }
           if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) w.limit = call.data.value;
           if (w.hasBattery && tid) {
             if (tid === 'switch.sigen_plant_remote_ems_controlled_by_home_assistant') w.bat.ems = m.service === 'turn_on' ? 'on' : 'off';
@@ -372,6 +387,22 @@ function start(w, wsPort, restPort) {
     });
   });
   const rest = http.createServer((req, res) => {
+    // OpenStreetMap (trip distances): Nominatim search and OSRM route.
+    // w.places: { 'address text': { lat, lon } }; w.routeKm: the road distance (or null: route fails).
+    if (req.url.startsWith('/search')) {
+      const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
+      w.geoCalls = (w.geoCalls || 0) + 1;
+      const hit = (w.places || {})[q];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(hit ? [{ lat: String(hit.lat), lon: String(hit.lon) }] : []));
+      return;
+    }
+    if (req.url.startsWith('/route/')) {
+      if (w.routeKm === null) { res.writeHead(503); res.end('{}'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000 }] }));
+      return;
+    }
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {

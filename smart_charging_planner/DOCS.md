@@ -177,6 +177,38 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 - The plans are made per charger and shared at the moment of charging; they do not yet take each other into account.
 - Notifications name the charger. The first charger keeps `sensor.smart_charging_*`; another gets `sensor.smart_charging_<charger>_*`.
 
+## Calendars
+
+Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "doel: 80" (or "target: 80") in the event's notes or title; "precondition: ja" and, with more cars, "auto: renault" work the same way.
+
+**Add trip** (Plan) writes to the calendar the app reads departures from (Plan › Departures › Calendar must be on). The trip counts right away: on Plan and in the timeline under Looking ahead on Home. With an address as destination the app works out what the trip costs. **Back home at** (optional) is when the event ends: then the app knows when the car is back; without it the event lasts 15 minutes. **For** (which car) only appears with more than one car.
+
+Add trip needs a calendar Home Assistant can add events to. Apple iCloud calendars are read only in Home Assistant: the calendar is marked "read only" in the list, and Add trip says so. Add those trips in the calendar app itself (for example on your iPhone); the app reads them as usual.
+
+## Looking ahead: the coming days and what a trip costs
+
+Always on. Home shows the coming days (up to 7 days, 6 departures) as one timeline, in the order they happen, with the battery level on the right:
+
+- **Charging** (blue): the real plan up to the first departure.
+- **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", is not a departure of its own: it is when the car is back.
+- **Back home**: when, and with about how much battery.
+- **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
+
+When another trip is added to the calendar, it takes its place in the timeline right away.
+
+- **Zones in Home Assistant** (Settings › Areas, labels & zones › Zones), such as "Werk": used automatically, with their GPS position, so no address is needed. A trip whose location is the zone's name ("Werk"), or whose title is "Naar Werk", goes to that zone. The Home zone is your home.
+- **My places** (Plan): names you use in the calendar, such as "Werk" or "IQ Messenger", with their address. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
+- Which place a trip goes to, first match wins: the event's location is a name from My places or a zone → that place; the location is a real address (with a house number) → that address; the title ("Naar Werk") is a name from My places or a zone → that place; otherwise the location as it is (looked up on OpenStreetMap). When the distance of a trip is not known, Home says why and offers to add its name to My places. My places are part of the settings export.
+- **What a trip costs**: when the calendar event has an address in its location (for example "Hoeksekade 141 2661 JL Bergschenhoek"). Words like "Werk" or "Thuis" are not addresses; put the full address in the location to see the cost.
+  - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
+  - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
+  - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
+- **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
+
+**The chart** goes on to the last expected charging (at most 3 days ahead): expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
+
+This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
+
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.

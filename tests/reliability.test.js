@@ -18,15 +18,31 @@ function check(name, fn) {
 }
 
 check('reports an affordable plan with time left as on track', () => {
+  const plannedReady = now + 3 * H;
   const r = evaluateReadyGuard({
     now, deadline: now + 6 * H, neededKwh: 18, plannedKwh: 18, powerKw: 11,
     plugged: true, charging: false, controlAllowed: true,
-    blocks: [{ start: now + H, end: now + 3 * H }],
+    blocks: [{ start: now + H, end: plannedReady }],
   });
   assert.equal(r.status, 'on_track');
   assert.equal(r.protect, false);
   assert(r.latest_safe_start > now);
   assert(r.safety_margin_minutes >= 30);
+  assert.equal(r.expected_ready, plannedReady);
+  assert.equal(r.planned_ready, plannedReady);
+  assert(r.continuous_ready < plannedReady);
+});
+
+check('keeps the uninterrupted Ready Guard estimate when the known plan is incomplete', () => {
+  const r = evaluateReadyGuard({
+    now, deadline: now + 8 * H, neededKwh: 18, plannedKwh: 8, powerKw: 11,
+    plugged: true, charging: false, controlAllowed: true,
+    blocks: [{ start: now + 5 * H, end: now + 6 * H }],
+  });
+  assert.equal(r.status, 'at_risk');
+  assert.equal(r.expected_ready, r.continuous_ready);
+  assert.notEqual(r.expected_ready, r.planned_ready);
+  assert.equal(r.guard_until, r.continuous_ready);
 });
 
 check('starts protection after the latest safe start', () => {

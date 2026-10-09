@@ -27,7 +27,7 @@ function haDateTime(ms, tz) {
   return isoLocal(ms, tz).slice(0, 19).replace('T', ' ');
 }
 
-// input: { datetime: "YYYY-MM-DDTHH:MM", destination, soc, precondition, weekdays: [], weeks }
+// input: { datetime: "YYYY-MM-DDTHH:MM", destination, back: "HH:MM" (optional), soc, precondition, weekdays: [], weeks }
 function buildTripEvents(input, tz, now = Date.now()) {
   const first = parseLocal(input.datetime, tz);
   if (!Number.isFinite(first) || first <= now) throw badRequest('Choose a departure in the future');
@@ -54,6 +54,24 @@ function buildTripEvents(input, tz, now = Date.now()) {
   if (!starts.length) throw badRequest('The chosen weekdays give no departures');
   if (starts.length > MAX_EVENTS) throw badRequest(`That would add ${starts.length} trips; the maximum is ${MAX_EVENTS}`);
 
+  // Back home at (optional, HH:MM): the event lasts until then (the next day
+  // when that time is earlier than leaving), so the app knows when the car is back.
+  let backMin = null;
+  const bm = String(input.back || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (String(input.back || '').trim() && !bm) throw badRequest('Back home: enter a time (HH:MM)');
+  if (bm) {
+    const h = Number(bm[1]);
+    const mi = Number(bm[2]);
+    if (h > 23 || mi > 59) throw badRequest('Back home: enter a time (HH:MM)');
+    backMin = h * 60 + mi;
+  }
+  const endOf = (start) => {
+    if (backMin == null) return start + DURATION_MIN * 60000;
+    const q = tzParts(start, tz);
+    const leaveMin = q.h * 60 + q.mi;
+    return localDateTime(tz, q.y, q.m, q.d + (backMin <= leaveMin ? 1 : 0), Math.floor(backMin / 60), backMin % 60);
+  };
+
   const car = String(input.car || '').replace(/[\n,;:]/g, ' ').trim().slice(0, 30);
   const description = `doel: ${soc} precondition: ${input.precondition ? 'ja' : 'nee'}${car ? ` auto: ${car}` : ''}`;
   return starts.map((start) => ({
@@ -61,7 +79,7 @@ function buildTripEvents(input, tz, now = Date.now()) {
     location: destination,
     description,
     start,
-    end: start + DURATION_MIN * 60000,
+    end: endOf(start),
   }));
 }
 

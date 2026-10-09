@@ -50,15 +50,18 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
+**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a zone in Home Assistant, or a name from **My places** on Plan, such as "Werk") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). It is an expectation and never steers anything.
+
 ### Plan: departures
 
 | Source | What it does |
 | --- | --- |
 | **Weekly schedule** | A time and battery level per weekday. |
-| **Calendar** | Trips from a Home Assistant calendar. Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
+| **Calendar** | Trips from any Home Assistant calendar: Google, Local calendar, CalDAV, and Apple iCloud (Home Assistant 2026.10+, read only: add trips in the calendar app itself). Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
 | **Helper** | An `input_datetime` (and optionally an `input_number` for the level), for example from a dashboard. |
 | **One-off departure** | A trip that differs from normal; removed after it has passed. |
-| **Add trip** | Writes trips to your calendar as "Naar &lt;destination&gt;" with "doel: … precondition: …" (test mode until **Allow adding trips to calendar** is on). |
+| **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Naar Thuis" (or a trip to "Thuis"/your home) is used as the way back. |
+| **Add trip** | Writes trips to the calendar the app reads, as "Naar &lt;destination&gt;" with the destination as location and "doel: … precondition: …"; optional **Back home at** (test mode until **Allow adding trips to calendar** is on). With one car there is nothing to choose: the trip is for that car. |
 | **Own departures per car** (more cars) | A car can have its own schedule, calendar and one-off departure; otherwise all cars share them. |
 
 When several sources give a departure on one day: one-off, then calendar, then helper, then schedule.
@@ -68,7 +71,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | Page | Options (default) |
 | --- | --- |
 | **Overview** | Checklist: is everything set up well, with a link to fix each point. |
-| **Vehicle** | Detect the car or choose its sensors (battery level, range, charging, plugged in, the car's own charge limit). Battery capacity. **Car data counts as old after** (3 h): when the car's cloud is down, the plan goes on with an estimate. **No car integration?**: enter the level when you plug in, or a fixed amount per session. **I have more than one car** (off): add up to 6 cars, each with an optional **Name in the calendar**. |
+| **Vehicle** | Detect the car or choose its sensors (battery level, range, charging, plugged in, the car's own charge limit). Battery capacity. **Use per 100 km** (optional, for trip estimates; the app learns it from your own trips, otherwise it uses the range sensor or 18 kWh/100 km). **Car data counts as old after** (3 h): when the car's cloud is down, the plan goes on with an estimate. **No car integration?**: enter the level when you plug in, or a fixed amount per session. **I have more than one car** (off): add up to 6 cars, each with an optional **Name in the calendar**. |
 | **Charger** | Detect the charger or choose its entities, phases, maximum current (optionally follow the charger's own limit live). **Control check** and **How the app starts and stops charging** (start/stop method and current method). **I have more than one charger** (off): up to 4 chargers, each with its own plan and control, and a **Usual car**. |
 | **Grid** | Grid meter (for example P1), **main fuse** and load balancer. Needed for the house load, solar, and sharing the connection between chargers. |
 | **Prices** | A dynamic price source (EnergyZero, Nord Pool, Tibber, …) with your purchase fee, energy tax and VAT, or **Fixed or day/night tariff**. Optional **price forecast** with a safety margin, so the plan can wait for a cheaper day. |
@@ -135,7 +138,9 @@ With more chargers and too little room on the main fuse: Charge now first, then 
 
 ## Tests
 
-`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox. See `tests/TESTPLAN.md` for the test plan and the last result.
+**[tests/TESTPLAN.md](tests/TESTPLAN.md)** shows every test and the result of the last run. GitHub writes it after every push, so it always matches the code; `node tests/testplan.js all` runs everything and writes it here (several minutes).
+
+`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox.
 
 `node tests/solar.test.js` checks solar brand by brand: inverters, forecasts, the value of own solar power and charging on surplus.
 
