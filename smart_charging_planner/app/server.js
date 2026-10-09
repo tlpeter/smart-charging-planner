@@ -17,6 +17,7 @@ const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, i
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
+const tripcost = require('./tripcost');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -47,6 +48,7 @@ const STATIC_FILES = new Map([
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
 ]);
 const APP_VERSION = require('./package.json').version;
+require('./tripcost').setUserAgent(APP_VERSION);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -276,6 +278,181 @@ function pickVehicle(s, states, now = Date.now()) {
   return activecar.pick(list, states, { chargerPlugged, chargerCharging: bare.charging, now, preferred });
 }
 
+// ---------------------------------------------------------------------------
+// Looking ahead: after the current departure, what is the next goal, and what
+// will the car need for it? The trip's cost comes from the destination in the
+// calendar (tripcost.js); the expected charging is a plan from the moment the
+// car is back. Shown on Home in orange; it never steers anything.
+
+const RETURN_TITLE = /^\s*(naar\s+(huis|thuis)|terug|home|back home|to home)\b/i;
+function isReturnTrip(t) {
+  if (!t) return false;
+  if (tripcost.isHome(t.location) || RETURN_TITLE.test(t.title || '')) return true;
+  // Your own home address as location (within 1 km of the home in Home Assistant).
+  return !!t.location && tripcost.distance(t.location).status === 'home';
+}
+
+// The coming days (up to 7 days, 6 departures) as one timeline: charging,
+// leaving, back home, charging again, … Each later departure gets an expected
+// charging plan from the moment the car is back (orange, never steered).
+const AHEAD_DAYS = 7;
+// The chart goes on to the end of the last expected charging (at most 3 days).
+function chartEnd(next) {
+  const b = next && next.expected_blocks && next.expected_blocks.length ? next.expected_blocks[next.expected_blocks.length - 1].end : 0;
+  return b ? Math.min(b, Date.now() + 3 * 86400000) : 0;
+}
+const AHEAD_STEPS = 6;
+
+function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
+  if (!departure || !vehicle) return null;
+  tripcost.setZones(states);
+  const horizon = now + AHEAD_DAYS * 86400000;
+  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow }).sort((a, b) => a.time - b.time);
+  const trips = calendarTrips(dep, events, tz, now, carCtxNow);
+  const tripAt = (x) => (x.source === 'calendar' ? trips.find((t) => t.time === x.time) : null);
+  const startOf = (t) => t.event_start || t.time;
+  const lastKnown = prices.length ? prices[prices.length - 1].end : now;
+  const fixed = mode === 'fixed_kwh';
+
+  // One trip: what it costs, when the car is back, the level after it.
+  // The way back: the very next calendar trip, when that is a trip home (within
+  // 36 hours). Another trip first (for example to work the next morning)
+  // means this trip has no trip home in the calendar: there and back.
+  // The car's range sensor gives the range at the level NOW, so the use per
+  // km always comes from the level now, not from the level when leaving.
+  const rangeSoc = () => (Number.isFinite(soc) ? soc : socAtDep);
+  function tripOf(cur, socLeave) {
+    const where = cur.location || tripcost.placeFor(null, cur.title).place; // the location, or a saved place by the title
+    const following = where && !tripcost.isHome(cur.location)
+      ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
+    const back = following && isReturnTrip(following) ? following : null;
+    const trip = where && !fixed
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: rangeSoc() })
+      : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
+    const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
+    const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
+    return { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
+  }
+  // The first departure after the car is back that is not the way home.
+  const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
+
+  // The level when the car leaves now: the target when the plan gets there.
+  let socAtDep = Number.isFinite(soc) ? soc : null;
+  if (socAtDep != null && Number.isFinite(targetSoc) && targetSoc > socAtDep) {
+    const share = neededKwh > 0 ? Math.min(1, (plan.planned_kwh || 0) / neededKwh) : 1;
+    socAtDep = Math.round((socAtDep + (targetSoc - socAtDep) * share) * 10) / 10;
+  }
+  const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
+  const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
+  // (The first trip's level after it follows the level when leaving.)
+  trip0.soc_after = socAtDep != null && trip0.pct != null ? Math.max(0, Math.round((socAtDep - trip0.pct) * 10) / 10) : (trip0.pct == null ? socAtDep : null);
+
+  const timeline = [];
+  const planPeriods = periods(plan.blocks || []);
+  if (planPeriods.length) {
+    timeline.push({ type: 'charge', expected: false, start: planPeriods[0].start, end: planPeriods[planPeriods.length - 1].end, periods: planPeriods, kwh: Math.round((plan.planned_kwh || 0) * 10) / 10, cost: plan.blocks.length ? plan.cost ?? null : null, soc_to: socAtDep });
+  }
+  const leave = (x, t, tr, socLeave, target) => {
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
+  };
+  const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
+  leave(departure, curTrip, trip0, socAtDep, departure.soc);
+
+  const out = {
+    current: {
+      time: departure.time,
+      title: departure.title || curTrip.title || null,
+      location: curTrip.location || null,
+      target_soc: departure.soc,
+      soc_at_departure: socAtDep,
+    },
+    trip: trip0,
+    goal: null,
+    expected: null,
+    timeline,
+    expected_blocks: [],
+  };
+
+  // The departures after this one, one after the other.
+  let back = trip0.return_at;
+  let level = trip0.pct == null ? null : trip0.soc_after;
+  for (let i = 0; i < AHEAD_STEPS - 1; i++) {
+    const x = nextAfter(back);
+    if (!x || x.time > horizon) break;
+    const t = tripAt(x);
+    let expected = null;
+    if (level != null && vehicle.capacity_kwh > 0) {
+      const need = energyNeededKwh(level, x.soc, vehicle.capacity_kwh, planning.loss_percent);
+      const window = prices.filter((p) => p.end > back && p.start < x.time);
+      const exp = need > 0.01 && window.length
+        ? planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 })
+        : null;
+      expected = {
+        soc_from: level,
+        soc_to: x.soc,
+        needed_kwh: Math.round(need * 10) / 10,
+        below_goal: level < x.soc - 0.5,
+        prices_known: lastKnown >= x.time, // with the price forecast when there is one
+        uses_forecast: !!(exp && exp.blocks.some((b) => b.forecast)),
+        blocks: exp ? exp.blocks.map((b) => ({ ...b, expected: true })) : [],
+        periods: exp ? periods(exp.blocks) : [],
+        planned_kwh: exp ? exp.planned_kwh : 0,
+        cost: exp && exp.blocks.length ? exp.cost : null,
+      };
+      out.expected_blocks.push(...expected.blocks);
+      if (expected.periods.length) {
+        timeline.push({ type: 'charge', expected: true, start: expected.periods[0].start, end: expected.periods[expected.periods.length - 1].end, periods: expected.periods, kwh: Math.round(expected.planned_kwh * 10) / 10, needed_kwh: expected.needed_kwh, cost: expected.cost, uses_forecast: expected.uses_forecast, soc_to: x.soc });
+      } else if (expected.below_goal) {
+        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: x.soc });
+      }
+    }
+    if (i === 0) {
+      out.goal = { time: x.time, soc: x.soc, source: x.source, title: x.title || (t && t.title) || null, location: t ? t.location : null };
+      out.expected = expected;
+    }
+    // The level when leaving: the target when the expected charging gets there.
+    let socLeave = null;
+    if (level != null) {
+      if (!expected || !expected.below_goal) socLeave = level;
+      else {
+        const share = expected.needed_kwh > 0 ? Math.min(1, expected.planned_kwh / expected.needed_kwh) : 1;
+        socLeave = Math.round((level + (x.soc - level) * share) * 10) / 10;
+      }
+    }
+    const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
+    if (tr.pct == null) tr.soc_after = null;
+    else if (socLeave != null) tr.soc_after = Math.max(0, Math.round((socLeave - tr.pct) * 10) / 10);
+    leave(x, t, tr, socLeave, x.soc);
+    back = tr.return_at;
+    level = tr.soc_after;
+  }
+  return out;
+}
+
+// Learning the car's use from trips (tripcost.js): when the car is unplugged
+// around a departure with a known distance, and when it is plugged in again.
+const tripWatch = new Map(); // vehicle id -> { plugged }
+// An address or route was found: plans are recalculated on the next request,
+// so Plan and Home show what the trip costs without waiting for the refresh.
+// (The plan is kept until then: it is only marked as outdated.)
+tripcost.setSavedPlaces(() => settings.load().places || []);
+tripcost.onUpdate(() => {
+  for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+});
+
+function tripLearning(vehicle, plugged, soc, carData, next, now) {
+  if (!vehicle || !vehicle.id || plugged == null) return;
+  const w = tripWatch.get(vehicle.id) || { plugged: null };
+  const live = !(carData && carData.ok === false) && Number.isFinite(soc);
+  if (w.plugged === true && plugged === false && live && next && next.trip && next.trip.status === 'ok'
+    && Math.abs(next.current.time - now) < 3 * 3600000) {
+    tripcost.tripStarted(vehicle.id, soc, (next.trip.km || 0) + (next.trip.back_km || 0), now);
+  }
+  if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now);
+  tripWatch.set(vehicle.id, { plugged });
+}
+
 // Departures: shared by all cars, unless a car has its own (more cars only).
 function ownDepartures(vehicle, s) {
   return !!(s && s.multi_car === true && vehicle && vehicle.own_departures === true);
@@ -399,10 +576,13 @@ const routes = {
       capacity_kwh: capacity,
       // More cars: the name used in calendar events ("auto: renault" / "car: kia").
       calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
+      // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
+      consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
       stale_hours: body.stale_hours === undefined || body.stale_hours === '' ? cardata.DEFAULT_STALE_HOURS : Number(body.stale_hours),
     };
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
+    if (vehicle.consumption_kwh_100km != null && !(vehicle.consumption_kwh_100km >= 8 && vehicle.consumption_kwh_100km <= 40)) throw badRequest('Use per 100 km must be between 8 and 40 kWh');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -1031,6 +1211,16 @@ const routes = {
       notes: plan.notes,
     });
 
+    // After this departure: the next goal, the expected battery level after the
+    // trip, and the expected charging for it (shown in orange, never steered).
+    let next = null;
+    try {
+      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle) });
+    } catch (err) {
+      ha.warn('Looking ahead failed:', err.message);
+    }
+    tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
+
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
     const bcfg = batterySettings(s);
@@ -1059,6 +1249,7 @@ const routes = {
         min_kwh: minKwh,
       } : null,
       departure,
+      next,
       // More than one car: which one is connected, and how the app knows.
       cars: cars(s).length > 1 ? {
         list: cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s), plug_sensor: !!v.plugged_entity })),
@@ -1096,7 +1287,7 @@ const routes = {
         charging_now: actualNow.charging,
       },
       // The chart shows the prices up to the departure (forecast included).
-      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline)).map((p) => ({
+      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))).map((p) => ({
         start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
         ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
         ...(Number.isFinite(p.pv_kw) ? { pv_kw: p.pv_kw, solar_kw: p.solar_kw, solar_price: p.solar_price } : {}),
@@ -1136,12 +1327,47 @@ const routes = {
     return result;
   },
 
+  // My places: names you use in the calendar ("Werk") with their address.
+  // Zones in Home Assistant are used too (automatically), shown as a list.
+  'GET /api/places': async () => {
+    try { tripcost.setZones(await ha.call({ type: 'get_states' })); } catch { /* the list shows the last known zones */ }
+    return { places: settings.load().places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })) };
+  },
+
+  'POST /api/places': async (req) => {
+    const body = await readBody(req);
+    const list = Array.isArray(body && body.places) ? body.places : null;
+    if (!list) throw badRequest('Send a list of places');
+    if (list.length > 20) throw badRequest('At most 20 places');
+    const seen = new Set();
+    const places = list.map((p) => {
+      const name = String((p && p.name) || '').trim().replace(/\s+/g, ' ');
+      const address = String((p && p.address) || '').trim().replace(/\s+/g, ' ');
+      if (!name || name.length > 40) throw badRequest('Name: 1 to 40 characters');
+      if (address.length < 3 || address.length > 120) throw badRequest(`Address of ${name}: 3 to 120 characters`);
+      if (tripcost.isHome(name)) throw badRequest(`"${name}" is your home: the app uses the home location of Home Assistant`);
+      const key = name.toLowerCase();
+      if (seen.has(key)) throw badRequest(`"${name}" is in the list twice`);
+      seen.add(key);
+      return { name, address };
+    });
+    const s = settings.load();
+    s.places = places;
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    return { ok: true, places };
+  },
+
   // Add trips to the calendar. Without "Allow adding trips to calendar" this
   // only shows what would be added (test mode).
   'POST /api/trips/preview': async (req) => tripsPlan(await readBody(req)),
 
   'POST /api/trips': async (req) => {
     const plan = await tripsPlan(await readBody(req));
+    if (!plan.calendar_writable) {
+      throw badRequest(`${plan.calendar} is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add the trip in the calendar app itself, or choose a calendar that can (Google, Local calendar, CalDAV).`);
+    }
     if (!plan.write_allowed) {
       throw badRequest('Test mode: nothing was added. Turn on "Allow adding trips to calendar" in the app\'s Configuration tab to add trips.');
     }
@@ -1151,6 +1377,9 @@ const routes = {
       await ha.createCalendarEvent(plan.calendar, toHaData(e, ha.state.timeZone));
       created++;
     }
+    // The new trip counts right away (Plan and Looking ahead), for every charger.
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
     return { ok: true, created, skipped: plan.events.length - created };
   },
 
@@ -1189,12 +1418,22 @@ const routes = {
       charge_for: chargefor.current(),
       upcoming: days,
       calendar_error: error,
-      calendar_trips: calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000),
+      calendar_trips: (() => {
+        // What each trip costs (there and back), from its destination (tripcost.js).
+        tripcost.setZones(states);
+        const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
+        const socNow = socSt ? Number(socSt.state) : NaN;
+        return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000).map((t) => ({
+          ...t,
+          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
+        }));
+      })(),
       calendar_write_allowed: options.allow_calendar_write === true,
+      calendar_writable: calendarWritable(states, dep.calendar.entity),
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
-        calendar: list('calendar'),
+        calendar: list('calendar').map((c) => ({ ...c, writable: calendarWritable(states, c.entity_id) })),
       },
     };
   },
@@ -1304,7 +1543,8 @@ async function tripsPlan(body) {
   const vehicle = vehicleParam(s, body && body.vehicle_id);
   const dep = departuresFor(s, vehicle);
   const calendar = dep.calendar.entity;
-  if (!calendar) throw badRequest('Choose a calendar on the Planning tab first');
+  // Only a calendar the app reads: a trip in another calendar would never count.
+  if (!calendar || !dep.calendar.enabled) throw badRequest('Turn on the calendar under Plan › Departures and choose a calendar first: the app only reads trips from that calendar');
   // More cars: the trip says which car ("auto: renault"); "all" = every car.
   const forAll = !body || body.for_all_cars === true;
   const car = cars(s).length > 1 && vehicle && !forAll ? (vehicle.calendar_name || vehicle.name) : null;
@@ -1319,12 +1559,23 @@ async function tripsPlan(body) {
   } catch (err) {
     ha.warn('Could not check for duplicate trips:', err.message);
   }
+  const writable = calendarWritable(await ha.call({ type: 'get_states' }), calendar);
   return {
     calendar,
     write_allowed: options.allow_calendar_write === true,
+    calendar_writable: writable,
     events: markDuplicates(events, existing, tz),
     time_zone: tz,
   };
+}
+
+// Can the app add events to this calendar? Home Assistant's calendar feature
+// "create event" (bit 1 of supported_features). Apple iCloud calendars
+// (Home Assistant 2026.10+) are read only. Unknown (no attribute): assume yes.
+function calendarWritable(states, entityId) {
+  const st = entityId ? states.find((x) => x.entity_id === entityId) : null;
+  if (!st || !st.attributes || st.attributes.supported_features == null) return true;
+  return (Number(st.attributes.supported_features) & 1) === 1;
 }
 
 // Calendar events for the next 15 days, when the calendar source is on.
@@ -3035,7 +3286,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {

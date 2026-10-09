@@ -35,10 +35,10 @@ jobs:
           --test-coverage-lines=40
           --test-coverage-functions=40
           --test-coverage-branches=30
-          tests/brands.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/activecar.test.js tests/sharing.test.js
+          tests/brands.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/activecar.test.js tests/sharing.test.js tests/tripcost.test.js
 
   unit:
-    name: Brands, solar, battery, price forecast
+    name: Unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,13 +48,13 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: smart_charging_planner/app
-      - run: node tests/brands.test.js
-      - run: node tests/solar.test.js
-      - run: node tests/battery.test.js
-      - run: node tests/forecast.test.js
-      - run: node tests/reliability.test.js
-      - run: node tests/activecar.test.js
-      - run: node tests/sharing.test.js
+      - name: Run the unit tests
+        run: node tests/testplan.js unit results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-unit
+          path: results/
 
   settings:
     name: Settings test (${{ matrix.profile }})
@@ -71,9 +71,15 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: smart_charging_planner/app
-      - run: node tests/settings.test.js
+      - run: mkdir -p results && node tests/settings.test.js
         env:
           SCP_PROFILE: ${{ matrix.profile }}
+          SCP_RESULTS: results/settings-${{ matrix.profile }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-settings-${{ matrix.profile }}
+          path: results/
 
   matrix:
     name: Matrix (${{ matrix.charger }} × all batteries)
@@ -90,6 +96,53 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: smart_charging_planner/app
-      - run: node tests/matrix.test.js
+      - run: mkdir -p results && node tests/matrix.test.js
         env:
           SCP_CHARGERS: ${{ matrix.charger }}
+          SCP_RESULTS: results/matrix-${{ strategy.job-index }}.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-matrix-${{ strategy.job-index }}
+          path: results/
+
+  testplan:
+    name: Update the test plan
+    # After every push: write tests/TESTPLAN.md from the results above and
+    # save it in the branch when it changed. Also when a test failed, so the
+    # plan shows what failed.
+    needs: [unit, settings, matrix]
+    if: ${{ always() && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+      - name: Write TESTPLAN.md
+        run: node tests/testplan.js write results
+      - name: Save TESTPLAN.md in the branch
+        continue-on-error: true
+        shell: bash
+        run: |
+          if git diff --quiet -- tests/TESTPLAN.md; then
+            echo "The test plan did not change."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/TESTPLAN.md
+          git commit -m "Test plan: results of ${GITHUB_SHA::7} [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep 5
+          done
+          exit 1

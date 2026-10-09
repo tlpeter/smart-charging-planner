@@ -1,0 +1,12 @@
+homeassistant:
+  name: Smart Charging Planner compatibility test
+  latitude: 51.37
+  longitude: 5.19
+  elevation: 0
+  unit_system: metric
+  time_zone: Europe/Amsterdam
+  country: NL
+  currency: EUR
+
+default_config:
+
