@@ -80,6 +80,10 @@ function validateImportSettings(settings) {
   if (settings.notify && settings.notify.service != null && typeof settings.notify.service !== 'string') {
     bad('notify.service must be text');
   }
+  if (settings.notify && settings.notify.recipients != null) {
+    if (!Array.isArray(settings.notify.recipients) || settings.notify.recipients.length > 10) bad('notify.recipients must be a list of at most 10');
+    settings.notify.recipients.forEach((r, i) => objectAt(r, `notify.recipients[${i}]`));
+  }
   return settings;
 }
 

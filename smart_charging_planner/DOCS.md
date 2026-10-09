@@ -260,12 +260,23 @@ Automations that also start or stop the charger, or change the car's charge limi
 
 ## Notifications and sensors
 
-Choose where notifications go in **Settings › Notifications** (a list of the notify actions in your Home Assistant, such as `notify.mobile_app_your_phone`) and select **Save**. You get:
+In **Settings › Notifications** you add **recipients**: every phone (or group) that should get messages. Per recipient:
 
-- **Problems, always**: a command to the charger failed; the charger did not start (or pause) within 5 minutes after a command; Ready Guard: the target is at risk or Ready Guard took over; the car is not reachable (and back); which car is connected (more cars).
-- **Every start and pause**: when "Notify every start and pause" is on (the default), with the reason, for example "Planned charging block until Thu 03:10".
+- **Name** and **Notify action** (a notify action in your Home Assistant, such as `notify.mobile_app_your_phone`, or a notify group).
+- **For which cars** (only with more than one car): all cars, or the cars you tick. A message about a car only goes to recipients who chose that car. Home battery messages are not about a car.
+- **Messages**, in five groups. A group switch turns all its messages on or off; open the group to choose message by message:
 
-Settings › Notifications shows the last notification and has a **Send test notification** button.
+| Group | Messages |
+|---|---|
+| **Problems** | Charger command failed · Charger did not start or pause (within 5 minutes after a command) · Easee Equalizer command failed · Car charge limit not changed |
+| **Action needed** | Ready Guard: target at risk · Ready Guard takes over · Ready Guard needs you (plug in, allow control) · Which car is connected? |
+| **Car** | Car not reachable · Car reachable again · Car charge limit changed · Ready-for choice ended |
+| **Start and pause** | Charging started · Charging paused (with the reason, for example "Planned charging block until Thu 03:10") |
+| **Home battery** | What the home battery does now · Home battery command failed |
+
+A new message type in a later version is on for every recipient. **Send test** sends a test to one recipient (save first). The page shows per recipient the last message and whether it was sent. Up to 10 recipients.
+
+From a version before recipients: your notify action becomes one recipient, "My phone", for all cars. When "Notify every start and pause" was off, its start, pause and home battery messages are off. After that, the option in the Configuration tab is not used any more.
 
 Turn on **Publish sensors** to get these sensors for dashboards and automations:
 
@@ -290,7 +301,7 @@ Settings › Diagnostics › **Export settings** saves all settings of the app i
 
 - The app only accepts requests through Home Assistant ingress (the sidebar panel). Other apps on the internal network are refused.
 - Changes are only accepted as JSON from the app's own page, not from other websites.
-- The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the one notify action you choose, and its own `smart_charging_*` sensors.
+- The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the notify actions you choose as recipients, and its own `smart_charging_*` sensors.
 - The home battery is only steered with Allow control and Allow home battery control both on, and only through the battery's own entities and actions.
 - It never changes automations, scripts, helpers, locks, alarms, covers, lights or other devices. Control only works for a device that Home Assistant's registry shows as an EV charger.
 - The Supervisor token is never logged or shown in the browser.
@@ -304,7 +315,7 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 - **Allow home battery control**: off by default. With Allow control also on, the app steers the home battery following its plan (Settings › Battery). While off, the battery plan is advice only.
 - **Allow adding trips to calendar**: off by default. While off, "Add trip" on the Plan tab is in test mode: it shows which calendar events it would create and writes nothing. When on, trips are added to the calendar chosen on the Plan tab. This does not allow any charger control.
 - **Publish sensors**: write the app's own sensors to Home Assistant (default off). See Notifications and sensors.
-- **Notify every start and pause**: also notify each start and pause, not only problems (default on).
+- **Notify every start and pause**: only used once, when you update from a version before recipients (see Notifications). Choose the messages per recipient in Settings › Notifications.
 - **Charging loss margin (%)**: extra energy to plan for, because not all energy from the charger ends up in the battery (default 10).
 - **Prefer one continuous charging period**: charge in one go instead of in several short periods (default on).
 - **Split only when it saves at least**: the amount splitting must save before the plan charges in more periods (default 0.50).

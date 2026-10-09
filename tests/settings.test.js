@@ -487,6 +487,40 @@ async function run() {
     await refused('POST', 'api/notify/test', {}, 'notify action');
     await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
   });
+  await test('H4', 'Two recipients, each with its own messages: the test goes to one; a recipient without a notify action is refused', async () => {
+    const r = await ok('POST', 'api/notify', { recipients: [
+      { name: 'Peter', service: 'notify.mobile_app_pixel_8' },
+      { name: 'Anna', service: 'notify.mobile_app_iphone_anna', off: ['battery_action', 'rg_risk'] },
+    ] });
+    assert(r.recipients.length === 2 && r.recipients[1].off.join() === 'battery_action,rg_risk', JSON.stringify(r.recipients));
+    assert(r.categories.length === 5 && r.messages.length >= 16, 'no message list');
+    const n0 = world.calls.length;
+    await ok('POST', 'api/notify/test', { recipient_id: r.recipients[1].id });
+    const sent = callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.service);
+    assert(sent.join() === 'mobile_app_iphone_anna', JSON.stringify(sent));
+    const n1 = world.calls.length;
+    await ok('POST', 'api/notify/test', {});
+    assert(callsSince(n1).filter((c) => c.domain === 'notify').length === 2, 'not to both');
+    await refused('POST', 'api/notify', { recipients: [{ name: 'X', service: '' }] }, 'choose a notify action');
+    await refused('POST', 'api/notify', { recipients: [{ name: 'X', service: 'notify.nope' }] }, 'not a notify action');
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    return `test → ${sent.join()}`;
+  });
+  await test('H5', 'Settings from before recipients (one notify action, "Notify every start and pause" off) become one recipient "My phone" with start, pause and home battery messages off', async () => {
+    await stopApp();
+    const f = path.join(dataDir, 'settings.json');
+    const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
+    saved.notify = { service: 'notify.mobile_app_pixel_8' };
+    fs.writeFileSync(f, JSON.stringify(saved));
+    await startApp({ notify_start_stop: false });
+    const r = await ok('GET', 'api/notify');
+    const me = r.recipients[0];
+    assert(r.recipients.length === 1 && me.name === 'My phone' && me.service === 'notify.mobile_app_pixel_8' && me.cars === null, JSON.stringify(r.recipients));
+    assert(['charging_started', 'charging_paused', 'battery_action'].every((x) => me.off.includes(x)) && !me.off.includes('charger_failed'), JSON.stringify(me.off));
+    assert(Array.isArray(JSON.parse(fs.readFileSync(f, 'utf8')).notify.recipients), 'not saved in the new form');
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    await startApp({});
+  });
 
   // ----- I. Configuration tab (restart with other options) ------------------
   group = 'I. Configuration tab in Home Assistant';
@@ -684,8 +718,8 @@ async function run() {
     world.plugged = true;
   });
 
-  await test('J11', 'Notify every start and pause off: start is not notified', async () => {
-    await startApp({ allow_control: true, notify_start_stop: false });
+  await test('J11', 'A recipient with "Charging started" and "Charging paused" off: start is not notified; other messages still are', async () => {
+    await ok('POST', 'api/notify', { recipients: [{ name: 'Peter', service: 'notify.mobile_app_pixel_8', off: ['charging_started', 'charging_paused'] }] });
     world.soc = 20;
     world.charging = false;
     world.amps = null;
@@ -695,6 +729,7 @@ async function run() {
     const titles = callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.data.title);
     await ok('DELETE', 'api/boost');
     assert(!titles.includes('Charging started'), `notified: ${titles}`);
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
     return titles.length ? `only: ${titles.join(', ')}` : 'no notifications';
   });
 
@@ -1198,7 +1233,7 @@ async function run() {
     odd.settings.notify = { service: 'notify.mobile_app_someone_else' };
     const pv = await ok('POST', 'api/settings/import/preview', odd);
     const n = pv.summary.notes.join(' | ');
-    assert(/home battery was left out/.test(n) && /Notifications were switched off/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
+    assert(/home battery was left out/.test(n) && /Left out 1 notification recipient/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
     assert(pv.summary.battery === false, 'battery still on');
     return n;
   });
@@ -1377,6 +1412,37 @@ async function run() {
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
     return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+  });
+  await test('W9', 'Notifications per car: Peter gets both cars, Anna only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Peter', async () => {
+    await ok('POST', 'api/notify', { recipients: [
+      { name: 'Peter', service: 'notify.mobile_app_pixel_8' },
+      { name: 'Anna', service: 'notify.mobile_app_iphone_anna', cars: [ev6Id] },
+    ] });
+    const startsTo = async () => {
+      const n0 = world.calls.length;
+      await ok('POST', 'api/boost', { mode: 'soc', value: 90 });
+      await sleep(800);
+      const to = callsSince(n0).filter((c) => c.domain === 'notify' && c.data.title.startsWith('Charging started')).map((c) => c.service).sort();
+      await ok('DELETE', 'api/boost');
+      await sleep(500);
+      world.charging = false;
+      return to;
+    };
+    world.charging = false;
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    await plan();
+    const ev6 = await startsTo();
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    await plan();
+    const other = await startsTo();
+    assert(ev6.join() === 'mobile_app_iphone_anna,mobile_app_pixel_8', `EV6: ${ev6}`);
+    assert(other.join() === 'mobile_app_pixel_8', `${CAR.name}: ${other}`);
+    const r = await ok('GET', 'api/notify');
+    assert(r.recipients[1].cars.join() === ev6Id, JSON.stringify(r.recipients[1]));
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    return `EV6 → ${ev6.join(', ')} · ${CAR.name} → ${other.join(', ')}`;
   });
   await test('W8', 'Turned off: the first car only, as before; the EV6 stays saved; removing it works', async () => {
     await ok('POST', 'api/vehicles/multi', { enabled: false });

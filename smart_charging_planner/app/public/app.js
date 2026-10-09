@@ -3152,59 +3152,119 @@ function durationText(minutes) {
       }
     }
 
+    // ---------- Notifications: recipients ----------
+    let notifyMeta = { categories: [], messages: [], choices: [], cars: [] };
+    function recipientCard(r = {}) {
+      const { categories, messages, choices, cars } = notifyMeta;
+      const off = new Set(r.off || []);
+      const el = document.createElement('div');
+      el.className = 'card inner recipient';
+      el.dataset.id = r.id || '';
+      const known = choices.some((c) => c.id === r.service);
+      const opts = '<option value="">— choose —</option>' + choices.map((c) => `<option value="${esc(c.id)}"${c.id === r.service ? ' selected' : ''}>${esc(c.id)}</option>`).join('')
+        + (r.service && !known ? `<option value="${esc(r.service)}" selected>${esc(r.service)} (not found in Home Assistant)</option>` : '');
+      const carsHtml = cars.length > 1 ? `<div class="field"><label>For which cars</label><div class="days">${cars.map((c) => `<label><input type="checkbox" name="car" value="${esc(c.id)}"${!Array.isArray(r.cars) || r.cars.includes(c.id) ? ' checked' : ''}> ${esc(c.name)}</label>`).join('')}</div></div>` : '';
+      const groups = categories.map((cat) => {
+        const list = messages.filter((m) => m.category === cat.id);
+        const on = list.filter((m) => !off.has(m.id)).length;
+        return `<details class="ncat" data-cat="${esc(cat.id)}">
+          <summary><label class="check" onclick="event.stopPropagation()"><input type="checkbox" class="cat-toggle"${on === list.length ? ' checked' : ''}> <strong>${esc(cat.name)}</strong></label> <span class="muted small cat-count">${on} of ${list.length}</span></summary>
+          <p class="muted small">${esc(cat.text)}</p>
+          ${list.map((m) => `<label class="check"><input type="checkbox" name="msg" value="${esc(m.id)}"${off.has(m.id) ? '' : ' checked'}> ${esc(m.name)}</label>`).join('')}
+        </details>`;
+      }).join('');
+      const last = r.last ? `<div class="src">Last: ${esc(new Date(r.last.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
+      el.innerHTML = `<div class="two">
+          <div class="field"><label>Name</label><input name="name" maxlength="40" placeholder="e.g. Peter's phone" value="${esc(r.name || '')}"></div>
+          <div class="field"><label>Notify action</label><select name="service">${opts}</select></div>
+        </div>
+        ${carsHtml}
+        <div class="field"><label>Messages</label>${groups}</div>
+        ${last}
+        <div class="buttons"><button class="secondary" type="button" data-act="test">Send test</button><button class="secondary" type="button" data-act="remove">Remove</button></div>
+        <div class="rec-result"></div>`;
+      const sync = (d) => {
+        const boxes = [...d.querySelectorAll('input[name=msg]')];
+        const n = boxes.filter((b) => b.checked).length;
+        const t = d.querySelector('.cat-toggle');
+        t.checked = n === boxes.length;
+        t.indeterminate = n > 0 && n < boxes.length;
+        d.querySelector('.cat-count').textContent = `${n} of ${boxes.length}`;
+      };
+      el.querySelectorAll('details.ncat').forEach((d) => {
+        sync(d);
+        d.querySelector('.cat-toggle').addEventListener('change', (e) => {
+          d.querySelectorAll('input[name=msg]').forEach((b) => { b.checked = e.target.checked; });
+          sync(d);
+        });
+        d.querySelectorAll('input[name=msg]').forEach((b) => b.addEventListener('change', () => sync(d)));
+      });
+      el.querySelector('[data-act=remove]').onclick = () => el.remove();
+      el.querySelector('[data-act=test]').onclick = async () => {
+        const out = el.querySelector('.rec-result');
+        if (!el.dataset.id) { out.innerHTML = '<div class="note">Save first, then send a test.</div>'; return; }
+        try {
+          await api('POST', 'api/notify/test', { recipient_id: el.dataset.id });
+          out.innerHTML = '<div class="note">Sent. Check the phone.</div>';
+        } catch (err) {
+          out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+        }
+      };
+      $('notify-list').appendChild(el);
+      return el;
+    }
+    function readRecipients() {
+      return [...document.querySelectorAll('#notify-list .recipient')].map((el) => {
+        const carBoxes = [...el.querySelectorAll('input[name=car]')];
+        return {
+          id: el.dataset.id || null,
+          name: el.querySelector('[name=name]').value,
+          service: el.querySelector('[name=service]').value,
+          cars: carBoxes.length && carBoxes.some((b) => !b.checked) ? carBoxes.filter((b) => b.checked).map((b) => b.value) : null,
+          off: [...el.querySelectorAll('input[name=msg]')].filter((b) => !b.checked).map((b) => b.value),
+        };
+      });
+    }
     async function loadNotifyStatus() {
       try {
-        const n = await api('GET', 'api/notify');
+        const [n, v] = await Promise.all([api('GET', 'api/notify'), api('GET', 'api/vehicles').catch(() => ({ vehicles: [] }))]);
         const tm = (ms) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-        const sel = $('notify-choice');
-        const current = n.notify_service || '';
-        const list = n.choices || [];
-        const known = list.some((c) => c.id === current);
-        sel.innerHTML = '<option value="">— no notifications —</option>' +
-          list.map((c) => `<option value="${esc(c.id)}"${c.id === current ? ' selected' : ''}>${esc(c.id)}</option>`).join('') +
-          (current && !known ? `<option value="${esc(current)}" selected>${esc(current)} (not found in Home Assistant)</option>` : '');
-        $('notify-state').innerHTML = current
-          ? `<span class="ok">On</span> · ${n.notify_start_stop ? 'every start and pause, and problems' : 'problems only'}`
-          : (list.length ? 'Choose where notifications go, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
+        notifyMeta = { categories: n.categories || [], messages: n.messages || [], choices: n.choices || [], cars: (v.multi_car ? v.vehicles : []).map((x) => ({ id: x.id, name: x.name })) };
+        $('notify-list').innerHTML = '';
+        (n.recipients || []).forEach((r) => recipientCard(r));
+        $('notify-state').innerHTML = (n.recipients || []).length ? ''
+          : (notifyMeta.choices.length ? 'No recipients yet: add one, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
         const l = n.last_notification;
-        $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';
+        $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.to ? ` → ${esc(l.to.join(', '))}` : ''}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';
         const p = n.last_publish;
         $('sensors-state').innerHTML = n.publish_sensors
           ? `<span class="ok">On</span>${p ? `<div class="src">${p.error ? `<span class="differ">${esc(p.error)}</span>` : `last update ${esc(tm(p.at))}`}</div>` : ''}<div class="src">sensor.smart_charging_status, _next_start, _next_end, _planned_energy, _planned_cost, _saving, _departure, binary_sensor.smart_charging_charge_now</div>`
           : 'Off';
-        $('notify-test').disabled = !n.notify_service;
       } catch {
         // status card stays as it is
       }
     }
 
+    $('notify-add').addEventListener('click', () => {
+      const el = recipientCard({ name: '', service: '', cars: null, off: [] });
+      el.querySelector('[name=name]').focus();
+    });
     $('notify-save').addEventListener('click', async () => {
       const btn = $('notify-save');
       const out = $('notify-test-result');
       btn.disabled = true;
       btn.textContent = 'Saving…';
       try {
-        await api('POST', 'api/notify', { service: $('notify-choice').value });
-        out.innerHTML = '<div class="note">Saved. Use "Send test notification" to check it.</div>';
+        await api('POST', 'api/notify', { recipients: readRecipients() });
+        out.innerHTML = '<div class="note">Saved. Use "Send test" on a recipient to check it.</div>';
+        loadNotifyStatus();
       } catch (err) {
         out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
       }
       btn.textContent = 'Save';
       btn.disabled = false;
-      loadNotifyStatus();
     });
 
-    $('notify-test').addEventListener('click', async () => {
-      const out = $('notify-test-result');
-      out.innerHTML = '<p class="muted small">Sending…</p>';
-      try {
-        await api('POST', 'api/notify/test');
-        out.innerHTML = '<div class="note">Test notification sent. Check your phone.</div>';
-      } catch (err) {
-        out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
-      }
-      loadNotifyStatus();
-    });
 
     $('wizard-again').addEventListener('click', async () => {
       await api('POST', 'api/setup', { done: false });

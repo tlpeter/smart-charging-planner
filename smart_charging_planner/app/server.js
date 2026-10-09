@@ -237,6 +237,15 @@ notifier.setChargerContext(() => {
 function currentVehicle(s) {
   return activecar.vehicleFrom({ vehicles: cars(s) });
 }
+// Notifications: the car a message is about (more cars), for the recipients' car choice.
+notifier.setVehicleContext(() => {
+  try {
+    const s = settings.load();
+    if (cars(s).length <= 1) return null;
+    const v = currentVehicle(s);
+    return v ? v.id : null;
+  } catch { return null; }
+});
 
 // The car as the control sees it. With more than one car, "plugged in" comes
 // from the charger status: a car's own plug sensor also says "plugged in" at
@@ -1031,7 +1040,7 @@ const routes = {
         const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
         chargefor.clear(`the departure it was chosen for is gone: ${what}`);
         controller.clearLock();
-        notifier.notify('problem', 'Ready-for choice ended', `The departure it was chosen for (${what}) is no longer planned. The car is planned for the next departure again.`, { key: 'chargefor_gone', minGapMs: 60000 }).catch(() => {});
+        notifier.notify('chargefor_gone', 'Ready-for choice ended', `The departure it was chosen for (${what}) is no longer planned. The car is planned for the next departure again.`, { key: 'chargefor_gone', minGapMs: 60000 }).catch(() => {});
         cf = null;
       }
     }
@@ -2116,11 +2125,11 @@ async function batteryStep(s, planResult, entry, states) {
     }
     line.sent = true;
     lastBattery = c.action === 'auto' ? null : { action: c.action, at: Date.now() };
-    await notifier.notify('startstop', 'Home battery', `${want.reason}.`);
+    await notifier.notify('battery_action', 'Home battery', `${want.reason}.`);
   } catch (err) {
     line.error = err.message;
     lastBattery = { action: c.action, at: Date.now(), failed: true };
-    await notifier.notify('problem', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
+    await notifier.notify('battery_failed', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
   }
   controller.logSent(line);
   return { ...info, action: c.action, sent: line.sent, error: line.error || null };
@@ -2447,7 +2456,8 @@ routes['GET /api/checklist'] = async () => {
   const conflicts = await findConflicts().catch(() => null);
   const n = conflicts ? conflicts.items.filter((x) => !x.dismissed).length : 0;
   add('conflicts', n ? 'warn' : 'ok', 'Your own automations', n ? `${n} automation(s) use the same charger or car limit` : 'No conflicts found', 'ctlset');
-  add('notify', s.notify && s.notify.service ? 'ok' : 'optional', 'Notifications', s.notify && s.notify.service ? s.notify.service : 'Optional: choose where to send them', 'status');
+  const rec = notifier.recipients();
+  add('notify', rec.length ? 'ok' : 'optional', 'Notifications', rec.length ? rec.map((r) => r.name).join(', ') : 'Optional: choose where to send them', 'status');
   add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load and solar', 'grid');
   const bc = batterySettings(s);
   if (!bc.enabled) add('battery', 'optional', 'Home battery', 'Optional: plan the home battery next to the car', 'battery');
@@ -2593,7 +2603,7 @@ async function manageCarLimit(planResult, actual, states) {
     if (ST().lastLimitSend.tries >= LIMIT_MAX_TRIES) {
       if (!ST().lastLimitSend.gaveUp) {
         ST().lastLimitSend.gaveUp = true;
-        await notifier.notify('problem', 'Car charge limit not changed',
+        await notifier.notify('carlimit_failed', 'Car charge limit not changed',
           `The car still reports ${lim.value}% after ${LIMIT_MAX_TRIES} attempts to set ${value}% (${lim.name}).`);
       }
       return;
@@ -2602,8 +2612,8 @@ async function manageCarLimit(planResult, actual, states) {
   }
   ST().lastLimitSend = { value, at: Date.now(), tries, vehicle_id: vehicle.id };
   const e = await sendCarLimit(lim, value, tries > 1 ? `${reason} (attempt ${tries})` : reason, true);
-  if (e.sent) await notifier.notify('startstop', 'Car charge limit changed', `${e.reason}.`);
-  else await notifier.notify('problem', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
+  if (e.sent) await notifier.notify('carlimit_changed', 'Car charge limit changed', `${e.reason}.`);
+  else await notifier.notify('carlimit_failed', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
 }
 
 // Raise (or set) the car's own charge limit. Only with "Allow control" on,
@@ -2668,21 +2678,21 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
       const p = result.plan;
       const rg = result.reliability;
       if (rg && rg.base_status === 'not_achievable' && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard: target at risk',
+        await notifier.notify('rg_risk', 'Ready Guard: target at risk',
           `${rg.message} Departure is ${hmLocal(result.departure.time)}.`,
           { key: `ready:not-achievable:${result.departure.time}`, minGapMs: 6 * 3600000 });
       } else if (rg && rg.protect && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard active', rg.message,
+        await notifier.notify('rg_active', 'Ready Guard active', rg.message,
           { key: `ready:active:${result.departure.time}`, minGapMs: 6 * 3600000 });
       } else if (rg && rg.base_status === 'action_needed' && result.departure && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard needs you', rg.message,
+        await notifier.notify('rg_needs_you', 'Ready Guard needs you', rg.message,
           { key: `ready:action:${result.departure.time}`, minGapMs: 6 * 3600000 });
       }
       // More cars, and the app cannot tell which one is connected.
       const cars = result.cars;
       if (cars && cars.ask && cars.charger_plugged === true) {
         const guess = (cars.list.find((c) => c.id === cars.connected_id) || {}).name || 'the first car';
-        await notifier.notify('problem', 'Which car is connected?',
+        await notifier.notify('which_car', 'Which car is connected?',
           `A car is plugged in, but the app cannot tell which one. It plans for ${guess} for now. Choose the connected car on Home.`,
           { key: 'which_car', minGapMs: 6 * 3600000 });
       }
@@ -2850,7 +2860,7 @@ async function equalizerStep(s, entry, states, charger) {
     line.sent = true;
   } catch (err) {
     line.error = err.message;
-    await notifier.notify('problem', 'Equalizer command failed', `${cmd.what}: ${err.message}`, { key: 'equalizer', minGapMs: 60 * 60000 });
+    await notifier.notify('equalizer_failed', 'Equalizer command failed', `${cmd.what}: ${err.message}`, { key: 'equalizer', minGapMs: 60 * 60000 });
   }
   lastEqualizer = { enable: want, at: Date.now(), eq };
   controller.logSent(line);
@@ -2886,7 +2896,7 @@ async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
     } catch (err) {
       line.error = err.message;
       ha.warn('Could not', command.what, '-', err.message);
-      await notifier.notify('problem', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
+      await notifier.notify('charger_failed', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
     }
     controller.logSent(line);
     return line.sent;
@@ -3133,11 +3143,11 @@ const CHECK_AFTER_MS = Number(process.env.SCP_CHECK_AFTER_MS) || 5 * 60000;
 async function afterSent(on, command, reason, extraText = '') {
   ST().pendingCheck = { on, at: Date.now(), service: command.service };
   ST().lastCommandInfo = `${on ? 'start' : 'pause'} at ${hmLocal(Date.now())}`;
-  await notifier.notify('startstop', on ? 'Charging started' : 'Charging paused', `${reason}${extraText}.`);
+  await notifier.notify(on ? 'charging_started' : 'charging_paused', on ? 'Charging started' : 'Charging paused', `${reason}${extraText}.`);
 }
 
 async function commandFailed(on, err) {
-  await notifier.notify('problem', 'Charger command failed', `Could not ${on ? 'start' : 'pause'} the charger: ${err}`, { key: `fail:${on}`, minGapMs: 30 * 60000 });
+  await notifier.notify('charger_failed', 'Charger command failed', `Could not ${on ? 'start' : 'pause'} the charger: ${err}`, { key: `fail:${on}`, minGapMs: 30 * 60000 });
 }
 
 async function checkReaction(entry) {
@@ -3158,7 +3168,7 @@ async function checkReaction(entry) {
     plugged: entry.plugged, charging: entry.charging, status: entry.status, power_w: entry.power_w, agrees: false,
   });
   ha.warn(text);
-  await notifier.notify('problem', on ? 'Charger did not start' : 'Charger did not pause', text, { key: `noreact:${on}`, minGapMs: 60 * 60000 });
+  await notifier.notify('charger_no_react', on ? 'Charger did not start' : 'Charger did not pause', text, { key: `noreact:${on}`, minGapMs: 60 * 60000 });
 }
 
 // Live control: send the start/stop command the decision needs. The same
@@ -3367,11 +3377,16 @@ async function importSettings(body, dryRun) {
       notes.push('Solar by the Easee Equalizer was switched to the app: no Equalizer found here');
     } else next.solar = { ...sol, equalizer: { device_id: eq.device_id, switch_entity: eq.switch_entity, name: eq.name } };
   }
-  if (next.notify && next.notify.service) {
-    const choices = await notifyOptions().catch(() => []);
-    if (!choices.some((c) => c.id === next.notify.service)) {
-      next.notify = { service: null };
-      notes.push('Notifications were switched off: that notify action does not exist here');
+  if (next.notify && (next.notify.service || Array.isArray(next.notify.recipients))) {
+    const choices = (await notifyOptions().catch(() => [])).map((c) => c.id);
+    const old = Array.isArray(next.notify.recipients) ? next.notify.recipients : [{ id: 'r1', name: 'My phone', service: next.notify.service }];
+    const kept = old.filter((r) => r && choices.includes(ha.normaliseNotify(r.service)));
+    if (kept.length < old.length) notes.push(`Left out ${old.length - kept.length} notification recipient(s): that notify action does not exist here`);
+    try {
+      next.notify = { recipients: notifier.cleanRecipients(kept, choices, (next.vehicles || []).map((v) => v && v.id).filter(Boolean)) };
+    } catch (err) {
+      next.notify = { recipients: [] };
+      notes.push(`Notifications were switched off: ${err.message}`);
     }
   }
   const summary = {
@@ -3413,11 +3428,11 @@ function carDataChanged(vehicle, cd) {
     const why = cd.reason === 'stale' ? 'has not been updated for a long time' : 'is not available';
     const what = cd.assumed ? `No earlier level is known, so the app plans as if it is at ${cd.estimate}%.` : `The app plans with an estimate (${cd.estimate}%: the last level ${cd.last_soc}% plus what the charger delivered since).`;
     ha.warn(`Car data: battery level of ${name} ${why}; estimate ${cd.estimate}%`);
-    notifier.notify('problem', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: key('car_offline'), minGapMs: 60 * 60000 }).catch(() => {});
+    notifier.notify('car_offline', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: key('car_offline'), minGapMs: 60 * 60000, vehicleId: id }).catch(() => {});
   } else if (cd && cd.ok && carOffline.has(id)) {
     carOffline.delete(id);
     ha.log(`Car data: battery level of ${name} is back`);
-    notifier.notify('problem', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: key('car_online'), minGapMs: 60 * 60000 }).catch(() => {});
+    notifier.notify('car_online', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: key('car_online'), minGapMs: 60 * 60000, vehicleId: id }).catch(() => {});
   }
 }
 
@@ -3514,26 +3529,37 @@ routes['GET /api/notify'] = async () => {
   return { ...notifier.status(), choices };
 };
 
+// Recipients: { recipients: [...] }. The old form { service } (one notify
+// action for everything) still works: it becomes one recipient.
 routes['POST /api/notify'] = async (req) => {
   const body = await readBody(req);
-  const id = String(body.service || '').trim();
-  if (id) {
-    const choices = await notifyOptions();
-    if (!choices.some((c) => c.id === id)) throw badRequest('Choose a notify action from the list');
-  }
   const s = settings.load();
-  s.notify = { service: id || null };
+  const choices = (await notifyOptions()).map((c) => c.id);
+  let list;
+  if (Array.isArray(body.recipients)) {
+    list = notifier.cleanRecipients(body.recipients, choices, cars(s).map((v) => v.id));
+  } else {
+    const id = String(body.service || '').trim();
+    if (id && !choices.includes(id)) throw badRequest('Choose a notify action from the list');
+    list = id ? notifier.cleanRecipients([{ id: 'r1', name: 'My phone', service: id }], choices, []) : [];
+  }
+  s.notify = { recipients: list };
   settings.save(s);
-  notifier.target();
-  ha.log(id ? `Notifications go to ${id}` : 'Notifications chosen in the app switched off');
+  notifier.recipients();
+  ha.log(list.length ? `Notifications go to ${list.map((r) => `${r.name} (${r.service})`).join(', ')}` : 'Notifications switched off');
   return notifier.status();
 };
 
-routes['POST /api/notify/test'] = async () => {
-  if (!notifier.target()) throw badRequest('Choose a notify action first');
-  const r = await notifier.notify('problem', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.');
+// A test to one recipient ({ recipient_id }), or to every recipient.
+routes['POST /api/notify/test'] = async (req) => {
+  const body = await readBody(req).catch(() => ({}));
+  const list = notifier.recipients();
+  if (!list.length) throw badRequest('Add a recipient (notify action) first');
+  const only = body && body.recipient_id ? String(body.recipient_id) : null;
+  if (only && !list.some((r) => r.id === only)) throw badRequest('Save this recipient first');
+  const r = await notifier.notify('test', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.', { only });
   if (!r.sent) throw badRequest(`Not sent: ${r.error || r.reason}`);
-  return { ok: true };
+  return { ok: true, results: r.results };
 };
 
 // Automations (and scripts they call) that also use the charger's start/stop

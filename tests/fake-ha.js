@@ -283,7 +283,7 @@ function devices(w) {
 function start(w, wsPort, restPort) {
   const services = {
     ...w.profile.charger.services,
-    notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, persistent_notification: {} },
+    notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, mobile_app_iphone_anna: { name: 'Send a notification via mobile_app_iphone_anna' }, persistent_notification: {} },
     energyzero: { get_energy_prices: {} },
   };
   const wss = new WebSocket.Server({ port: wsPort });

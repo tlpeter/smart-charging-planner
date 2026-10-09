@@ -78,7 +78,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | **Solar** | Solar forecast (Energy dashboard or a sensor), **Count on this part of the forecast** (80 %), house use, the **feed-in compensation** (dynamic or fixed), **Charge with solar up to** (90 %), **Grid power allowed while charging on solar**, start/stop delays, current control and one/three-phase switching. **Who follows the surplus?**: the app or the **Easee Equalizer**. |
 | **Battery** | Home battery plan: charge from the grid when it pays, hold for expensive hours. Capacity, power, efficiency, wear per kWh, **Never below / Never above**. **May the home battery charge the car?** (never / only stored solar / always / between two levels). **Who gets the sun first?** (smart / car / battery). 10 brands steered (only with **Allow home battery control**). |
 | **Rules** | **Don't change the car's charge limit** (off: the limit follows every choice). **Default minimum for the quick choices** (30 %). **Always charge below a minimum** (off; optional entity and price limit). **Force charging before departure** (0 min). **Hysteresis** (0.03 per kWh). **Keep charging while the car preconditions**. **Ready Guard** (on, margin 30 min). **Battery care** (on: above 80 % only in the last 4 hours before departure). |
-| **Notifications** | Where notifications go (a notify action), and a test button. |
+| **Notifications** | Recipients (phones or groups): per recipient its notify action, which cars, and which messages (5 groups, each message on or off); a test per recipient. |
 | **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Download diagnostics** (for a bug report), **Export / Import settings** (backup, or move to the test version). |
 
 ### Configuration tab (in Home Assistant)
@@ -91,7 +91,7 @@ Settings → Apps → Smart Charging Planner → **Configuration**. Saving resta
 | **Allow home battery control** | off | With Allow control also on: the app steers the home battery. |
 | **Allow adding trips to calendar** | off | Off: "Add trip" only shows what it would add. |
 | **Publish sensors** | off | Writes `sensor.smart_charging_*` for dashboards and automations (with more chargers: `sensor.smart_charging_<charger>_*` for the others). |
-| **Notify every start and pause** | on | Problems are always notified. |
+| **Notify every start and pause** | on | Only used once, when updating from a version before recipients; choose messages per recipient in Settings › Notifications. |
 | **Charging loss margin** | 10 % | Extra energy to plan for. |
 | **Prefer one continuous charging period** | on | Charge in one go unless splitting saves at least… |
 | **Split only when it saves at least** | 0.50 | …this amount. |

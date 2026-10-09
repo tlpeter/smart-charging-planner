@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.11-dev
+
+- **Notifications to more than one phone**: add recipients in Settings › Notifications, each with its own notify action (a phone or a notify group)
+- Per recipient: **which messages**, in five groups (Problems, Action needed, Car, Start and pause, Home battery). A group switch turns the whole group on or off; open it to choose message by message (16 messages)
+- Per recipient, with more than one car: **which cars**. A message about a car only goes to the recipients of that car, for example your own car to you and the other car to your partner, or both cars to both
+- **Send test** per recipient, and the last message per recipient
+- Your current notify action becomes recipient "My phone" with the same messages as before. "Notify every start and pause" in the Configuration tab is only used for that, once
+- Recipients are part of the settings export and import
+- Tests: settings tests H4, H5, J11 and W9
+
 ## 0.29.10-dev
 
 - Fix: with the car's range sensor, later trips in the timeline cost far too much (Naar Werk 93 % instead of about 47 %, so "back home 0 %"). The range is the range at the battery level now, but it was divided by the level when leaving (80 %). Now the use per km always comes from the level now, so the same distance costs the same every time
