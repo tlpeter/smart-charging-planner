@@ -62,5 +62,6 @@ configuration:
   notify_start_stop:
     name: Notify every start and pause
     description: >-
-      Also send a notification each time the app starts or pauses the charger.
-      Choose where notifications go in the app, under Settings › Notifications.
+      Only used once, when updating from a version before notification
+      recipients. Choose per recipient which messages it gets in the app,
+      under Settings › Notifications.

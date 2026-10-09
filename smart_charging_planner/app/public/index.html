@@ -455,15 +455,21 @@
 
     <section id="tab-status" hidden>
       <div class="card">
-        <h2>Notifications and sensors</h2>
-        <div class="field"><label>Send notifications to</label>
-          <div style="display:flex;gap:8px"><select id="notify-choice"></select><button class="primary" id="notify-save">Save</button></div>
-          <div class="src" id="notify-state"></div></div>
-        <div class="row"><span class="label">Last notification</span><span class="value" id="notify-last">–</span></div>
-        <div class="row"><span class="label">Sensors in Home Assistant</span><span class="value" id="sensors-state">–</span></div>
-        <p class="muted small">"Notify every start and pause" and "Publish sensors" are set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
-        <div class="buttons"><button class="secondary" id="notify-test">Send test notification</button></div>
+        <h2>Notifications</h2>
+        <p class="muted small">Add a recipient for every phone (or group) that should get messages. Per recipient you choose which messages it gets and, with more than one car, for which cars. A group switch turns all its messages on or off; open it to choose message by message.</p>
+        <div id="notify-state" class="src"></div>
+        <div id="notify-list"></div>
+        <div class="buttons">
+          <button class="secondary" type="button" id="notify-add">Add recipient</button>
+          <button class="primary" type="button" id="notify-save">Save</button>
+        </div>
         <div id="notify-test-result"></div>
+        <div class="row"><span class="label">Last notification</span><span class="value" id="notify-last">–</span></div>
+      </div>
+      <div class="card">
+        <h2>Sensors in Home Assistant</h2>
+        <div class="row"><span class="label">Sensors</span><span class="value" id="sensors-state">–</span></div>
+        <p class="muted small">"Publish sensors" is set in Home Assistant: Settings → Apps → Smart Charging Planner → Configuration.</p>
       </div>
     </section>
   </main>

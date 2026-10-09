@@ -908,3 +908,15 @@
     .place-addr .small-btn { flex: 0 0 auto; padding: 8px 12px; }
     .two.place-row { grid-template-columns: 1fr 2fr; }
     @media (max-width: 520px) { .two.place-row { grid-template-columns: 1fr; } }
+
+    /* Notifications: recipients */
+    .recipient { border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; margin: 12px 0; box-shadow: none; }
+    .ncat { border-top: 1px solid var(--border); padding: 6px 0; }
+    .ncat:first-of-type { border-top: 0; }
+    .ncat summary { cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; }
+    .ncat summary::-webkit-details-marker { display: none; }
+    .ncat summary::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+    .ncat[open] summary::after { transform: rotate(90deg); }
+    .ncat .check { display: flex; align-items: center; gap: 8px; margin: 4px 0 4px 26px; }
+    .ncat summary .check { margin: 0; }
+    .rec-result:empty { display: none; }
