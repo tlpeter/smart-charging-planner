@@ -12,7 +12,7 @@ function durationText(minutes) {
 // All URLs are relative, so requests go through the ingress path.
 
     // Material Design Icons (as used by Home Assistant and Mushroom), from @mdi/js 7.4.47 (Apache-2.0).
-    const ICONS = {"overview": "M19,5V7H15V5H19M9,5V11H5V5H9M19,13V19H15V13H19M9,17V19H5V17H9M21,3H13V9H21V3M11,3H3V13H11V3M21,11H13V21H21V11M11,15H3V21H11V15Z", "departures": "M15,13H16.5V15.82L18.94,17.23L18.19,18.53L15,16.69V13M19,8H5V19H9.67C9.24,18.09 9,17.07 9,16A7,7 0 0,1 16,9C17.07,9 18.09,9.24 19,9.67V8M5,21C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V11.1C22.24,12.36 23,14.09 23,16A7,7 0 0,1 16,23C14.09,23 12.36,22.24 11.1,21H5M16,11.15A4.85,4.85 0 0,0 11.15,16C11.15,18.68 13.32,20.85 16,20.85A4.85,4.85 0 0,0 20.85,16C20.85,13.32 18.68,11.15 16,11.15Z", "savings": "M15 10C15 9.45 15.45 9 16 9C16.55 9 17 9.45 17 10S16.55 11 16 11 15 10.55 15 10M8 9H13V7H8V9M22 7.5V14.47L19.18 15.41L17.5 21H12V19H10V21H4.5C4.5 21 2 12.54 2 9.5S4.46 4 7.5 4H12.5C13.41 2.79 14.86 2 16.5 2C17.33 2 18 2.67 18 3.5C18 3.71 17.96 3.9 17.88 4.08C17.74 4.42 17.62 4.81 17.56 5.23L19.83 7.5H22M20 9.5H19L15.5 6C15.5 5.35 15.59 4.71 15.76 4.09C14.79 4.34 14 5.06 13.67 6H7.5C5.57 6 4 7.57 4 9.5C4 11.38 5.22 16.15 6 19H8V17H14V19H16L17.56 13.85L20 13.03V9.5Z", "log": "M7,5H21V7H7V5M7,13V11H21V13H7M4,4.5A1.5,1.5 0 0,1 5.5,6A1.5,1.5 0 0,1 4,7.5A1.5,1.5 0 0,1 2.5,6A1.5,1.5 0 0,1 4,4.5M4,10.5A1.5,1.5 0 0,1 5.5,12A1.5,1.5 0 0,1 4,13.5A1.5,1.5 0 0,1 2.5,12A1.5,1.5 0 0,1 4,10.5M7,19V17H21V19H7M4,16.5A1.5,1.5 0 0,1 5.5,18A1.5,1.5 0 0,1 4,19.5A1.5,1.5 0 0,1 2.5,18A1.5,1.5 0 0,1 4,16.5Z", "settings": "M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z", "car": "M18.92 2C18.72 1.42 18.16 1 17.5 1H6.5C5.84 1 5.29 1.42 5.08 2L3 8V16C3 16.55 3.45 17 4 17H5C5.55 17 6 16.55 6 16V15H18V16C18 16.55 18.45 17 19 17H20C20.55 17 21 16.55 21 16V8L18.92 2M6.85 3H17.14L18.22 6.11H5.77L6.85 3M19 13H5V8H19V13M7.5 9C8.33 9 9 9.67 9 10.5S8.33 12 7.5 12 6 11.33 6 10.5 6.67 9 7.5 9M16.5 9C17.33 9 18 9.67 18 10.5S17.33 12 16.5 12C15.67 12 15 11.33 15 10.5S15.67 9 16.5 9M7 20H11V18L17 21H13V23L7 20Z", "charger": "M19.77,7.23L19.78,7.22L16.06,3.5L15,4.56L17.11,6.67C16.17,7.03 15.5,7.93 15.5,9A2.5,2.5 0 0,0 18,11.5C18.36,11.5 18.69,11.42 19,11.29V18.5A1,1 0 0,1 18,19.5A1,1 0 0,1 17,18.5V14A2,2 0 0,0 15,12H14V5A2,2 0 0,0 12,3H6A2,2 0 0,0 4,5V21H14V13.5H15.5V18.5A2.5,2.5 0 0,0 18,21A2.5,2.5 0 0,0 20.5,18.5V9C20.5,8.31 20.22,7.68 19.77,7.23M18,10A1,1 0 0,1 17,9A1,1 0 0,1 18,8A1,1 0 0,1 19,9A1,1 0 0,1 18,10M8,18V13.5H6L10,6V11H12L8,18Z", "grid": "M8.28,5.45L6.5,4.55L7.76,2H16.23L17.5,4.55L15.72,5.44L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.45L19.89,10.56L18.62,8M17.77,22H15.7L15.46,21.1L12,15.9L8.53,21.1L8.3,22H6.23L9.12,11H11.19L10.83,12.35L12,14.1L13.16,12.35L12.81,11H14.88L17.77,22M11.4,15L10.5,13.65L9.32,18.13L11.4,15M14.68,18.12L13.5,13.64L12.6,15L14.68,18.12Z", "prices": "M15 18.5C12.5 18.5 10.32 17.08 9.24 15H15L16 13H8.58C8.53 12.67 8.5 12.34 8.5 12S8.53 11.33 8.58 11H15L16 9H9.24C10.32 6.92 12.5 5.5 15 5.5C16.61 5.5 18.09 6.09 19.23 7.07L21 5.3C19.41 3.87 17.3 3 15 3C11.08 3 7.76 5.5 6.5 9H3L2 11H6.06C6 11.33 6 11.66 6 12S6 12.67 6.06 13H3L2 15H6.5C7.76 18.5 11.08 21 15 21C17.31 21 19.41 20.13 21 18.7L19.22 16.93C18.09 17.91 16.62 18.5 15 18.5Z", "control": "M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z", "status": "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z", "bolt": "M11 15H6L13 1V9H18L11 23V15Z", "pause": "M14,19H18V5H14M6,19H10V5H6V19Z", "plug": "M16 7V3H14V7H10V3H8V7C7 7 6 8 6 9V14.5L9.5 18V21H14.5V18L18 14.5V9C18 8 17 7 16 7M16 13.67L13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.09C8 9.06 8.06 9 8.09 9H15.92C15.95 9 16 9.06 16 9.09V13.67Z", "plugOff": "M22.11 21.46L2.39 1.73L1.11 3L6.25 8.14C6.1 8.41 6 8.7 6 9V14.5L9.5 18V21H14.5V18L15.31 17.2L20.84 22.73L22.11 21.46M13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.89L13.89 15.78L13.09 16.59M12.2 9L10.2 7H14V3H16V7C17 7 18 8 18 9V14.5L17.85 14.65L16 12.8V9.09C16 9.06 15.95 9 15.92 9H12.2M10 6.8L8 4.8V3H10V6.8Z", "clock": "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z", "alert": "M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16", "check": "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z", "battery": "M12,11H4V6H12M12.67,4H11V2H5V4H3.33A1.33,1.33 0 0,0 2,5.33V20.67C2,21.4 2.6,22 3.33,22H12.67C13.4,22 14,21.4 14,20.67V5.33A1.33,1.33 0 0,0 12.67,4M23,11H20V4L15,14H18V22L23,11Z", "cash": "M5,6H23V18H5V6M14,9A3,3 0 0,1 17,12A3,3 0 0,1 14,15A3,3 0 0,1 11,12A3,3 0 0,1 14,9M9,8A2,2 0 0,1 7,10V14A2,2 0 0,1 9,16H19A2,2 0 0,1 21,14V10A2,2 0 0,1 19,8H9M1,10H3V20H19V22H1V10Z", "chart": "M22,21H2V3H4V19H6V10H10V19H12V6H16V19H18V14H22V21Z", "bell": "M10 21H14C14 22.1 13.1 23 12 23S10 22.1 10 21M21 19V20H3V19L5 17V11C5 7.9 7 5.2 10 4.3V4C10 2.9 10.9 2 12 2S14 2.9 14 4V4.3C17 5.2 19 7.9 19 11V17L21 19M17 11C17 8.2 14.8 6 12 6S7 8.2 7 11V18H17V11Z", "flag": "M14.4,6H20V16H13L12.6,14H7V21H5V4H14L14.4,6M14,14H16V12H18V10H16V8H14V10L13,8V6H11V8H9V6H7V8H9V10H7V12H9V10H11V12H13V10L14,12V14M11,10V8H13V10H11M14,10H16V12H14V10Z", "sun": "M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z", "sleep": "M23,12H17V10L20.39,6H17V4H23V6L19.62,10H23V12M15,16H9V14L12.39,10H9V8H15V10L11.62,14H15V16M7,20H1V18L4.39,14H1V12H7V14L3.62,18H7V20Z"};
+    const ICONS = {"overview": "M19,5V7H15V5H19M9,5V11H5V5H9M19,13V19H15V13H19M9,17V19H5V17H9M21,3H13V9H21V3M11,3H3V13H11V3M21,11H13V21H21V11M11,15H3V21H11V15Z", "departures": "M15,13H16.5V15.82L18.94,17.23L18.19,18.53L15,16.69V13M19,8H5V19H9.67C9.24,18.09 9,17.07 9,16A7,7 0 0,1 16,9C17.07,9 18.09,9.24 19,9.67V8M5,21C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V11.1C22.24,12.36 23,14.09 23,16A7,7 0 0,1 16,23C14.09,23 12.36,22.24 11.1,21H5M16,11.15A4.85,4.85 0 0,0 11.15,16C11.15,18.68 13.32,20.85 16,20.85A4.85,4.85 0 0,0 20.85,16C20.85,13.32 18.68,11.15 16,11.15Z", "savings": "M15 10C15 9.45 15.45 9 16 9C16.55 9 17 9.45 17 10S16.55 11 16 11 15 10.55 15 10M8 9H13V7H8V9M22 7.5V14.47L19.18 15.41L17.5 21H12V19H10V21H4.5C4.5 21 2 12.54 2 9.5S4.46 4 7.5 4H12.5C13.41 2.79 14.86 2 16.5 2C17.33 2 18 2.67 18 3.5C18 3.71 17.96 3.9 17.88 4.08C17.74 4.42 17.62 4.81 17.56 5.23L19.83 7.5H22M20 9.5H19L15.5 6C15.5 5.35 15.59 4.71 15.76 4.09C14.79 4.34 14 5.06 13.67 6H7.5C5.57 6 4 7.57 4 9.5C4 11.38 5.22 16.15 6 19H8V17H14V19H16L17.56 13.85L20 13.03V9.5Z", "log": "M7,5H21V7H7V5M7,13V11H21V13H7M4,4.5A1.5,1.5 0 0,1 5.5,6A1.5,1.5 0 0,1 4,7.5A1.5,1.5 0 0,1 2.5,6A1.5,1.5 0 0,1 4,4.5M4,10.5A1.5,1.5 0 0,1 5.5,12A1.5,1.5 0 0,1 4,13.5A1.5,1.5 0 0,1 2.5,12A1.5,1.5 0 0,1 4,10.5M7,19V17H21V19H7M4,16.5A1.5,1.5 0 0,1 5.5,18A1.5,1.5 0 0,1 4,19.5A1.5,1.5 0 0,1 2.5,18A1.5,1.5 0 0,1 4,16.5Z", "settings": "M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z", "car": "M18.92 2C18.72 1.42 18.16 1 17.5 1H6.5C5.84 1 5.29 1.42 5.08 2L3 8V16C3 16.55 3.45 17 4 17H5C5.55 17 6 16.55 6 16V15H18V16C18 16.55 18.45 17 19 17H20C20.55 17 21 16.55 21 16V8L18.92 2M6.85 3H17.14L18.22 6.11H5.77L6.85 3M19 13H5V8H19V13M7.5 9C8.33 9 9 9.67 9 10.5S8.33 12 7.5 12 6 11.33 6 10.5 6.67 9 7.5 9M16.5 9C17.33 9 18 9.67 18 10.5S17.33 12 16.5 12C15.67 12 15 11.33 15 10.5S15.67 9 16.5 9M7 20H11V18L17 21H13V23L7 20Z", "charger": "M19.77,7.23L19.78,7.22L16.06,3.5L15,4.56L17.11,6.67C16.17,7.03 15.5,7.93 15.5,9A2.5,2.5 0 0,0 18,11.5C18.36,11.5 18.69,11.42 19,11.29V18.5A1,1 0 0,1 18,19.5A1,1 0 0,1 17,18.5V14A2,2 0 0,0 15,12H14V5A2,2 0 0,0 12,3H6A2,2 0 0,0 4,5V21H14V13.5H15.5V18.5A2.5,2.5 0 0,0 18,21A2.5,2.5 0 0,0 20.5,18.5V9C20.5,8.31 20.22,7.68 19.77,7.23M18,10A1,1 0 0,1 17,9A1,1 0 0,1 18,8A1,1 0 0,1 19,9A1,1 0 0,1 18,10M8,18V13.5H6L10,6V11H12L8,18Z", "grid": "M8.28,5.45L6.5,4.55L7.76,2H16.23L17.5,4.55L15.72,5.44L15,4H9L8.28,5.45M18.62,8H14.09L13.3,5H10.7L9.91,8H5.38L4.1,10.55L5.89,11.44L6.62,10H17.38L18.1,11.45L19.89,10.56L18.62,8M17.77,22H15.7L15.46,21.1L12,15.9L8.53,21.1L8.3,22H6.23L9.12,11H11.19L10.83,12.35L12,14.1L13.16,12.35L12.81,11H14.88L17.77,22M11.4,15L10.5,13.65L9.32,18.13L11.4,15M14.68,18.12L13.5,13.64L12.6,15L14.68,18.12Z", "prices": "M15 18.5C12.5 18.5 10.32 17.08 9.24 15H15L16 13H8.58C8.53 12.67 8.5 12.34 8.5 12S8.53 11.33 8.58 11H15L16 9H9.24C10.32 6.92 12.5 5.5 15 5.5C16.61 5.5 18.09 6.09 19.23 7.07L21 5.3C19.41 3.87 17.3 3 15 3C11.08 3 7.76 5.5 6.5 9H3L2 11H6.06C6 11.33 6 11.66 6 12S6 12.67 6.06 13H3L2 15H6.5C7.76 18.5 11.08 21 15 21C17.31 21 19.41 20.13 21 18.7L19.22 16.93C18.09 17.91 16.62 18.5 15 18.5Z", "control": "M8 13C6.14 13 4.59 14.28 4.14 16H2V18H4.14C4.59 19.72 6.14 21 8 21S11.41 19.72 11.86 18H22V16H11.86C11.41 14.28 9.86 13 8 13M8 19C6.9 19 6 18.1 6 17C6 15.9 6.9 15 8 15S10 15.9 10 17C10 18.1 9.1 19 8 19M19.86 6C19.41 4.28 17.86 3 16 3S12.59 4.28 12.14 6H2V8H12.14C12.59 9.72 14.14 11 16 11S19.41 9.72 19.86 8H22V6H19.86M16 9C14.9 9 14 8.1 14 7C14 5.9 14.9 5 16 5S18 5.9 18 7C18 8.1 17.1 9 16 9Z", "status": "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z", "bolt": "M11 15H6L13 1V9H18L11 23V15Z", "pause": "M14,19H18V5H14M6,19H10V5H6V19Z", "plug": "M16 7V3H14V7H10V3H8V7C7 7 6 8 6 9V14.5L9.5 18V21H14.5V18L18 14.5V9C18 8 17 7 16 7M16 13.67L13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.09C8 9.06 8.06 9 8.09 9H15.92C15.95 9 16 9.06 16 9.09V13.67Z", "plugOff": "M22.11 21.46L2.39 1.73L1.11 3L6.25 8.14C6.1 8.41 6 8.7 6 9V14.5L9.5 18V21H14.5V18L15.31 17.2L20.84 22.73L22.11 21.46M13.09 16.59L12.67 17H11.33L10.92 16.59L8 13.67V9.89L13.89 15.78L13.09 16.59M12.2 9L10.2 7H14V3H16V7C17 7 18 8 18 9V14.5L17.85 14.65L16 12.8V9.09C16 9.06 15.95 9 15.92 9H12.2M10 6.8L8 4.8V3H10V6.8Z", "clock": "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z", "alert": "M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16", "check": "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z", "battery": "M12,11H4V6H12M12.67,4H11V2H5V4H3.33A1.33,1.33 0 0,0 2,5.33V20.67C2,21.4 2.6,22 3.33,22H12.67C13.4,22 14,21.4 14,20.67V5.33A1.33,1.33 0 0,0 12.67,4M23,11H20V4L15,14H18V22L23,11Z", "cash": "M5,6H23V18H5V6M14,9A3,3 0 0,1 17,12A3,3 0 0,1 14,15A3,3 0 0,1 11,12A3,3 0 0,1 14,9M9,8A2,2 0 0,1 7,10V14A2,2 0 0,1 9,16H19A2,2 0 0,1 21,14V10A2,2 0 0,1 19,8H9M1,10H3V20H19V22H1V10Z", "chart": "M22,21H2V3H4V19H6V10H10V19H12V6H16V19H18V14H22V21Z", "bell": "M10 21H14C14 22.1 13.1 23 12 23S10 22.1 10 21M21 19V20H3V19L5 17V11C5 7.9 7 5.2 10 4.3V4C10 2.9 10.9 2 12 2S14 2.9 14 4V4.3C17 5.2 19 7.9 19 11V17L21 19M17 11C17 8.2 14.8 6 12 6S7 8.2 7 11V18H17V11Z", "flag": "M14.4,6H20V16H13L12.6,14H7V21H5V4H14L14.4,6M14,14H16V12H18V10H16V8H14V10L13,8V6H11V8H9V6H7V8H9V10H7V12H9V10H11V12H13V10L14,12V14M11,10V8H13V10H11M14,10H16V12H14V10Z", "sun": "M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z", "home": "M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z", "sleep": "M23,12H17V10L20.39,6H17V4H23V6L19.62,10H23V12M15,16H9V14L12.39,10H9V8H15V10L11.62,14H15V16M7,20H1V18L4.39,14H1V12H7V14L3.62,18H7V20Z"};
     const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`;
     const shape = (name, color, small) => `<span class="shape c-${color}${small ? ' sm' : ''}">${icon(name)}</span>`;
     const $ = (id) => document.getElementById(id);
@@ -819,7 +819,7 @@ function durationText(minutes) {
       const Y = (v) => m.t + ih - ((v - y0v) / (y1v - y0v)) * ih;
       const planned = new Set(d.plan.blocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
       // Expected charging after the next trip (orange; not steered).
-      const expBlocks = d.next && d.next.expected ? d.next.expected.blocks : [];
+      const expBlocks = d.next ? d.next.expected_blocks || (d.next.expected ? d.next.expected.blocks : []) : [];
       const expected = new Set(expBlocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
 
       // Bar width per block: real prices can be per 15 minutes, a forecast per hour.
@@ -910,14 +910,32 @@ function durationText(minutes) {
           <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--text)">ready by</text>`);
       }
 
-      // The next goal (after the trip), orange.
-      const ng = d.next && d.next.goal;
-      if (ng && ng.time > t0 && ng.time <= t1 && !(d.plan.deadline && Math.abs(ng.time - d.plan.deadline) < 60000)) {
-        const gx = X(ng.time);
-        const anchor = gx < 90 ? 'start' : 'end';
-        const tx = anchor === 'start' ? gx + 4 : gx - 4;
-        marks.push(`<line x1="${gx}" x2="${gx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--expected)" stroke-width="1.5" stroke-dasharray="4 3"/>
-          <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--expected)">next goal</text>`);
+      // Later departures (orange) and the time the car is away (shaded).
+      let away = '';
+      const tl = d.next && d.next.timeline ? d.next.timeline : [];
+      let leftAt = null;
+      for (const x of tl) {
+        if (x.type === 'leave') {
+          leftAt = x.time;
+          const first = d.plan.deadline && Math.abs(x.time - d.plan.deadline) < 60000;
+          if (!first && x.time > t0 && x.time <= t1) {
+            const gx = X(x.time);
+            const anchor = gx < 90 ? 'start' : 'end';
+            const tx = anchor === 'start' ? gx + 4 : gx - 4;
+            marks.push(`<line x1="${gx}" x2="${gx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--expected)" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--expected)">${esc(tidy(x.target_soc))}%</text>`);
+          }
+        }
+        if (x.type === 'back' && leftAt != null) {
+          const a = Math.max(leftAt, t0);
+          const b = Math.min(x.time, t1);
+          if (b > a) {
+            const w = X(b) - X(a);
+            away += `<rect x="${X(a).toFixed(1)}" y="${m.t}" width="${w.toFixed(1)}" height="${ih}" fill="var(--muted)" opacity="0.10"/>`;
+            if (w > 44) away += `<text x="${(X(a) + w / 2).toFixed(1)}" y="${m.t + 14}" text-anchor="middle" font-size="11" fill="var(--muted)">away</text>`;
+          }
+          leftAt = null;
+        }
       }
 
       wrap.innerHTML = `
@@ -928,7 +946,7 @@ function durationText(minutes) {
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
             <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
-          ${grid}${bars}${solarCurve}${batteryMarks}
+          ${grid}${away}${bars}${solarCurve}${batteryMarks}
           <line x1="${m.l}" x2="${W - m.r}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>
           ${xl}${marks.join('')}
         </svg>
@@ -1060,7 +1078,7 @@ function durationText(minutes) {
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected && d.next.expected.blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after the trip</span>' : ''}</div>
+              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1109,38 +1127,48 @@ function durationText(minutes) {
       }
     }
 
+    // The coming days as one timeline: charging, leaving, back home, charging
+    // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
       const n = d.next;
-      if (!n || (!n.goal && n.trip.pct == null)) return '';
-      const e = n.expected;
-      const low = !!(e && e.below_goal);
-      const tripLine = tripText(n.trip);
-      const stop = `${esc(dayHm(n.current.time))}${n.current.target_soc != null ? ` · ${esc(n.current.target_soc)}%` : ''}${n.current.title ? ` · ${esc(n.current.title)}` : ''}`;
-      const back = n.trip.soc_after != null && n.trip.pct != null
-        ? `Back home around ${esc(dayHm(n.trip.return_at))}${n.trip.return_trip ? ` (${esc(n.trip.return_trip.title)})` : ''} with about <strong class="${low ? 'warn-text' : ''}">${esc(tidy(n.trip.soc_after))}%</strong>.` : '';
-      let exp = '';
-      if (n.goal && e) {
-        exp = !e.below_goal ? `Enough for the next goal: no charging expected.`
-          : e.blocks.length
-            ? `Expected: <strong>~${esc(tidy(e.needed_kwh))} kWh</strong> to charge ${e.periods.length ? `(${e.periods.map((x) => `${esc(dayHm(x.start))}–${esc(hm(x.end))}`).join(', ')})` : ''}${e.cost != null ? ` · ~${money(e.cost)}` : ''}${e.uses_forecast ? ' · partly forecast prices' : ''}${e.planned_kwh < e.needed_kwh - 0.1 ? ' · the rest when more prices are known' : ''}.`
-            : `Expected: <strong>~${esc(tidy(e.needed_kwh))} kWh</strong> to charge; prices for then are not known yet.`;
-      } else if (n.goal && n.trip.pct == null) {
-        exp = 'What the trip costs is not known, so no charging is expected yet.';
-      }
-      return `<div class="card next-goal${low ? ' low' : ''}">
-        <div class="ready-kicker">LOOKING AHEAD</div>
-        <div class="next-point next-stop">
-          <div class="next-point-label">Next stop</div>
-          <h2>${shape('car', 'blue', true)}${stop}</h2>
-        </div>
-        <div class="next-point next-target">
-          <div class="next-point-label">Next goal</div>
-          ${n.goal ? `<h2>${shape('flag', low ? 'orange' : 'blue', true)}${esc(dayHm(n.goal.time))} · ${esc(n.goal.soc)}%${n.goal.title ? ` · ${esc(n.goal.title)}` : ''}</h2>` : '<h2>No later departure in the coming week</h2>'}
-        </div>
-        ${tripLine ? `<p class="small">This trip: ${tripLine}</p>` : ''}
-        ${back ? `<p class="small">${back}</p>` : ''}
-        ${exp ? `<p class="small ${low ? 'warn-text' : 'muted'}">${exp}</p>` : ''}
-        <p class="muted small">An expectation: the real plan follows when the car is back and plugged in.</p>
+      const items = n && n.timeline ? n.timeline : [];
+      if (!items.some((x) => x.type === 'leave') || (items.filter((x) => x.type === 'leave').length < 2 && n.trip.pct == null)) return '';
+      const pct = (v) => (v == null ? '' : `${esc(tidy(v))}%`);
+      const level = (v, cls = '') => (v == null ? '<span class="tl-level muted">?</span>' : `<span class="tl-level ${cls}">${pct(v)}</span>`);
+      const span = (x) => (x.periods.length > 2
+        ? `${x.periods.length} blocks between ${esc(dayHm(x.periods[0].start))} and ${esc(dayHm(x.periods[x.periods.length - 1].end))}`
+        : x.periods.map((p) => `${esc(dayHm(p.start))}–${esc(hm(p.end))}`).join(', '));
+      let lowSeen = false;
+      const rows = items.map((x, i) => {
+        if (x.type === 'charge') {
+          if (x.unknown_prices) {
+            return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
+          }
+          const short = x.expected && x.kwh < x.needed_kwh - 0.1 ? ' · the rest when more prices are known' : '';
+          return `<li class="tl-row tl-charge${x.expected ? ' expected' : ''}">${shape('bolt', x.expected ? 'orange' : 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>${x.expected ? 'Expected charging' : 'Charging'} to ${pct(x.soc_to)}</div>
+            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''}${x.uses_forecast ? ' · partly forecast prices' : ''}${short}</div></div>${level(x.soc_to, x.expected ? 'exp' : '')}</li>`;
+        }
+        if (x.type === 'leave') {
+          const low = x.soc != null && x.target_soc != null && x.soc < x.target_soc - 0.5;
+          if (low) lowSeen = true;
+          const trip = x.trip ? tripText(x.trip) : '';
+          return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
+            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+        }
+        // back home
+        const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
+        const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
+        return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
+          <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
+          ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
+      }).join('');
+      return `<div class="card next-goal${lowSeen ? ' low' : ''}">
+        <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
+        <ul class="timeline">${rows}</ul>
+        <p class="muted small"><span class="tl-key exp"></span>Orange is an expectation: the real plan follows when the car is back and plugged in. Battery levels on the right are when leaving or arriving.</p>
       </div>`;
     }
 

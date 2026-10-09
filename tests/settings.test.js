@@ -1473,6 +1473,29 @@ async function run() {
       assert(thuis.cost === null, `the trip home has a cost: ${JSON.stringify(thuis.cost)}`);
       return `back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~${werk.cost.km} km`;
     });
+    await test('Y5', 'The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging', async () => {
+      world.soc = 50;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 8),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 2, 16, 17),
+        ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
+      ];
+      const p = await settle();
+      const tl = p.next.timeline;
+      const kinds = tl.map((x) => (x.type === 'charge' && x.expected ? 'expected' : x.type)).join(' ');
+      const leaves = tl.filter((x) => x.type === 'leave');
+      assert(leaves.length === 3 && leaves.map((x) => x.title).join() === 'Naar Outdoorvalley,Naar Werk,Naar Werk', kinds);
+      assert(/^charge leave back expected leave back (expected )?leave/.test(kinds), kinds);
+      const backs = tl.filter((x) => x.type === 'back');
+      assert(backs[0].time === at(1, 18) && backs[1].time === at(2, 17) && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
+      assert(backs.every((b) => b.soc != null && b.soc < 80) && leaves[1].soc >= 79.5, JSON.stringify(tl.map((x) => [x.type, x.soc])));
+      const exp = tl.filter((x) => x.type === 'charge' && x.expected);
+      assert(exp.length && exp[0].start >= at(1, 18) && exp[0].end <= at(2, 7) && p.next.expected_blocks.length, JSON.stringify(exp));
+      assert(p.prices[p.prices.length - 1].end > p.departure.time, 'the chart stops at the departure');
+      world.soc = 100;
+      return kinds;
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

@@ -292,66 +292,136 @@ function isReturnTrip(t) {
   return !!t.location && tripcost.distance(t.location).status === 'home';
 }
 
+// The coming days (up to 7 days, 6 departures) as one timeline: charging,
+// leaving, back home, charging again, … Each later departure gets an expected
+// charging plan from the moment the car is back (orange, never steered).
+const AHEAD_DAYS = 7;
+// The chart goes on to the end of the last expected charging (at most 3 days).
+function chartEnd(next) {
+  const b = next && next.expected_blocks && next.expected_blocks.length ? next.expected_blocks[next.expected_blocks.length - 1].end : 0;
+  return b ? Math.min(b, Date.now() + 3 * 86400000) : 0;
+}
+const AHEAD_STEPS = 6;
+
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
   if (!departure || !vehicle) return null;
+  const horizon = now + AHEAD_DAYS * 86400000;
   const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow }).sort((a, b) => a.time - b.time);
   const trips = calendarTrips(dep, events, tz, now, carCtxNow);
-  const cur = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
-  // The level when the car leaves: the target when the plan gets there.
+  const tripAt = (x) => (x.source === 'calendar' ? trips.find((t) => t.time === x.time) : null);
+  const startOf = (t) => t.event_start || t.time;
+  const lastKnown = prices.length ? prices[prices.length - 1].end : now;
+  const fixed = mode === 'fixed_kwh';
+
+  // One trip: what it costs, when the car is back, the level after it.
+  // The way back: the very next calendar trip, when that is a trip home (within
+  // 36 hours). Another trip first (for example to work the next morning)
+  // means this trip has no trip home in the calendar: there and back.
+  function tripOf(cur, socLeave) {
+    const following = cur.location && !tripcost.isHome(cur.location)
+      ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
+    const back = following && isReturnTrip(following) ? following : null;
+    const trip = cur.location && !fixed
+      ? tripcost.tripCost({ location: cur.location, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: socLeave })
+      : { status: 'unknown', reason: 'no_location', pct: null };
+    const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
+    const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
+    return { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
+  }
+  // The first departure after the car is back that is not the way home.
+  const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
+
+  // The level when the car leaves now: the target when the plan gets there.
   let socAtDep = Number.isFinite(soc) ? soc : null;
   if (socAtDep != null && Number.isFinite(targetSoc) && targetSoc > socAtDep) {
     const share = neededKwh > 0 ? Math.min(1, (plan.planned_kwh || 0) / neededKwh) : 1;
     socAtDep = Math.round((socAtDep + (targetSoc - socAtDep) * share) * 10) / 10;
   }
-  // The way back: the very next calendar trip, when that is a trip home (within
-  // 36 hours). Another trip first (for example to work the next morning)
-  // means this trip has no trip home in the calendar: there and back.
-  const following = cur.location && !tripcost.isHome(cur.location)
-    ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
-  const back = following && isReturnTrip(following) ? following : null;
-  const trip = cur.location && mode !== 'fixed_kwh'
-    ? tripcost.tripCost({ location: cur.location, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: Number.isFinite(soc) ? soc : socAtDep })
-    : { status: 'unknown', reason: 'no_location', pct: null };
-  const startOf = (t) => t.event_start || t.time;
-  const returnAt = back ? (back.event_end || startOf(back) + 3600000)
-    : cur.event_end || startOf(cur) + 3600000;
-  const socAfter = socAtDep != null && trip.pct != null ? Math.max(0, Math.round((socAtDep - trip.pct) * 10) / 10) : socAtDep;
-  // The next goal: the first departure after the car is back that is not the way home.
-  const nextDep = all.find((x) => x.time > returnAt && !(x.source === 'calendar' && isReturnTrip(trips.find((t) => t.time === x.time))));
+  const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
+  const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
+  // (The first trip's level after it follows the level when leaving.)
+  trip0.soc_after = socAtDep != null && trip0.pct != null ? Math.max(0, Math.round((socAtDep - trip0.pct) * 10) / 10) : (trip0.pct == null ? socAtDep : null);
+
+  const timeline = [];
+  const planPeriods = periods(plan.blocks || []);
+  if (planPeriods.length) {
+    timeline.push({ type: 'charge', expected: false, start: planPeriods[0].start, end: planPeriods[planPeriods.length - 1].end, periods: planPeriods, kwh: Math.round((plan.planned_kwh || 0) * 10) / 10, cost: plan.blocks.length ? plan.cost ?? null : null, soc_to: socAtDep });
+  }
+  const leave = (x, t, tr, socLeave, target) => {
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null } : null });
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
+  };
+  const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
+  leave(departure, curTrip, trip0, socAtDep, departure.soc);
+
   const out = {
     current: {
       time: departure.time,
-      title: departure.title || cur.title || null,
-      location: cur.location || null,
+      title: departure.title || curTrip.title || null,
+      location: curTrip.location || null,
       target_soc: departure.soc,
       soc_at_departure: socAtDep,
     },
-    trip: { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter },
+    trip: trip0,
     goal: null,
     expected: null,
+    timeline,
+    expected_blocks: [],
   };
-  if (!nextDep) return out;
-  const nt = nextDep.source === 'calendar' ? trips.find((t) => t.time === nextDep.time) : null;
-  out.goal = { time: nextDep.time, soc: nextDep.soc, source: nextDep.source, title: nextDep.title || (nt && nt.title) || null, location: nt ? nt.location : null };
-  if (socAfter == null || !(vehicle.capacity_kwh > 0)) return out;
-  const need = energyNeededKwh(socAfter, nextDep.soc, vehicle.capacity_kwh, planning.loss_percent);
-  const after = prices.filter((p) => p.end > returnAt && p.start < nextDep.time);
-  const exp = need > 0.01 && after.length
-    ? planCharging({ prices: after, now: Math.max(now, returnAt), deadline: nextDep.time, neededKwh: need, powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 })
-    : null;
-  const lastKnown = prices.length ? prices[prices.length - 1].end : now;
-  out.expected = {
-    soc_from: socAfter,
-    soc_to: nextDep.soc,
-    needed_kwh: Math.round(need * 10) / 10,
-    below_goal: socAfter < nextDep.soc - 0.5,
-    prices_known: lastKnown >= nextDep.time, // with the price forecast when there is one
-    uses_forecast: !!(exp && exp.blocks.some((b) => b.forecast)),
-    blocks: exp ? exp.blocks.map((b) => ({ ...b, expected: true })) : [],
-    periods: exp ? periods(exp.blocks) : [],
-    planned_kwh: exp ? exp.planned_kwh : 0,
-    cost: exp && exp.blocks.length ? exp.cost : null,
-  };
+
+  // The departures after this one, one after the other.
+  let back = trip0.return_at;
+  let level = trip0.pct == null ? null : trip0.soc_after;
+  for (let i = 0; i < AHEAD_STEPS - 1; i++) {
+    const x = nextAfter(back);
+    if (!x || x.time > horizon) break;
+    const t = tripAt(x);
+    let expected = null;
+    if (level != null && vehicle.capacity_kwh > 0) {
+      const need = energyNeededKwh(level, x.soc, vehicle.capacity_kwh, planning.loss_percent);
+      const window = prices.filter((p) => p.end > back && p.start < x.time);
+      const exp = need > 0.01 && window.length
+        ? planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 })
+        : null;
+      expected = {
+        soc_from: level,
+        soc_to: x.soc,
+        needed_kwh: Math.round(need * 10) / 10,
+        below_goal: level < x.soc - 0.5,
+        prices_known: lastKnown >= x.time, // with the price forecast when there is one
+        uses_forecast: !!(exp && exp.blocks.some((b) => b.forecast)),
+        blocks: exp ? exp.blocks.map((b) => ({ ...b, expected: true })) : [],
+        periods: exp ? periods(exp.blocks) : [],
+        planned_kwh: exp ? exp.planned_kwh : 0,
+        cost: exp && exp.blocks.length ? exp.cost : null,
+      };
+      out.expected_blocks.push(...expected.blocks);
+      if (expected.periods.length) {
+        timeline.push({ type: 'charge', expected: true, start: expected.periods[0].start, end: expected.periods[expected.periods.length - 1].end, periods: expected.periods, kwh: Math.round(expected.planned_kwh * 10) / 10, needed_kwh: expected.needed_kwh, cost: expected.cost, uses_forecast: expected.uses_forecast, soc_to: x.soc });
+      } else if (expected.below_goal) {
+        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: x.soc });
+      }
+    }
+    if (i === 0) {
+      out.goal = { time: x.time, soc: x.soc, source: x.source, title: x.title || (t && t.title) || null, location: t ? t.location : null };
+      out.expected = expected;
+    }
+    // The level when leaving: the target when the expected charging gets there.
+    let socLeave = null;
+    if (level != null) {
+      if (!expected || !expected.below_goal) socLeave = level;
+      else {
+        const share = expected.needed_kwh > 0 ? Math.min(1, expected.planned_kwh / expected.needed_kwh) : 1;
+        socLeave = Math.round((level + (x.soc - level) * share) * 10) / 10;
+      }
+    }
+    const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
+    if (tr.pct == null) tr.soc_after = null;
+    else if (socLeave != null) tr.soc_after = Math.max(0, Math.round((socLeave - tr.pct) * 10) / 10);
+    leave(x, t, tr, socLeave, x.soc);
+    back = tr.return_at;
+    level = tr.soc_after;
+  }
   return out;
 }
 
@@ -1211,7 +1281,7 @@ const routes = {
         charging_now: actualNow.charging,
       },
       // The chart shows the prices up to the departure (forecast included).
-      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline)).map((p) => ({
+      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))).map((p) => ({
         start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
         ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
         ...(Number.isFinite(p.pv_kw) ? { pv_kw: p.pv_kw, solar_kw: p.solar_kw, solar_price: p.solar_price } : {}),

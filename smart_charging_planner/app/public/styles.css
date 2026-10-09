@@ -883,3 +883,21 @@
     .next-goal.low .next-target { background: rgba(var(--rgb-orange), .10); }
     .next-goal.low { box-shadow: inset 4px 0 0 var(--expected); }
     .next-goal .warn-text, .next-goal strong.warn-text { color: var(--expected); }
+    .timeline { list-style: none; margin: 10px 0 8px; padding: 0; position: relative; }
+    .timeline::before { content: ""; position: absolute; left: 15px; top: 16px; bottom: 16px; width: 2px; background: var(--border); }
+    .tl-row { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 7px 0; }
+    .tl-row .shape { flex: 0 0 auto; position: relative; z-index: 1; }
+    .tl-main { flex: 1 1 auto; min-width: 0; padding-top: 2px; }
+    .tl-title { font-weight: 650; line-height: 1.35; }
+    .tl-time { display: inline-block; min-width: 92px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 6px; }
+    .tl-sub { font-size: 13px; color: var(--text); line-height: 1.4; margin-top: 2px; }
+    .tl-sub.muted { color: var(--muted); }
+    .tl-leave .tl-title { font-size: 16px; }
+    .tl-charge.expected .tl-title, .tl-charge.expected .tl-sub { color: var(--expected); }
+    .tl-level { flex: 0 0 auto; min-width: 48px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; padding: 4px 0 0; }
+    .tl-level.exp { color: var(--expected); }
+    .tl-key.exp { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--expected); margin-right: 6px; vertical-align: -1px; }
+    .legend i.away { background: var(--muted); opacity: .25; }
+    @media (max-width: 560px) {
+      .tl-time { display: block; min-width: 0; margin: 0; font-size: 12px; }
+    }
