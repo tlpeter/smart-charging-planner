@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 151 of 151 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 142 of 142 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 152 of 152 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 143 of 143 ✓ |
 | Unit tests (9 files) | 317 of 317 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.9-dev.
+Version: 0.29.10-dev.
 
 # Settings
 
@@ -92,7 +92,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E5 | All-in price: used as it is | ✓ | ✓ |
 | E6 | Refused: purchase fee 2, VAT 80 | ✓ | ✓ |
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
-| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 6 | ✓ planned hours 6 |
+| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
 
 ## F. Planning (departures)
@@ -266,6 +266,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y5 | The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging | ✓ charge leave back expected leave back expected leave back | ✓ charge leave back expected leave back expected leave back |
 | Y6 | My places: "Werk" and a company name ("IQ Messenger") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 30.9% there and back |
 | Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "IQ Messenger"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
+| Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 31.4% both times |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
