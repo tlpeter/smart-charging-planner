@@ -1496,6 +1496,35 @@ async function run() {
       world.soc = 100;
       return kinds;
     });
+    await test('Y6', 'My places: "Werk" and a company name ("IQ Messenger") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost', async () => {
+      const WORK = 'Pieter Zeemanweg 57, 3316 GZ Dordrecht';
+      world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 4.70 } };
+      world.soc = 80;
+      world.events = [
+        ev('Naar Werk', 'doel: 80', 'IQ Messenger', 1, 6, 7),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
+        ev('Naar Werk', 'doel: 80', 'Werk', 2, 6, 7),
+      ];
+      let p = await settle();
+      const leaves = (q) => q.next.timeline.filter((x) => x.type === 'leave');
+      const before = leaves(p);
+      assert(before.length === 2 && before.every((x) => x.trip.pct == null) && before[1].trip.ask === 'Werk', JSON.stringify(before.map((x) => x.trip)));
+      await refused('POST', 'api/places', { places: [{ name: 'Thuis', address: 'Dorpsstraat 1, Reusel' }] }, 'home');
+      await refused('POST', 'api/places', { places: [{ name: 'Werk', address: WORK }, { name: 'werk', address: WORK }] }, 'twice');
+      await ok('POST', 'api/places', { places: [{ name: 'Werk', address: WORK }] });
+      p = await settle();
+      const after = leaves(p);
+      assert(after.every((x) => x.trip.status === 'ok' && x.trip.place === 'Werk' && x.trip.pct > 0), JSON.stringify(after.map((x) => x.trip)));
+      const backs = p.next.timeline.filter((x) => x.type === 'back');
+      assert(backs[0].soc != null && backs[0].title === 'Naar Thuis', JSON.stringify(backs));
+      const d = await ok('GET', 'api/departures');
+      assert(d.calendar_trips.filter((x) => x.title === 'Naar Werk').every((x) => x.cost && x.cost.place === 'Werk'), JSON.stringify(d.calendar_trips.map((x) => x.cost)));
+      const exp = await ok('GET', 'api/settings/export');
+      assert(exp.settings.places && exp.settings.places[0].name === 'Werk', 'not in the export');
+      await ok('POST', 'api/places', { places: [] });
+      world.soc = 100;
+      return `Werk → ${after[0].trip.km} km, ${after[0].trip.pct}% there and back`;
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

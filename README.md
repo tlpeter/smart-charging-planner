@@ -50,7 +50,7 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
-**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). It is an expectation and never steers anything.
+**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a name from **My places** on Plan, such as "Werk") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). It is an expectation and never steers anything.
 
 ### Plan: departures
 

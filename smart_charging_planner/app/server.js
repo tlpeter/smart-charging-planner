@@ -318,12 +318,13 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   // 36 hours). Another trip first (for example to work the next morning)
   // means this trip has no trip home in the calendar: there and back.
   function tripOf(cur, socLeave) {
-    const following = cur.location && !tripcost.isHome(cur.location)
+    const where = cur.location || tripcost.placeFor(null, cur.title).place; // the location, or a saved place by the title
+    const following = where && !tripcost.isHome(cur.location)
       ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
     const back = following && isReturnTrip(following) ? following : null;
-    const trip = cur.location && !fixed
-      ? tripcost.tripCost({ location: cur.location, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: socLeave })
-      : { status: 'unknown', reason: 'no_location', pct: null };
+    const trip = where && !fixed
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: socLeave })
+      : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
     const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
     const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
     return { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
@@ -348,7 +349,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     timeline.push({ type: 'charge', expected: false, start: planPeriods[0].start, end: planPeriods[planPeriods.length - 1].end, periods: planPeriods, kwh: Math.round((plan.planned_kwh || 0) * 10) / 10, cost: plan.blocks.length ? plan.cost ?? null : null, soc_to: socAtDep });
   }
   const leave = (x, t, tr, socLeave, target) => {
-    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null } : null });
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, ask: tr.ask || null } : null });
     if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
@@ -431,6 +432,7 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // An address or route was found: plans are recalculated on the next request,
 // so Plan and Home show what the trip costs without waiting for the refresh.
 // (The plan is kept until then: it is only marked as outdated.)
+tripcost.setSavedPlaces(() => settings.load().places || []);
 tripcost.onUpdate(() => {
   for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
 });
@@ -1321,6 +1323,34 @@ const routes = {
     return result;
   },
 
+  // My places: names you use in the calendar ("Werk") with their address.
+  'GET /api/places': async () => ({ places: settings.load().places || [] }),
+
+  'POST /api/places': async (req) => {
+    const body = await readBody(req);
+    const list = Array.isArray(body && body.places) ? body.places : null;
+    if (!list) throw badRequest('Send a list of places');
+    if (list.length > 20) throw badRequest('At most 20 places');
+    const seen = new Set();
+    const places = list.map((p) => {
+      const name = String((p && p.name) || '').trim().replace(/\s+/g, ' ');
+      const address = String((p && p.address) || '').trim().replace(/\s+/g, ' ');
+      if (!name || name.length > 40) throw badRequest('Name: 1 to 40 characters');
+      if (address.length < 3 || address.length > 120) throw badRequest(`Address of ${name}: 3 to 120 characters`);
+      if (tripcost.isHome(name)) throw badRequest(`"${name}" is your home: the app uses the home location of Home Assistant`);
+      const key = name.toLowerCase();
+      if (seen.has(key)) throw badRequest(`"${name}" is in the list twice`);
+      seen.add(key);
+      return { name, address };
+    });
+    const s = settings.load();
+    s.places = places;
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    return { ok: true, places };
+  },
+
   // Add trips to the calendar. Without "Allow adding trips to calendar" this
   // only shows what would be added (test mode).
   'POST /api/trips/preview': async (req) => tripsPlan(await readBody(req)),
@@ -1386,7 +1416,7 @@ const routes = {
         const socNow = socSt ? Number(socSt.state) : NaN;
         return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000).map((t) => ({
           ...t,
-          cost: t.location && !isReturnTrip(t) ? tripcost.tripCost({ location: t.location, vehicle, states, soc: socNow }) : null,
+          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,
@@ -3247,7 +3277,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {

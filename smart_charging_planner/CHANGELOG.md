@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.8-dev
+
+- **My places** (Plan): give names you use in the calendar an address, for example "Werk" → "Pieter Zeemanweg 57, Dordrecht". A trip whose location is that name ("Werk", "IQ Messenger"), or whose title is "Naar Werk", then shows what it costs, and the timeline knows the battery level when you are back. A real address in the event still wins
+- When the distance of a trip is not known, Home says why ("Not an address", "not found on OpenStreetMap") and offers **Add "Werk" to My places**, which opens Plan with the name filled in
+- My places are part of the settings export and import
+- Tests: settings test Y6 and a tripcost check
+
 ## 0.29.7-dev
 
 - **Looking ahead is now a timeline** of the coming days (up to 7 days, 6 departures), in the order things happen: charging (blue, the real plan), leaving (target and what the trip costs), back home (with about how much battery), expected charging (orange), leaving again, … The battery level is on the right of each step. Replaces "Next stop" and "Next goal", which repeated Ready Guard and were hard to follow

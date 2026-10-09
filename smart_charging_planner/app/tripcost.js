@@ -50,6 +50,54 @@ const norm = (t) => String(t || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const GENERIC = new Set(['werk', 'work', 'kantoor', 'office', 'school', 'sport', 'gym', 'training', 'thuis', 'home', 'huis', 'naar huis', 'boodschappen', 'winkel', 'shopping', 'opa', 'oma', 'ouders', 'parents']);
 const HOME = /^(thuis|huis|home|naar huis|naar thuis|terug|back home)$/i;
 
+// My places (Plan › My places): a name you use in the calendar ("Werk",
+// "IQ Messenger") with its address. The event's location, or the title
+// ("Naar Werk"), is matched against the names.
+let savedPlaces = () => [];
+function setSavedPlaces(fn) {
+  savedPlaces = typeof fn === 'function' ? fn : () => fn || [];
+}
+function savedPlace(text) {
+  const t = norm(text);
+  if (!t) return null;
+  return (savedPlaces() || []).find((p) => p && norm(p.name) === t && String(p.address || '').trim()) || null;
+}
+// The name in a title: "Naar Werk", "To the office", "Werk".
+function titleName(title) {
+  return String(title || '').trim().replace(/^(naar|to|nach|vers|à)\s+(de |het |the )?/i, '').trim();
+}
+function titlePlace(title) {
+  return savedPlace(titleName(title));
+}
+// The name to suggest for My places when a trip's distance is not known.
+function askName(location, title) {
+  const n = titleName(title);
+  if (n && !isHome(n) && n.length <= 40) return n;
+  const l = String(location || '').trim();
+  return l && !isHome(l) && l.length <= 40 ? l : null;
+}
+
+// Which location to use for a trip: a saved place by its location, the
+// location itself when it can be looked up, or a saved place by the title.
+// Returns { location, place } (place: the saved place's name, or null).
+function placeFor(location, title) {
+  const byLoc = savedPlace(location);
+  if (byLoc) return { location: byLoc.address, place: byLoc.name };
+  if (isHome(location)) return { location, place: null };
+  // The title's place wins, unless the location is a real address (with a
+  // number) that OpenStreetMap can find.
+  const byTitle = titlePlace(title);
+  if (byTitle && (!location || !looksLikePlace(location) || !/\d/.test(location) || peek(location) === 'not_found')) {
+    return { location: byTitle.address, place: byTitle.name };
+  }
+  return { location: location || null, place: null };
+}
+// What is known about a place without looking it up: 'found', 'not_found' or null.
+function peek(text) {
+  const p = load().places[norm(text)];
+  return !p ? null : p.found ? 'found' : 'not_found';
+}
+
 function isHome(text) {
   return HOME.test(String(text || '').trim());
 }
@@ -204,18 +252,22 @@ function pctPerKm(vehicle, states, soc) {
 
 // What a trip costs: { km (one way), pct (there and back, or there plus the
 // return trip in the calendar), how, status }.
-function tripCost({ location, returnLocation = undefined, vehicle, states, soc }) {
-  const there = distance(location);
-  if (there.status !== 'ok') return { status: there.status, reason: there.reason || null, km: there.km ?? null, pct: there.status === 'home' ? 0 : null };
+function tripCost({ location: given, title = null, returnLocation = undefined, vehicle, states, soc }) {
+  const { location, place } = placeFor(given, title);
+  const there = { ...distance(location), ...(place ? { place } : {}) };
+  if (there.status !== 'ok') {
+    const ask = there.status === 'unknown' ? askName(given, title) : null;
+    return { status: there.status, reason: there.reason || null, km: there.km ?? null, pct: there.status === 'home' ? 0 : null, ...(place ? { place } : {}), ...(ask ? { ask } : {}) };
+  }
   const use = pctPerKm(vehicle, states, soc);
-  if (!use) return { status: 'no_consumption', km: there.km, how: there.how, pct: null };
+  if (!use) return { status: 'no_consumption', km: there.km, how: there.how, pct: null, ...(place ? { place } : {}) };
   // Back: the return trip in the calendar when there is one (home: the same distance).
   const backKm = returnLocation === undefined ? there.km : (() => {
     const b = distance(returnLocation);
     return b.status === 'home' ? there.km : b.status === 'ok' ? b.km : there.km;
   })();
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct };
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(place ? { place } : {}) };
 }
 
 // Learning from your trips. When the car is unplugged for a trip with a known
@@ -280,4 +332,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { distance, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { distance, placeFor, askName, setSavedPlaces, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

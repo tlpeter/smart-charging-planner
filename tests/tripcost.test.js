@@ -81,5 +81,23 @@ check('straight line: Reusel to Bergschenhoek is about 100 km', () => {
   assert.ok(km > 80 && km < 100, String(km));
 });
 
+check('My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested', () => {
+  t.setSavedPlaces([{ name: 'Werk', address: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht' }, { name: 'IQ Messenger', address: 'Pieter Zeemanweg 57, Dordrecht' }]);
+  try {
+    assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
+    assert.deepStrictEqual(t.placeFor('iq messenger', 'Naar kantoor'), { location: 'Pieter Zeemanweg 57, Dordrecht', place: 'IQ Messenger' });
+    assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
+    assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Pieter Zeemanweg 57, 3316 GZ Dordrecht', place: 'Werk' });
+    assert.deepStrictEqual(t.placeFor('Stationsplein 1, Utrecht', 'Naar Werk'), { location: 'Stationsplein 1, Utrecht', place: null });
+    assert.deepStrictEqual(t.placeFor('Gent', 'Naar Gent'), { location: 'Gent', place: null });
+    assert.deepStrictEqual(t.placeFor('Thuis', 'Naar Thuis'), { location: 'Thuis', place: null });
+    assert.strictEqual(t.askName('IQ Messenger', 'Naar Werk'), 'Werk');
+    assert.strictEqual(t.askName('Werk', ''), 'Werk');
+    assert.strictEqual(t.askName(null, 'Naar Thuis'), null);
+  } finally {
+    t.setSavedPlaces([]);
+  }
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

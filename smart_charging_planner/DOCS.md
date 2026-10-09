@@ -196,6 +196,7 @@ Always on. Home shows the coming days (up to 7 days, 6 departures) as one timeli
 
 When another trip is added to the calendar, it takes its place in the timeline right away.
 
+- **My places** (Plan): names you use in the calendar, such as "Werk" or "IQ Messenger", with their address. A trip whose location is one of these names, or whose title is "Naar <name>", uses that address. A real address (with a house number) in the event's location still wins. When the distance of a trip is not known, Home offers to add its name to My places. My places are part of the settings export.
 - **What a trip costs**: when the calendar event has an address in its location (for example "Hoeksekade 141 2661 JL Bergschenhoek"). Words like "Werk" or "Thuis" are not addresses; put the full address in the location to see the cost.
   - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
   - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).

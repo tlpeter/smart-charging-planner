@@ -63,6 +63,17 @@
         <div class="error form-error" hidden></div>
         <div id="trip-result"></div>
       </form>
+      <div class="card" id="places-card">
+        <h2>My places</h2>
+        <p class="muted small">Names you use in the calendar, such as "Werk" or "IQ Messenger", with their address. A trip whose location or title ("Naar Werk") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <div id="places-list"></div>
+        <div class="buttons">
+          <button class="secondary" type="button" id="place-add">Add place</button>
+          <button class="primary" type="button" id="places-save">Save</button>
+        </div>
+        <div class="error form-error" id="places-error" hidden></div>
+        <div id="places-result"></div>
+      </div>
       <div class="card" id="dep-override"></div>
       <form id="dep-form">
         <div class="card">
