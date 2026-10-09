@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.7-dev
+
+- **Looking ahead is now a timeline** of the coming days (up to 7 days, 6 departures), in the order things happen: charging (blue, the real plan), leaving (target and what the trip costs), back home (with about how much battery), expected charging (orange), leaving again, … The battery level is on the right of each step. Replaces "Next stop" and "Next goal", which repeated Ready Guard and were hard to follow
+- **The chart** goes on past the departure to the expected charging (at most 3 days ahead): expected charging in orange, the time the car is away shaded ("away"), later departures as orange dashed lines with their target
+- A trip that costs more than the battery holds says so ("charge on the way")
+- Tests: settings test Y5 (a week with trips, back home and expected charging)
+
 ## 0.29.6-dev
 
 - Fix: a trip added with **Add trip** did not show up on Plan and under Looking ahead until the next refresh (up to 5 minutes). Now it counts right away
