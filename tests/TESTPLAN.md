@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 150 of 150 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 141 of 141 ✓ |
-| Unit tests (9 files) | 316 of 316 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 151 of 151 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 142 of 142 ✓ |
+| Unit tests (9 files) | 317 of 317 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.8-dev.
+Version: 0.29.9-dev.
 
 # Settings
 
@@ -265,6 +265,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y2b | Outdoorvalley on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday's Naar Werk, the company address is found without the company name | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km |
 | Y5 | The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging | ✓ charge leave back expected leave back expected leave back | ✓ charge leave back expected leave back expected leave back |
 | Y6 | My places: "Werk" and a company name ("IQ Messenger") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 30.9% there and back |
+| Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "IQ Messenger"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
@@ -321,7 +322,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 12 of 12 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
-| [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 9 of 9 ✓ |
+| [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 
 ## brands
@@ -711,7 +712,7 @@ More than one charger: who charges first and how the connection is shared.
 
 Look ahead: which calendar locations are addresses, the use per km, learning from trips.
 
-<details><summary>9 of 9 passed – show every check</summary>
+<details><summary>10 of 10 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -724,6 +725,7 @@ Look ahead: which calendar locations are addresses, the use per km, learning fro
 | distance: home is 0 km, a word that is not an address is unknown, a new address is looked up (pending) | ✓ |
 | straight line: Reusel to Bergschenhoek is about 100 km | ✓ |
 | My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested | ✓ |
+| Zones in Home Assistant: "Werk" (by name or by the title) is a point with GPS; the home zone is not a place; My places go first | ✓ |
 
 </details>
 
