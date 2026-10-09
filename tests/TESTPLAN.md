@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 148 of 148 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 139 of 139 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 149 of 149 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 140 of 140 ✓ |
 | Unit tests (9 files) | 315 of 315 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.6-dev.
+Version: 0.29.7-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 40 kB CSS, 200 kB JS | ✓ 40 kB CSS, 200 kB JS |
+| A2 | Frontend assets are served separately | ✓ 41 kB CSS, 203 kB JS | ✓ 41 kB CSS, 203 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -92,7 +92,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E5 | All-in price: used as it is | ✓ | ✓ |
 | E6 | Refused: purchase fee 2, VAT 80 | ✓ | ✓ |
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
-| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
+| E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 5,6 | ✓ planned hours 5,6 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
 
 ## F. Planning (departures)
@@ -148,9 +148,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-09T05:00, limit sent 95 | ✓ 63.5 kWh before 10-09T05:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-10T05:00, limit sent 95 | ✓ 63.5 kWh before 10-10T05:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-10) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-10) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-11) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-11) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
 | J6 | Charge now 100 %: limit up, charger started; stop: limit back | ✓ limit 100 → 90, start: switch.turn_on switch.laadpaal_charger_enabled | ✓ limit 100 → 90, start: switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -169,10 +169,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.0 kWh on solar, 22.3 kWh from the grid | ✓ 12.0 kWh on solar, 38.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.0 kWh on solar | ✓ 12.0 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.8 kWh at night, 12.0 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 24.0 kWh on solar, 10.3 kWh from the grid | ✓ 24.0 kWh on solar, 26.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 24.0 kWh on solar | ✓ 24.0 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -188,7 +188,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.16 | ✓ charges in 2 block(s), saving €1.07 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.47 | ✓ charges in 3 block(s), saving €1.47 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -212,7 +212,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-10T09 (forecast) | ✓ 31 forecast hours, planned: 10-10T09 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-11T09 (forecast) | ✓ 31 forecast hours, planned: 10-11T09 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -263,6 +263,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y2 | A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal | ✓ back 15:00 UTC · next Naar Werk | ✓ back 15:00 UTC · next Naar Werk |
 | Y3 | An extra calendar trip becomes the next stop, and the 100% long trip after it becomes the next goal instead of the later work trip | ✓ next stop Naar Spijkenisse 60% · next goal Naar Outdoorvalley 100% | ✓ next stop Naar Spijkenisse 60% · next goal Naar Outdoorvalley 100% |
 | Y2b | Outdoorvalley on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday's Naar Werk, the company address is found without the company name | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km |
+| Y5 | The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging | ✓ charge leave back expected leave back expected leave back | ✓ charge leave back expected leave back expected leave back |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
