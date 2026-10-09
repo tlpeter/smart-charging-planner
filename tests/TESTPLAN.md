@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 149 of 149 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 140 of 140 ✓ |
-| Unit tests (9 files) | 315 of 315 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 150 of 150 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 141 of 141 ✓ |
+| Unit tests (9 files) | 316 of 316 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.7-dev.
+Version: 0.29.8-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 41 kB CSS, 203 kB JS | ✓ 41 kB CSS, 203 kB JS |
+| A2 | Frontend assets are served separately | ✓ 42 kB CSS, 206 kB JS | ✓ 42 kB CSS, 206 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -229,7 +229,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 12 parts, 3 kB | ✓ 12 parts, 4 kB |
+| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 3 kB | ✓ 13 parts, 4 kB |
 | M2 | Refused: not a settings file, a file with unknown parts, a newer format | ✓ | ✓ |
 | M3 | Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured | ✓ car JLZ03X, charger Laadpaal, prices EnergyZero | ✓ car Enyaq, charger Wallbox Pulsar Plus, prices EnergyZero |
 | M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here |
@@ -264,6 +264,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y3 | An extra calendar trip becomes the next stop, and the 100% long trip after it becomes the next goal instead of the later work trip | ✓ next stop Naar Spijkenisse 60% · next goal Naar Outdoorvalley 100% | ✓ next stop Naar Spijkenisse 60% · next goal Naar Outdoorvalley 100% |
 | Y2b | Outdoorvalley on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday's Naar Werk, the company address is found without the company name | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km | ✓ back Sun 20:00 · next goal Mon 06:00 Naar Werk · Werk ~60 km |
 | Y5 | The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging | ✓ charge leave back expected leave back expected leave back | ✓ charge leave back expected leave back expected leave back |
+| Y6 | My places: "Werk" and a company name ("IQ Messenger") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 30.9% there and back |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
@@ -320,7 +321,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 12 of 12 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
-| [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 8 of 8 ✓ |
+| [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 9 of 9 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 
 ## brands
@@ -710,7 +711,7 @@ More than one charger: who charges first and how the connection is shared.
 
 Look ahead: which calendar locations are addresses, the use per km, learning from trips.
 
-<details><summary>8 of 8 passed – show every check</summary>
+<details><summary>9 of 9 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -722,6 +723,7 @@ Look ahead: which calendar locations are addresses, the use per km, learning fro
 | implausible trips are not learned: back after 3 days, charged on the way, or 3 % per km | ✓ |
 | distance: home is 0 km, a word that is not an address is unknown, a new address is looked up (pending) | ✓ |
 | straight line: Reusel to Bergschenhoek is about 100 km | ✓ |
+| My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested | ✓ |
 
 </details>
 
