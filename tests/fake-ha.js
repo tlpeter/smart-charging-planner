@@ -238,6 +238,9 @@ function entityList(w) {
     ...(w.otherBattery ? w.otherBattery.list.map(([id, , a, dev]) => [id, String(w.store.get(id)), a, dev]) : []),
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
+    // Zones: home, and w.zones = [{ entity_id, name, lat, lon }].
+    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 5.19, radius: 100 }, null],
+    ...(w.zones || []).map((z) => [z.entity_id, '0', { friendly_name: z.name, latitude: z.lat, longitude: z.lon, radius: 100 }, null]),
   ];
 }
 

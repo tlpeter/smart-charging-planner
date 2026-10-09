@@ -84,10 +84,10 @@ check('straight line: Springfield to Bergschenhoek is about 100 km', () => {
 check('My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested', () => {
   t.setSavedPlaces([{ name: 'Werk', address: 'Industrieweg 10, 3316 AA Rivertown' }, { name: 'Northwind Labs', address: 'Industrieweg 10, Rivertown' }]);
   try {
-    assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk' });
-    assert.deepStrictEqual(t.placeFor('Northwind Labs', 'Naar kantoor'), { location: 'Industrieweg 10, Rivertown', place: 'Northwind Labs' });
-    assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk' });
-    assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk' });
+    assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor('Northwind Labs', 'Naar kantoor'), { location: 'Industrieweg 10, Rivertown', place: 'Northwind Labs', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
     assert.deepStrictEqual(t.placeFor('Stationsplein 1, Utrecht', 'Naar Werk'), { location: 'Stationsplein 1, Utrecht', place: null });
     assert.deepStrictEqual(t.placeFor('Gent', 'Naar Gent'), { location: 'Gent', place: null });
     assert.deepStrictEqual(t.placeFor('Thuis', 'Naar Thuis'), { location: 'Thuis', place: null });
@@ -95,6 +95,30 @@ check('My places: "Werk" (location or title "Naar Werk") uses its address; a rea
     assert.strictEqual(t.askName('Werk', ''), 'Werk');
     assert.strictEqual(t.askName(null, 'Naar Thuis'), null);
   } finally {
+    t.setSavedPlaces([]);
+  }
+});
+
+check('Zones in Home Assistant: "Werk" (by name or by the title) is a point with GPS; the home zone is not a place; My places go first', () => {
+  t.setZones([
+    { entity_id: 'zone.home', attributes: { friendly_name: 'Thuis', latitude: 51.37, longitude: 5.19 } },
+    { entity_id: 'zone.werk', attributes: { friendly_name: 'Werk', latitude: 51.80, longitude: 4.70 } },
+    { entity_id: 'zone.sportschool_springfield', attributes: { friendly_name: 'Basic-Fit', latitude: 51.36, longitude: 5.17 } },
+  ]);
+  try {
+    const w = t.placeFor('Werk', 'Naar Werk');
+    assert.strictEqual(w.kind, 'zone');
+    assert.deepStrictEqual(w.point, { lat: 51.8, lon: 4.7 });
+    assert.strictEqual(t.placeFor('Northwind Labs', 'Naar Werk').kind, 'zone');
+    assert.strictEqual(t.placeFor('sportschool springfield', '').place, 'Basic-Fit');
+    assert.strictEqual(t.zoneList().length, 2);
+    const d = t.pointDistance({ lat: 51.80, lon: 4.70 }, { lat: 51.37, lon: 5.19 });
+    assert.ok(d.status === 'ok' && d.how === 'estimate' && d.km > 70 && d.km < 100, JSON.stringify(d));
+    assert.strictEqual(t.pointDistance({ lat: 51.3701, lon: 5.1901 }, { lat: 51.37, lon: 5.19 }).status, 'home');
+    t.setSavedPlaces([{ name: 'Werk', address: 'Industrieweg 10, Rivertown' }]);
+    assert.strictEqual(t.placeFor('Werk', '').kind, 'saved');
+  } finally {
+    t.setZones([]);
     t.setSavedPlaces([]);
   }
 });
