@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.13-dev
+
+- The app has an icon and a logo in Home Assistant: a charging pole with a price chart on its screen (cheap hours green, expensive hours red).
+
 ## 0.29.12-dev
 
 - **Prices and plan shows what was charged**: past blocks in which the charger really charged are now **yellow**, with the kWh in the tooltip. Read from the charger power sensor (Home Assistant's 5-minute statistics)
