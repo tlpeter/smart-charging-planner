@@ -166,4 +166,42 @@ check('forecast failure alone does not downgrade a complete real-price plan', ()
   assert.equal(r.status, 'on_track');
 });
 
+check('the car\'s own charge limit below the wanted level is "action needed", not "ready"', () => {
+  // 11 Oct 2026: trip needs 100%, car limit 80% (the app may not change it),
+  // battery 87%: the plan to 80% was "already at the target".
+  const r = evaluateReadyGuard({
+    now, deadline: now + 3 * H, neededKwh: 0, plannedKwh: 0, powerKw: 9,
+    plugged: true, charging: false, controlAllowed: true, blocks: [],
+    carLimit: { value: 80, wanted: 100, writable: true, controlAllowed: true },
+  });
+  assert.equal(r.status, 'action_needed');
+  assert.equal(r.base_status, 'action_needed');
+  assert.match(r.label, /80%/);
+  assert.match(r.message, /100% is wanted/);
+  assert.match(r.message, /Settings › Rules/);
+  const ro = evaluateReadyGuard({
+    now, deadline: now + 3 * H, neededKwh: 0, plannedKwh: 0, powerKw: 9, plugged: true, controlAllowed: true,
+    carLimit: { value: 80, wanted: 100, writable: false },
+  });
+  assert.match(ro.message, /in the car or its app/);
+  const same = evaluateReadyGuard({
+    now, deadline: now + 3 * H, neededKwh: 0, plannedKwh: 0, powerKw: 9, plugged: true, controlAllowed: true,
+    carLimit: { value: 100, wanted: 100 },
+  });
+  assert.equal(same.status, 'on_track', 'a limit that is high enough changes nothing');
+});
+
+check('a plan that starts after the latest safe start says Ready Guard starts earlier', () => {
+  const deadline = now + 2 * H;
+  const r = evaluateReadyGuard({
+    now, deadline, neededKwh: 8.6, plannedKwh: 8.6, powerKw: 9,
+    plugged: true, charging: false, controlAllowed: true,
+    blocks: [{ start: now + H, end: now + H + 57 * 60000 }],
+  });
+  assert(r.latest_safe_start < now + H);
+  assert.equal(r.status, 'at_risk');
+  assert.equal(r.label, 'Ready Guard starts earlier');
+  assert.equal(r.protect, false, 'it only takes over at the latest safe start itself');
+});
+
 console.log('Ready Guard tests passed');

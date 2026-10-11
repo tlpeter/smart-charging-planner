@@ -1312,6 +1312,7 @@ const routes = {
       controlAllowed: options.allow_control,
       carData,
       notes: plan.notes,
+      carLimit: limited ? { value: carLimit.value, wanted: wantedSoc, writable: carLimit.writable, controlAllowed: options.allow_control } : null,
     });
 
     // After this departure: the next goal, the expected battery level after the
@@ -2819,6 +2820,15 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
   return ST().planRunning;
 }
 
+function chargingNow(n) {
+  if (!n || !n.time) return null;
+  return {
+    at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null,
+    want: n.want || null, code: n.code || null, reason: n.reason || null,
+    next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
+  };
+}
+
 routes['GET /api/plan'] = async (req) => {
   const url = new URL(req.url, 'http://localhost');
   const force = url.searchParams.get('refresh') === '1';
@@ -2830,6 +2840,8 @@ routes['GET /api/plan'] = async (req) => {
     ...ST().planCache.result,
     solar_now: ST().lastDryRun && ST().lastDryRun.solar_now ? { ...ST().lastDryRun.solar_now, code: ST().lastDryRun.code, amps: ST().lastDryRun.amps, phases: ST().lastDryRun.phases } : null,
     battery_now: ST().lastDryRun && ST().lastDryRun.battery_now ? ST().lastDryRun.battery_now : null,
+    // What the charger does right now (checked every minute), for the status on Home.
+    charging_now: chargingNow(ST().lastDryRun),
     computed_at: ST().planCache.at,
     next_refresh: ST().planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,
