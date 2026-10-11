@@ -122,7 +122,7 @@ function placeBlocks(planned) {
     const nextPlanned = starts.has(b.end);
     const start = nextPlanned ? b.end - duration : b.start;
     const solar = b.solar_kwh > 0.001 ? { solar_kwh: b.solar_kwh, grid_kwh: Math.max(0, b.kwh - b.solar_kwh) } : {};
-    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power, ...(b.forecast ? { forecast: true } : {}), ...solar };
+    return { start, end: start + duration, block_start: b.start, block_end: b.end, kwh: b.kwh, price: b.total, power_kw: b.power, ...(b.forecast ? { forecast: true } : {}), ...solar, ...(b.min_kwh > 0.001 ? { min_kwh: b.min_kwh } : {}) };
   });
 }
 
@@ -130,11 +130,17 @@ function placeBlocks(planned) {
 // and neededKwh in total before the final deadline. The minimum is planned
 // first in the cheapest blocks before the first deadline; the rest in the
 // cheapest capacity that is left before the final deadline.
-function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
+// immediateFirst: the minimum right away from now ("Always charge when the
+// battery is below a minimum"), not in the cheapest hours before firstDeadline.
+// Blocks carry min_kwh: the part of their energy that is for the minimum.
+function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false, immediateFirst = false }) {
   const opts = { powerKw, continuous, minSplitSaving, solarOnly };
   const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
-  if (!(minKwh > 0.01) || !(firstDeadline > now) || firstDeadline >= deadline || neededKwh == null || neededKwh <= 0.01) return whole;
-  const first = planCharging({ prices, now, deadline: firstDeadline, neededKwh: Math.min(minKwh, neededKwh), ...opts });
+  if (!(minKwh > 0.01) || neededKwh == null || neededKwh <= 0.01) return whole;
+  if (!immediateFirst && (!(firstDeadline > now) || firstDeadline >= deadline)) return whole;
+  const first = immediateFirst
+    ? planCharging({ prices, now, deadline: Math.max(deadline, prices.length ? prices[prices.length - 1].end : deadline), neededKwh: Math.min(minKwh, neededKwh), powerKw, immediate: true })
+    : planCharging({ prices, now, deadline: firstDeadline, neededKwh: Math.min(minKwh, neededKwh), ...opts });
   // Capacity left in each block after the first stage.
   const used = new Map(first.blocks.map((b) => [b.block_start, b]));
   const rest = prices.map((p) => {
@@ -157,13 +163,14 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
       prev.total = (prev.total * prev.kwh + b.price * b.kwh) / (prev.kwh + b.kwh);
       prev.kwh += b.kwh;
       prev.solar_kwh += b.solar_kwh || 0;
+      if (stage === 1) prev.min_kwh += b.kwh;
       return;
     }
     const src = prices.find((p) => Math.max(p.start, now) === b.block_start);
     const power = src && Number.isFinite(src.power_kw) ? src.power_kw : powerKw;
     byStart.set(b.block_start, {
       start: b.block_start, end: stage === 1 ? b.block_end : Math.min(src ? src.end : b.block_end, deadline),
-      power, kwh: b.kwh, total: b.price, forecast: !!b.forecast, solar_kwh: b.solar_kwh || 0,
+      power, kwh: b.kwh, total: b.price, forecast: !!b.forecast, solar_kwh: b.solar_kwh || 0, min_kwh: stage === 1 ? b.kwh : 0,
     });
   };
   first.blocks.forEach((b) => add(b, 1));

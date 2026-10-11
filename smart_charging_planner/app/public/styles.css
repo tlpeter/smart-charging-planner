@@ -9,7 +9,8 @@
       --border: #e5e1d9;
       --accent: #5677e8;
       --solar: #d29a28;
-      --battery: #8a73d6;
+      --battery: #1f9e98;
+      --minimum: #8a63d9;
       --warning: #bd7c20;
       --rgb-accent: 86, 119, 232;
       --accent-text: #ffffff;
@@ -28,6 +29,7 @@
       --rgb-red: 198, 83, 83;
       --rgb-grey: 125, 132, 136;
       --rgb-purple: 138, 115, 214;
+      --rgb-teal: 31, 158, 152;
       --radius: 18px;
       --shadow: 0 3px 14px rgba(50, 55, 60, 0.07);
     }
@@ -41,7 +43,8 @@
         --border: #34383e;
         --accent: #8ca6ff;
         --solar: #e1b34d;
-        --battery: #b4a2ef;
+        --battery: #5fd1cb;
+        --minimum: #b49af2;
         --warning: #e1b34d;
         --accent-text: #17203d;
         --good: #72c6a1;
@@ -59,6 +62,7 @@
         --rgb-red: 238, 133, 133;
         --rgb-grey: 157, 164, 170;
         --rgb-purple: 180, 162, 239;
+        --rgb-teal: 95, 209, 203;
         --shadow: 0 3px 14px rgba(0, 0, 0, 0.22);
       }
     }
@@ -210,7 +214,7 @@
     .shape.sm { width: 32px; height: 32px; }
     .shape.sm svg { width: 18px; height: 18px; }
     .c-green { --c: var(--rgb-green); } .c-amber { --c: var(--rgb-amber); } .c-orange { --c: var(--rgb-orange); }
-    .c-blue { --c: var(--rgb-blue); } .c-red { --c: var(--rgb-red); } .c-grey { --c: var(--rgb-grey); } .c-purple { --c: var(--rgb-purple); }
+    .c-blue { --c: var(--rgb-blue); } .c-red { --c: var(--rgb-red); } .c-grey { --c: var(--rgb-grey); } .c-purple { --c: var(--rgb-purple); } .c-teal { --c: var(--rgb-teal); }
     .entity { display: flex; align-items: center; gap: 12px; }
     .entity .txt { min-width: 0; flex: 1; }
     .entity .primary { font-weight: 600; font-size: 15px; }
@@ -232,8 +236,8 @@
     .levelbar span { height: 100%; }
     .levelbar .lv-off { background: rgba(var(--rgb-grey), 0.35); }
     .levelbar .lv-house { background: rgba(var(--rgb-amber), 0.55); }
-    .levelbar .lv-car { background: rgba(var(--rgb-purple), 0.45); }
-    .levelbar .lv-start { background: rgba(var(--rgb-purple), 0.85); }
+    .levelbar .lv-car { background: rgba(var(--rgb-teal), 0.45); }
+    .levelbar .lv-start { background: rgba(var(--rgb-teal), 0.85); }
     .levelwrap { position: relative; padding: 22px 0 22px; margin-bottom: 6px; }
     .levelmark { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
     .levelmark.below { top: auto; bottom: 0; }
@@ -511,7 +515,7 @@
     .page-savings { --section-rgb: var(--rgb-green); }
     .page-log { --section-rgb: var(--rgb-blue); }
     .page-solar { --section-rgb: var(--rgb-amber); }
-    .page-battery { --section-rgb: var(--rgb-purple); }
+    .page-battery { --section-rgb: var(--rgb-teal); }
     .page-ctlset { --section-rgb: var(--rgb-green); }
     .page-grid { --section-rgb: var(--rgb-orange); }
     .page-prices { --section-rgb: var(--rgb-green); }

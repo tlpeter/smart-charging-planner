@@ -10,9 +10,9 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 
 **Use**
 
-- **Home**: the charging plan with a price chart from at least 12 hours back (blocks the car really charged in are **yellow**, from the charger power sensor) up to your departure, the expected cost compared with charging right away, and **Quick choices**:
+- **Home**: the charging plan with a price chart from at least 12 hours back (blocks the car really charged in are **yellow**, from the charger power sensor) up to your departure. Planned charging is **blue**; charging for a **minimum** is **purple** (see below), the expected cost compared with charging right away, and **Quick choices**:
   - **Charge now**: charge right away instead of waiting for the plan, up to the plan's target, a battery level or an amount in kWh. The app first checks whether charging is already planned soon and shows what charging now costs extra. Stops by itself when the goal is reached or the car is unplugged.
-  - **Quick minimum**: charge right away up to 20–45 %, then the plan takes over.
+  - **Quick minimum**: charge right away up to 20–45 % (the default comes from **Default minimum for the quick choices** in Settings › Rules), then the plan takes over. Shown in **purple** in the chart.
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
@@ -25,7 +25,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 - **Overview**: a checklist "is everything set up well?" with a link to fix each point, and the planning settings from Home Assistant.
 - **Vehicle**, **Charger**, **Grid**, **Prices**, **Solar**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
 - **Battery**: the home battery (see below).
-- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care.
+- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care. **Always charge when the battery is below a minimum**: below that level the car charges right away, at any price (or only up to a maximum price); in the chart that part is **purple**, the rest is planned as usual. **Default minimum for the quick choices** is not a switch: it is the level Quick minimum and Ready for start with.
 - **Notifications**: where notifications go, and the sensors in Home Assistant.
 - **Diagnostics**: the connection to Home Assistant, the **Manual test**, the setup wizard, **Download diagnostics** and **Export / Import settings**.
 
@@ -34,7 +34,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 Normally the car is ready for the next departure. On Home, **Ready for** lets you choose a later day once, for example when the day after tomorrow is cheaper:
 
 - The time and battery level of that day come from your schedule or calendar; you can change them.
-- Departures before then get a **minimum** (20–45 %). The app charges that first, in the cheapest hours before that departure, and the rest before the chosen day.
+- Departures before then get a **minimum** (20–45 %). The app charges that first, in the cheapest hours before that departure (**purple** in the chart), and the rest before the chosen day.
 - You see whether the prices up to then are known, come from the price forecast, or are not known yet.
 - The car's charge limit follows the choice (see below).
 - The choice ends by itself after the chosen time, or with **Back to normal** (on Home or on the Plan tab).
@@ -114,7 +114,7 @@ Set up in **Settings › Battery**. The app plans the home battery next to the c
 - **Hold (save)** the energy for expensive hours instead of emptying it in cheap ones.
 - **Normal**: the battery's own mode (covering the house, taking the sun) the rest of the time.
 
-The plan shows on Home (Home battery card) and in the chart (purple: charges, grey: holds), with the expected saving compared with leaving the battery alone.
+The plan shows on Home (Home battery card) and in the chart (turquoise: charges, grey: holds), with the expected saving compared with leaving the battery alone.
 
 **The car and the battery.** "May the home battery charge the car?": *Never* (default: the battery does not discharge while the car charges), *Only stored solar power* (the app counts how much of the battery's energy came from the sun), *Always* (when that pays), or *Between two levels*: the battery starts helping the car from a start level (for example 80 %) and stops at a stop level (for example 40 %) that stays for the house; after it stopped it only starts again when it is back at the start level. A bar on the page shows the levels and the level now. The plan follows the same levels. "Who gets the sun first?": *Smart* (default: the car while it still needs energy, otherwise the battery), *Car* or *Battery*.
 
