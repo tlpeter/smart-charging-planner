@@ -308,10 +308,10 @@ function isReturnTrip(t) {
 // leaving, back home, charging again, … Each later departure gets an expected
 // charging plan from the moment the car is back (orange, never steered).
 const AHEAD_DAYS = 7;
-// The chart goes on to the end of the last expected charging (at most 3 days).
+// The chart reaches the last expected charging within the timeline's seven days.
 function chartEnd(next) {
   const b = next && next.expected_blocks && next.expected_blocks.length ? next.expected_blocks[next.expected_blocks.length - 1].end : 0;
-  return b ? Math.min(b, Date.now() + 3 * 86400000) : 0;
+  return b ? Math.min(b, Date.now() + AHEAD_DAYS * 86400000) : 0;
 }
 const AHEAD_STEPS = 6;
 
