@@ -706,6 +706,7 @@ async function run() {
       assert(wanted > 80, `wanted ${wanted}`);
       assert(q.reliability && q.reliability.base_status === 'action_needed' && /80%/.test(q.reliability.label), JSON.stringify(q.reliability && [q.reliability.status, q.reliability.label]));
       assert(q.charging_now && q.charging_now.plugged !== undefined, `charging_now ${JSON.stringify(q.charging_now)}`);
+      assert(q.charge_state && q.charge_state.state === 'car_limit' && q.charge_state.color === 'orange', `charge_state ${JSON.stringify(q.charge_state)}`);
       const told = world.calls.filter((c) => c.domain === 'notify').some((c) => /needs you/i.test(c.data.title) && /80%/.test(c.data.message));
       assert(told, 'no "Ready Guard needs you" notification about the limit');
     } finally {

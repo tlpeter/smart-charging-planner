@@ -16,7 +16,12 @@ The app is split in two: what you **use** day to day, and **settings** you set o
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
-- **Charging status** (on top): what the charger does right now, checked every minute. **Charging now** (with the power, the level and when it is ready), **Not charging now · starts at …** (and why: the cheapest hours, or Ready Guard starting earlier for the safety margin), **Ready**, **Car not connected**, or in orange what is in the way, for example **the car's charge limit is 80 %** while your trip needs 100 %.
+- **Charging status** (on top): what the charger does right now, checked every minute, in one line with a colour:
+  - **green**: **Ready** (at the target, the charger is off);
+  - **red**: **Charging now** (with the power, the level and when it is ready), **Ready Guard charging** or **Charging on solar**;
+  - **yellow**: **Not charging now · starts at …** (the cheapest hours, or Ready Guard starting earlier for the safety margin), **Starting to charge**, **Waiting for the sun** (solar only) or **Waiting for the other charger**;
+  - **orange**: something is in the way: **the car's charge limit** is below your trip, **the charger did not start**, **charger not reachable**, **car not reachable** (its cloud does not answer) or **cannot plan** (battery level or size missing);
+  - **grey**: **Car not connected**, or nothing to do. With Allow control off it says **Advice only** in grey.
 - **Ready Guard**: whether the car will be ready in time, and the latest safe start. See below.
 - **Plan**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure; adding trips to your calendar.
 - **Activity**: **Savings** per charging session in the last 30 days, and the **Log** of what the app wanted and every command it sent.
