@@ -352,6 +352,12 @@ function start(w, wsPort, restPort) {
           }
           w.calls.push(call);
           const tid = call.target && call.target.entity_id;
+          // Like Google Calendar in Home Assistant: an event added elsewhere
+          // (w.calendarPending) is only seen after the calendar is fetched again.
+          if (m.domain === 'homeassistant' && m.service === 'update_entity' && /^calendar\./.test(tid || '') && w.calendarPending) {
+            w.events.push(...w.calendarPending);
+            w.calendarPending = null;
+          }
           // Like Home Assistant: a created event is in the calendar right away.
           if (m.domain === 'calendar' && m.service === 'create_event') {
             const d = call.data;

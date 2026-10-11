@@ -59,6 +59,7 @@ const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 const CONTROL_TOKEN = Symbol('charger control');
 const NOTIFY_TOKEN = Symbol('notification');
+const CALENDAR_REFRESH_TOKEN = Symbol('calendar refresh');
 const REST_URL = process.env.HA_REST_URL || 'http://supervisor/core/api';
 const RECONNECT_MS = Math.max(50, Number(process.env.SCP_RECONNECT_MS) || 10000);
 
@@ -77,6 +78,11 @@ function call(message, timeoutMs = 20000, token = null) {
       (message.type === 'call_service' && token === CONTROL_TOKEN && options.allow_control === true) ||
       // Sending a notification, only to a notify action chosen as a
       // recipient in the app (Settings › Notifications).
+      // Asking Home Assistant to fetch a calendar again (Refresh on Home):
+      // only homeassistant.update_entity, only for one calendar entity.
+      (message.type === 'call_service' && token === CALENDAR_REFRESH_TOKEN && message.domain === 'homeassistant' &&
+        message.service === 'update_entity' && message.target && typeof message.target.entity_id === 'string' &&
+        /^calendar\.[a-z0-9_]+$/.test(message.target.entity_id)) ||
       (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
         notifyTargets.has(`notify.${message.service}`));
     if (!allowed) {
@@ -130,6 +136,14 @@ async function callAction(domain, service, serviceData, target = null) {
   if (target) message.target = target;
   const result = await call(message, 20000, ACTION_TOKEN);
   return result && result.response;
+}
+
+// Ask Home Assistant to fetch a calendar again (for example Google Calendar,
+// which Home Assistant otherwise syncs on its own schedule). Changes nothing.
+async function refreshCalendar(calendarEntity) {
+  if (!/^calendar\.[a-z0-9_]+$/.test(String(calendarEntity || ''))) throw new Error('No calendar chosen');
+  log('Refreshing calendar', calendarEntity);
+  return call({ type: 'call_service', domain: 'homeassistant', service: 'update_entity', target: { entity_id: calendarEntity } }, 20000, CALENDAR_REFRESH_TOKEN);
 }
 
 // Add one event to a calendar. Refused unless "Allow adding trips to calendar"
@@ -328,4 +342,4 @@ function connect() {
   });
 }
 
-module.exports = { recentLog, state, call, callAction, createCalendarEvent, sendControl, sendBattery, sendNotification, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };

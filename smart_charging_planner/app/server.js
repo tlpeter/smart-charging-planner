@@ -2833,6 +2833,20 @@ function chargingNow(n) {
 routes['GET /api/plan'] = async (req) => {
   const url = new URL(req.url, 'http://localhost');
   const force = url.searchParams.get('refresh') === '1';
+  // Refresh on Home: first let Home Assistant fetch the departures calendar again
+  // (a trip just added in Google Calendar), then calculate the plan.
+  if (force && url.searchParams.get('calendar') === '1') {
+    const s = settings.load();
+    const dep = departuresFor(s, currentVehicle(s));
+    if (dep.calendar.enabled && dep.calendar.entity) {
+      try {
+        await ha.refreshCalendar(dep.calendar.entity);
+        await new Promise((r) => setTimeout(r, Number(process.env.SCP_CALENDAR_WAIT_MS) || 2000));
+      } catch (err) {
+        ha.warn('Could not refresh the calendar:', err.message);
+      }
+    }
+  }
   const maxAge = options.refresh_minutes * 60000;
   if (force || !ST().planCache || Date.now() - ST().planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request', { fresh: force });
   if (!ST().planCache) await refreshPlan('on request', { fresh: true });

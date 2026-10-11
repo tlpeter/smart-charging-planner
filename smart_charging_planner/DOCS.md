@@ -189,6 +189,37 @@ Any calendar in Home Assistant works for departures: Google Calendar, Local cale
 
 **Add trip** (Plan) writes to the calendar the app reads departures from (Plan › Departures › Calendar must be on). The trip counts right away: on Plan and in the timeline under Looking ahead on Home. With an address as destination the app works out what the trip costs. **Back home at** (optional) is when the event ends: then the app knows when the car is back; without it the event lasts 15 minutes. **For** (which car) only appears with more than one car.
 
+### A trip added in Google Calendar (or another online calendar)
+
+Home Assistant does not hear about a new event in an online calendar right away: it fetches the calendar again on its own schedule (for Google Calendar every few minutes; the exact interval depends on the integration). Until then the app does not see the trip either.
+
+- **Refresh** on Home (next to "Updated") first asks Home Assistant to fetch the departures calendar again, waits a moment, and then calculates the plan. A trip you just added is then in the plan right away. This is the only thing the app asks Home Assistant to do with your calendar besides reading it (and adding trips, when you allow that); it changes nothing.
+- The automatic recalculation every few minutes does **not** fetch the calendar again, so it does not add calls to your calendar.
+- Trips added with **Add trip** count right away; no refresh needed.
+
+**Fetching the calendar more often yourself (optional).** To have Home Assistant fetch the calendar every 5 minutes, also without pressing Refresh, add an automation:
+
+1. In Home Assistant go to **Settings › Automations & scenes › Create automation › Create new automation**.
+2. Open the menu (three dots) › **Edit in YAML** and paste this, with your own calendar entity:
+
+```yaml
+alias: Fetch the trips calendar every 5 minutes
+triggers:
+  - trigger: time_pattern
+    minutes: "/5"
+  - trigger: homeassistant
+    event: start
+actions:
+  - action: homeassistant.update_entity
+    target:
+      entity_id: calendar.your_calendar
+mode: single
+```
+
+3. Select **Save**. The app reads the calendar as usual; this only makes Home Assistant fetch it more often.
+
+A button on your own dashboard that does the same: create a **Button** helper (Settings › Devices & services › Helpers › Create helper › Button), and add it as a third trigger: `trigger: state` with `entity_id: input_button.<your button>`. Pressing the button then fetches the calendar.
+
 Add trip needs a calendar Home Assistant can add events to. Apple iCloud calendars are read only in Home Assistant: the calendar is marked "read only" in the list, and Add trip says so. Add those trips in the calendar app itself (for example on your iPhone); the app reads them as usual.
 
 ## Looking ahead: the coming days and what a trip costs
@@ -307,7 +338,7 @@ Settings › Diagnostics › **Export settings** saves all settings of the app i
 
 - The app only accepts requests through Home Assistant ingress (the sidebar panel). Other apps on the internal network are refused.
 - Changes are only accepted as JSON from the app's own page, not from other websites.
-- The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the notify actions you choose as recipients, and its own `smart_charging_*` sensors.
+- The app reads from Home Assistant. Everything it can change is off by default and switched on by you: starting and pausing the charger and the car's charge limit ("Allow control"), adding trips to your calendar, notifications to the notify actions you choose as recipients, and its own `smart_charging_*` sensors. One harmless call needs no switch: **Refresh** on Home asks Home Assistant to fetch the departures calendar again (`homeassistant.update_entity` for that one calendar).
 - The home battery is only steered with Allow control and Allow home battery control both on, and only through the battery's own entities and actions.
 - It never changes automations, scripts, helpers, locks, alarms, covers, lights or other devices. Control only works for a device that Home Assistant's registry shows as an EV charger.
 - The Supervisor token is never logged or shown in the browser.

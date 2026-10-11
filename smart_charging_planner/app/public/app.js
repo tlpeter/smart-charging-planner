@@ -1743,7 +1743,7 @@ function durationText(minutes) {
 
     async function loadOverview(force = false) {
       try {
-        const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
+        const d = await api('GET', force ? 'api/plan?refresh=1&calendar=1' : 'api/plan');
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
         $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
