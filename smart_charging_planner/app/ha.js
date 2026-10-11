@@ -59,6 +59,7 @@ const ACTION_TOKEN = Symbol('read-only action');
 const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 const CONTROL_TOKEN = Symbol('charger control');
 const NOTIFY_TOKEN = Symbol('notification');
+const CALENDAR_REFRESH_TOKEN = Symbol('calendar refresh');
 const REST_URL = process.env.HA_REST_URL || 'http://supervisor/core/api';
 const RECONNECT_MS = Math.max(50, Number(process.env.SCP_RECONNECT_MS) || 10000);
 
@@ -75,10 +76,15 @@ function call(message, timeoutMs = 20000, token = null) {
       // Starting or stopping the charger, only when "Allow control" is on
       // and only through sendControl() below.
       (message.type === 'call_service' && token === CONTROL_TOKEN && options.allow_control === true) ||
-      // Sending a notification, only to the notify action set in the
-      // Configuration tab.
+      // Sending a notification, only to a notify action chosen as a
+      // recipient in the app (Settings › Notifications).
+      // Asking Home Assistant to fetch a calendar again (Refresh on Home):
+      // only homeassistant.update_entity, only for one calendar entity.
+      (message.type === 'call_service' && token === CALENDAR_REFRESH_TOKEN && message.domain === 'homeassistant' &&
+        message.service === 'update_entity' && message.target && typeof message.target.entity_id === 'string' &&
+        /^calendar\.[a-z0-9_]+$/.test(message.target.entity_id)) ||
       (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
-        !!notifyTarget && `notify.${message.service}` === notifyTarget);
+        notifyTargets.has(`notify.${message.service}`));
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -130,6 +136,14 @@ async function callAction(domain, service, serviceData, target = null) {
   if (target) message.target = target;
   const result = await call(message, 20000, ACTION_TOKEN);
   return result && result.response;
+}
+
+// Ask Home Assistant to fetch a calendar again (for example Google Calendar,
+// which Home Assistant otherwise syncs on its own schedule). Changes nothing.
+async function refreshCalendar(calendarEntity) {
+  if (!/^calendar\.[a-z0-9_]+$/.test(String(calendarEntity || ''))) throw new Error('No calendar chosen');
+  log('Refreshing calendar', calendarEntity);
+  return call({ type: 'call_service', domain: 'homeassistant', service: 'update_entity', target: { entity_id: calendarEntity } }, 20000, CALENDAR_REFRESH_TOKEN);
 }
 
 // Add one event to a calendar. Refused unless "Allow adding trips to calendar"
@@ -225,15 +239,17 @@ function normaliseNotify(v) {
   return x.startsWith('notify.') ? x : `notify.${x}`;
 }
 
-// The one notify action the app may use, chosen in the app (Settings › Notifications).
-let notifyTarget = '';
-function setNotifyTarget(v) {
-  notifyTarget = normaliseNotify(v);
+// The notify actions the app may use: the recipients chosen in the app
+// (Settings › Notifications).
+let notifyTargets = new Set();
+function setNotifyTargets(list) {
+  notifyTargets = new Set((list || []).map(normaliseNotify).filter(Boolean));
 }
 
-async function sendNotification(title, message) {
-  const full = notifyTarget;
+async function sendNotification(target, title, message) {
+  const full = normaliseNotify(target);
   if (!full) throw new Error('No notify action chosen');
+  if (!notifyTargets.has(full)) throw new Error(`${full} is not a recipient`);
   const service = full.slice('notify.'.length);
   if (!/^[a-z0-9_]+$/.test(service)) throw new Error(`"${full}" is not a valid notify action`);
   debug('Notification:', title, '-', message);
@@ -326,4 +342,4 @@ function connect() {
   });
 }
 
-module.exports = { recentLog, state, call, callAction, createCalendarEvent, sendControl, sendBattery, sendNotification, setNotifyTarget, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };

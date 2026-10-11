@@ -1,0 +1,81 @@
+'use strict';
+
+// The charging status on top of Home: one state, one colour, one line.
+// Colours (chosen by the owner): ready green, charging red, waiting yellow,
+// anything in the way orange, nothing to do grey.
+//
+// d: the plan result (as /api/plan returns it); n: what the charger does
+// now (the check every minute); fmt: { hm(ms), dayHm(ms) } in local time.
+
+function num(v) {
+  return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null;
+}
+
+function chargeState(d, n, fmt) {
+  if (!d || !n) return null;
+  const v = d.vehicle || {};
+  const soc = num(v.soc);
+  const planning = d.planning || {};
+  const target = num(planning.target_soc);
+  const wanted = num(planning.wanted_soc) ?? target;
+  const r = d.reliability || {};
+  const p = d.plan || {};
+  const blocks = p.blocks || [];
+  const notes = p.notes || [];
+  const lastEnd = blocks.length ? blocks[blocks.length - 1].end : null;
+  const readyAt = d.boost && lastEnd ? lastEnd : (r.expected_ready || lastEnd);
+  const kw = num(n.power_w) > 0 ? `${(n.power_w / 1000).toFixed(1)} kW` : null;
+  const level = soc != null && target != null ? `${soc}% → ${target}%` : (soc != null ? `${soc}%` : null);
+  const lim = d.car_limit;
+  const limitLow = r.car_limit || (notes.includes('car_limit') && lim && num(lim.value) != null && wanted > num(lim.value) ? { value: num(lim.value), wanted } : null);
+  const join = (a) => a.filter(Boolean).join(' · ');
+  const ready = readyAt ? `ready around ${fmt.dayHm(readyAt)}` : null;
+  const st = (state, color, icon, title, detail) => ({ state, color, icon, title, detail: detail || '', advice_only: !d.control_allowed, at: n.at });
+  const offline = n.status === 'unavailable' || n.status === 'unknown' || ['status_grace', 'status_invalid'].includes(n.code);
+  const carUnknown = v.car_data && v.car_data.ok === false;
+
+  if (n.plugged === false) {
+    return st('not_connected', 'grey', 'plugOff', 'Car not connected', d.departure ? `Plug in to be ready by ${fmt.dayHm(d.departure.time)}.` : 'Plug in the car to charge.');
+  }
+  if (offline) {
+    return st('charger_offline', 'orange', 'alert', 'Charger not reachable', `Home Assistant does not get the charger's status${n.status ? ` (${n.status})` : ''}. Check the charger and its integration.`);
+  }
+  if (n.charging === true || (num(n.power_w) || 0) > 500) {
+    const title = n.code === 'ready_guard' ? 'Ready Guard charging'
+      : n.code === 'solar' ? 'Charging on solar'
+        : 'Charging now';
+    return st('charging', 'red', 'bolt', title, join([kw, level, ready, d.boost ? 'Charge now' : null, n.code === 'ready_guard' ? 'to be ready in time' : null]));
+  }
+  if (limitLow && soc != null && soc >= limitLow.value) {
+    return st('car_limit', 'orange', 'alert', `Not charging: the car's charge limit is ${limitLow.value}%`, r.message || `The car stops at ${limitLow.value}%, but ${limitLow.wanted}% is wanted. Raise it in the car.`);
+  }
+  if (n.code === 'no_reaction' || (n.error && n.want === 'charge')) {
+    return st('no_reaction', 'orange', 'alert', 'The charger did not start', n.error || n.reason || 'The app turned the charger on, but it does not charge.');
+  }
+  if (n.want === 'charge') {
+    return st('starting', 'amber', 'bolt', 'Starting to charge', 'The app turned the charger on; the car should start within a minute.');
+  }
+  if (carUnknown) {
+    return st('car_unreachable', 'orange', 'alert', 'Car not reachable', join([soc != null ? `battery about ${soc}% (last known)` : 'battery level unknown', "the car's cloud does not answer"]));
+  }
+  if (soc != null && target != null && soc >= target) {
+    return st('ready', 'green', 'check', 'Ready', join([`${soc}%`, `at the target (${target}%)`, 'the charger is off']));
+  }
+  if (n.code === 'solar_wait') {
+    return st('solar_wait', 'amber', 'sun', 'Waiting for the sun', join([level, n.reason || 'solar only: charging starts when there is enough surplus']));
+  }
+  if (n.code === 'shared_wait') {
+    return st('shared_wait', 'amber', 'clock', 'Waiting for the other charger', join([level, n.reason]));
+  }
+  if (n.code === 'missing_data' || notes.includes('missing_data')) {
+    return st('missing_data', 'orange', 'alert', 'Cannot plan', 'The battery level or the battery size is missing. Check Settings › Vehicle.');
+  }
+  if (n.next_start) {
+    const early = r.base_status === 'at_risk' && r.latest_safe_start && r.latest_safe_start < n.next_start;
+    const start = early ? r.latest_safe_start : n.next_start;
+    return st('waiting', 'amber', 'clock', `Not charging now · starts at ${fmt.hm(start)}`, join([level, ready, early ? 'Ready Guard starts early for the safety margin' : 'in the cheapest hours before you leave']));
+  }
+  return st('idle', 'grey', 'pause', 'Not charging now', n.reason || '');
+}
+
+module.exports = { chargeState };

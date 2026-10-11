@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.30.0
+
+- Stable release of the improvements tested in 0.29.11 through 0.29.20.
+- The price chart uses the full width and follows the timeline up to 7 days ahead, where prices are available. Charging right away to the minimum is purple; other expected charging after a trip is orange.
+- Home shows the charging status clearly. Refresh also fetches the departures calendar, and Ready Guard explains when the car's charge limit needs attention.
+- Notifications can go to several recipients, with a choice of cars and messages for each.
+
+
+## 0.29.20
+
+- The price chart uses the full width. Quick choices sits beside Plan details below the chart, and below it on phones.
+
+## 0.29.19
+
+- The price chart now follows the timeline up to 7 days ahead, as far as prices are available. Minimum charging after a later trip (purple) and the rest of the expected charging (orange) stay visible instead of being cut off after 3 days.
+- Test: settings test Y10 checks minimum charging on day 4 and the later charging before day 6.
+
+## 0.29.18
+
+- **Refresh on Home also fetches the calendar**: it first asks Home Assistant to fetch the departures calendar again (`homeassistant.update_entity`, only for that calendar), then calculates the plan. A trip you just added in Google Calendar is in the plan right away, like the refresh button on your own dashboard. The automatic recalculation does not do this
+- Docs: why a trip added in Google Calendar takes a few minutes, and step by step how to let Home Assistant fetch the calendar every 5 minutes (or with a dashboard button)
+- Tests: settings test U5b (the fake Google calendar only shows a new trip after it is fetched again)
+
+## 0.29.17
+
+- **Charging status in colour**: ready **green**, charging **red**, waiting **yellow**, anything in the way **orange**, not connected or nothing to do **grey**.
+- More states: **Ready Guard charging**, **Charging on solar**, **Waiting for the sun**, **Waiting for the other charger**, **Charger not reachable**, **Car not reachable**, **The charger did not start**, **Cannot plan**, and **Advice only** when Allow control is off.
+- Tests: charging status checks (every state and colour); settings test J8.
+
+## 0.29.16
+
+- **Charging status on top of Home**: one clear line with what the charger does right now (checked every minute): **Charging now** (power, level, ready around), **Not charging now · starts at 12:00**, **Ready**, **Car not connected**, or what is in the way.
+- Fix: with "Don't change the car's charge limit" on and the car's limit below your trip (for example 80 % for a trip that needs 100 %), the app quietly planned to 80 % and said "Battery is at the target". Now Home and Ready Guard say **"Car's charge limit is 80 %"** (action needed) and you get the notification "Ready Guard needs you", with how to fix it.
+- Ready Guard: a cheapest plan that starts after the latest safe start now says **"Ready Guard starts earlier"** instead of "On track".
+- Tests: Ready Guard checks for both; settings test J8.
+
+## 0.29.15
+
+- **The minimum after a trip**: with "Always charge when the battery is below a minimum" on and the car expected back below it (for example back at 26 % with a minimum of 40 %), the timeline and the chart now show that the car charges right away to the minimum when it is back (purple), and the rest in the cheapest hours (orange). Before, all of it was planned in the cheapest hours, which is not what happens
+- A block that is partly for the minimum counts each part on its own line in the timeline
+- Tests: the real Home Assistant Core check now uses **2026.10.1**; settings test Y9
+
+## 0.29.14
+
+- **The minimum in purple in the chart**: charging for a minimum has its own colour. That is: "Always charge when the battery is below a minimum" (Settings › Rules), **Quick minimum** on Home, and the minimum before an earlier departure with **Ready for**. The legend shows "Minimum (40%)"; the tooltip says how much of a block is for the minimum
+- Below the minimum the plan now shows what really happens: that part is charged right away, the rest in the cheapest hours (before, the plan did not show the immediate charging)
+- The home battery is **turquoise** now (in the chart and on its page), so it does not look like the minimum
+- Docs: "Default minimum for the quick choices" is the starting level for the quick choices, not a switch
+- Tests: settings tests G2b, J3, J5b and planner checks
+
+## 0.29.13
+
+- The app has an icon and a logo in Home Assistant: a charging pole with a price chart on its screen (cheap hours green, expensive hours red).
+
+## 0.29.12
+
+- **Prices and plan shows what was charged**: past blocks in which the charger really charged are now **yellow**, with the kWh in the tooltip. Read from the charger power sensor (Home Assistant's 5-minute statistics)
+- The chart now always reaches back at least **12 hours**, also early in the morning: yesterday's prices come from the price history the app keeps (as far as it has them)
+- Fix: when a trip distance came in while the plan was being calculated, the plan could keep showing the old estimate until the next refresh
+- Tests: settings test E10
+
+## 0.29.11
+
+- **Notifications to more than one phone**: add recipients in Settings › Notifications, each with its own notify action (a phone or a notify group)
+- Per recipient: **which messages**, in five groups (Problems, Action needed, Car, Start and pause, Home battery). A group switch turns the whole group on or off; open it to choose message by message (16 messages)
+- Per recipient, with more than one car: **which cars**. A message about a car only goes to the recipients of that car, for example your own car to you and the other car to your partner, or both cars to both
+- **Send test** per recipient, and the last message per recipient
+- Your current notify action becomes recipient "My phone" with the same messages as before. "Notify every start and pause" in the Configuration tab is only used for that, once
+- Recipients are part of the settings export and import
+- Tests: settings tests H4, H5, J11 and W9
+
 ## 0.29.10
 
 - Fix: with the car's range sensor, later trips in the timeline cost far too much (Naar Werk 93 % instead of about 47 %, so "back home 0 %"). The range is the range at the battery level now, but it was divided by the level when leaving (80 %). Now the use per km always comes from the level now, so the same distance costs the same every time

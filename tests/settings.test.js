@@ -107,6 +107,7 @@ async function startApp(options = {}) {
       SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
+      SCP_CALENDAR_WAIT_MS: '100',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -317,6 +318,23 @@ async function run() {
     await refused('POST', 'api/prices', { source: ez, price_type: 'all_in', forecast_entity: 'switch.x' }, 'forecast sensor');
     await refused('POST', 'api/prices', { source: ez, price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_margin: 0.6 }, 'margin');
   });
+  await test('E10', 'Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never', async () => {
+    await ok('POST', 'api/prices', { source: { type: 'fixed' }, fixed: { mode: 'day_night', normal: 0.30, low: 0.20, low_from: '23:00', low_to: '07:00', weekend_low: false } });
+    world.chargedKw = 11;
+    try {
+      const p = await plan();
+      const now = p.now;
+      assert(p.prices[0].start <= now - 12 * 3600000 + 3600000, `chart starts ${((now - p.prices[0].start) / 3600000).toFixed(1)} h back`);
+      assert(Array.isArray(p.charged) && p.charged.length >= 11, `charged blocks ${p.charged && p.charged.length}`);
+      assert(p.charged.every((c) => c.start < now), 'a future block is marked charged');
+      const full = p.charged.find((c) => c.end <= now);
+      assert(full && Math.abs(full.kwh - 11 * (full.end - full.start) / 3600000) < 0.05, `kWh ${full && full.kwh}`);
+      return `${p.charged.length} charged blocks, from ${((now - p.prices[0].start) / 3600000).toFixed(1)} h back`;
+    } finally {
+      world.chargedKw = 0;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
 
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';
@@ -409,6 +427,15 @@ async function run() {
     const n = await decision();
     assert(n.want === 'charge' && n.code === 'below_minimum', `${n.want}/${n.code}`);
   });
+  await test('G2b', 'Below the minimum: the plan charges that part right away, marked as minimum (purple in the chart); the rest as planned', async () => {
+    const p = await plan();
+    const mins = p.plan.blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+    assert(p.plan.minimum && p.plan.minimum.kind === 'always' && p.plan.minimum.soc === 50 && p.plan.notes.includes('below_minimum'), JSON.stringify(p.plan.minimum));
+    assert(mins.length && mins[0].start - Date.now() < 120000, `first minimum block ${mins.length ? new Date(mins[0].start).toISOString() : 'none'}`);
+    const minKwh = mins.reduce((a, b) => a + b.min_kwh, 0);
+    assert(Math.abs(minKwh - p.plan.minimum.kwh) < 0.2, `${minKwh} of ${p.plan.minimum.kwh} kWh`);
+    return `${minKwh.toFixed(1)} kWh right away to ${p.plan.minimum.soc}%`;
+  });
   await test('G3', 'Minimum with a price limit below the current price → not charged for the minimum', async () => {
     await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 50, min_soc_max_price: 0.01 }));
     const n = await decision();
@@ -487,6 +514,40 @@ async function run() {
     await refused('POST', 'api/notify/test', {}, 'notify action');
     await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
   });
+  await test('H4', 'Two recipients, each with its own messages: the test goes to one; a recipient without a notify action is refused', async () => {
+    const r = await ok('POST', 'api/notify', { recipients: [
+      { name: 'Alex', service: 'notify.mobile_app_pixel_8' },
+      { name: 'Sam', service: 'notify.mobile_app_iphone_sam', off: ['battery_action', 'rg_risk'] },
+    ] });
+    assert(r.recipients.length === 2 && r.recipients[1].off.join() === 'battery_action,rg_risk', JSON.stringify(r.recipients));
+    assert(r.categories.length === 5 && r.messages.length >= 16, 'no message list');
+    const n0 = world.calls.length;
+    await ok('POST', 'api/notify/test', { recipient_id: r.recipients[1].id });
+    const sent = callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.service);
+    assert(sent.join() === 'mobile_app_iphone_sam', JSON.stringify(sent));
+    const n1 = world.calls.length;
+    await ok('POST', 'api/notify/test', {});
+    assert(callsSince(n1).filter((c) => c.domain === 'notify').length === 2, 'not to both');
+    await refused('POST', 'api/notify', { recipients: [{ name: 'X', service: '' }] }, 'choose a notify action');
+    await refused('POST', 'api/notify', { recipients: [{ name: 'X', service: 'notify.nope' }] }, 'not a notify action');
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    return `test → ${sent.join()}`;
+  });
+  await test('H5', 'Settings from before recipients (one notify action, "Notify every start and pause" off) become one recipient "My phone" with start, pause and home battery messages off', async () => {
+    await stopApp();
+    const f = path.join(dataDir, 'settings.json');
+    const saved = JSON.parse(fs.readFileSync(f, 'utf8'));
+    saved.notify = { service: 'notify.mobile_app_pixel_8' };
+    fs.writeFileSync(f, JSON.stringify(saved));
+    await startApp({ notify_start_stop: false });
+    const r = await ok('GET', 'api/notify');
+    const me = r.recipients[0];
+    assert(r.recipients.length === 1 && me.name === 'My phone' && me.service === 'notify.mobile_app_pixel_8' && me.cars === null, JSON.stringify(r.recipients));
+    assert(['charging_started', 'charging_paused', 'battery_action'].every((x) => me.off.includes(x)) && !me.off.includes('charger_failed'), JSON.stringify(me.off));
+    assert(Array.isArray(JSON.parse(fs.readFileSync(f, 'utf8')).notify.recipients), 'not saved in the new form');
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    await startApp({});
+  });
 
   // ----- I. Configuration tab (restart with other options) ------------------
   group = 'I. Configuration tab in Home Assistant';
@@ -553,6 +614,8 @@ async function run() {
     assert(p.departure.source === 'choice' && p.charge_for.interim && p.plan.stage, 'no two-stage plan');
     const first = p.plan.blocks.filter((b) => b.start < p.plan.stage.first_deadline).reduce((a, b) => a + b.kwh, 0);
     assert(first >= p.charge_for.min_kwh - 0.01, `only ${first} kWh before the first departure, need ${p.charge_for.min_kwh}`);
+    const marked = p.plan.blocks.reduce((a, b) => a + (b.min_kwh || 0), 0);
+    assert(p.plan.minimum && p.plan.minimum.kind === 'ready_for' && Math.abs(marked - p.charge_for.min_kwh) < 0.2, `minimum ${JSON.stringify(p.plan.minimum)}, marked ${marked}`);
     const sets = callsSince(n0).filter((c) => c.domain === 'number').map((c) => c.data.value);
     assert(world.limit === lim(95), `limit ${world.limit}, sent ${sets}`);
     return `${first.toFixed(1)} kWh before ${new Date(p.plan.stage.first_deadline).toISOString().slice(5, 16)}, limit sent ${sets}`;
@@ -592,6 +655,17 @@ async function run() {
     const r = await ok('POST', 'api/boost/preview', { mode: 'soc', value: 35 });
     assert(r.limit.managed && r.limit.to === lim(90), `preview ${JSON.stringify(r.limit)}`);
   });
+  await test('J5b', 'Quick minimum started: all of it is marked as minimum (purple in the chart)', async () => {
+    world.soc = 20;
+    world.charging = false;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 35, minimum: true });
+    const p = await plan();
+    await ok('DELETE', 'api/boost');
+    await plan();
+    assert(p.boost && p.boost.minimum === true && p.plan.minimum && p.plan.minimum.kind === 'quick', JSON.stringify({ boost: p.boost, minimum: p.plan.minimum }));
+    assert(p.plan.blocks.length && p.plan.blocks.every((b) => Math.abs((b.min_kwh || 0) - b.kwh) < 0.001), 'not all marked');
+    return `${p.plan.minimum.kwh} kWh to ${p.plan.minimum.soc}%`;
+  });
   await test('J6', 'Charge now 100 %: limit up, charger started; stop: limit back', async () => {
     world.charging = false;
     world.amps = null;
@@ -622,7 +696,25 @@ async function run() {
     await sleep(800);
     assert(!callsSince(n0).some((c) => c.domain === 'number'), 'limit was sent');
     assert(p.manages_car_limit === false && p.planning.target_soc === 80, `${p.manages_car_limit}/${p.planning.target_soc}`);
-    await ok('POST', 'api/control/settings', rules());
+    // Above the car's limit (11 Oct 2026: 87 % with the limit at 80 %, trip 100 %):
+    // not "ready" but "action needed", on Home and as a notification.
+    const soc0 = world.soc;
+    world.soc = 85;
+    try {
+      const q = await plan();
+      await sleep(800);
+      const wanted = q.planning.wanted_soc;
+      assert(wanted > 80, `wanted ${wanted}`);
+      assert(q.reliability && q.reliability.base_status === 'action_needed' && /80%/.test(q.reliability.label), JSON.stringify(q.reliability && [q.reliability.status, q.reliability.label]));
+      assert(q.charging_now && q.charging_now.plugged !== undefined, `charging_now ${JSON.stringify(q.charging_now)}`);
+      assert(q.charge_state && q.charge_state.state === 'car_limit' && q.charge_state.color === 'orange', `charge_state ${JSON.stringify(q.charge_state)}`);
+      const told = world.calls.filter((c) => c.domain === 'notify').some((c) => /needs you/i.test(c.data.title) && /80%/.test(c.data.message));
+      assert(told, 'no "Ready Guard needs you" notification about the limit');
+    } finally {
+      world.soc = soc0;
+      await ok('POST', 'api/control/settings', rules());
+    }
+    return 'limit 80 %, battery 85 %: action needed + notification';
   });
   await test('J9', 'Notification on start (notify every start and pause)', async () => {
     const notes = world.calls.filter((c) => c.domain === 'notify').map((c) => c.data.title);
@@ -684,8 +776,8 @@ async function run() {
     world.plugged = true;
   });
 
-  await test('J11', 'Notify every start and pause off: start is not notified', async () => {
-    await startApp({ allow_control: true, notify_start_stop: false });
+  await test('J11', 'A recipient with "Charging started" and "Charging paused" off: start is not notified; other messages still are', async () => {
+    await ok('POST', 'api/notify', { recipients: [{ name: 'Alex', service: 'notify.mobile_app_pixel_8', off: ['charging_started', 'charging_paused'] }] });
     world.soc = 20;
     world.charging = false;
     world.amps = null;
@@ -695,6 +787,7 @@ async function run() {
     const titles = callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.data.title);
     await ok('DELETE', 'api/boost');
     assert(!titles.includes('Charging started'), `notified: ${titles}`);
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
     return titles.length ? `only: ${titles.join(', ')}` : 'no notifications';
   });
 
@@ -1198,7 +1291,7 @@ async function run() {
     odd.settings.notify = { service: 'notify.mobile_app_someone_else' };
     const pv = await ok('POST', 'api/settings/import/preview', odd);
     const n = pv.summary.notes.join(' | ');
-    assert(/home battery was left out/.test(n) && /Notifications were switched off/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
+    assert(/home battery was left out/.test(n) && /Left out 1 notification recipient/.test(n) && /sensor\.other_house_battery_soc/.test(n), n);
     assert(pv.summary.battery === false, 'battery still on');
     return n;
   });
@@ -1377,6 +1470,37 @@ async function run() {
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
     return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+  });
+  await test('W9', 'Notifications per car: Alex gets both cars, Sam only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Alex', async () => {
+    await ok('POST', 'api/notify', { recipients: [
+      { name: 'Alex', service: 'notify.mobile_app_pixel_8' },
+      { name: 'Sam', service: 'notify.mobile_app_iphone_sam', cars: [ev6Id] },
+    ] });
+    const startsTo = async () => {
+      const n0 = world.calls.length;
+      await ok('POST', 'api/boost', { mode: 'soc', value: 90 });
+      await sleep(800);
+      const to = callsSince(n0).filter((c) => c.domain === 'notify' && c.data.title.startsWith('Charging started')).map((c) => c.service).sort();
+      await ok('DELETE', 'api/boost');
+      await sleep(500);
+      world.charging = false;
+      return to;
+    };
+    world.charging = false;
+    world.car1Plug = false;
+    world.car2 = { soc: 30, plug: true, charging: false };
+    await plan();
+    const ev6 = await startsTo();
+    world.car1Plug = true;
+    world.car2 = { soc: 30, plug: false, charging: false };
+    await plan();
+    const other = await startsTo();
+    assert(ev6.join() === 'mobile_app_iphone_sam,mobile_app_pixel_8', `EV6: ${ev6}`);
+    assert(other.join() === 'mobile_app_pixel_8', `${CAR.name}: ${other}`);
+    const r = await ok('GET', 'api/notify');
+    assert(r.recipients[1].cars.join() === ev6Id, JSON.stringify(r.recipients[1]));
+    await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+    return `EV6 → ${ev6.join(', ')} · ${CAR.name} → ${other.join(', ')}`;
   });
   await test('W8', 'Turned off: the first car only, as before; the EV6 stays saved; removing it works', async () => {
     await ok('POST', 'api/vehicles/multi', { enabled: false });
@@ -1560,6 +1684,52 @@ async function run() {
       world.soc = 100;
       return `${a.km} km → ${a.pct}% both times`;
     });
+    await test('Y9', 'Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours', async () => {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
+      world.soc = 80;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        const tl = p.next.timeline;
+        const back = tl.find((x) => x.type === 'back');
+        const charges = tl.filter((x) => x.type === 'charge' && x.expected);
+        assert(back && back.soc < 60, JSON.stringify(back));
+        assert(charges.length >= 1 && charges[0].minimum === true && charges[0].soc_to === 60 && charges[0].start - at(1, 18) < 3600000, JSON.stringify(charges));
+        const minBlocks = p.next.expected_blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+        assert(minBlocks.length && minBlocks[0].start === at(1, 18), `first minimum block ${minBlocks.length ? new Date(minBlocks[0].start).toISOString() : 'none'}`);
+        return `back ${back.soc}% → right away to 60% (${charges[0].kwh} kWh)${charges[1] ? `, then ${charges[1].kwh} kWh to ${charges[1].soc_to}%` : ''}`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        world.soc = 100;
+      }
+    });
+    await test('Y10', 'Minimum charging after the third day is included in the chart, through the last expected charging in the timeline', async () => {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
+      world.soc = 80;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', ADDR3, 4, 8, 18),
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 6, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        const minimum = p.next.timeline.find((x) => x.type === 'charge' && x.expected && x.minimum && x.start >= at(4, 18));
+        assert(minimum && minimum.soc_to === 60, 'missing minimum charging after the later trip');
+        const later = p.next.expected_blocks.filter((b) => b.start >= at(4, 18));
+        assert(later.some((b) => (b.min_kwh || 0) > 0.01), 'missing later minimum blocks');
+        assert(later.every((b) => p.prices.some((price) => price.start <= b.start && b.start < price.end)), 'the chart cuts off later expected charging');
+        const lastEnd = Math.max(...p.next.expected_blocks.map((b) => b.end));
+        assert(p.prices[p.prices.length - 1].end >= lastEnd, 'the chart stops before the last expected charging');
+        assert(p.plan.blocks.length === 0, 'expected charging must not become the current charging plan');
+        return `day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        world.soc = 100;
+      }
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [
@@ -1666,6 +1836,20 @@ async function run() {
       await refused('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16) }), 'Turn on the calendar');
       assert(!callsSince(n).some((c) => c.service === 'create_event'), 'written');
       await ok('POST', 'api/departures', calOn());
+    });
+    await test('U5b', 'Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not', async () => {
+      world.events = [];
+      world.calendarPending = [{ summary: 'Naar Gent', description: 'doel: 85', location: 'Gent', start: isoLocal(at(2, 9), tz), end: isoLocal(at(2, 18), tz) }];
+      const n0 = world.calls.length;
+      const before = await ok('GET', 'api/plan?refresh=1');
+      assert(!callsSince(n0).some((c) => c.service === 'update_entity'), 'refreshed without the button');
+      assert(!(before.departure && before.departure.title === 'Naar Gent'), 'seen before the refresh');
+      const after = await ok('GET', 'api/plan?refresh=1&calendar=1');
+      const upd = callsSince(n0).filter((c) => c.domain === 'homeassistant' && c.service === 'update_entity');
+      assert(upd.length === 1 && upd[0].target.entity_id === 'calendar.auto', JSON.stringify(upd));
+      assert(after.departure && after.departure.title === 'Naar Gent' && after.departure.soc === 85, JSON.stringify(after.departure));
+      world.events = [];
+      return `update_entity ${upd[0].target.entity_id} → departure ${after.departure.title}`;
     });
     await test('U6', 'More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
       await ok('POST', 'api/vehicles/multi', { enabled: true });

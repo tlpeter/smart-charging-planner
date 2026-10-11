@@ -154,14 +154,8 @@ function decide(ctx) {
   if (!p) return { want: 'leave', reason: 'No plan yet', code: 'no_plan' };
 
   // 3. Below the minimum battery level.
-  if (rules.min_soc_enabled && Number.isFinite(soc)) {
-    let min = Number(rules.min_soc);
-    const ent = findState(states, rules.min_soc_entity);
-    if (ent && Number.isFinite(Number(ent.state))) min = Number(ent.state);
-    const priceOk = rules.min_soc_max_price == null || rules.min_soc_max_price === '' ||
-      (Number.isFinite(priceNow) && priceNow <= Number(rules.min_soc_max_price));
-    if (soc < min && priceOk) return charge(`Battery ${soc}% is below the minimum ${min}%`, 'below_minimum');
-  }
+  const min = minimumNow(rules, states, soc, priceNow);
+  if (min != null) return charge(`Battery ${soc}% is below the minimum ${min}%`, 'below_minimum');
 
   // 4. Preconditioning: keep the charger on so the car uses grid power.
   const pre = findState(states, rules.preheat_entity);
@@ -422,4 +416,16 @@ function clearLock() {
   writeJson(scope.file(STATE_FILE), st);
 }
 
-module.exports = { dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };
+// "Always charge when the battery is below a minimum": the minimum (%) when
+// the car is below it now and the price allows it, else null.
+function minimumNow(rules, states, soc, priceNow) {
+  if (!rules || !rules.min_soc_enabled || !Number.isFinite(soc)) return null;
+  let min = Number(rules.min_soc);
+  const ent = findState(states, rules.min_soc_entity);
+  if (ent && Number.isFinite(Number(ent.state))) min = Number(ent.state);
+  const priceOk = rules.min_soc_max_price == null || rules.min_soc_max_price === '' ||
+    (Number.isFinite(priceNow) && priceNow <= Number(rules.min_soc_max_price));
+  return Number.isFinite(min) && soc < min && priceOk ? min : null;
+}
+
+module.exports = { minimumNow, dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };
