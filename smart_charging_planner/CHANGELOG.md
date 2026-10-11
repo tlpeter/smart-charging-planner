@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.20-dev
+
+- The price chart uses the full width. Quick choices sits beside Plan details below the chart, and below it on phones.
+
 ## 0.29.19-dev
 
 - The price chart now follows the timeline up to 7 days ahead, as far as prices are available. Minimum charging after a later trip (purple) and the rest of the expected charging (orange) stay visible instead of being cut off after 3 days.

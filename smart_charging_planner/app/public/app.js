@@ -1105,9 +1105,7 @@ function durationText(minutes) {
         ${chargeStatusHtml(d)}
         ${readyGuardHtml(d)}
         ${nextGoalHtml(d)}
-        <div class="overview-grid">
-          <div class="overview-main">
-            <div class="card chart-card">
+        <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
@@ -1119,6 +1117,8 @@ function durationText(minutes) {
                 </table></details>` : ''}
             </div>
 
+        <div class="overview-grid">
+          <div class="overview-main">
             <details class="card plan-details">
               <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
               <div class="plan-detail-body">
