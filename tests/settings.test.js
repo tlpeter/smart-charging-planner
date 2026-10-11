@@ -1706,6 +1706,30 @@ async function run() {
         world.soc = 100;
       }
     });
+    await test('Y10', 'Minimum charging after the third day is included in the chart, through the last expected charging in the timeline', async () => {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
+      world.soc = 80;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', ADDR3, 4, 8, 18),
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 6, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        const minimum = p.next.timeline.find((x) => x.type === 'charge' && x.expected && x.minimum && x.start >= at(4, 18));
+        assert(minimum && minimum.soc_to === 60, 'missing minimum charging after the later trip');
+        const later = p.next.expected_blocks.filter((b) => b.start >= at(4, 18));
+        assert(later.some((b) => (b.min_kwh || 0) > 0.01), 'missing later minimum blocks');
+        assert(later.every((b) => p.prices.some((price) => price.start <= b.start && b.start < price.end)), 'the chart cuts off later expected charging');
+        const lastEnd = Math.max(...p.next.expected_blocks.map((b) => b.end));
+        assert(p.prices[p.prices.length - 1].end >= lastEnd, 'the chart stops before the last expected charging');
+        assert(p.plan.blocks.length === 0, 'expected charging must not become the current charging plan');
+        return `day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        world.soc = 100;
+      }
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

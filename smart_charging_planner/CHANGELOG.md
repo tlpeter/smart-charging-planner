@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.29.19-dev
+
+- The price chart now follows the timeline up to 7 days ahead, as far as prices are available. Minimum charging after a later trip (purple) and the rest of the expected charging (orange) stay visible instead of being cut off after 3 days.
+- Test: settings test Y10 checks minimum charging on day 4 and the later charging before day 6.
+
 ## 0.29.18-dev
 
 - **Refresh on Home also fetches the calendar**: it first asks Home Assistant to fetch the departures calendar again (`homeassistant.update_entity`, only for that calendar), then calculates the plan. A trip you just added in Google Calendar is in the plan right away, like the refresh button on your own dashboard. The automatic recalculation does not do this

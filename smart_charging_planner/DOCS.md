@@ -242,7 +242,7 @@ When another trip is added to the calendar, it takes its place in the timeline r
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
 
-**The chart** goes on to the last expected charging (at most 3 days ahead): expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
+**The chart** goes on to the last expected charging (up to 7 days ahead, like the timeline), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 
 This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
 
