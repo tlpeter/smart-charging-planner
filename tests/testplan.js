@@ -24,6 +24,7 @@ const UNIT = [
   ['battery', 'Home batteries: detection, commands, the guard, the battery plan'],
   ['forecast', 'Price forecast: reading it and planning with it'],
   ['reliability', 'Ready Guard: is the car ready in time, and what happens when it is not'],
+  ['chargestate', 'The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange)'],
   ['activecar', 'More than one car: which car is connected; car, target and precondition in the calendar'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],

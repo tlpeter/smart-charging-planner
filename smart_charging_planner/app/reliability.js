@@ -103,6 +103,26 @@ function evaluateReadyGuard(input = {}) {
   };
   if (!deadline) return base;
 
+  // The car's own charge limit is below the wanted level and the app may not
+  // raise it: the plan stops at the car's limit, so say so (it is not "ready").
+  const lim = input.carLimit;
+  if (lim && Number.isFinite(Number(lim.value)) && Number.isFinite(Number(lim.wanted)) && Number(lim.wanted) > Number(lim.value)) {
+    const how = lim.writable === false
+      ? 'Raise it in the car or its app.'
+      : lim.controlAllowed === false
+        ? 'Raise it in the car, or turn on Allow control so the app sets it.'
+        : 'Raise it in the car, or untick "Don\'t change the car\'s charge limit" in Settings › Rules.';
+    return {
+      ...base,
+      status: 'action_needed',
+      base_status: 'action_needed',
+      label: `Car's charge limit is ${Number(lim.value)}%`,
+      message: `The car stops charging at ${Number(lim.value)}%, but ${Number(lim.wanted)}% is wanted. ${how}`,
+      reason: 'Ready Guard: the car\'s charge limit is below the wanted level',
+      car_limit: { value: Number(lim.value), wanted: Number(lim.wanted) },
+    };
+  }
+
   if (neededKwh == null || !conservativePowerKw) {
     return {
       ...base,
@@ -177,6 +197,13 @@ function evaluateReadyGuard(input = {}) {
     message = 'The safety buffer is used up. Cheap hours and solar-only mode are temporarily overridden.';
     reason = 'Ready Guard: latest safe start reached';
     protect = true;
+  } else if (blocks.length && Math.min(...blocks.map((b) => finite(b.start) ?? Infinity)) > latestSafeStart) {
+    // The cheapest plan starts after the latest safe start: Ready Guard will
+    // start earlier. Say that, instead of "On track".
+    baseStatus = 'at_risk';
+    label = 'Ready Guard starts earlier';
+    message = `The cheapest plan starts too late for the safety margin. Ready Guard starts charging at the latest safe start.`;
+    reason = 'Ready Guard: the plan starts after the latest safe start';
   } else if (planShort || dataRisk || priceRisk) {
     baseStatus = 'at_risk';
     label = 'Watch this plan';

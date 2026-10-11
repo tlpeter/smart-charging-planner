@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 152 of 152 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 143 of 143 ✓ |
-| Unit tests (9 files) | 317 of 317 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 161 of 161 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 152 of 152 ✓ |
+| Unit tests (10 files) | 332 of 332 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.29.10.
+Version: 0.29.20-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 42 kB CSS, 206 kB JS | ✓ 42 kB CSS, 206 kB JS |
+| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 213 kB JS | ✓ 44 kB CSS, 213 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -94,6 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 14 charged blocks, from 13.9 h back | ✓ 14 charged blocks, from 13.9 h back |
 
 ## F. Planning (departures)
 
@@ -115,6 +116,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | G1 | Refused: default minimum 50 %, force window 700 min, hysteresis 2 | ✓ | ✓ |
 | G2 | Minimum battery level: below it → charge now | ✓ | ✓ |
+| G2b | Below the minimum: the plan charges that part right away, marked as minimum (purple in the chart); the rest as planned | ✓ 5.7 kWh right away to 50% | ✓ 8.5 kWh right away to 50% |
 | G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: not_planned | ✓ then: not_planned |
 | G3b | Minimum taken from an entity (the car's own minimum, here 70 %) | ✓ | ✓ |
 | G4 | Preconditioning entity on → charge | ✓ | ✓ |
@@ -131,6 +133,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | H1 | Refused: a notify action that does not exist | ✓ Choose a notify action from the list | ✓ Choose a notify action from the list |
 | H2 | Choose mobile_app_pixel_8 and send a test notification | ✓ | ✓ |
 | H3 | Test notification refused when no notify action is chosen | ✓ | ✓ |
+| H4 | Two recipients, each with its own messages: the test goes to one; a recipient without a notify action is refused | ✓ test → mobile_app_iphone_anna | ✓ test → mobile_app_iphone_anna |
+| H5 | Settings from before recipients (one notify action, "Notify every start and pause" off) become one recipient "My phone" with start, pause and home battery messages off | ✓ | ✓ |
 
 ## I. Configuration tab in Home Assistant
 
@@ -153,15 +157,16 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-13) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-13) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
+| J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 12.7 kWh to 35% |
 | J6 | Charge now 100 %: limit up, charger started; stop: limit back | ✓ limit 100 → 90, start: switch.turn_on switch.laadpaal_charger_enabled | ✓ limit 100 → 90, start: switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | J7 | Charge now as kWh: preview converts it to a level for the limit | ✓ | ✓ |
-| J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ | ✓ |
-| J9 | Notification on start (notify every start and pause) | ✓ Car charge limit changed · Charging started · Charging paused · Car charge limit changed | ✓ Car charge limit changed · Charging started · Charging paused · Car charge limit changed |
+| J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification |
+| J9 | Notification on start (notify every start and pause) | ✓ Charging started · Charging paused · Car charge limit changed · Ready Guard needs you | ✓ Charging started · Charging paused · Car charge limit changed · Ready Guard needs you |
 | J9b | Manual test (Diagnostics): start and stop really sent | ✓ switch.turn_on switch.laadpaal_charger_enabled → switch.turn_off switch.laadpaal_charger_enabled | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | J12 | Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 % | ✓ limit 85 %, at 85 %: at_target | ✓ limit 90 %, at 85 %: at_target |
 | J13 | Battery care (on by default): target 100 % tomorrow 23:00 — up to 80 % in the cheap night, the last part only in the 4 hours before departure; the car limit stays at 80 % until then | ✓ up to 80 %: 17.2 kWh in the night · last 11.4 kWh from 19:00 · car limit 80 % | ✓ up to 80 %: 25.4 kWh in the night · last 16.9 kWh from 19:00 · car limit 80 % |
 | J10 | Car unplugged: Charge now is refused | ✓ | ✓ |
-| J11 | Notify every start and pause off: start is not notified | ✓ no notifications | ✓ no notifications |
+| J11 | A recipient with "Charging started" and "Charging paused" off: start is not notified; other messages still are | ✓ only: Car charge limit changed | ✓ only: Car charge limit changed |
 
 ## S. Solar
 
@@ -169,10 +174,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 16.2 kWh on solar, 18.1 kWh from the grid | ✓ 16.2 kWh on solar, 34.6 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 16.2 kWh on solar | ✓ 16.2 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 34.6 kWh at night, 16.2 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 16.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 16.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 16.3 kWh on solar, 18.1 kWh from the grid | ✓ 16.3 kWh on solar, 34.6 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 16.3 kWh on solar | ✓ 16.3 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 34.6 kWh at night, 16.3 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 16.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 16.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -229,10 +234,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 3 kB | ✓ 13 parts, 4 kB |
+| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 4 kB | ✓ 13 parts, 4 kB |
 | M2 | Refused: not a settings file, a file with unknown parts, a newer format | ✓ | ✓ |
 | M3 | Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured | ✓ car JLZ03X, charger Laadpaal, prices EnergyZero | ✓ car Enyaq, charger Wallbox Pulsar Plus, prices EnergyZero |
-| M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Notifications were switched off: that notify action does not exist here |
+| M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here |
 
 ## N. Reliability
 
@@ -253,6 +258,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | W6 | A car without a plug sensor is the one when no other car says it is plugged in | ✓ EV6 (no_other) | ✓ EV6 (no_other) |
 | W7 | Own departures for the EV6 (60 %); the other car keeps the shared ones (80 %) | ✓ EV6 → 60% · JLZ03X → 80% | ✓ EV6 → 60% · Enyaq → 80% |
 | W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✓ EV6 → 70% (car: kia) · JLZ03X → 90% · new trip: "doel: 75 precondition: ja auto: EV6" | ✓ EV6 → 70% (car: kia) · Enyaq → 90% · new trip: "doel: 75 precondition: ja auto: EV6" |
+| W9 | Notifications per car: Peter gets both cars, Anna only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Peter | ✓ EV6 → mobile_app_iphone_anna, mobile_app_pixel_8 · JLZ03X → mobile_app_pixel_8 | ✓ EV6 → mobile_app_iphone_anna, mobile_app_pixel_8 · Enyaq → mobile_app_pixel_8 |
 | W8 | Turned off: the first car only, as before; the EV6 stays saved; removing it works | ✓ back to one car | ✓ back to one car |
 
 ## Y. Looking ahead: the next goal and what a trip costs
@@ -267,6 +273,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y6 | My places: "Werk" and a company name ("IQ Messenger") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 30.9% there and back |
 | Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "IQ Messenger"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
 | Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 31.4% both times |
+| Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
+| Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
@@ -284,6 +292,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ |
 | U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ |
 | U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ |
+| U5b | Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent |
 | U6 | More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht |
 
 ## X. More than one charger
@@ -319,8 +328,9 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 127 of 127 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 12 of 12 ✓ |
-| [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 12 of 12 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 16 of 16 ✓ |
+| [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 14 of 14 ✓ |
+| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 9 of 9 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
@@ -620,7 +630,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>12 of 12 passed – show every check</summary>
+<details><summary>16 of 16 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -636,6 +646,10 @@ Price forecast: reading it and planning with it.
 | staged: the rest in the cheap hours | ✓ |
 | staged: cheaper than charging right away | ✓ |
 | staged without minimum = normal plan | ✓ |
+| staged: the minimum part is marked (min_kwh) | ✓ |
+| minimum now: starts right away | ✓ |
+| minimum now: 12 kWh marked as minimum | ✓ |
+| minimum now: the rest in the cheap hours | ✓ |
 
 </details>
 
@@ -643,7 +657,7 @@ Price forecast: reading it and planning with it.
 
 Ready Guard: is the car ready in time, and what happens when it is not.
 
-<details><summary>12 of 12 passed – show every check</summary>
+<details><summary>14 of 14 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -659,6 +673,28 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 | time to spare in days and hours, not thousands of minutes | ✓ |
 | prices not yet known up to departure: shown on the chip, status stays on track | ✓ |
 | forecast failure alone does not downgrade a complete real-price plan | ✓ |
+| the car's own charge limit below the wanted level is "action needed", not "ready" | ✓ |
+| a plan that starts after the latest safe start says Ready Guard starts earlier | ✓ |
+
+</details>
+
+## chargestate
+
+The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange).
+
+<details><summary>9 of 9 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| charging is red, with power, level and ready time | ✓ |
+| Ready Guard and solar charging have their own title | ✓ |
+| waiting for the plan is yellow, with the start time | ✓ |
+| a plan that starts after the latest safe start shows the Ready Guard start | ✓ |
+| ready is green | ✓ |
+| the car's charge limit below the trip is orange (11 Oct 2026) | ✓ |
+| problems are orange: charger offline, charger did not start, car not reachable, missing data | ✓ |
+| starting, the sun and the other charger are yellow | ✓ |
+| not connected and nothing to do are grey; advice only is marked | ✓ |
 
 </details>
 

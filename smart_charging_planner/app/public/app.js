@@ -769,6 +769,7 @@ function durationText(minutes) {
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
       solar_forecast_error: 'The solar forecast could not be read; the plan counts on no sun. Charging on surplus still works.',
+      below_minimum: 'The battery is below your minimum (Settings › Rules): that part is charged right away (purple), the rest as planned.',
       minimum_not_reached: 'The minimum cannot be reached before the departure in between with the known prices and time. The plan charges as much as fits.',
     };
 
@@ -799,6 +800,13 @@ function durationText(minutes) {
       return ticks;
     }
 
+    // Length of the current price block (older or forecast blocks can differ).
+    function blockMinutes(prices) {
+      const now = Date.now();
+      const p = prices.find((x) => x.start <= now && now < x.end) || prices.find((x) => !x.forecast) || prices[0];
+      return (p.end - p.start) / 60000;
+    }
+
     function drawChart(d) {
       const wrap = $('chart');
       if (!wrap || !d.prices.length) return;
@@ -821,6 +829,8 @@ function durationText(minutes) {
       // Expected charging after the next trip (orange; not steered).
       const expBlocks = d.next ? d.next.expected_blocks || (d.next.expected ? d.next.expected.blocks : []) : [];
       const expected = new Set(expBlocks.map((b) => (d.prices.find((p) => p.start <= b.start && b.start < p.end) || {}).start));
+      // What was really charged in past blocks (yellow).
+      const charged = new Map((d.charged || []).map((c) => [c.start, c.kwh]));
 
       // Bar width per block: real prices can be per 15 minutes, a forecast per hour.
       let bars = '';
@@ -835,12 +845,16 @@ function durationText(minutes) {
         // Forecast prices are striped, so they differ from the (faded) past.
         const blk = isPlanned ? d.plan.blocks.find((b) => p.start <= b.start && b.start < p.end) : null;
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
-        const planColor = onSolar ? 'var(--solar)' : 'var(--accent)';
+        // Charging for a minimum (always-minimum, Quick minimum, Ready-for minimum): purple.
+        const forMin = blk && (blk.min_kwh || 0) >= blk.kwh / 2;
+        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
-        const fill = p.forecast
-          ? (isPlanned ? (onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
-          : isPlanned ? planColor : isExp ? 'var(--expected)' : 'var(--bar)';
-        const past = p.end <= Date.now() ? ' opacity="0.45"' : '';
+        const expMin = isExp && expBlocks.some((b) => p.start <= b.start && b.start < p.end && (b.min_kwh || 0) >= b.kwh / 2);
+        const didCharge = charged.has(p.start);
+        const fill = didCharge ? 'var(--charged)' : p.forecast
+          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          : isPlanned ? planColor : expMin ? 'var(--minimum)' : isExp ? 'var(--expected)' : 'var(--bar)';
+        const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
         const up = p.total >= 0;
@@ -944,6 +958,7 @@ function durationText(minutes) {
             <pattern id="fc-bar" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--bar)"/></pattern>
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
+            <pattern id="fc-min" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--minimum)"/></pattern>
             <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
           ${grid}${away}${bars}${solarCurve}${batteryMarks}
@@ -960,7 +975,9 @@ function durationText(minutes) {
           const room = p.amps != null ? `<br><span class="src">Room for charger: ${p.amps ? `${Math.floor(p.amps)} A (${p.power_kw.toFixed(1)} kW)` : 'too little'}</span>` : '';
           const solText = Number.isFinite(p.solar_kw) ? `<br><span class="src">Sun: ${p.pv_kw.toFixed(1)} kW expected, ${p.solar_kw.toFixed(1)} kW left for the car, worth ${p.solar_price.toFixed(4)} /kWh</span>` : '';
           const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${blk ? `<br><span style="color:${blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
+          const done = (d.charged || []).find((c) => c.start === p.start);
+          const doneText = done ? `<br><span style="color:var(--charged)">■</span> Charged ${done.kwh.toFixed(1)} kWh` : '';
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -979,6 +996,21 @@ function durationText(minutes) {
       if (p.notes.includes('already_at_target')) return shape('check', 'green');
       if (p.blocks.length) return shape('clock', 'blue');
       return shape('sleep', 'grey');
+    }
+
+    // On top of Home: is the car charging right now, and if not, why and when.
+    // The server works out the state (chargestate.js) from the check every minute.
+    function chargeStatusHtml(d) {
+      const c = d.charge_state;
+      if (!c || (d.missing && d.missing.length)) return '';
+      const color = c.advice_only ? 'grey' : c.color;
+      return `<div class="card charge-now charge-${esc(color)}" data-state="${esc(c.state)}">
+        <div class="entity">${shape(c.icon, color)}<div class="txt">
+          <div class="charge-now-title">${c.advice_only ? 'Advice only · ' : ''}${esc(c.title)}</div>
+          <div class="secondary">${esc(c.detail)}${c.advice_only ? ' · Allow control is off, so the app does not start or stop the charger.' : ''}</div>
+        </div></div>
+        <span class="src">Checked ${esc(hm(c.at))}</span>
+      </div>`;
     }
 
     function readyGuardHtml(d) {
@@ -1070,15 +1102,14 @@ function durationText(minutes) {
 
       return `
         ${connectedCarHtml(d)}
+        ${chargeStatusHtml(d)}
         ${readyGuardHtml(d)}
         ${nextGoalHtml(d)}
-        <div class="overview-grid">
-          <div class="overview-main">
-            <div class="card chart-card">
-              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round((d.prices[1].start - d.prices[0].start) / 60000)} minute blocks` : ''}</p></div>
+        <div class="card chart-card">
+              <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend"><span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1086,6 +1117,8 @@ function durationText(minutes) {
                 </table></details>` : ''}
             </div>
 
+        <div class="overview-grid">
+          <div class="overview-main">
             <details class="card plan-details">
               <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
               <div class="plan-detail-body">
@@ -1152,9 +1185,12 @@ function durationText(minutes) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
           }
           const short = x.expected && x.kwh < x.needed_kwh - 0.1 ? ' · the rest when more prices are known' : '';
-          return `<li class="tl-row tl-charge${x.expected ? ' expected' : ''}">${shape('bolt', x.expected ? 'orange' : 'blue', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>${x.expected ? 'Expected charging' : 'Charging'} to ${pct(x.soc_to)}</div>
-            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''}${x.uses_forecast ? ' · partly forecast prices' : ''}${short}</div></div>${level(x.soc_to, x.expected ? 'exp' : '')}</li>`;
+          const what = x.minimum
+            ? `${x.expected ? 'Expected: right away' : 'Right away'} to ${pct(x.soc_to)} <span class="muted">(your minimum)</span>`
+            : `${x.expected ? 'Expected charging' : 'Charging'} to ${pct(x.soc_to)}`;
+          return `<li class="tl-row tl-charge${x.expected ? ' expected' : ''}${x.minimum ? ' minimum' : ''}">${shape('bolt', x.minimum ? 'purple' : x.expected ? 'orange' : 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>${what}</div>
+            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''}${x.uses_forecast ? ' · partly forecast prices' : ''}${short}</div></div>${level(x.soc_to, x.minimum ? 'min' : x.expected ? 'exp' : '')}</li>`;
         }
         if (x.type === 'leave') {
           const low = x.soc != null && x.target_soc != null && x.soc < x.target_soc - 0.5;
@@ -1601,7 +1637,7 @@ function durationText(minutes) {
       const mf = $('min-form');
       if (mf) mf.onsubmit = (e) => {
         e.preventDefault();
-        runBoostCheck({ mode: 'soc', value: mf.value.value }, $('min-check'), 'min');
+        runBoostCheck({ mode: 'soc', value: mf.value.value, minimum: true }, $('min-check'), 'min');
       };
     }
 
@@ -1707,7 +1743,7 @@ function durationText(minutes) {
 
     async function loadOverview(force = false) {
       try {
-        const d = await api('GET', force ? 'api/plan?refresh=1' : 'api/plan');
+        const d = await api('GET', force ? 'api/plan?refresh=1&calendar=1' : 'api/plan');
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
         $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
@@ -2978,7 +3014,7 @@ function durationText(minutes) {
       f.querySelectorAll('.bat-on').forEach((el) => { el.hidden = !f.enabled.checked; });
       const c = batteryData && batteryData.candidates.find((x) => x.soc_entity === f.battery.value);
       $('battery-detail').innerHTML = c ? `
-        <p class="small">${shape('battery', 'purple', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
+        <p class="small">${shape('battery', 'teal', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
         <p class="small">${c.control.supported.length ? `The app can: ${c.control.supported.map((a) => esc(ACTION_TEXT[a] || a)).join(', ')}.` : '<span class="differ">The app can only read this battery; the plan is advice.</span>'} ${c.control.note ? `<span class="muted">${esc(c.control.note)}</span>` : ''}</p>
         ${c.sign_verified ? '' : '<p class="muted small">The sign of the power sensor is not documented in the integration; check below that charging shows as charging.</p>'}` : '';
       const range = f.ev_discharge.value === 'range';
@@ -3006,8 +3042,8 @@ function durationText(minutes) {
         <div class="levellegend">
           <span><i style="background:rgba(var(--rgb-grey),.35)"></i>never used (below ${minP}%)</span>
           <span><i style="background:rgba(var(--rgb-amber),.55)"></i>only for the house</span>
-          <span><i style="background:rgba(var(--rgb-purple),.45)"></i>for the car, once started</span>
-          <span><i style="background:rgba(var(--rgb-purple),.85)"></i>starts charging the car</span>
+          <span><i style="background:rgba(var(--rgb-teal),.45)"></i>for the car, once started</span>
+          <span><i style="background:rgba(var(--rgb-teal),.85)"></i>starts charging the car</span>
         </div>
         <p class="muted small">While the car charges, the battery helps from ${fromP}% until it is at ${toP}%. It starts again only when it is back at ${fromP}%.</p>`;
     }
@@ -3040,7 +3076,7 @@ function durationText(minutes) {
       f.solar_priority.value = c.solar_priority;
       $('battery-brands').innerHTML = r.brands.map((b) => `${b.read_only ? shape('alert', 'grey', true) : shape('check', 'green', true)} ${esc(b.name)} <span class="muted">(${esc(b.integration)}${b.read_only ? ', read only' : ''})</span>`).join('<br>');
       const allowed = r.control_allowed && r.battery_control_allowed;
-      $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'purple', true)} Battery now</h2>
+      $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'teal', true)} Battery now</h2>
           <p class="small">${r.now.soc != null ? `${tidy(r.now.soc)} %` : 'level unknown'}${r.now.power_kw != null ? ` · ${r.now.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(r.now.power_kw))} kW` : ''} · stored solar power about ${tidy(r.ledger.solar_kwh)} kWh</p>
           <p class="muted small">${allowed ? 'The app steers the battery (Allow control and Allow home battery control are on).' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
       syncBattery();
@@ -3088,7 +3124,7 @@ function durationText(minutes) {
     function batteryHtml(d) {
       const b = d.battery;
       if (!b) return '';
-      if (b.error) return `<div class="card"><h2>${shape('battery', 'purple', true)} Home battery</h2><div class="error">${esc(b.error)}</div></div>`;
+      if (b.error) return `<div class="card"><h2>${shape('battery', 'teal', true)} Home battery</h2><div class="error">${esc(b.error)}</div></div>`;
       const now = d.battery_now;
       const periods = [];
       for (const a of b.actions || []) {
@@ -3099,13 +3135,13 @@ function durationText(minutes) {
       const shown = periods.filter((x) => x.action !== 'auto').slice(0, 6);
       return `
         <div class="card">
-          <h2>${shape('battery', 'purple', true)} Home battery</h2>
+          <h2>${shape('battery', 'teal', true)} Home battery</h2>
           <p class="small">${esc(b.name || '')}: <strong>${b.soc != null ? `${tidy(b.soc)} %` : '–'}</strong>${b.power_kw != null ? ` · ${b.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(b.power_kw))} kW` : ''}${now ? ` · now: <strong>${esc(ACTION_TEXT[now.action] || now.action)}</strong> <span class="muted">(${esc(now.reason)})</span>` : ''}</p>
           ${shown.length ? `<table class="periods"><tr><th>When</th><th>Battery</th><th class="n">Level after</th></tr>
             ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
             <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}
           ${b.saving > 0.005 ? `<p class="small">Expected saving compared with leaving it alone: <strong>${money(b.saving)}</strong>.</p>` : ''}
-          <p class="muted small">${shape('car', b.ev_discharge === 'never' ? 'grey' : 'purple', true)} ${esc(EV_TEXT(b))}</p>
+          <p class="muted small">${shape('car', b.ev_discharge === 'never' ? 'grey' : 'teal', true)} ${esc(EV_TEXT(b))}</p>
           ${b.control_allowed ? '' : `<p class="muted small">${b.control.supported.length ? 'Advice only: the app steers the battery once Allow home battery control is on.' : esc(b.control.note || 'This battery can only be read.')}</p>`}
         </div>`;
     }
@@ -3152,59 +3188,119 @@ function durationText(minutes) {
       }
     }
 
+    // ---------- Notifications: recipients ----------
+    let notifyMeta = { categories: [], messages: [], choices: [], cars: [] };
+    function recipientCard(r = {}) {
+      const { categories, messages, choices, cars } = notifyMeta;
+      const off = new Set(r.off || []);
+      const el = document.createElement('div');
+      el.className = 'card inner recipient';
+      el.dataset.id = r.id || '';
+      const known = choices.some((c) => c.id === r.service);
+      const opts = '<option value="">— choose —</option>' + choices.map((c) => `<option value="${esc(c.id)}"${c.id === r.service ? ' selected' : ''}>${esc(c.id)}</option>`).join('')
+        + (r.service && !known ? `<option value="${esc(r.service)}" selected>${esc(r.service)} (not found in Home Assistant)</option>` : '');
+      const carsHtml = cars.length > 1 ? `<div class="field"><label>For which cars</label><div class="days">${cars.map((c) => `<label><input type="checkbox" name="car" value="${esc(c.id)}"${!Array.isArray(r.cars) || r.cars.includes(c.id) ? ' checked' : ''}> ${esc(c.name)}</label>`).join('')}</div></div>` : '';
+      const groups = categories.map((cat) => {
+        const list = messages.filter((m) => m.category === cat.id);
+        const on = list.filter((m) => !off.has(m.id)).length;
+        return `<details class="ncat" data-cat="${esc(cat.id)}">
+          <summary><label class="check" onclick="event.stopPropagation()"><input type="checkbox" class="cat-toggle"${on === list.length ? ' checked' : ''}> <strong>${esc(cat.name)}</strong></label> <span class="muted small cat-count">${on} of ${list.length}</span></summary>
+          <p class="muted small">${esc(cat.text)}</p>
+          ${list.map((m) => `<label class="check"><input type="checkbox" name="msg" value="${esc(m.id)}"${off.has(m.id) ? '' : ' checked'}> ${esc(m.name)}</label>`).join('')}
+        </details>`;
+      }).join('');
+      const last = r.last ? `<div class="src">Last: ${esc(new Date(r.last.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
+      el.innerHTML = `<div class="two">
+          <div class="field"><label>Name</label><input name="name" maxlength="40" placeholder="e.g. Peter's phone" value="${esc(r.name || '')}"></div>
+          <div class="field"><label>Notify action</label><select name="service">${opts}</select></div>
+        </div>
+        ${carsHtml}
+        <div class="field"><label>Messages</label>${groups}</div>
+        ${last}
+        <div class="buttons"><button class="secondary" type="button" data-act="test">Send test</button><button class="secondary" type="button" data-act="remove">Remove</button></div>
+        <div class="rec-result"></div>`;
+      const sync = (d) => {
+        const boxes = [...d.querySelectorAll('input[name=msg]')];
+        const n = boxes.filter((b) => b.checked).length;
+        const t = d.querySelector('.cat-toggle');
+        t.checked = n === boxes.length;
+        t.indeterminate = n > 0 && n < boxes.length;
+        d.querySelector('.cat-count').textContent = `${n} of ${boxes.length}`;
+      };
+      el.querySelectorAll('details.ncat').forEach((d) => {
+        sync(d);
+        d.querySelector('.cat-toggle').addEventListener('change', (e) => {
+          d.querySelectorAll('input[name=msg]').forEach((b) => { b.checked = e.target.checked; });
+          sync(d);
+        });
+        d.querySelectorAll('input[name=msg]').forEach((b) => b.addEventListener('change', () => sync(d)));
+      });
+      el.querySelector('[data-act=remove]').onclick = () => el.remove();
+      el.querySelector('[data-act=test]').onclick = async () => {
+        const out = el.querySelector('.rec-result');
+        if (!el.dataset.id) { out.innerHTML = '<div class="note">Save first, then send a test.</div>'; return; }
+        try {
+          await api('POST', 'api/notify/test', { recipient_id: el.dataset.id });
+          out.innerHTML = '<div class="note">Sent. Check the phone.</div>';
+        } catch (err) {
+          out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+        }
+      };
+      $('notify-list').appendChild(el);
+      return el;
+    }
+    function readRecipients() {
+      return [...document.querySelectorAll('#notify-list .recipient')].map((el) => {
+        const carBoxes = [...el.querySelectorAll('input[name=car]')];
+        return {
+          id: el.dataset.id || null,
+          name: el.querySelector('[name=name]').value,
+          service: el.querySelector('[name=service]').value,
+          cars: carBoxes.length && carBoxes.some((b) => !b.checked) ? carBoxes.filter((b) => b.checked).map((b) => b.value) : null,
+          off: [...el.querySelectorAll('input[name=msg]')].filter((b) => !b.checked).map((b) => b.value),
+        };
+      });
+    }
     async function loadNotifyStatus() {
       try {
-        const n = await api('GET', 'api/notify');
+        const [n, v] = await Promise.all([api('GET', 'api/notify'), api('GET', 'api/vehicles').catch(() => ({ vehicles: [] }))]);
         const tm = (ms) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-        const sel = $('notify-choice');
-        const current = n.notify_service || '';
-        const list = n.choices || [];
-        const known = list.some((c) => c.id === current);
-        sel.innerHTML = '<option value="">— no notifications —</option>' +
-          list.map((c) => `<option value="${esc(c.id)}"${c.id === current ? ' selected' : ''}>${esc(c.id)}</option>`).join('') +
-          (current && !known ? `<option value="${esc(current)}" selected>${esc(current)} (not found in Home Assistant)</option>` : '');
-        $('notify-state').innerHTML = current
-          ? `<span class="ok">On</span> · ${n.notify_start_stop ? 'every start and pause, and problems' : 'problems only'}`
-          : (list.length ? 'Choose where notifications go, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
+        notifyMeta = { categories: n.categories || [], messages: n.messages || [], choices: n.choices || [], cars: (v.multi_car ? v.vehicles : []).map((x) => ({ id: x.id, name: x.name })) };
+        $('notify-list').innerHTML = '';
+        (n.recipients || []).forEach((r) => recipientCard(r));
+        $('notify-state').innerHTML = (n.recipients || []).length ? ''
+          : (notifyMeta.choices.length ? 'No recipients yet: add one, for example your phone (notify.mobile_app_…).' : '<span class="differ">No notify actions found in Home Assistant. Install the Home Assistant app on your phone to get notify.mobile_app_….</span>');
         const l = n.last_notification;
-        $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';
+        $('notify-last').innerHTML = l ? `${esc(tm(l.at))} · ${esc(l.title)}${l.to ? ` → ${esc(l.to.join(', '))}` : ''}${l.sent ? '' : ` <span class="differ">not sent: ${esc(l.error || '')}</span>`}<div class="src">${esc(l.message)}</div>` : '<span class="muted">none yet</span>';
         const p = n.last_publish;
         $('sensors-state').innerHTML = n.publish_sensors
           ? `<span class="ok">On</span>${p ? `<div class="src">${p.error ? `<span class="differ">${esc(p.error)}</span>` : `last update ${esc(tm(p.at))}`}</div>` : ''}<div class="src">sensor.smart_charging_status, _next_start, _next_end, _planned_energy, _planned_cost, _saving, _departure, binary_sensor.smart_charging_charge_now</div>`
           : 'Off';
-        $('notify-test').disabled = !n.notify_service;
       } catch {
         // status card stays as it is
       }
     }
 
+    $('notify-add').addEventListener('click', () => {
+      const el = recipientCard({ name: '', service: '', cars: null, off: [] });
+      el.querySelector('[name=name]').focus();
+    });
     $('notify-save').addEventListener('click', async () => {
       const btn = $('notify-save');
       const out = $('notify-test-result');
       btn.disabled = true;
       btn.textContent = 'Saving…';
       try {
-        await api('POST', 'api/notify', { service: $('notify-choice').value });
-        out.innerHTML = '<div class="note">Saved. Use "Send test notification" to check it.</div>';
+        await api('POST', 'api/notify', { recipients: readRecipients() });
+        out.innerHTML = '<div class="note">Saved. Use "Send test" on a recipient to check it.</div>';
+        loadNotifyStatus();
       } catch (err) {
         out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
       }
       btn.textContent = 'Save';
       btn.disabled = false;
-      loadNotifyStatus();
     });
 
-    $('notify-test').addEventListener('click', async () => {
-      const out = $('notify-test-result');
-      out.innerHTML = '<p class="muted small">Sending…</p>';
-      try {
-        await api('POST', 'api/notify/test');
-        out.innerHTML = '<div class="note">Test notification sent. Check your phone.</div>';
-      } catch (err) {
-        out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
-      }
-      loadNotifyStatus();
-    });
 
     $('wizard-again').addEventListener('click', async () => {
       await api('POST', 'api/setup', { done: false });
@@ -3230,7 +3326,7 @@ function durationText(minutes) {
       grid: ['SETTINGS', 'Grid', 'Set the grid meter and the electrical limits the plan must respect.', 'grid', 'orange'],
       prices: ['SETTINGS', 'Prices', 'Configure real electricity prices and an optional multi-day forecast.', 'prices', 'green'],
       solar: ['SETTINGS', 'Solar', 'Plan with solar production and control charging on live surplus.', 'sun', 'amber'],
-      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'purple'],
+      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'teal'],
       ctlset: ['SETTINGS', 'Charging rules', 'Fine-tune safety, timing and the way the app controls charging.', 'control', 'green'],
       status: ['SETTINGS', 'Notifications', 'Choose where updates are sent and inspect published sensors.', 'status', 'blue'],
       diag: ['SETTINGS', 'Diagnostics', 'Check the connection, test control and export troubleshooting data.', 'alert', 'grey'],

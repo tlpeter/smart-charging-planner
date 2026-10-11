@@ -13,7 +13,7 @@ const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, fetchForecast, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
@@ -26,6 +26,8 @@ const { checkControl } = require('./control');
 const controller = require('./controller');
 const session = require('./session');
 const { learnedPower } = require('./chargepower');
+const { chargedBlocks } = require('./charged');
+const pricehistory = require('./pricehistory');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
 const equalizer = require('./equalizer');
@@ -36,6 +38,7 @@ const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
 const battery = require('./battery');
 const { planBattery } = require('./batteryplan');
+const { chargeState } = require('./chargestate');
 const notifier = require('./notify');
 const { validateImportSettings } = require('./importschema');
 
@@ -237,6 +240,15 @@ notifier.setChargerContext(() => {
 function currentVehicle(s) {
   return activecar.vehicleFrom({ vehicles: cars(s) });
 }
+// Notifications: the car a message is about (more cars), for the recipients' car choice.
+notifier.setVehicleContext(() => {
+  try {
+    const s = settings.load();
+    if (cars(s).length <= 1) return null;
+    const v = currentVehicle(s);
+    return v ? v.id : null;
+  } catch { return null; }
+});
 
 // The car as the control sees it. With more than one car, "plugged in" comes
 // from the charger status: a car's own plug sensor also says "plugged in" at
@@ -296,14 +308,30 @@ function isReturnTrip(t) {
 // leaving, back home, charging again, … Each later departure gets an expected
 // charging plan from the moment the car is back (orange, never steered).
 const AHEAD_DAYS = 7;
-// The chart goes on to the end of the last expected charging (at most 3 days).
+// The chart reaches the last expected charging within the timeline's seven days.
 function chartEnd(next) {
   const b = next && next.expected_blocks && next.expected_blocks.length ? next.expected_blocks[next.expected_blocks.length - 1].end : 0;
-  return b ? Math.min(b, Date.now() + 3 * 86400000) : 0;
+  return b ? Math.min(b, Date.now() + AHEAD_DAYS * 86400000) : 0;
 }
 const AHEAD_STEPS = 6;
 
-function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow }) {
+// The chart looks back at least this far, to show what was charged.
+const LOOK_BACK_MS = 12 * 3600000;
+
+// Prices from before today's list, so the chart reaches back 12 hours.
+// Taken from the price history (or the fixed tariff); empty when unknown.
+function earlierPrices(cfg, firstStart, now, tz) {
+  const from = Math.floor((now - LOOK_BACK_MS) / 3600000) * 3600000;
+  if (!cfg || !cfg.source || !firstStart || from >= firstStart) return [];
+  const list = cfg.source.type === 'fixed'
+    ? fixedTariff(cfg.source, { start: from, end: firstStart }, tz)
+    : pricehistory.range(cfg.source.id, from, firstStart);
+  return list
+    .filter((p) => p.end <= firstStart && Number.isFinite(p.price))
+    .map((p) => ({ start: p.start, end: p.end, total: totalPrice(p.price, cfg) }));
+}
+
+function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
   const horizon = now + AHEAD_DAYS * 86400000;
@@ -348,9 +376,41 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   trip0.soc_after = socAtDep != null && trip0.pct != null ? Math.max(0, Math.round((socAtDep - trip0.pct) * 10) / 10) : (trip0.pct == null ? socAtDep : null);
 
   const timeline = [];
-  const planPeriods = periods(plan.blocks || []);
-  if (planPeriods.length) {
-    timeline.push({ type: 'charge', expected: false, start: planPeriods[0].start, end: planPeriods[planPeriods.length - 1].end, periods: planPeriods, kwh: Math.round((plan.planned_kwh || 0) * 10) / 10, cost: plan.blocks.length ? plan.cost ?? null : null, soc_to: socAtDep });
+  // Charging in the timeline: the part for a minimum (purple) and the rest.
+  // A block can be partly for the minimum: each part counts its own kWh.
+  const chargeItems = (blocks, base, minimum) => {
+    const out = [];
+    const minPart = (b) => Math.min(b.kwh, b.min_kwh || 0);
+    const parts = minimum
+      ? [[blocks.filter((b) => minPart(b) > 0.01), true, minPart], [blocks.filter((b) => b.kwh - minPart(b) > 0.01), false, (b) => b.kwh - minPart(b)]]
+      : [[blocks, false, (b) => b.kwh]];
+    for (const [list, forMin, part] of parts) {
+      if (!list.length) continue;
+      const ps = periods(list);
+      const kwh = list.reduce((a, b) => a + part(b), 0);
+      const cost = list.reduce((a, b) => a + (Number.isFinite(b.price) ? b.price * part(b) : 0), 0);
+      out.push({ ...base, start: ps[0].start, end: ps[ps.length - 1].end, periods: ps, kwh: Math.round(kwh * 10) / 10, cost: Math.round(cost * 100) / 100,
+        ...(forMin ? { minimum: true, soc_to: minimum.soc } : {}) });
+    }
+    return out;
+  };
+  // "Always charge when the battery is below a minimum": the minimum (%) from
+  // the rule (or its entity), and whether the price allows it at a moment.
+  const minRule = (() => {
+    if (!rules || !rules.min_soc_enabled) return null;
+    let m = Number(rules.min_soc);
+    const ent = rules.min_soc_entity ? (states || []).find((x) => x.entity_id === rules.min_soc_entity) : null;
+    if (ent && Number.isFinite(Number(ent.state))) m = Number(ent.state);
+    return Number.isFinite(m) ? m : null;
+  })();
+  const minPriceOk = (t) => {
+    if (!rules || rules.min_soc_max_price == null || rules.min_soc_max_price === '') return true;
+    const p = prices.find((x) => x.start <= t && t < x.end);
+    return !!p && p.total <= Number(rules.min_soc_max_price);
+  };
+  const planBlocks = plan.blocks || [];
+  if (planBlocks.length) {
+    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
@@ -383,16 +443,23 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const t = tripAt(x);
     let expected = null;
     if (level != null && vehicle.capacity_kwh > 0) {
-      const need = energyNeededKwh(level, x.soc, vehicle.capacity_kwh, planning.loss_percent);
+      // Back below the minimum: that part right away when the car is back (purple).
+      const minSoc = minRule != null && level < minRule - 0.5 && minPriceOk(Math.max(now, back)) ? minRule : null;
+      const goalSoc = Math.max(x.soc, minSoc || 0);
+      const need = energyNeededKwh(level, goalSoc, vehicle.capacity_kwh, planning.loss_percent);
+      const minKwh = minSoc != null ? energyNeededKwh(level, minSoc, vehicle.capacity_kwh, planning.loss_percent) : 0;
       const window = prices.filter((p) => p.end > back && p.start < x.time);
-      const exp = need > 0.01 && window.length
-        ? planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 })
-        : null;
+      const popts = { powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 };
+      const exp = !(need > 0.01 && window.length) ? null
+        : minKwh > 0.01
+          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, ...popts })
+          : planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, ...popts });
       expected = {
         soc_from: level,
         soc_to: x.soc,
         needed_kwh: Math.round(need * 10) / 10,
-        below_goal: level < x.soc - 0.5,
+        below_goal: level < goalSoc - 0.5,
+        minimum: minKwh > 0.01 ? { soc: minSoc, kwh: Math.round(minKwh * 10) / 10 } : null,
         prices_known: lastKnown >= x.time, // with the price forecast when there is one
         uses_forecast: !!(exp && exp.blocks.some((b) => b.forecast)),
         blocks: exp ? exp.blocks.map((b) => ({ ...b, expected: true })) : [],
@@ -402,7 +469,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       };
       out.expected_blocks.push(...expected.blocks);
       if (expected.periods.length) {
-        timeline.push({ type: 'charge', expected: true, start: expected.periods[0].start, end: expected.periods[expected.periods.length - 1].end, periods: expected.periods, kwh: Math.round(expected.planned_kwh * 10) / 10, needed_kwh: expected.needed_kwh, cost: expected.cost, uses_forecast: expected.uses_forecast, soc_to: x.soc });
+        const items = chargeItems(expected.blocks, { type: 'charge', expected: true, needed_kwh: expected.needed_kwh, uses_forecast: expected.uses_forecast, soc_to: x.soc }, expected.minimum);
+        // The last part shows what is still needed in total.
+        items.forEach((it) => {
+          it.needed_kwh = it.minimum ? expected.minimum.kwh : Math.round((expected.needed_kwh - (expected.minimum ? expected.minimum.kwh : 0)) * 10) / 10;
+        });
+        timeline.push(...items);
       } else if (expected.below_goal) {
         timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: x.soc });
       }
@@ -438,7 +510,11 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // (The plan is kept until then: it is only marked as outdated.)
 tripcost.setSavedPlaces(() => settings.load().places || []);
 tripcost.onUpdate(() => {
-  for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+  // Also count it, so a plan that was being calculated right now is not kept as fresh.
+  for (const x of ST.all.values()) {
+    if (x.planCache) x.planCache.at = 0;
+    x.tripUpdates = (x.tripUpdates || 0) + 1;
+  }
 });
 
 function tripLearning(vehicle, plugged, soc, carData, next, now) {
@@ -1031,7 +1107,7 @@ const routes = {
         const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
         chargefor.clear(`the departure it was chosen for is gone: ${what}`);
         controller.clearLock();
-        notifier.notify('problem', 'Ready-for choice ended', `The departure it was chosen for (${what}) is no longer planned. The car is planned for the next departure again.`, { key: 'chargefor_gone', minGapMs: 60000 }).catch(() => {});
+        notifier.notify('chargefor_gone', 'Ready-for choice ended', `The departure it was chosen for (${what}) is no longer planned. The car is planned for the next departure again.`, { key: 'chargefor_gone', minGapMs: 60000 }).catch(() => {});
         cf = null;
       }
     }
@@ -1111,6 +1187,17 @@ const routes = {
     // level (e.g. 100 %) is charged up to that level whenever it is cheapest,
     // the rest only in the last hours before the departure.
     const careRules = rulesFor(s);
+    // "Always charge when the battery is below a minimum" (Settings › Rules):
+    // that part is charged right away, the rest as planned. Shown in purple.
+    let minNow = null;
+    if (vehicle && mode !== 'fixed_kwh' && vehicle.capacity_kwh > 0 && Number.isFinite(soc)) {
+      const priceNow = (prices.find((p) => p.start <= now && now < p.end) || {}).total;
+      const min = controller.minimumNow(careRules, states, soc, priceNow);
+      if (min != null) {
+        const kwh = energyNeededKwh(soc, Math.min(min, targetSoc), vehicle.capacity_kwh, planning.loss_percent);
+        if (kwh > 0.01) minNow = { soc: min, kwh };
+      }
+    }
     let care = null;
     if (careRules.battery_care_enabled !== false && departure && !interim && vehicle && mode !== 'fixed_kwh'
       && vehicle.capacity_kwh > 0 && Number.isFinite(soc) && neededKwh > 0.01) {
@@ -1122,7 +1209,14 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
       }
     }
-    const plan = care
+    const plan = minNow && neededKwh > 0.01
+      ? planStaged({
+        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true,
+        continuous: planning.continuous !== false,
+        minSplitSaving: Number(planning.min_split_saving) || 0,
+        solarOnly,
+      })
+      : care
       ? planCare({
         prices, now, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
@@ -1142,7 +1236,13 @@ const routes = {
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       });
-    if (care) {
+    if (minNow && neededKwh > 0.01) {
+      plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
+      plan.notes.push('below_minimum');
+    } else if (interim && minKwh > 0.01) {
+      plan.minimum = { soc: Math.min(cf.min_soc, targetSoc), kwh: Math.round(minKwh * 10) / 10, kind: 'ready_for', before: interim.time };
+    }
+    if (care && !minNow) {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
@@ -1182,10 +1282,14 @@ const routes = {
         if (prev) ha.log('Charge now reached its goal; the plan takes over');
       }
       else {
-        boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
+        boostInfo = { active: true, mode: b.mode, value: b.value, minimum: !!b.minimum, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
         if (kwh != null) {
           const lastEnd = Math.max(realEnd || now, prices.length ? prices[prices.length - 1].end : now);
           activePlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
+          // Quick minimum: all of it is for the minimum (purple in the chart).
+          if (b.minimum) {
+            activePlan = { ...activePlan, blocks: activePlan.blocks.map((x) => ({ ...x, min_kwh: x.kwh })), minimum: { soc: b.value, kwh: Math.round(kwh * 10) / 10, kind: 'quick' } };
+          }
           boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
         }
       }
@@ -1209,13 +1313,14 @@ const routes = {
       controlAllowed: options.allow_control,
       carData,
       notes: plan.notes,
+      carLimit: limited ? { value: carLimit.value, wanted: wantedSoc, writable: carLimit.writable, controlAllowed: options.allow_control } : null,
     });
 
     // After this departure: the next goal, the expected battery level after the
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
-      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle) });
+      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
@@ -1229,6 +1334,19 @@ const routes = {
         batteryInfo = await batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol });
       } catch (err) {
         batteryInfo = { enabled: true, error: err.message };
+      }
+    }
+
+    // The chart shows the prices up to the departure (forecast included),
+    // and at least the last 12 hours with what was really charged.
+    const chartPrices = (prices.length ? earlierPrices(s.prices, prices[0].start, now, tz) : [])
+      .concat(prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))));
+    let charged = [];
+    if (charger && charger.power_entity) {
+      try {
+        charged = await chargedBlocks(charger.power_entity, chartPrices.filter((p) => p.start < now), now);
+      } catch (err) {
+        ha.debug('Charged history not available:', err.message);
       }
     }
 
@@ -1286,12 +1404,12 @@ const routes = {
         now_w: actualNow.power_w,
         charging_now: actualNow.charging,
       },
-      // The chart shows the prices up to the departure (forecast included).
-      prices: prices.filter((p) => p.start < Math.max(realEnd || 0, deadline, chartEnd(next))).map((p) => ({
+      prices: chartPrices.map((p) => ({
         start: p.start, end: p.end, total: p.total, power_kw: p.power_kw, amps: p.amps,
         ...(p.forecast ? { forecast: true, expected: p.expected } : {}),
         ...(Number.isFinite(p.pv_kw) ? { pv_kw: p.pv_kw, solar_kw: p.solar_kw, solar_price: p.solar_price } : {}),
       })),
+      charged,
       forecast: forecastInfo,
       solar: solarInfo,
       house_load: houseLoad.available ? {
@@ -1629,7 +1747,8 @@ function boostFromBody(body, cached, starting = false) {
     throw badRequest(`Your car stops at ${lim.value}% (${lim.name}). Raise that limit first, or choose ${lim.value}% or less.`);
   }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
-  return { mode, value: mode === 'target' ? null : value };
+  // Quick minimum on Home: Charge now to a level, shown as minimum charging.
+  return { mode, value: mode === 'target' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
 }
 
 async function freshPlan() {
@@ -2116,11 +2235,11 @@ async function batteryStep(s, planResult, entry, states) {
     }
     line.sent = true;
     lastBattery = c.action === 'auto' ? null : { action: c.action, at: Date.now() };
-    await notifier.notify('startstop', 'Home battery', `${want.reason}.`);
+    await notifier.notify('battery_action', 'Home battery', `${want.reason}.`);
   } catch (err) {
     line.error = err.message;
     lastBattery = { action: c.action, at: Date.now(), failed: true };
-    await notifier.notify('problem', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
+    await notifier.notify('battery_failed', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
   }
   controller.logSent(line);
   return { ...info, action: c.action, sent: line.sent, error: line.error || null };
@@ -2447,7 +2566,8 @@ routes['GET /api/checklist'] = async () => {
   const conflicts = await findConflicts().catch(() => null);
   const n = conflicts ? conflicts.items.filter((x) => !x.dismissed).length : 0;
   add('conflicts', n ? 'warn' : 'ok', 'Your own automations', n ? `${n} automation(s) use the same charger or car limit` : 'No conflicts found', 'ctlset');
-  add('notify', s.notify && s.notify.service ? 'ok' : 'optional', 'Notifications', s.notify && s.notify.service ? s.notify.service : 'Optional: choose where to send them', 'status');
+  const rec = notifier.recipients();
+  add('notify', rec.length ? 'ok' : 'optional', 'Notifications', rec.length ? rec.map((r) => r.name).join(', ') : 'Optional: choose where to send them', 'status');
   add('grid', s.grid && s.grid[0] ? 'ok' : 'optional', 'Grid meter', s.grid && s.grid[0] ? s.grid[0].name : 'Optional: for the house load and solar', 'grid');
   const bc = batterySettings(s);
   if (!bc.enabled) add('battery', 'optional', 'Home battery', 'Optional: plan the home battery next to the car', 'battery');
@@ -2593,7 +2713,7 @@ async function manageCarLimit(planResult, actual, states) {
     if (ST().lastLimitSend.tries >= LIMIT_MAX_TRIES) {
       if (!ST().lastLimitSend.gaveUp) {
         ST().lastLimitSend.gaveUp = true;
-        await notifier.notify('problem', 'Car charge limit not changed',
+        await notifier.notify('carlimit_failed', 'Car charge limit not changed',
           `The car still reports ${lim.value}% after ${LIMIT_MAX_TRIES} attempts to set ${value}% (${lim.name}).`);
       }
       return;
@@ -2602,8 +2722,8 @@ async function manageCarLimit(planResult, actual, states) {
   }
   ST().lastLimitSend = { value, at: Date.now(), tries, vehicle_id: vehicle.id };
   const e = await sendCarLimit(lim, value, tries > 1 ? `${reason} (attempt ${tries})` : reason, true);
-  if (e.sent) await notifier.notify('startstop', 'Car charge limit changed', `${e.reason}.`);
-  else await notifier.notify('problem', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
+  if (e.sent) await notifier.notify('carlimit_changed', 'Car charge limit changed', `${e.reason}.`);
+  else await notifier.notify('carlimit_failed', 'Car charge limit not changed', `${e.reason} failed: ${e.error}`, { key: 'carlimit', minGapMs: 60 * 60000 });
 }
 
 // Raise (or set) the car's own charge limit. Only with "Allow control" on,
@@ -2650,6 +2770,7 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
   }
   ST().planRunning = (async () => {
     try {
+      const updatesBefore = ST().tripUpdates || 0;
       const result = await computePlan();
       // What the car's own limit will be, for Home.
       try {
@@ -2657,7 +2778,9 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
       } catch {
         result.limit = null;
       }
-      ST().planCache = { at: Date.now(), result };
+      // A trip distance came in during the calculation: show this result,
+      // but calculate again on the next request.
+      ST().planCache = { at: (ST().tripUpdates || 0) === updatesBefore ? Date.now() : 0, result };
       if (!noControl) {
         try {
           await runDryRun(result);
@@ -2668,21 +2791,21 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
       const p = result.plan;
       const rg = result.reliability;
       if (rg && rg.base_status === 'not_achievable' && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard: target at risk',
+        await notifier.notify('rg_risk', 'Ready Guard: target at risk',
           `${rg.message} Departure is ${hmLocal(result.departure.time)}.`,
           { key: `ready:not-achievable:${result.departure.time}`, minGapMs: 6 * 3600000 });
       } else if (rg && rg.protect && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard active', rg.message,
+        await notifier.notify('rg_active', 'Ready Guard active', rg.message,
           { key: `ready:active:${result.departure.time}`, minGapMs: 6 * 3600000 });
       } else if (rg && rg.base_status === 'action_needed' && result.departure && !result.boost) {
-        await notifier.notify('problem', 'Ready Guard needs you', rg.message,
+        await notifier.notify('rg_needs_you', 'Ready Guard needs you', rg.message,
           { key: `ready:action:${result.departure.time}`, minGapMs: 6 * 3600000 });
       }
       // More cars, and the app cannot tell which one is connected.
       const cars = result.cars;
       if (cars && cars.ask && cars.charger_plugged === true) {
         const guess = (cars.list.find((c) => c.id === cars.connected_id) || {}).name || 'the first car';
-        await notifier.notify('problem', 'Which car is connected?',
+        await notifier.notify('which_car', 'Which car is connected?',
           `A car is plugged in, but the app cannot tell which one. It plans for ${guess} for now. Choose the connected car on Home.`,
           { key: 'which_car', minGapMs: 6 * 3600000 });
       }
@@ -2698,9 +2821,32 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
   return ST().planRunning;
 }
 
+function chargingNow(n) {
+  if (!n || !n.time) return null;
+  return {
+    at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null,
+    want: n.want || null, code: n.code || null, reason: n.reason || null,
+    next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
+  };
+}
+
 routes['GET /api/plan'] = async (req) => {
   const url = new URL(req.url, 'http://localhost');
   const force = url.searchParams.get('refresh') === '1';
+  // Refresh on Home: first let Home Assistant fetch the departures calendar again
+  // (a trip just added in Google Calendar), then calculate the plan.
+  if (force && url.searchParams.get('calendar') === '1') {
+    const s = settings.load();
+    const dep = departuresFor(s, currentVehicle(s));
+    if (dep.calendar.enabled && dep.calendar.entity) {
+      try {
+        await ha.refreshCalendar(dep.calendar.entity);
+        await new Promise((r) => setTimeout(r, Number(process.env.SCP_CALENDAR_WAIT_MS) || 2000));
+      } catch (err) {
+        ha.warn('Could not refresh the calendar:', err.message);
+      }
+    }
+  }
   const maxAge = options.refresh_minutes * 60000;
   if (force || !ST().planCache || Date.now() - ST().planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request', { fresh: force });
   if (!ST().planCache) await refreshPlan('on request', { fresh: true });
@@ -2709,6 +2855,19 @@ routes['GET /api/plan'] = async (req) => {
     ...ST().planCache.result,
     solar_now: ST().lastDryRun && ST().lastDryRun.solar_now ? { ...ST().lastDryRun.solar_now, code: ST().lastDryRun.code, amps: ST().lastDryRun.amps, phases: ST().lastDryRun.phases } : null,
     battery_now: ST().lastDryRun && ST().lastDryRun.battery_now ? ST().lastDryRun.battery_now : null,
+    // What the charger does right now (checked every minute), for the status on Home.
+    charging_now: chargingNow(ST().lastDryRun),
+    charge_state: (() => {
+      try {
+        return chargeState(ST().planCache.result, chargingNow(ST().lastDryRun), {
+          hm: (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: ha.state.timeZone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms)),
+          dayHm: hmLocal,
+        });
+      } catch (err) {
+        ha.warn('Charging status failed:', err.message);
+        return null;
+      }
+    })(),
     computed_at: ST().planCache.at,
     next_refresh: ST().planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,
@@ -2850,7 +3009,7 @@ async function equalizerStep(s, entry, states, charger) {
     line.sent = true;
   } catch (err) {
     line.error = err.message;
-    await notifier.notify('problem', 'Equalizer command failed', `${cmd.what}: ${err.message}`, { key: 'equalizer', minGapMs: 60 * 60000 });
+    await notifier.notify('equalizer_failed', 'Equalizer command failed', `${cmd.what}: ${err.message}`, { key: 'equalizer', minGapMs: 60 * 60000 });
   }
   lastEqualizer = { enable: want, at: Date.now(), eq };
   controller.logSent(line);
@@ -2886,7 +3045,7 @@ async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
     } catch (err) {
       line.error = err.message;
       ha.warn('Could not', command.what, '-', err.message);
-      await notifier.notify('problem', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
+      await notifier.notify('charger_failed', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
     }
     controller.logSent(line);
     return line.sent;
@@ -3133,11 +3292,11 @@ const CHECK_AFTER_MS = Number(process.env.SCP_CHECK_AFTER_MS) || 5 * 60000;
 async function afterSent(on, command, reason, extraText = '') {
   ST().pendingCheck = { on, at: Date.now(), service: command.service };
   ST().lastCommandInfo = `${on ? 'start' : 'pause'} at ${hmLocal(Date.now())}`;
-  await notifier.notify('startstop', on ? 'Charging started' : 'Charging paused', `${reason}${extraText}.`);
+  await notifier.notify(on ? 'charging_started' : 'charging_paused', on ? 'Charging started' : 'Charging paused', `${reason}${extraText}.`);
 }
 
 async function commandFailed(on, err) {
-  await notifier.notify('problem', 'Charger command failed', `Could not ${on ? 'start' : 'pause'} the charger: ${err}`, { key: `fail:${on}`, minGapMs: 30 * 60000 });
+  await notifier.notify('charger_failed', 'Charger command failed', `Could not ${on ? 'start' : 'pause'} the charger: ${err}`, { key: `fail:${on}`, minGapMs: 30 * 60000 });
 }
 
 async function checkReaction(entry) {
@@ -3158,7 +3317,7 @@ async function checkReaction(entry) {
     plugged: entry.plugged, charging: entry.charging, status: entry.status, power_w: entry.power_w, agrees: false,
   });
   ha.warn(text);
-  await notifier.notify('problem', on ? 'Charger did not start' : 'Charger did not pause', text, { key: `noreact:${on}`, minGapMs: 60 * 60000 });
+  await notifier.notify('charger_no_react', on ? 'Charger did not start' : 'Charger did not pause', text, { key: `noreact:${on}`, minGapMs: 60 * 60000 });
 }
 
 // Live control: send the start/stop command the decision needs. The same
@@ -3367,11 +3526,16 @@ async function importSettings(body, dryRun) {
       notes.push('Solar by the Easee Equalizer was switched to the app: no Equalizer found here');
     } else next.solar = { ...sol, equalizer: { device_id: eq.device_id, switch_entity: eq.switch_entity, name: eq.name } };
   }
-  if (next.notify && next.notify.service) {
-    const choices = await notifyOptions().catch(() => []);
-    if (!choices.some((c) => c.id === next.notify.service)) {
-      next.notify = { service: null };
-      notes.push('Notifications were switched off: that notify action does not exist here');
+  if (next.notify && (next.notify.service || Array.isArray(next.notify.recipients))) {
+    const choices = (await notifyOptions().catch(() => [])).map((c) => c.id);
+    const old = Array.isArray(next.notify.recipients) ? next.notify.recipients : [{ id: 'r1', name: 'My phone', service: next.notify.service }];
+    const kept = old.filter((r) => r && choices.includes(ha.normaliseNotify(r.service)));
+    if (kept.length < old.length) notes.push(`Left out ${old.length - kept.length} notification recipient(s): that notify action does not exist here`);
+    try {
+      next.notify = { recipients: notifier.cleanRecipients(kept, choices, (next.vehicles || []).map((v) => v && v.id).filter(Boolean)) };
+    } catch (err) {
+      next.notify = { recipients: [] };
+      notes.push(`Notifications were switched off: ${err.message}`);
     }
   }
   const summary = {
@@ -3413,11 +3577,11 @@ function carDataChanged(vehicle, cd) {
     const why = cd.reason === 'stale' ? 'has not been updated for a long time' : 'is not available';
     const what = cd.assumed ? `No earlier level is known, so the app plans as if it is at ${cd.estimate}%.` : `The app plans with an estimate (${cd.estimate}%: the last level ${cd.last_soc}% plus what the charger delivered since).`;
     ha.warn(`Car data: battery level of ${name} ${why}; estimate ${cd.estimate}%`);
-    notifier.notify('problem', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: key('car_offline'), minGapMs: 60 * 60000 }).catch(() => {});
+    notifier.notify('car_offline', 'Car not reachable', `The battery level of ${name} ${why} (the car's cloud may be down). ${what} The car's charge limit is not changed until it is back.`, { key: key('car_offline'), minGapMs: 60 * 60000, vehicleId: id }).catch(() => {});
   } else if (cd && cd.ok && carOffline.has(id)) {
     carOffline.delete(id);
     ha.log(`Car data: battery level of ${name} is back`);
-    notifier.notify('problem', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: key('car_online'), minGapMs: 60 * 60000 }).catch(() => {});
+    notifier.notify('car_online', 'Car reachable again', `The battery level of ${name} is updated again. The plan uses the real level.`, { key: key('car_online'), minGapMs: 60 * 60000, vehicleId: id }).catch(() => {});
   }
 }
 
@@ -3514,26 +3678,37 @@ routes['GET /api/notify'] = async () => {
   return { ...notifier.status(), choices };
 };
 
+// Recipients: { recipients: [...] }. The old form { service } (one notify
+// action for everything) still works: it becomes one recipient.
 routes['POST /api/notify'] = async (req) => {
   const body = await readBody(req);
-  const id = String(body.service || '').trim();
-  if (id) {
-    const choices = await notifyOptions();
-    if (!choices.some((c) => c.id === id)) throw badRequest('Choose a notify action from the list');
-  }
   const s = settings.load();
-  s.notify = { service: id || null };
+  const choices = (await notifyOptions()).map((c) => c.id);
+  let list;
+  if (Array.isArray(body.recipients)) {
+    list = notifier.cleanRecipients(body.recipients, choices, cars(s).map((v) => v.id));
+  } else {
+    const id = String(body.service || '').trim();
+    if (id && !choices.includes(id)) throw badRequest('Choose a notify action from the list');
+    list = id ? notifier.cleanRecipients([{ id: 'r1', name: 'My phone', service: id }], choices, []) : [];
+  }
+  s.notify = { recipients: list };
   settings.save(s);
-  notifier.target();
-  ha.log(id ? `Notifications go to ${id}` : 'Notifications chosen in the app switched off');
+  notifier.recipients();
+  ha.log(list.length ? `Notifications go to ${list.map((r) => `${r.name} (${r.service})`).join(', ')}` : 'Notifications switched off');
   return notifier.status();
 };
 
-routes['POST /api/notify/test'] = async () => {
-  if (!notifier.target()) throw badRequest('Choose a notify action first');
-  const r = await notifier.notify('problem', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.');
+// A test to one recipient ({ recipient_id }), or to every recipient.
+routes['POST /api/notify/test'] = async (req) => {
+  const body = await readBody(req).catch(() => ({}));
+  const list = notifier.recipients();
+  if (!list.length) throw badRequest('Add a recipient (notify action) first');
+  const only = body && body.recipient_id ? String(body.recipient_id) : null;
+  if (only && !list.some((r) => r.id === only)) throw badRequest('Save this recipient first');
+  const r = await notifier.notify('test', 'Smart Charging test', 'This is a test notification from Smart Charging Planner.', { only });
   if (!r.sent) throw badRequest(`Not sent: ${r.error || r.reason}`);
-  return { ok: true };
+  return { ok: true, results: r.results };
 };
 
 // Automations (and scripts they call) that also use the charger's start/stop

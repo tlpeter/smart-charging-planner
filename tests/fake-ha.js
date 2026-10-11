@@ -2,7 +2,7 @@
 
 // Keep the fast simulator aligned with the pinned Core compatibility test.
 // Override this only when checking a future Home Assistant release locally.
-const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.0';
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.1';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
@@ -283,7 +283,7 @@ function devices(w) {
 function start(w, wsPort, restPort) {
   const services = {
     ...w.profile.charger.services,
-    notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, persistent_notification: {} },
+    notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, mobile_app_iphone_anna: { name: 'Send a notification via mobile_app_iphone_anna' }, persistent_notification: {} },
     energyzero: { get_energy_prices: {} },
   };
   const wss = new WebSocket.Server({ port: wsPort });
@@ -321,6 +321,15 @@ function start(w, wsPort, restPort) {
             for (let t = Date.parse(m.start_time); t < Date.parse(m.end_time); t += 300000) rows.push({ start: t, end: t + 300000, mean: w.chargedKw * 1000 });
             out[w.profile.charger.power] = rows;
           }
+          // w.chargedSlots: [{ from, to, kw }]: the charger only charged in these windows.
+          if (w.chargedSlots && m.statistic_ids.includes(w.profile.charger.power)) {
+            const rows = [];
+            for (let t = Date.parse(m.start_time); t < Date.parse(m.end_time); t += 300000) {
+              const slot = w.chargedSlots.find((x) => t >= x.from && t < x.to);
+              rows.push({ start: t, end: t + 300000, mean: slot ? slot.kw * 1000 : 0 });
+            }
+            out[w.profile.charger.power] = rows;
+          }
           return ok(out);
         }
         case 'call_service': {
@@ -343,6 +352,12 @@ function start(w, wsPort, restPort) {
           }
           w.calls.push(call);
           const tid = call.target && call.target.entity_id;
+          // Like Google Calendar in Home Assistant: an event added elsewhere
+          // (w.calendarPending) is only seen after the calendar is fetched again.
+          if (m.domain === 'homeassistant' && m.service === 'update_entity' && /^calendar\./.test(tid || '') && w.calendarPending) {
+            w.events.push(...w.calendarPending);
+            w.calendarPending = null;
+          }
           // Like Home Assistant: a created event is in the calendar right away.
           if (m.domain === 'calendar' && m.service === 'create_event') {
             const d = call.data;

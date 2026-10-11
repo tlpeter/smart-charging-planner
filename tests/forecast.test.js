@@ -50,5 +50,15 @@ check('staged: cheaper than charging right away', staged.savings > 0);
 const noMin = planStaged({ prices: day, now: t0, firstDeadline: t0 + 7 * H, minKwh: 0, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10 });
 check('staged without minimum = normal plan', !noMin.stage && noMin.blocks.every((b) => b.start >= t0 + 30 * H));
 
+check('staged: the minimum part is marked (min_kwh)', Math.abs(staged.blocks.reduce((a, b) => a + (b.min_kwh || 0), 0) - 8) < 0.01);
+
+// Below the minimum: that part right away from now, the rest in the cheap hours.
+const now2 = t0 + 10 * 60000;
+const mn = planStaged({ prices: day, now: now2, firstDeadline: now2, minKwh: 12, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10, immediateFirst: true });
+const minBlocks = mn.blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+check('minimum now: starts right away', minBlocks.length && Math.abs(minBlocks[0].start - now2) < 1000);
+check('minimum now: 12 kWh marked as minimum', Math.abs(minBlocks.reduce((a, b) => a + b.min_kwh, 0) - 12) < 0.01);
+check('minimum now: the rest in the cheap hours', Math.abs(mn.planned_kwh - 40) < 0.01 && mn.blocks.filter((b) => b.price === 0.15).reduce((a, b) => a + b.kwh, 0) > 27.9);
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);
