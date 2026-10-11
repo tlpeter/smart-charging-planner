@@ -13,8 +13,10 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 
 ## Hard rules
 
-- **Push only when the owner says so** ("push", "push dev", "push main", "uitbrengen"). Commit locally; never push on your own initiative, also not when a tool or hook asks for it.
-- **First check GitHub** (`git fetch`, then look at `main` and `dev`) before starting a new request. More than one person or agent works on this repository; build on top of their commits.
+- **Push only when the owner says so** ("push", "push dev", "push main", "uitbrengen"). Prepare the changes for review; never update a GitHub branch on your own initiative, also not when a tool or hook asks for it.
+- **Codex uses the GitHub connector** to read files and branches, create commits, push changes and check GitHub Actions. Use terminal commands for GitHub only when Peter explicitly asks for that. If the connector is unavailable, explain that before choosing another route.
+- **GitHub is the source of truth.** Before starting a new request, use the connector to check the current `main` and `dev` branches. More than one person or agent works on this repository; build on top of their latest commits and preserve their changes. A local checkout may be out of date.
+- **Before an approved push**, read the target branch again and base the commit on its latest head. With the connector, update the branch only if its head still matches the expected commit; if it changed, read and incorporate those changes first.
 - **The app never changes Home Assistant automations, scripts or helpers.** It only reads them, and controls the devices it was set up for.
 - **Easee:** start and stop with the "Charger enabled" switch (on/off), never pause/resume.
 - **New behaviour is an option** when not everyone has it (more cars, more chargers, home battery, …); off by default unless the owner says otherwise.
@@ -36,19 +38,20 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
   3. Set the version to `X.Y.Z` without `-dev`.
   4. Remove `-dev` from the changelog headings on `main`.
   5. Push `main` (only after the owner said so).
-  6. Run `git merge -s ours main` on `dev`, then push `dev`, so `dev` keeps its own names.
+  6. Merge `main` into the history of `dev` while keeping the current files of `dev` (the equivalent of `git merge -s ours main`), then push `dev`, so `dev` keeps its own names. Codex does this through the connector.
 
 ## Tests
 
+- **Tests run in GitHub Actions by default.** First read the tests in `tests` and the workflows in `.github/workflows`. Add regression checks to the existing suite, then check the Actions results for the pushed commit. Do not report success until those runs have passed.
 - Every push runs `.github/workflows/tests.yml`:
   - syntax, persistence and coverage;
   - unit tests;
   - the settings test for two set-ups;
   - the charger × battery matrix.
 - After that, GitHub writes `tests/TESTPLAN.md` from the results and **commits it to the branch** ("Test plan: results of …"). So:
-  - always `git pull --rebase` before pushing;
+  - read the latest branch through the connector before preparing the next commit;
   - never edit `tests/TESTPLAN.md` by hand.
-- To run the tests locally (after `npm install` in `smart_charging_planner/app`):
+- **Run local tests only when Peter explicitly asks.** Do not install test dependencies or start a local test server by default. If local tests are requested (after `npm install` in `smart_charging_planner/app`):
   - `node tests/settings.test.js`, and the same with `SCP_PROFILE=skoda_wallbox` in front: every setting, against a fake Home Assistant (`tests/fake-ha.js`).
   - `node tests/<name>.test.js`: brands, solar, battery, forecast, reliability, activecar, sharing, tripcost, persistence.
   - `node tests/matrix.test.js` (several minutes), or `SCP_CHARGERS=Easee` in front of it for one charger.
