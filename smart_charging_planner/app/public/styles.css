@@ -283,6 +283,7 @@
     .charge-blue::before { background: rgb(var(--rgb-blue)); }
     .charge-amber::before { background: rgb(var(--rgb-amber)); }
     .charge-orange::before { background: rgb(var(--rgb-orange)); }
+    .charge-red::before { background: rgb(var(--rgb-red)); }
     .charge-now-title { font-size: clamp(18px, 2.6vw, 24px); font-weight: 650; line-height: 1.2; }
     .charge-now .secondary { font-size: 13px; margin-top: 4px; }
     .charge-now .src { white-space: nowrap; align-self: flex-start; }

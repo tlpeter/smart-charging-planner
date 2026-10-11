@@ -38,6 +38,7 @@ const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
 const battery = require('./battery');
 const { planBattery } = require('./batteryplan');
+const { chargeState } = require('./chargestate');
 const notifier = require('./notify');
 const { validateImportSettings } = require('./importschema');
 
@@ -2842,6 +2843,17 @@ routes['GET /api/plan'] = async (req) => {
     battery_now: ST().lastDryRun && ST().lastDryRun.battery_now ? ST().lastDryRun.battery_now : null,
     // What the charger does right now (checked every minute), for the status on Home.
     charging_now: chargingNow(ST().lastDryRun),
+    charge_state: (() => {
+      try {
+        return chargeState(ST().planCache.result, chargingNow(ST().lastDryRun), {
+          hm: (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: ha.state.timeZone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms)),
+          dayHm: hmLocal,
+        });
+      } catch (err) {
+        ha.warn('Charging status failed:', err.message);
+        return null;
+      }
+    })(),
     computed_at: ST().planCache.at,
     next_refresh: ST().planCache.at + maxAge,
     refresh_minutes: options.refresh_minutes,

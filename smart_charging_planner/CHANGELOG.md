@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.17-dev
+
+- **Charging status in colour**: ready **green**, charging **red**, waiting **yellow**, anything in the way **orange**, not connected or nothing to do **grey**.
+- More states: **Ready Guard charging**, **Charging on solar**, **Waiting for the sun**, **Waiting for the other charger**, **Charger not reachable**, **Car not reachable**, **The charger did not start**, **Cannot plan**, and **Advice only** when Allow control is off.
+- Tests: charging status checks (every state and colour); settings test J8.
+
 ## 0.29.16-dev
 
 - **Charging status on top of Home**: one clear line with what the charger does right now (checked every minute): **Charging now** (power, level, ready around), **Not charging now · starts at 12:00**, **Ready**, **Car not connected**, or what is in the way.

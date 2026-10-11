@@ -999,47 +999,17 @@ function durationText(minutes) {
     }
 
     // On top of Home: is the car charging right now, and if not, why and when.
-    // From the charger check that runs every minute.
+    // The server works out the state (chargestate.js) from the check every minute.
     function chargeStatusHtml(d) {
-      const n = d.charging_now;
-      if (!n || (d.missing && d.missing.length)) return '';
-      const v = d.vehicle || {};
-      const soc = Number.isFinite(Number(v.soc)) && v.soc !== null ? Number(v.soc) : null;
-      const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
-      const wanted = d.planning && Number.isFinite(Number(d.planning.wanted_soc)) ? Number(d.planning.wanted_soc) : target;
-      const r = d.reliability || {};
-      const blocks = (d.plan && d.plan.blocks) || [];
-      const lastEnd = blocks.length ? blocks[blocks.length - 1].end : null;
-      const readyAt = d.boost && lastEnd ? lastEnd : (r.expected_ready || lastEnd);
-      const kw = n.power_w > 0 ? `${(n.power_w / 1000).toFixed(1)} kW` : null;
-      const level = soc != null && target != null ? `${soc}% → ${target}%` : (soc != null ? `${soc}%` : null);
-      const lim = d.car_limit;
-      const limitLow = r.car_limit || ((d.plan.notes || []).includes('car_limit') && lim && lim.value != null && wanted > lim.value ? { value: lim.value, wanted } : null);
-      const parts = (a) => a.filter(Boolean).map(esc).join(' · ');
-      let s;
-      if (n.plugged === false) {
-        s = ['plugOff', 'grey', 'Car not connected', d.departure ? parts([`Plug in to be ready by ${dayHm(d.departure.time)}`]) : 'Plug in the car to charge.'];
-      } else if (n.charging === true || (n.power_w || 0) > 500) {
-        s = ['bolt', 'green', 'Charging now', parts([kw, level, readyAt ? `ready around ${dayHm(readyAt)}` : null, d.boost ? 'Charge now' : null])];
-      } else if (limitLow && soc != null && soc >= limitLow.value) {
-        s = ['alert', 'orange', `Not charging: the car's charge limit is ${limitLow.value}%`, esc(r.message || `The car stops at ${limitLow.value}%, but ${limitLow.wanted}% is wanted. Raise it in the car.`)];
-      } else if (n.want === 'charge') {
-        s = ['bolt', 'amber', 'Starting to charge', n.error ? esc(`The charger did not react: ${n.error}`) : 'The app turned the charger on; the car should start within a minute.'];
-      } else if (soc != null && target != null && soc >= target) {
-        s = ['check', 'green', 'Ready', parts([`${soc}%`, `at the target (${target}%)`, 'the charger is off'])];
-      } else if (n.next_start) {
-        const early = r.base_status === 'at_risk' && r.latest_safe_start && r.latest_safe_start < n.next_start;
-        const start = early ? r.latest_safe_start : n.next_start;
-        s = ['clock', 'blue', `Not charging now · starts at ${hm(start)}`, parts([level, readyAt ? `ready around ${dayHm(readyAt)}` : null, early ? 'Ready Guard starts early for the safety margin' : 'in the cheapest hours before you leave'])];
-      } else {
-        s = ['pause', 'grey', 'Not charging now', esc(n.reason || '')];
-      }
-      return `<div class="card charge-now charge-${s[1]}">
-        <div class="entity">${shape(s[0], s[1])}<div class="txt">
-          <div class="charge-now-title">${esc(s[2])}</div>
-          <div class="secondary">${s[3]}</div>
+      const c = d.charge_state;
+      if (!c || (d.missing && d.missing.length)) return '';
+      const color = c.advice_only ? 'grey' : c.color;
+      return `<div class="card charge-now charge-${esc(color)}" data-state="${esc(c.state)}">
+        <div class="entity">${shape(c.icon, color)}<div class="txt">
+          <div class="charge-now-title">${c.advice_only ? 'Advice only · ' : ''}${esc(c.title)}</div>
+          <div class="secondary">${esc(c.detail)}${c.advice_only ? ' · Allow control is off, so the app does not start or stop the charger.' : ''}</div>
         </div></div>
-        <span class="src">Checked ${esc(hm(n.at))}</span>
+        <span class="src">Checked ${esc(hm(c.at))}</span>
       </div>`;
     }
 
