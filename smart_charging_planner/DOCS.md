@@ -16,6 +16,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
+- **Charging status** (on top): what the charger does right now, checked every minute. **Charging now** (with the power, the level and when it is ready), **Not charging now · starts at …** (and why: the cheapest hours, or Ready Guard starting earlier for the safety margin), **Ready**, **Car not connected**, or in orange what is in the way, for example **the car's charge limit is 80 %** while your trip needs 100 %.
 - **Ready Guard**: whether the car will be ready in time, and the latest safe start. See below.
 - **Plan**: when the car must be ready and how full, from a weekly schedule, a Home Assistant helper, a calendar, or a one-off departure; adding trips to your calendar.
 - **Activity**: **Savings** per charging session in the last 30 days, and the **Log** of what the app wanted and every command it sent.
@@ -150,7 +151,7 @@ Car integrations depend on the car maker's cloud (Renault, MySkoda, Tesla …), 
 
 ## Ready Guard
 
-Settings › Rules, on by default. For every departure Ready Guard checks whether the plan still has enough real-world margin: it counts with 90 % of the charging power and a safety margin (at least 30 minutes, or 15 % of the charging time when that is more). Home shows the status (on track, watch this plan, action needed, not achievable), the **latest safe start** and why. When the latest safe start is reached, Ready Guard charges continuously at full power, also over cheap hours and solar-only waiting, until the car is ready. With Publish sensors on, `sensor.smart_charging_ready_guard` shows the same.
+Settings › Rules, on by default. For every departure Ready Guard checks whether the plan still has enough real-world margin: it counts with 90 % of the charging power and a safety margin (at least 30 minutes, or 15 % of the charging time when that is more). Home shows the status (on track, watch this plan, action needed, not achievable), the **latest safe start** and why. When the cheapest plan starts after the latest safe start, Ready Guard says so (**Ready Guard starts earlier**) instead of "On track". When the car's own charge limit is below the wanted level and the app may not change it ("Don't change the car's charge limit" in Settings › Rules, or a car that only shows its limit), the status is **action needed** with the limit, and you get the notification "Ready Guard needs you". When the latest safe start is reached, Ready Guard charges continuously at full power, also over cheap hours and solar-only waiting, until the car is ready. With Publish sensors on, `sensor.smart_charging_ready_guard` shows the same.
 
 ## Battery care
 
@@ -269,7 +270,7 @@ In **Settings › Notifications** you add **recipients**: every phone (or group)
 | Group | Messages |
 |---|---|
 | **Problems** | Charger command failed · Charger did not start or pause (within 5 minutes after a command) · Easee Equalizer command failed · Car charge limit not changed |
-| **Action needed** | Ready Guard: target at risk · Ready Guard takes over · Ready Guard needs you (plug in, allow control) · Which car is connected? |
+| **Action needed** | Ready Guard: target at risk · Ready Guard takes over · Ready Guard needs you (plug in, allow control, the car's charge limit too low) · Which car is connected? |
 | **Car** | Car not reachable · Car reachable again · Car charge limit changed · Ready-for choice ended |
 | **Start and pause** | Charging started · Charging paused (with the reason, for example "Planned charging block until Thu 03:10") |
 | **Home battery** | What the home battery does now · Home battery command failed |

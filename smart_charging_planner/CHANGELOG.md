@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.29.16-dev
+
+- **Charging status on top of Home**: one clear line with what the charger does right now (checked every minute): **Charging now** (power, level, ready around), **Not charging now · starts at 12:00**, **Ready**, **Car not connected**, or what is in the way.
+- Fix: with "Don't change the car's charge limit" on and the car's limit below your trip (for example 80 % for a trip that needs 100 %), the app quietly planned to 80 % and said "Battery is at the target". Now Home and Ready Guard say **"Car's charge limit is 80 %"** (action needed) and you get the notification "Ready Guard needs you", with how to fix it.
+- Ready Guard: a cheapest plan that starts after the latest safe start now says **"Ready Guard starts earlier"** instead of "On track".
+- Tests: Ready Guard checks for both; settings test J8.
+
 ## 0.29.15-dev
 
 - **The minimum after a trip**: with "Always charge when the battery is below a minimum" on and the car expected back below it (for example back at 26 % with a minimum of 40 %), the timeline and the chart now show that the car charges right away to the minimum when it is back (purple), and the rest in the cheapest hours (orange). Before, all of it was planned in the cheapest hours, which is not what happens

@@ -277,6 +277,16 @@
     .tab.active, .subtab.active { background: rgba(var(--rgb-accent), .14); }
     .plan-card { border-top: 4px solid rgba(var(--rgb-accent), .55); }
 
+    .charge-now { position: relative; overflow: hidden; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 18px 22px; }
+    .charge-now::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: rgb(var(--rgb-grey)); }
+    .charge-green::before { background: rgb(var(--rgb-green)); }
+    .charge-blue::before { background: rgb(var(--rgb-blue)); }
+    .charge-amber::before { background: rgb(var(--rgb-amber)); }
+    .charge-orange::before { background: rgb(var(--rgb-orange)); }
+    .charge-now-title { font-size: clamp(18px, 2.6vw, 24px); font-weight: 650; line-height: 1.2; }
+    .charge-now .secondary { font-size: 13px; margin-top: 4px; }
+    .charge-now .src { white-space: nowrap; align-self: flex-start; }
+    @media (max-width: 560px) { .charge-now { flex-direction: column; align-items: flex-start; } }
     .ready-card { position: relative; overflow: hidden; padding: 22px; }
     .ready-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: rgb(var(--rgb-grey)); }
     .ready-on_track::before { background: rgb(var(--rgb-green)); }

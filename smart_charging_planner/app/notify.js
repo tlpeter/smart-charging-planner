@@ -33,7 +33,7 @@ const MESSAGES = [
   { id: 'carlimit_failed', category: 'problems', name: 'Car charge limit not changed' },
   { id: 'rg_risk', category: 'action', name: 'Ready Guard: target at risk' },
   { id: 'rg_active', category: 'action', name: 'Ready Guard takes over' },
-  { id: 'rg_needs_you', category: 'action', name: 'Ready Guard needs you (plug in, allow control)' },
+  { id: 'rg_needs_you', category: 'action', name: 'Ready Guard needs you (plug in, allow control, charge limit too low)' },
   { id: 'which_car', category: 'action', name: 'Which car is connected?' },
   { id: 'car_offline', category: 'car', name: 'Car not reachable' },
   { id: 'car_online', category: 'car', name: 'Car reachable again' },

@@ -695,7 +695,24 @@ async function run() {
     await sleep(800);
     assert(!callsSince(n0).some((c) => c.domain === 'number'), 'limit was sent');
     assert(p.manages_car_limit === false && p.planning.target_soc === 80, `${p.manages_car_limit}/${p.planning.target_soc}`);
-    await ok('POST', 'api/control/settings', rules());
+    // Above the car's limit (11 Oct 2026: 87 % with the limit at 80 %, trip 100 %):
+    // not "ready" but "action needed", on Home and as a notification.
+    const soc0 = world.soc;
+    world.soc = 85;
+    try {
+      const q = await plan();
+      await sleep(800);
+      const wanted = q.planning.wanted_soc;
+      assert(wanted > 80, `wanted ${wanted}`);
+      assert(q.reliability && q.reliability.base_status === 'action_needed' && /80%/.test(q.reliability.label), JSON.stringify(q.reliability && [q.reliability.status, q.reliability.label]));
+      assert(q.charging_now && q.charging_now.plugged !== undefined, `charging_now ${JSON.stringify(q.charging_now)}`);
+      const told = world.calls.filter((c) => c.domain === 'notify').some((c) => /needs you/i.test(c.data.title) && /80%/.test(c.data.message));
+      assert(told, 'no "Ready Guard needs you" notification about the limit');
+    } finally {
+      world.soc = soc0;
+      await ok('POST', 'api/control/settings', rules());
+    }
+    return 'limit 80 %, battery 85 %: action needed + notification';
   });
   await test('J9', 'Notification on start (notify every start and pause)', async () => {
     const notes = world.calls.filter((c) => c.domain === 'notify').map((c) => c.data.title);
