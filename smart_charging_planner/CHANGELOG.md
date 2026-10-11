@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.14-dev
+
+- **The minimum in purple in the chart**: charging for a minimum has its own colour. That is: "Always charge when the battery is below a minimum" (Settings › Rules), **Quick minimum** on Home, and the minimum before an earlier departure with **Ready for**. The legend shows "Minimum (40%)"; the tooltip says how much of a block is for the minimum
+- Below the minimum the plan now shows what really happens: that part is charged right away, the rest in the cheapest hours (before, the plan did not show the immediate charging)
+- The home battery is **turquoise** now (in the chart and on its page), so it does not look like the minimum
+- Docs: "Default minimum for the quick choices" is the starting level for the quick choices, not a switch
+- Tests: settings tests G2b, J3, J5b and planner checks
+
 ## 0.29.13-dev
 
 - The app has an icon and a logo in Home Assistant: a charging pole with a price chart on its screen (cheap hours green, expensive hours red).

@@ -426,6 +426,15 @@ async function run() {
     const n = await decision();
     assert(n.want === 'charge' && n.code === 'below_minimum', `${n.want}/${n.code}`);
   });
+  await test('G2b', 'Below the minimum: the plan charges that part right away, marked as minimum (purple in the chart); the rest as planned', async () => {
+    const p = await plan();
+    const mins = p.plan.blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+    assert(p.plan.minimum && p.plan.minimum.kind === 'always' && p.plan.minimum.soc === 50 && p.plan.notes.includes('below_minimum'), JSON.stringify(p.plan.minimum));
+    assert(mins.length && mins[0].start - Date.now() < 120000, `first minimum block ${mins.length ? new Date(mins[0].start).toISOString() : 'none'}`);
+    const minKwh = mins.reduce((a, b) => a + b.min_kwh, 0);
+    assert(Math.abs(minKwh - p.plan.minimum.kwh) < 0.2, `${minKwh} of ${p.plan.minimum.kwh} kWh`);
+    return `${minKwh.toFixed(1)} kWh right away to ${p.plan.minimum.soc}%`;
+  });
   await test('G3', 'Minimum with a price limit below the current price → not charged for the minimum', async () => {
     await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 50, min_soc_max_price: 0.01 }));
     const n = await decision();
@@ -604,6 +613,8 @@ async function run() {
     assert(p.departure.source === 'choice' && p.charge_for.interim && p.plan.stage, 'no two-stage plan');
     const first = p.plan.blocks.filter((b) => b.start < p.plan.stage.first_deadline).reduce((a, b) => a + b.kwh, 0);
     assert(first >= p.charge_for.min_kwh - 0.01, `only ${first} kWh before the first departure, need ${p.charge_for.min_kwh}`);
+    const marked = p.plan.blocks.reduce((a, b) => a + (b.min_kwh || 0), 0);
+    assert(p.plan.minimum && p.plan.minimum.kind === 'ready_for' && Math.abs(marked - p.charge_for.min_kwh) < 0.2, `minimum ${JSON.stringify(p.plan.minimum)}, marked ${marked}`);
     const sets = callsSince(n0).filter((c) => c.domain === 'number').map((c) => c.data.value);
     assert(world.limit === lim(95), `limit ${world.limit}, sent ${sets}`);
     return `${first.toFixed(1)} kWh before ${new Date(p.plan.stage.first_deadline).toISOString().slice(5, 16)}, limit sent ${sets}`;
@@ -642,6 +653,17 @@ async function run() {
     world.soc = 20;
     const r = await ok('POST', 'api/boost/preview', { mode: 'soc', value: 35 });
     assert(r.limit.managed && r.limit.to === lim(90), `preview ${JSON.stringify(r.limit)}`);
+  });
+  await test('J5b', 'Quick minimum started: all of it is marked as minimum (purple in the chart)', async () => {
+    world.soc = 20;
+    world.charging = false;
+    await ok('POST', 'api/boost', { mode: 'soc', value: 35, minimum: true });
+    const p = await plan();
+    await ok('DELETE', 'api/boost');
+    await plan();
+    assert(p.boost && p.boost.minimum === true && p.plan.minimum && p.plan.minimum.kind === 'quick', JSON.stringify({ boost: p.boost, minimum: p.plan.minimum }));
+    assert(p.plan.blocks.length && p.plan.blocks.every((b) => Math.abs((b.min_kwh || 0) - b.kwh) < 0.001), 'not all marked');
+    return `${p.plan.minimum.kwh} kWh to ${p.plan.minimum.soc}%`;
   });
   await test('J6', 'Charge now 100 %: limit up, charger started; stop: limit back', async () => {
     world.charging = false;

@@ -1142,6 +1142,17 @@ const routes = {
     // level (e.g. 100 %) is charged up to that level whenever it is cheapest,
     // the rest only in the last hours before the departure.
     const careRules = rulesFor(s);
+    // "Always charge when the battery is below a minimum" (Settings › Rules):
+    // that part is charged right away, the rest as planned. Shown in purple.
+    let minNow = null;
+    if (vehicle && mode !== 'fixed_kwh' && vehicle.capacity_kwh > 0 && Number.isFinite(soc)) {
+      const priceNow = (prices.find((p) => p.start <= now && now < p.end) || {}).total;
+      const min = controller.minimumNow(careRules, states, soc, priceNow);
+      if (min != null) {
+        const kwh = energyNeededKwh(soc, Math.min(min, targetSoc), vehicle.capacity_kwh, planning.loss_percent);
+        if (kwh > 0.01) minNow = { soc: min, kwh };
+      }
+    }
     let care = null;
     if (careRules.battery_care_enabled !== false && departure && !interim && vehicle && mode !== 'fixed_kwh'
       && vehicle.capacity_kwh > 0 && Number.isFinite(soc) && neededKwh > 0.01) {
@@ -1153,7 +1164,14 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
       }
     }
-    const plan = care
+    const plan = minNow && neededKwh > 0.01
+      ? planStaged({
+        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true,
+        continuous: planning.continuous !== false,
+        minSplitSaving: Number(planning.min_split_saving) || 0,
+        solarOnly,
+      })
+      : care
       ? planCare({
         prices, now, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
@@ -1173,7 +1191,13 @@ const routes = {
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       });
-    if (care) {
+    if (minNow && neededKwh > 0.01) {
+      plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
+      plan.notes.push('below_minimum');
+    } else if (interim && minKwh > 0.01) {
+      plan.minimum = { soc: Math.min(cf.min_soc, targetSoc), kwh: Math.round(minKwh * 10) / 10, kind: 'ready_for', before: interim.time };
+    }
+    if (care && !minNow) {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
@@ -1213,10 +1237,14 @@ const routes = {
         if (prev) ha.log('Charge now reached its goal; the plan takes over');
       }
       else {
-        boostInfo = { active: true, mode: b.mode, value: b.value, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
+        boostInfo = { active: true, mode: b.mode, value: b.value, minimum: !!b.minimum, started: b.started, remaining_kwh: kwh, error: boostError, send: b.send || null };
         if (kwh != null) {
           const lastEnd = Math.max(realEnd || now, prices.length ? prices[prices.length - 1].end : now);
           activePlan = planCharging({ prices, now, deadline: lastEnd, neededKwh: kwh, powerKw, immediate: true });
+          // Quick minimum: all of it is for the minimum (purple in the chart).
+          if (b.minimum) {
+            activePlan = { ...activePlan, blocks: activePlan.blocks.map((x) => ({ ...x, min_kwh: x.kwh })), minimum: { soc: b.value, kwh: Math.round(kwh * 10) / 10, kind: 'quick' } };
+          }
           boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
         }
       }
@@ -1673,7 +1701,8 @@ function boostFromBody(body, cached, starting = false) {
     throw badRequest(`Your car stops at ${lim.value}% (${lim.name}). Raise that limit first, or choose ${lim.value}% or less.`);
   }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
-  return { mode, value: mode === 'target' ? null : value };
+  // Quick minimum on Home: Charge now to a level, shown as minimum charging.
+  return { mode, value: mode === 'target' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
 }
 
 async function freshPlan() {

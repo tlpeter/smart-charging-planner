@@ -769,6 +769,7 @@ function durationText(minutes) {
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
       solar_forecast_error: 'The solar forecast could not be read; the plan counts on no sun. Charging on surplus still works.',
+      below_minimum: 'The battery is below your minimum (Settings › Rules): that part is charged right away (purple), the rest as planned.',
       minimum_not_reached: 'The minimum cannot be reached before the departure in between with the known prices and time. The plan charges as much as fits.',
     };
 
@@ -844,11 +845,13 @@ function durationText(minutes) {
         // Forecast prices are striped, so they differ from the (faded) past.
         const blk = isPlanned ? d.plan.blocks.find((b) => p.start <= b.start && b.start < p.end) : null;
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
-        const planColor = onSolar ? 'var(--solar)' : 'var(--accent)';
+        // Charging for a minimum (always-minimum, Quick minimum, Ready-for minimum): purple.
+        const forMin = blk && (blk.min_kwh || 0) >= blk.kwh / 2;
+        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
         const didCharge = charged.has(p.start);
         const fill = didCharge ? 'var(--charged)' : p.forecast
-          ? (isPlanned ? (onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
           : isPlanned ? planColor : isExp ? 'var(--expected)' : 'var(--bar)';
         const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
@@ -954,6 +957,7 @@ function durationText(minutes) {
             <pattern id="fc-bar" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--bar)"/></pattern>
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
+            <pattern id="fc-min" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--minimum)"/></pattern>
             <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
           ${grid}${away}${bars}${solarCurve}${batteryMarks}
@@ -972,7 +976,7 @@ function durationText(minutes) {
           const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
           const done = (d.charged || []).find((c) => c.start === p.start);
           const doneText = done ? `<br><span style="color:var(--charged)">■</span> Charged ${done.kwh.toFixed(1)} kWh` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -1090,7 +1094,7 @@ function durationText(minutes) {
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span><span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1613,7 +1617,7 @@ function durationText(minutes) {
       const mf = $('min-form');
       if (mf) mf.onsubmit = (e) => {
         e.preventDefault();
-        runBoostCheck({ mode: 'soc', value: mf.value.value }, $('min-check'), 'min');
+        runBoostCheck({ mode: 'soc', value: mf.value.value, minimum: true }, $('min-check'), 'min');
       };
     }
 
@@ -2990,7 +2994,7 @@ function durationText(minutes) {
       f.querySelectorAll('.bat-on').forEach((el) => { el.hidden = !f.enabled.checked; });
       const c = batteryData && batteryData.candidates.find((x) => x.soc_entity === f.battery.value);
       $('battery-detail').innerHTML = c ? `
-        <p class="small">${shape('battery', 'purple', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
+        <p class="small">${shape('battery', 'teal', true)} <strong>${esc(c.brand)}</strong> · ${esc(c.integration)} · now ${c.soc != null ? `${tidy(c.soc)} %` : '–'}${c.power_kw != null ? ` · ${c.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(c.power_kw))} kW` : ''}${c.capacity_kwh ? ` · ${tidy(c.capacity_kwh)} kWh` : ''}</p>
         <p class="small">${c.control.supported.length ? `The app can: ${c.control.supported.map((a) => esc(ACTION_TEXT[a] || a)).join(', ')}.` : '<span class="differ">The app can only read this battery; the plan is advice.</span>'} ${c.control.note ? `<span class="muted">${esc(c.control.note)}</span>` : ''}</p>
         ${c.sign_verified ? '' : '<p class="muted small">The sign of the power sensor is not documented in the integration; check below that charging shows as charging.</p>'}` : '';
       const range = f.ev_discharge.value === 'range';
@@ -3018,8 +3022,8 @@ function durationText(minutes) {
         <div class="levellegend">
           <span><i style="background:rgba(var(--rgb-grey),.35)"></i>never used (below ${minP}%)</span>
           <span><i style="background:rgba(var(--rgb-amber),.55)"></i>only for the house</span>
-          <span><i style="background:rgba(var(--rgb-purple),.45)"></i>for the car, once started</span>
-          <span><i style="background:rgba(var(--rgb-purple),.85)"></i>starts charging the car</span>
+          <span><i style="background:rgba(var(--rgb-teal),.45)"></i>for the car, once started</span>
+          <span><i style="background:rgba(var(--rgb-teal),.85)"></i>starts charging the car</span>
         </div>
         <p class="muted small">While the car charges, the battery helps from ${fromP}% until it is at ${toP}%. It starts again only when it is back at ${fromP}%.</p>`;
     }
@@ -3052,7 +3056,7 @@ function durationText(minutes) {
       f.solar_priority.value = c.solar_priority;
       $('battery-brands').innerHTML = r.brands.map((b) => `${b.read_only ? shape('alert', 'grey', true) : shape('check', 'green', true)} ${esc(b.name)} <span class="muted">(${esc(b.integration)}${b.read_only ? ', read only' : ''})</span>`).join('<br>');
       const allowed = r.control_allowed && r.battery_control_allowed;
-      $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'purple', true)} Battery now</h2>
+      $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'teal', true)} Battery now</h2>
           <p class="small">${r.now.soc != null ? `${tidy(r.now.soc)} %` : 'level unknown'}${r.now.power_kw != null ? ` · ${r.now.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(r.now.power_kw))} kW` : ''} · stored solar power about ${tidy(r.ledger.solar_kwh)} kWh</p>
           <p class="muted small">${allowed ? 'The app steers the battery (Allow control and Allow home battery control are on).' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
       syncBattery();
@@ -3100,7 +3104,7 @@ function durationText(minutes) {
     function batteryHtml(d) {
       const b = d.battery;
       if (!b) return '';
-      if (b.error) return `<div class="card"><h2>${shape('battery', 'purple', true)} Home battery</h2><div class="error">${esc(b.error)}</div></div>`;
+      if (b.error) return `<div class="card"><h2>${shape('battery', 'teal', true)} Home battery</h2><div class="error">${esc(b.error)}</div></div>`;
       const now = d.battery_now;
       const periods = [];
       for (const a of b.actions || []) {
@@ -3111,13 +3115,13 @@ function durationText(minutes) {
       const shown = periods.filter((x) => x.action !== 'auto').slice(0, 6);
       return `
         <div class="card">
-          <h2>${shape('battery', 'purple', true)} Home battery</h2>
+          <h2>${shape('battery', 'teal', true)} Home battery</h2>
           <p class="small">${esc(b.name || '')}: <strong>${b.soc != null ? `${tidy(b.soc)} %` : '–'}</strong>${b.power_kw != null ? ` · ${b.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(b.power_kw))} kW` : ''}${now ? ` · now: <strong>${esc(ACTION_TEXT[now.action] || now.action)}</strong> <span class="muted">(${esc(now.reason)})</span>` : ''}</p>
           ${shown.length ? `<table class="periods"><tr><th>When</th><th>Battery</th><th class="n">Level after</th></tr>
             ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
             <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}
           ${b.saving > 0.005 ? `<p class="small">Expected saving compared with leaving it alone: <strong>${money(b.saving)}</strong>.</p>` : ''}
-          <p class="muted small">${shape('car', b.ev_discharge === 'never' ? 'grey' : 'purple', true)} ${esc(EV_TEXT(b))}</p>
+          <p class="muted small">${shape('car', b.ev_discharge === 'never' ? 'grey' : 'teal', true)} ${esc(EV_TEXT(b))}</p>
           ${b.control_allowed ? '' : `<p class="muted small">${b.control.supported.length ? 'Advice only: the app steers the battery once Allow home battery control is on.' : esc(b.control.note || 'This battery can only be read.')}</p>`}
         </div>`;
     }
@@ -3302,7 +3306,7 @@ function durationText(minutes) {
       grid: ['SETTINGS', 'Grid', 'Set the grid meter and the electrical limits the plan must respect.', 'grid', 'orange'],
       prices: ['SETTINGS', 'Prices', 'Configure real electricity prices and an optional multi-day forecast.', 'prices', 'green'],
       solar: ['SETTINGS', 'Solar', 'Plan with solar production and control charging on live surplus.', 'sun', 'amber'],
-      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'purple'],
+      battery: ['SETTINGS', 'Home battery', 'Balance the car, home battery, solar energy and electricity prices.', 'battery', 'teal'],
       ctlset: ['SETTINGS', 'Charging rules', 'Fine-tune safety, timing and the way the app controls charging.', 'control', 'green'],
       status: ['SETTINGS', 'Notifications', 'Choose where updates are sent and inspect published sensors.', 'status', 'blue'],
       diag: ['SETTINGS', 'Diagnostics', 'Check the connection, test control and export troubleshooting data.', 'alert', 'grey'],

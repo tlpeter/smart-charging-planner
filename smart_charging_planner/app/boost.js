@@ -29,8 +29,9 @@ function current() {
   return load();
 }
 
-function start({ mode, value }, now = Date.now()) {
-  S().state = { mode, value: mode === 'target' ? null : value, started: now };
+// minimum: started as "Quick minimum" on Home (shown in purple in the chart).
+function start({ mode, value, minimum = false }, now = Date.now()) {
+  S().state = { mode, value: mode === 'target' ? null : value, started: now, ...(minimum ? { minimum: true } : {}) };
   save();
   ha.log(`Charge now started (${mode}${S().state.value != null ? ' ' + S().state.value : ''})`);
   return S().state;
