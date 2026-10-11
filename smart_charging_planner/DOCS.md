@@ -192,7 +192,7 @@ Always on. Home shows the coming days (up to 7 days, 6 departures) as one timeli
 - **Charging** (blue): the real plan up to the first departure.
 - **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", is not a departure of its own: it is when the car is back.
 - **Back home**: when, and with about how much battery.
-- **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
+- **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. With **Always charge when the battery is below a minimum** on and the car back below it: first **right away to the minimum** (purple), then the rest in the cheapest hours. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
 
 When another trip is added to the calendar, it takes its place in the timeline right away.
 

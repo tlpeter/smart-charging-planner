@@ -902,6 +902,8 @@
     .tl-charge.expected .tl-title, .tl-charge.expected .tl-sub { color: var(--expected); }
     .tl-level { flex: 0 0 auto; min-width: 48px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; padding: 4px 0 0; }
     .tl-level.exp { color: var(--expected); }
+    .tl-level.min { color: var(--minimum); }
+    .tl-charge.minimum .tl-title, .tl-charge.minimum .tl-sub { color: var(--minimum); }
     .tl-key.exp { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--expected); margin-right: 6px; vertical-align: -1px; }
     .legend i.away { background: var(--muted); opacity: .25; }
     @media (max-width: 560px) {

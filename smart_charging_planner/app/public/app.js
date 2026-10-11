@@ -849,10 +849,11 @@ function durationText(minutes) {
         const forMin = blk && (blk.min_kwh || 0) >= blk.kwh / 2;
         const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
+        const expMin = isExp && expBlocks.some((b) => p.start <= b.start && b.start < p.end && (b.min_kwh || 0) >= b.kwh / 2);
         const didCharge = charged.has(p.start);
         const fill = didCharge ? 'var(--charged)' : p.forecast
-          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
-          : isPlanned ? planColor : isExp ? 'var(--expected)' : 'var(--bar)';
+          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          : isPlanned ? planColor : expMin ? 'var(--minimum)' : isExp ? 'var(--expected)' : 'var(--bar)';
         const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
         // Rounded at the data end, square at the baseline.
@@ -1094,7 +1095,7 @@ function durationText(minutes) {
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1168,9 +1169,12 @@ function durationText(minutes) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
           }
           const short = x.expected && x.kwh < x.needed_kwh - 0.1 ? ' · the rest when more prices are known' : '';
-          return `<li class="tl-row tl-charge${x.expected ? ' expected' : ''}">${shape('bolt', x.expected ? 'orange' : 'blue', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>${x.expected ? 'Expected charging' : 'Charging'} to ${pct(x.soc_to)}</div>
-            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''}${x.uses_forecast ? ' · partly forecast prices' : ''}${short}</div></div>${level(x.soc_to, x.expected ? 'exp' : '')}</li>`;
+          const what = x.minimum
+            ? `${x.expected ? 'Expected: right away' : 'Right away'} to ${pct(x.soc_to)} <span class="muted">(your minimum)</span>`
+            : `${x.expected ? 'Expected charging' : 'Charging'} to ${pct(x.soc_to)}`;
+          return `<li class="tl-row tl-charge${x.expected ? ' expected' : ''}${x.minimum ? ' minimum' : ''}">${shape('bolt', x.minimum ? 'purple' : x.expected ? 'orange' : 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>${what}</div>
+            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''}${x.uses_forecast ? ' · partly forecast prices' : ''}${short}</div></div>${level(x.soc_to, x.minimum ? 'min' : x.expected ? 'exp' : '')}</li>`;
         }
         if (x.type === 'leave') {
           const low = x.soc != null && x.target_soc != null && x.soc < x.target_soc - 0.5;
