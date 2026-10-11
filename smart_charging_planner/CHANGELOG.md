@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.15-dev
+
+- **The minimum after a trip**: with "Always charge when the battery is below a minimum" on and the car expected back below it (for example back at 26 % with a minimum of 40 %), the timeline and the chart now show that the car charges right away to the minimum when it is back (purple), and the rest in the cheapest hours (orange). Before, all of it was planned in the cheapest hours, which is not what happens
+- A block that is partly for the minimum counts each part on its own line in the timeline
+- Tests: the real Home Assistant Core check now uses **2026.10.1**; settings test Y9
+
 ## 0.29.14-dev
 
 - **The minimum in purple in the chart**: charging for a minimum has its own colour. That is: "Always charge when the battery is below a minimum" (Settings › Rules), **Quick minimum** on Home, and the minimum before an earlier departure with **Ready for**. The legend shows "Minimum (40%)"; the tooltip says how much of a block is for the minimum

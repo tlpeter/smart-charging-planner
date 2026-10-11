@@ -1665,6 +1665,28 @@ async function run() {
       world.soc = 100;
       return `${a.km} km → ${a.pct}% both times`;
     });
+    await test('Y9', 'Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours', async () => {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
+      world.soc = 80;
+      world.events = [
+        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        const tl = p.next.timeline;
+        const back = tl.find((x) => x.type === 'back');
+        const charges = tl.filter((x) => x.type === 'charge' && x.expected);
+        assert(back && back.soc < 60, JSON.stringify(back));
+        assert(charges.length >= 1 && charges[0].minimum === true && charges[0].soc_to === 60 && charges[0].start - at(1, 18) < 3600000, JSON.stringify(charges));
+        const minBlocks = p.next.expected_blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+        assert(minBlocks.length && minBlocks[0].start === at(1, 18), `first minimum block ${minBlocks.length ? new Date(minBlocks[0].start).toISOString() : 'none'}`);
+        return `back ${back.soc}% → right away to 60% (${charges[0].kwh} kWh)${charges[1] ? `, then ${charges[1].kwh} kWh to ${charges[1].soc_to}%` : ''}`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        world.soc = 100;
+      }
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [
