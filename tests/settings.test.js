@@ -107,6 +107,7 @@ async function startApp(options = {}) {
       SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
+      SCP_CALENDAR_WAIT_MS: '100',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1811,6 +1812,20 @@ async function run() {
       await refused('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16) }), 'Turn on the calendar');
       assert(!callsSince(n).some((c) => c.service === 'create_event'), 'written');
       await ok('POST', 'api/departures', calOn());
+    });
+    await test('U5b', 'Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not', async () => {
+      world.events = [];
+      world.calendarPending = [{ summary: 'Naar Gent', description: 'doel: 85', location: 'Gent', start: isoLocal(at(2, 9), tz), end: isoLocal(at(2, 18), tz) }];
+      const n0 = world.calls.length;
+      const before = await ok('GET', 'api/plan?refresh=1');
+      assert(!callsSince(n0).some((c) => c.service === 'update_entity'), 'refreshed without the button');
+      assert(!(before.departure && before.departure.title === 'Naar Gent'), 'seen before the refresh');
+      const after = await ok('GET', 'api/plan?refresh=1&calendar=1');
+      const upd = callsSince(n0).filter((c) => c.domain === 'homeassistant' && c.service === 'update_entity');
+      assert(upd.length === 1 && upd[0].target.entity_id === 'calendar.auto', JSON.stringify(upd));
+      assert(after.departure && after.departure.title === 'Naar Gent' && after.departure.soc === 85, JSON.stringify(after.departure));
+      world.events = [];
+      return `update_entity ${upd[0].target.entity_id} → departure ${after.departure.title}`;
     });
     await test('U6', 'More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
       await ok('POST', 'api/vehicles/multi', { enabled: true });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.18-dev
+
+- **Refresh on Home also fetches the calendar**: it first asks Home Assistant to fetch the departures calendar again (`homeassistant.update_entity`, only for that calendar), then calculates the plan. A trip you just added in Google Calendar is in the plan right away, like the refresh button on your own dashboard. The automatic recalculation does not do this
+- Docs: why a trip added in Google Calendar takes a few minutes, and step by step how to let Home Assistant fetch the calendar every 5 minutes (or with a dashboard button)
+- Tests: settings test U5b (the fake Google calendar only shows a new trip after it is fetched again)
+
 ## 0.29.17-dev
 
 - **Charging status in colour**: ready **green**, charging **red**, waiting **yellow**, anything in the way **orange**, not connected or nothing to do **grey**.
