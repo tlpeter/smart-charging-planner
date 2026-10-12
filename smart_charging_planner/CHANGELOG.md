@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.2-dev
+
+- Tests: "plugged in" is now checked for all 10 charger brands (Easee, Zaptec, Alfen, Wallbox, go-e ×2, Peblar, OCPP, Ohme, Tesla Wall Connector), every status text, each with the car's own sensor on and off. The charger saying "connected" wins; otherwise the car's sensor counts
+
 ## 0.30.1-dev
 
 - Fix: just after plugging in, Home still said the car was not plugged in. The app trusted the car's own "Plugged in" sensor first, and that comes through the car's cloud (Renault, MySkoda), often minutes later. Now a charger that says a car is connected wins, so the app sees it right away. The car's sensor still counts when the charger cannot tell
