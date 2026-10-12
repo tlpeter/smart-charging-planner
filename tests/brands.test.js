@@ -96,6 +96,15 @@ for (const b of BRANDS) {
       assert.strictEqual(a.plugged, plugged, `plugged ${a.plugged}`);
       if (charging !== null) assert.strictEqual(a.charging, charging, `charging ${a.charging}`);
     });
+    // With the car's own "Plugged in" sensor too (any car brand: on/off). The
+    // charger saying "connected" wins (the car's cloud is often minutes late);
+    // otherwise the car's sensor (for example at a public charger).
+    for (const carPlug of ['on', 'off']) {
+      const withCar = [...st, { entity_id: 'binary_sensor.car_plugged_in', state: carPlug, attributes: { device_class: 'plug' }, last_changed: new Date().toISOString() }];
+      const v = controller.readActual({ vehicle: { plugged_entity: 'binary_sensor.car_plugged_in' }, charger: { status_entity: c.suggested.status }, states: withCar });
+      const want = plugged === true ? true : carPlug === 'on';
+      check(`status "${text}" + car sensor ${carPlug} → plugged ${want}`, () => assert.strictEqual(v.plugged, want, `plugged ${v.plugged}`));
+    }
   }
 }
 
