@@ -1182,6 +1182,20 @@ async function run() {
     return `assumed ${p.vehicle.soc}%, planned ${p.plan.planned_kwh.toFixed(1)} kWh`;
   });
 
+  await test('V5', 'Just plugged in: the charger already says connected, the car\'s own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away', async () => {
+    world.plugged = true;
+    world.car1Plug = false;
+    try {
+      const p = await plan();
+      assert(p.plugged_now === true, `plugged_now ${p.plugged_now}`);
+      const n = await decision();
+      assert(n.code !== 'unplugged' && n.code !== 'not_plugged', `decision ${n.code}`);
+      return `charger: ${p.charger && p.charger.status ? p.charger.status : 'connected'} · car sensor: off → plugged in`;
+    } finally {
+      world.car1Plug = undefined;
+    }
+  });
+
   // ----- K. Forecast and checklist -----------------------------------------
   group = 'K. Price forecast and checklist';
   await test('K1', 'Forecast on: plan waits for the cheap forecast day, never charges on it now', async () => {

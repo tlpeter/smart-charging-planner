@@ -113,9 +113,15 @@ function readActual({ vehicle, charger, states, now = Date.now() }) {
   const statusInvalid = !!charger && !!charger.status_entity && (status == null || INVALID.has(status.toLowerCase()));
   const invalidFor = statusInvalid && statusObj && statusObj.last_changed ? now - Date.parse(statusObj.last_changed) : statusInvalid ? Infinity : 0;
 
+  // The charger knows first: it sees the cable right away, the car's own
+  // "plugged in" sensor often comes through the car's cloud minutes later.
+  // So a charger that says a car is connected wins. Otherwise the car's sensor
+  // (a car plugged in elsewhere, or a charger status that cannot tell).
+  const chargerSaysPlugged = !!status && !statusInvalid && !UNPLUGGED.test(status.toLowerCase());
   let plugged = null;
-  if (plug && (plug.state === 'on' || plug.state === 'off')) plugged = plug.state === 'on';
-  else if (status && !statusInvalid) plugged = !UNPLUGGED.test(status.toLowerCase());
+  if (chargerSaysPlugged) plugged = true;
+  else if (plug && (plug.state === 'on' || plug.state === 'off')) plugged = plug.state === 'on';
+  else if (status && !statusInvalid) plugged = false;
 
   let charging = null;
   if (status && CHARGING.test(status.toLowerCase()) && !NOT_CHARGING.test(status.toLowerCase())) charging = true;

@@ -154,6 +154,8 @@ Car integrations depend on the car maker's cloud (Renault, MySkoda, Tesla …), 
 - The car's own charge limit is not changed until the car is back: the call would fail, and car APIs limit the number of calls.
 - You get one notification when the car drops out and one when it is back (at most one of each per hour).
 
+**Plugged in.** The charger sees the cable right away; the car's own "Plugged in" sensor often comes through the car's cloud, minutes later. So when the charger says a car is connected, the app counts the car as plugged in at once. The car's sensor is used when the charger cannot tell (for example a car plugged in at a public charger).
+
 ## Ready Guard
 
 Settings › Rules, on by default. For every departure Ready Guard checks whether the plan still has enough real-world margin: it counts with 90 % of the charging power and a safety margin (at least 30 minutes, or 15 % of the charging time when that is more). Home shows the status (on track, watch this plan, action needed, not achievable), the **latest safe start** and why. When the cheapest plan starts after the latest safe start, Ready Guard says so (**Ready Guard starts earlier**) instead of "On track". When the car's own charge limit is below the wanted level and the app may not change it ("Don't change the car's charge limit" in Settings › Rules, or a car that only shows its limit), the status is **action needed** with the limit, and you get the notification "Ready Guard needs you". When the latest safe start is reached, Ready Guard charges continuously at full power, also over cheap hours and solar-only waiting, until the car is ready. With Publish sensors on, `sensor.smart_charging_ready_guard` shows the same.
