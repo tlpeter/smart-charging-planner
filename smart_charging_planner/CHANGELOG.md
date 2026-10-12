@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.1-dev
+
+- Fix: just after plugging in, Home still said the car was not plugged in. The app trusted the car's own "Plugged in" sensor first, and that comes through the car's cloud (Renault, MySkoda), often minutes later. Now a charger that says a car is connected wins, so the app sees it right away. The car's sensor still counts when the charger cannot tell
+- Tests: settings test V5
+
 ## 0.29.20-dev
 
 - The price chart uses the full width. Quick choices sits beside Plan details below the chart, and below it on phones.
