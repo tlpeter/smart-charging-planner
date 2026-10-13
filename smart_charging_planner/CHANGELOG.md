@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.3-dev
+
+- Fix: the charging status on top of Home showed the plan's target (for example "21% → 80%") while the car was only charging to your minimum. Below your minimum it now says **Charging to your minimum**, "21% → 40%", ready when the minimum is reached, and "your minimum first, then the plan"
+- With Charge now or Quick minimum to a level, the status shows that level and when it is reached, and which of the two it is
+- Docs: the charging status card on Home, its colours and what it charges to
+- Tests: two checks in chargestate.test.js
+
 ## 0.30.2-dev
 
 - Tests: "plugged in" is now checked for all 10 charger brands (Easee, Zaptec, Alfen, Wallbox, go-e ×2, Peblar, OCPP, Ohme, Tesla Wall Connector), every status text, each with the car's own sensor on and off. The charger saying "connected" wins; otherwise the car's sensor counts

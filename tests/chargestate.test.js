@@ -40,6 +40,32 @@ check('charging is red, with power, level and ready time', () => {
   assert.match(s.detail, /9\.1 kW · 87% → 100% · ready around Sun 11:00/);
 });
 
+check('below the minimum: "Charging to your minimum", up to the minimum, ready when the minimum part ends', () => {
+  const d = plan({
+    vehicle: { soc: 21, car_data: { ok: true } },
+    planning: { target_soc: 80, wanted_soc: 80 },
+    plan: { blocks: [{ start: now, end: now + 1.4 * H, kwh: 12.5, min_kwh: 12.5 }, { start: now + 15 * H, end: now + 18 * H, kwh: 26 }], notes: ['below_minimum'], minimum: { soc: 40, kwh: 12.5, kind: 'always' } },
+    reliability: { base_status: 'on_track', expected_ready: now + 18 * H },
+  });
+  const s = S(d, n({ charging: true, power_w: 9000, want: 'charge', code: 'below_minimum' }));
+  assert.equal(s.title, 'Charging to your minimum');
+  assert.match(s.detail, /9\.0 kW · 21% → 40% · ready around Sun 10:24 · your minimum first, then the plan/);
+});
+
+check('Charge now to a level: that level and its own end time', () => {
+  const d = plan({
+    vehicle: { soc: 21, car_data: { ok: true } },
+    planning: { target_soc: 80, wanted_soc: 80 },
+    boost: { active: true, mode: 'soc', value: 50, end: now + 2 * H },
+    plan: { blocks: [{ start: now, end: now + 2 * H, kwh: 17 }], notes: [] },
+  });
+  const s = S(d, n({ charging: true, power_w: 9000, want: 'charge', code: 'boost' }));
+  assert.equal(s.title, 'Charging now');
+  assert.match(s.detail, /21% → 50% · ready around Sun 11:00 · Charge now/);
+  const q = S({ ...d, boost: { ...d.boost, value: 40, minimum: true } }, n({ charging: true, power_w: 9000, want: 'charge', code: 'boost' }));
+  assert.match(q.detail, /21% → 40% · .*Quick minimum/);
+});
+
 check('Ready Guard and solar charging have their own title', () => {
   assert.equal(S(plan(), n({ charging: true, code: 'ready_guard', want: 'charge' })).title, 'Ready Guard charging');
   assert.equal(S(plan(), n({ charging: true, code: 'solar', want: 'charge' })).title, 'Charging on solar');
