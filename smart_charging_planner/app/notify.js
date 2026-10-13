@@ -104,9 +104,13 @@ async function notify(messageId, title, message, { key = null, minGapMs = 0, veh
     title = `${title} · ${ctx.name}`;
     if (key) key = `${key}@${scope.id()}`;
   }
+  // Marked as sent right away (so the same message is not sent twice at the
+  // same time), and unmarked again when it reached nobody: then it is tried
+  // again next time instead of waiting for hours.
+  let before;
   if (key) {
-    const at = lastSentByKey.get(key);
-    if (at && Date.now() - at < minGapMs) return { sent: false, reason: 'repeat' };
+    before = lastSentByKey.get(key);
+    if (before && Date.now() - before < minGapMs) return { sent: false, reason: 'repeat' };
     lastSentByKey.set(key, Date.now());
   }
   const results = await Promise.all(to.map(async (r) => {
@@ -121,6 +125,10 @@ async function notify(messageId, title, message, { key = null, minGapMs = 0, veh
     }
   }));
   const sent = results.some((x) => x.sent);
+  if (key && !sent) {
+    if (before) lastSentByKey.set(key, before);
+    else lastSentByKey.delete(key);
+  }
   const error = results.filter((x) => !x.sent).map((x) => x.error).join('; ') || null;
   lastNotification = { at: Date.now(), title, message, sent, error, to: to.map((r) => r.name) };
   return sent ? { sent: true, results } : { sent: false, error, results };

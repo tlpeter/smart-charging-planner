@@ -458,11 +458,11 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       const popts = { powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 };
       const exp = !(need > 0.01 && window.length) ? null
         : minKwh > 0.01
-          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, firstMaxPrice: minMaxPrice(rules), ...popts })
+          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, immediateUntil: x.time, firstMaxPrice: minMaxPrice(rules), ...popts })
           : planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, ...popts });
       expected = {
         soc_from: level,
-        soc_to: x.soc,
+        soc_to: goalSoc,
         needed_kwh: Math.round(need * 10) / 10,
         below_goal: level < goalSoc - 0.5,
         minimum: minKwh > 0.01 ? { soc: minSoc, kwh: Math.round(minKwh * 10) / 10 } : null,
@@ -475,14 +475,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       };
       out.expected_blocks.push(...expected.blocks);
       if (expected.periods.length) {
-        const items = chargeItems(expected.blocks, { type: 'charge', expected: true, needed_kwh: expected.needed_kwh, uses_forecast: expected.uses_forecast, soc_to: x.soc }, expected.minimum);
+        const items = chargeItems(expected.blocks, { type: 'charge', expected: true, needed_kwh: expected.needed_kwh, uses_forecast: expected.uses_forecast, soc_to: goalSoc }, expected.minimum);
         // The last part shows what is still needed in total.
         items.forEach((it) => {
           it.needed_kwh = it.minimum ? expected.minimum.kwh : Math.round((expected.needed_kwh - (expected.minimum ? expected.minimum.kwh : 0)) * 10) / 10;
         });
         timeline.push(...items);
       } else if (expected.below_goal) {
-        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: x.soc });
+        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: expected.soc_to });
       }
     }
     if (i === 0) {
@@ -495,7 +495,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       if (!expected || !expected.below_goal) socLeave = level;
       else {
         const share = expected.needed_kwh > 0 ? Math.min(1, expected.planned_kwh / expected.needed_kwh) : 1;
-        socLeave = Math.round((level + (x.soc - level) * share) * 10) / 10;
+        socLeave = Math.round((level + (expected.soc_to - level) * share) * 10) / 10;
       }
     }
     const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
@@ -1200,8 +1200,14 @@ const routes = {
       const priceNow = (prices.find((p) => p.start <= now && now < p.end) || {}).total;
       const min = controller.minimumNow(careRules, states, soc, priceNow);
       if (min != null) {
-        const kwh = energyNeededKwh(soc, Math.min(min, targetSoc), vehicle.capacity_kwh, planning.loss_percent);
-        if (kwh > 0.01) minNow = { soc: min, kwh };
+        // A minimum above the target counts too (the charger charges up to the
+        // minimum anyway), unless the car's own limit stops it earlier.
+        const goal = limited ? Math.min(min, targetSoc) : min;
+        const kwh = energyNeededKwh(soc, goal, vehicle.capacity_kwh, planning.loss_percent);
+        if (kwh > 0.01) {
+          minNow = { soc: goal, kwh };
+          if (!(neededKwh >= kwh)) neededKwh = kwh;
+        }
       }
     }
     let care = null;
@@ -1218,6 +1224,7 @@ const routes = {
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
         prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1248,7 +1255,7 @@ const routes = {
     } else if (interim && minKwh > 0.01) {
       plan.minimum = { soc: Math.min(cf.min_soc, targetSoc), kwh: Math.round(minKwh * 10) / 10, kind: 'ready_for', before: interim.time };
     }
-    if (care && !minNow) {
+    if (care) {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
@@ -1326,7 +1333,7 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
-      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
+      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
