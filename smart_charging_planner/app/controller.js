@@ -98,6 +98,18 @@ function findState(states, id) {
   return id ? states.find((x) => x.entity_id === id) || null : null;
 }
 
+// An on/off sensor as charger status (Settings › Charger allows a binary
+// sensor): 'plug' (a car is connected) or 'charging' (it charges); null for
+// a text status. Without a device class the name decides.
+function statusOnOff(entityId, obj) {
+  if (!entityId || !/^binary_sensor\./.test(entityId)) return null;
+  const dc = obj && obj.attributes ? obj.attributes.device_class : null;
+  if (dc === 'battery_charging') return 'charging';
+  if (dc === 'plug') return 'plug';
+  const words = `${entityId} ${(obj && obj.attributes && obj.attributes.friendly_name) || ''}`.toLowerCase();
+  return /charging|laden/.test(words) && !/plug|cable|connect|stekker|kabel/.test(words) ? 'charging' : 'plug';
+}
+
 // Plugged in? Charging? Is the charger status valid?
 function readActual({ vehicle, charger, states, now = Date.now() }) {
   const plug = vehicle && vehicle.plugged_entity ? findState(states, vehicle.plugged_entity) : null;
@@ -113,22 +125,44 @@ function readActual({ vehicle, charger, states, now = Date.now() }) {
   const statusInvalid = !!charger && !!charger.status_entity && (status == null || INVALID.has(status.toLowerCase()));
   const invalidFor = statusInvalid && statusObj && statusObj.last_changed ? now - Date.parse(statusObj.last_changed) : statusInvalid ? Infinity : 0;
 
+  const carSays = plug && (plug.state === 'on' || plug.state === 'off') ? plug.state === 'on' : null;
+  let plugged = null;
+  let charging = null;
+  const onOff = statusOnOff(charger && charger.status_entity, statusObj);
+  if (onOff && !statusInvalid) {
+    // An on/off sensor as charger status. A "plug" sensor tells whether a car
+    // is connected (not whether it charges); a "charging" sensor tells whether
+    // it charges (and "off" does not mean that no car is connected).
+    const on = status.toLowerCase() === 'on';
+    if (onOff === 'plug') {
+      plugged = on;
+      charging = !on ? false : powerW != null ? powerW > 500 : null;
+    } else {
+      charging = on;
+      plugged = on ? true : carSays != null ? carSays : true;
+    }
+    return { plugged, charging, status, power_w: powerW, status_invalid: statusInvalid, invalid_for: invalidFor };
+  }
+
   // The charger knows first: it sees the cable right away, the car's own
   // "plugged in" sensor often comes through the car's cloud minutes later.
   // So a charger that says a car is connected wins. Otherwise the car's sensor
   // (a car plugged in elsewhere, or a charger status that cannot tell).
   const chargerSaysPlugged = !!status && !statusInvalid && !UNPLUGGED.test(status.toLowerCase());
-  let plugged = null;
   if (chargerSaysPlugged) plugged = true;
-  else if (plug && (plug.state === 'on' || plug.state === 'off')) plugged = plug.state === 'on';
+  else if (carSays != null) plugged = carSays;
   else if (status && !statusInvalid) plugged = false;
 
-  let charging = null;
   if (status && CHARGING.test(status.toLowerCase()) && !NOT_CHARGING.test(status.toLowerCase())) charging = true;
   else if (powerW != null) charging = powerW > 500;
   else if (status && !statusInvalid) charging = false;
 
   return { plugged, charging, status, power_w: powerW, status_invalid: statusInvalid, invalid_for: invalidFor };
+}
+
+// A planned block whose energy is all for "Always charge below a minimum".
+function minimumOnly(b) {
+  return Number(b.min_kwh) > 0.01 && Number(b.min_kwh) >= Number(b.kwh) - 0.01;
 }
 
 function ampsFor(powerKw, phases, maxAmps) {
@@ -216,8 +250,10 @@ function decide(ctx) {
   if (lock) return charge('Finishing the planned period that already started', 'locked_block', { amps: lock.amps || maxAmps, block_end: lock.end });
 
   // 8. Inside a planned block: charge, and lock the whole period. Never on a
-  // forecast price: by then the real price should be known.
-  const block = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast && !solarOnlyBlock(b));
+  // forecast price: by then the real price should be known. A block that is
+  // only for the minimum follows the minimum rule (3) alone: once the battery
+  // is above the minimum, or the price is above its maximum, it does not count.
+  const block = p.blocks.find((b) => b.start <= now && now < b.end && !b.forecast && !solarOnlyBlock(b) && !minimumOnly(b));
   if (block) {
     const period = (p.periods || []).find((x) => x.start <= now && now < x.end) || { start: block.start, end: block.end };
     const amps = ampsFor(block.power_kw, phases, maxAmps);
@@ -228,8 +264,9 @@ function decide(ctx) {
   const hyst = Number(rules.hysteresis) || 0;
   // Only to keep a planned session going, not after charging on solar.
   const keepGoing = !ctx.prevCode || ['planned', 'locked_block', 'hysteresis', 'force_window', 'ready_guard'].includes(ctx.prevCode);
-  if (actual.charging === true && hyst > 0 && keepGoing && Number.isFinite(priceNow) && p.blocks.length) {
-    const maxPlanned = Math.max(...p.blocks.map((b) => b.price));
+  const normal = p.blocks.filter((b) => !minimumOnly(b));
+  if (actual.charging === true && hyst > 0 && keepGoing && Number.isFinite(priceNow) && normal.length) {
+    const maxPlanned = Math.max(...normal.map((b) => b.price));
     if (priceNow <= maxPlanned + hyst) return charge(`Already charging and the price is within ${hyst.toFixed(2)} of the planned price`, 'hysteresis');
   }
 

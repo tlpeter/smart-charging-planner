@@ -32,7 +32,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 - **Overview**: a checklist "is everything set up well?" with a link to fix each point, and the planning settings from Home Assistant.
 - **Vehicle**, **Charger**, **Grid**, **Prices**, **Solar**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
 - **Battery**: the home battery (see below).
-- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care. **Always charge when the battery is below a minimum**: below that level the car charges right away, at any price (or only up to a maximum price); in the chart that part is **purple**, the rest is planned as usual. **Default minimum for the quick choices** is not a switch: it is the level Quick minimum and Ready for start with.
+- **Rules**: the car's charge limit, the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care. **Always charge when the battery is below a minimum**: below that level the car charges right away, at any price (or only up to a maximum price: then that part is planned in the first blocks at or below that price, and it stops as soon as the price is higher or the battery is at the minimum); in the chart that part is **purple**, the rest is planned as usual. **Default minimum for the quick choices** is not a switch: it is the level Quick minimum and Ready for start with.
 - **Notifications**: where notifications go, and the sensors in Home Assistant.
 - **Diagnostics**: the connection to Home Assistant, the **Manual test**, the setup wizard, **Download diagnostics** and **Export / Import settings**.
 
@@ -155,7 +155,7 @@ Car integrations depend on the car maker's cloud (Renault, MySkoda, Tesla …), 
 - The car's own charge limit is not changed until the car is back: the call would fail, and car APIs limit the number of calls.
 - You get one notification when the car drops out and one when it is back (at most one of each per hour).
 
-**Plugged in.** The charger sees the cable right away; the car's own "Plugged in" sensor often comes through the car's cloud, minutes later. So when the charger says a car is connected, the app counts the car as plugged in at once. The car's sensor is used when the charger cannot tell (for example a car plugged in at a public charger).
+**Plugged in.** The charger sees the cable right away; the car's own "Plugged in" sensor often comes through the car's cloud, minutes later. So when the charger says a car is connected, the app counts the car as plugged in at once. The car's sensor is used when the charger cannot tell (for example a car plugged in at a public charger). An **on/off sensor** as charger status works too: a "plug" sensor tells whether a car is connected (on) or not (off); a "charging" sensor tells whether the car charges, and when it is off the car's own sensor tells whether it is plugged in.
 
 ## Ready Guard
 

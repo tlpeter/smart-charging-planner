@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.4-dev
+
+- Fix: with an on/off sensor as charger status, "off" counted as a car plugged in (since 0.30.1), and a plug sensor that was "on" counted as charging, so the app never sent "start". Now a plug sensor says plugged in or not; a charging sensor says charging or not, and the car's own sensor says whether it is plugged in
+- Fix: "Always charge below a minimum" with a maximum price kept charging when the price went above that maximum, sometimes for hours (the minimum part was taken as a normal planned block and locked). Now that part follows the minimum rule only: it stops when the price is too high or the minimum is reached. The minimum is also planned only in blocks at or below the maximum price
+- Docs: on/off sensor as charger status; the minimum with a maximum price
+- Tests: on/off status sensors (brands), minimum and maximum price (forecast, reliability)
+
 ## 0.30.3-dev
 
 - Fix: the charging status on top of Home showed the plan's target (for example "21% → 80%") while the car was only charging to your minimum. Below your minimum it now says **Charging to your minimum**, "21% → 40%", ready when the minimum is reached, and "your minimum first, then the plan"

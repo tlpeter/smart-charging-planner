@@ -60,5 +60,15 @@ check('minimum now: starts right away', minBlocks.length && Math.abs(minBlocks[0
 check('minimum now: 12 kWh marked as minimum', Math.abs(minBlocks.reduce((a, b) => a + b.min_kwh, 0) - 12) < 0.01);
 check('minimum now: the rest in the cheap hours', Math.abs(mn.planned_kwh - 40) < 0.01 && mn.blocks.filter((b) => b.price === 0.15).reduce((a, b) => a + b.kwh, 0) > 27.9);
 
+// Below the minimum with a maximum price: the minimum only in blocks at or
+// below that price (here not now at 0.35, but from hour 30 at 0.15).
+const now3 = t0 + 6 * H + 10 * 60000;
+const mx = planStaged({ prices: day, now: now3, firstDeadline: now3, minKwh: 12, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10, immediateFirst: true, firstMaxPrice: 0.3 });
+const mxMin = mx.blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+check('minimum with max price: not in expensive blocks', mxMin.length && mxMin.every((b) => b.price <= 0.3));
+check('minimum with max price: waits for the first block at or below it', mxMin.length && mxMin[0].start >= t0 + 30 * H);
+const mxAny = planStaged({ prices: day, now: now3, firstDeadline: now3, minKwh: 12, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10, immediateFirst: true, firstMaxPrice: null });
+check('minimum without max price: right away, as before', Math.abs(mxAny.blocks.filter((b) => (b.min_kwh || 0) > 0.01)[0].start - now3) < 1000);
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);

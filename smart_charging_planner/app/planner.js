@@ -133,14 +133,17 @@ function placeBlocks(planned) {
 // immediateFirst: the minimum right away from now ("Always charge when the
 // battery is below a minimum"), not in the cheapest hours before firstDeadline.
 // Blocks carry min_kwh: the part of their energy that is for the minimum.
-function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false, immediateFirst = false }) {
+// firstMaxPrice: the minimum only in blocks at or below this price (the
+// rule's maximum price); null = any price.
+function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false, immediateFirst = false, firstMaxPrice = null }) {
   const opts = { powerKw, continuous, minSplitSaving, solarOnly };
   const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
   if (!(minKwh > 0.01) || neededKwh == null || neededKwh <= 0.01) return whole;
   if (!immediateFirst && (!(firstDeadline > now) || firstDeadline >= deadline)) return whole;
+  const firstPrices = Number.isFinite(firstMaxPrice) ? prices.filter((p) => p.total <= firstMaxPrice) : prices;
   const first = immediateFirst
-    ? planCharging({ prices, now, deadline: Math.max(deadline, prices.length ? prices[prices.length - 1].end : deadline), neededKwh: Math.min(minKwh, neededKwh), powerKw, immediate: true })
-    : planCharging({ prices, now, deadline: firstDeadline, neededKwh: Math.min(minKwh, neededKwh), ...opts });
+    ? planCharging({ prices: firstPrices, now, deadline: Math.max(deadline, prices.length ? prices[prices.length - 1].end : deadline), neededKwh: Math.min(minKwh, neededKwh), powerKw, immediate: true })
+    : planCharging({ prices: firstPrices, now, deadline: firstDeadline, neededKwh: Math.min(minKwh, neededKwh), ...opts });
   // Capacity left in each block after the first stage.
   const used = new Map(first.blocks.map((b) => [b.block_start, b]));
   const rest = prices.map((p) => {
