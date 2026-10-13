@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.30.5-dev
+
+- Fix: below your minimum, Battery care was off for the rest of the plan (for example to 100 % in the cheapest hours, days before the departure). Now the minimum comes first, and the part above the care level still waits for the last hours before the departure
+- Fix: a minimum above the departure's target (for example minimum 40 %, target 30 %): the charger charged to 40 %, but the plan, the chart and Looking ahead stopped at 30 %. They now show the minimum too (not above the car's own charge limit)
+- Fix: a notification that reached no phone still counted as sent, so it was held back for hours (Ready Guard 6 hours). Now it is tried again at the next check
+- Fix: in Looking ahead, the minimum after a trip could run past the next departure on a slow charger; it now stops at the departure
+- Docs: Battery care with the minimum, a minimum above the target, notifications that are tried again
+- Tests: new notify.test.js; minimum with Battery care and minimum until the departure (forecast)
+
 ## 0.30.4-dev
 
 - Fix: with an on/off sensor as charger status, "off" counted as a car plugged in (since 0.30.1), and a plug sensor that was "on" counted as charging, so the app never sent "start". Now a plug sensor says plugged in or not; a charging sensor says charging or not, and the car's own sensor says whether it is plugged in

@@ -70,5 +70,23 @@ check('minimum with max price: waits for the first block at or below it', mxMin.
 const mxAny = planStaged({ prices: day, now: now3, firstDeadline: now3, minKwh: 12, deadline: t0 + 40 * H, neededKwh: 40, powerKw: 10, immediateFirst: true, firstMaxPrice: null });
 check('minimum without max price: right away, as before', Math.abs(mxAny.blocks.filter((b) => (b.min_kwh || 0) > 0.01)[0].start - now3) < 1000);
 
+// Below the minimum with battery care: the minimum right away, then up to the
+// care level whenever it is cheapest, and the part above it only in the window
+// before the departure.
+const win = t0 + 36 * H;
+const cr = planStaged({ prices: day, now: now2, firstDeadline: now2, minKwh: 10, deadline: t0 + 40 * H, neededKwh: 50, powerKw: 10, immediateFirst: true,
+  care: { windowStart: win, careKwh: 35 } });
+const crMin = cr.blocks.filter((b) => (b.min_kwh || 0) > 0.01);
+check('minimum + care: the minimum still right away', crMin.length && Math.abs(crMin[0].start - now2) < 1000);
+check('minimum + care: all energy planned', Math.abs(cr.planned_kwh - 50) < 0.01);
+check('minimum + care: the part above the care level only in the window', Math.abs(cr.blocks.filter((b) => b.start >= win).reduce((a, b) => a + b.kwh, 0) - 15) < 0.01);
+check('minimum + care: care info kept for Home', cr.care && cr.care.top_kwh > 14.9);
+
+// Look ahead: the minimum after a trip never runs past the next departure.
+const until = t0 + H;
+const cut = planStaged({ prices: day, now: t0, firstDeadline: t0, minKwh: 30, deadline: until, neededKwh: 30, powerKw: 10, immediateFirst: true, immediateUntil: until });
+check('minimum stops at the next departure', cut.blocks.every((b) => b.end <= until + 1000) && cut.planned_kwh <= 10.01);
+check('minimum stops at the next departure: says the minimum is not reached', cut.notes.includes('minimum_not_reached'));
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);
