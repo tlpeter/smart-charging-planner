@@ -16,10 +16,10 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 162 of 162 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 153 of 153 ✓ |
-| Unit tests (10 files) | 412 of 412 ✓ |
+| Unit tests (10 files) | 414 of 414 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.2-dev.
+Version: 0.30.3-dev.
 
 # Settings
 
@@ -94,7 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 18 charged blocks, from 17.1 h back | ✓ 18 charged blocks, from 17.1 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 17 charged blocks, from 16.5 h back | ✓ 17 charged blocks, from 16.5 h back |
 
 ## F. Planning (departures)
 
@@ -152,9 +152,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-13T05:00, limit sent 95 | ✓ 63.5 kWh before 10-13T05:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-14T05:00, limit sent 95 | ✓ 63.5 kWh before 10-14T05:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-14) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-14) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-15) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-15) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
 | J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 12.7 kWh to 35% |
@@ -193,7 +193,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.35 | ✓ charges in 3 block(s), saving €1.26 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.38 | ✓ charges in 3 block(s), saving €1.29 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -218,7 +218,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-14T09 (forecast) | ✓ 31 forecast hours, planned: 10-14T09 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-15T09 (forecast) | ✓ 31 forecast hours, planned: 10-15T09 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -331,7 +331,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
 | [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 16 of 16 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 14 of 14 ✓ |
-| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 9 of 9 ✓ |
+| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 11 of 11 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
@@ -763,11 +763,13 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 
 The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange).
 
-<details><summary>9 of 9 passed – show every check</summary>
+<details><summary>11 of 11 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
 | charging is red, with power, level and ready time | ✓ |
+| below the minimum: "Charging to your minimum", up to the minimum, ready when the minimum part ends | ✓ |
+| Charge now to a level: that level and its own end time | ✓ |
 | Ready Guard and solar charging have their own title | ✓ |
 | waiting for the plan is yellow, with the start time | ✓ |
 | a plan that starts after the latest safe start shows the Ready Guard start | ✓ |
