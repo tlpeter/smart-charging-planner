@@ -16,10 +16,10 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 162 of 162 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 153 of 153 ✓ |
-| Unit tests (10 files) | 431 of 431 ✓ |
+| Unit tests (11 files) | 441 of 441 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.4-dev.
+Version: 0.30.5-dev.
 
 # Settings
 
@@ -94,7 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 22 charged blocks, from 21.7 h back | ✓ 22 charged blocks, from 21.7 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 23 charged blocks, from 22.2 h back | ✓ 23 charged blocks, from 22.2 h back |
 
 ## F. Planning (departures)
 
@@ -193,7 +193,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.13 | ✓ charges in 2 block(s), saving €1.04 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.10 | ✓ charges in 2 block(s), saving €1.01 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -329,9 +329,10 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 217 of 217 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 19 of 19 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 25 of 25 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 11 of 11 ✓ |
+| [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
@@ -721,7 +722,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>19 of 19 passed – show every check</summary>
+<details><summary>25 of 25 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -744,6 +745,12 @@ Price forecast: reading it and planning with it.
 | minimum with max price: not in expensive blocks | ✓ |
 | minimum with max price: waits for the first block at or below it | ✓ |
 | minimum without max price: right away, as before | ✓ |
+| minimum + care: the minimum still right away | ✓ |
+| minimum + care: all energy planned | ✓ |
+| minimum + care: the part above the care level only in the window | ✓ |
+| minimum + care: care info kept for Home | ✓ |
+| minimum stops at the next departure | ✓ |
+| minimum stops at the next departure: says the minimum is not reached | ✓ |
 
 </details>
 
@@ -795,6 +802,21 @@ The charging status on Home: which state and colour (ready green, charging red, 
 | problems are orange: charger offline, charger did not start, car not reachable, missing data | ✓ |
 | starting, the sun and the other charger are yellow | ✓ |
 | not connected and nothing to do are grey; advice only is marked | ✓ |
+
+</details>
+
+## notify
+
+Notifications: a message that reached no phone is tried again.
+
+<details><summary>4 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| reached no phone: not sent | ✓ |
+| then it is tried again right away (not held back for 6 hours) | ✓ |
+| once it reached a phone, the same message waits its time | ✓ |
+| one phone fails, the other gets it: counted as sent | ✓ |
 
 </details>
 
