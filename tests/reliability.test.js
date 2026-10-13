@@ -204,4 +204,52 @@ check('a plan that starts after the latest safe start says Ready Guard starts ea
   assert.equal(r.protect, false, 'it only takes over at the latest safe start itself');
 });
 
+// A block that is only for "Always charge below a minimum" follows that rule
+// alone: above its maximum price (or above the minimum) it does not charge
+// and does not lock the period.
+function minimumPlan(price) {
+  return {
+    vehicle: { soc: 30 },
+    planning: { target_soc: 80 },
+    departure: { time: now + 12 * H },
+    charger: { max_current: 16 },
+    prices: [{ start: now - H / 4, end: now + H, total: price }],
+    plan: {
+      blocks: [
+        { start: now - H / 4, end: now + 2 * H, kwh: 20, min_kwh: 20, price: 0.18, power_kw: 11 },
+        { start: now + 8 * H, end: now + 9 * H, kwh: 10, price: 0.12, power_kw: 11 },
+      ],
+      periods: [{ start: now - H / 4, end: now + 2 * H }, { start: now + 8 * H, end: now + 9 * H }],
+      notes: ['below_minimum'],
+    },
+  };
+}
+const minRules = { ...controller.DEFAULT_RULES, ready_guard_enabled: false, min_soc_enabled: true, min_soc: 40, min_soc_max_price: 0.2 };
+
+check('below the minimum and the price allows it: charges for the minimum', () => {
+  const d = controller.decide({ now, actual: { plugged: true, charging: false, status_invalid: false }, rules: minRules, states: [], phases: 3, plan: minimumPlan(0.18) });
+  assert.equal(d.code, 'below_minimum');
+  assert.equal(d.new_lock, undefined);
+});
+
+check('price above the maximum: a minimum-only block does not charge or lock', () => {
+  const d = controller.decide({ now, actual: { plugged: true, charging: true, status_invalid: false }, rules: minRules, states: [], phases: 3, plan: minimumPlan(0.35), prevCode: 'below_minimum' });
+  assert.equal(d.want, 'pause');
+  assert.equal(d.code, 'not_planned');
+  assert.equal(d.new_lock, undefined);
+});
+
+check('above the minimum: a minimum-only block that is still in the plan does not charge', () => {
+  const plan = { ...minimumPlan(0.18), vehicle: { soc: 41 } };
+  const d = controller.decide({ now, actual: { plugged: true, charging: true, status_invalid: false }, rules: minRules, states: [], phases: 3, plan, prevCode: 'below_minimum' });
+  assert.equal(d.want, 'pause');
+});
+
+check('a block that is partly for the minimum is still a planned block', () => {
+  const plan = minimumPlan(0.35);
+  plan.plan.blocks[0] = { ...plan.plan.blocks[0], kwh: 20, min_kwh: 5 };
+  const d = controller.decide({ now, actual: { plugged: true, charging: false, status_invalid: false }, rules: minRules, states: [], phases: 3, plan });
+  assert.equal(d.code, 'planned');
+});
+
 console.log('Ready Guard tests passed');

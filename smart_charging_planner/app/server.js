@@ -331,6 +331,12 @@ function earlierPrices(cfg, firstStart, now, tz) {
     .map((p) => ({ start: p.start, end: p.end, total: totalPrice(p.price, cfg) }));
 }
 
+// The maximum price of "Always charge below a minimum", or null (any price).
+function minMaxPrice(rules) {
+  const v = rules ? rules.min_soc_max_price : null;
+  return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
@@ -452,7 +458,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       const popts = { powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 };
       const exp = !(need > 0.01 && window.length) ? null
         : minKwh > 0.01
-          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, ...popts })
+          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, firstMaxPrice: minMaxPrice(rules), ...popts })
           : planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, ...popts });
       expected = {
         soc_from: level,
@@ -1211,7 +1217,7 @@ const routes = {
     }
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
-        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true,
+        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
