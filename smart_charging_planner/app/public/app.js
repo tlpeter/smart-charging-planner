@@ -1741,11 +1741,21 @@ function durationText(minutes) {
       </div>`;
     }
 
-    async function loadOverview(force = false) {
+    // Only the newest request is shown: an answer for an earlier charger (or an
+    // older refresh that is slower) arrives too late and is left out.
+    // A manual refresh is not overtaken by the automatic one-minute reload.
+    let overviewSeq = 0;
+    let refreshing = false;
+    async function loadOverview(force = false, auto = false) {
+      if (auto && refreshing) return;
+      const seq = ++overviewSeq;
+      if (force) refreshing = true;
       try {
         const d = await api('GET', force ? 'api/plan?refresh=1&calendar=1' : 'api/plan');
+        if (seq !== overviewSeq) return;
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
+        if (seq !== overviewSeq) return;
         $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
         $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
@@ -1754,7 +1764,19 @@ function durationText(minutes) {
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
           e.preventDefault();
-          await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
+          try {
+            await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
+          } catch (err) {
+            let msg = $('soc-error');
+            if (!msg) {
+              msg = document.createElement('p');
+              msg.id = 'soc-error';
+              msg.className = 'small differ';
+              sf.after(msg);
+            }
+            msg.textContent = err.message;
+            return;
+          }
           loadOverview(true);
         };
         bindBoost();
@@ -1764,7 +1786,10 @@ function durationText(minutes) {
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
       } catch (err) {
+        if (seq !== overviewSeq) return;
         $('overview-body').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      } finally {
+        if (seq === overviewSeq) refreshing = false;
       }
     }
 
@@ -3209,7 +3234,7 @@ function durationText(minutes) {
           ${list.map((m) => `<label class="check"><input type="checkbox" name="msg" value="${esc(m.id)}"${off.has(m.id) ? '' : ' checked'}> ${esc(m.name)}</label>`).join('')}
         </details>`;
       }).join('');
-      const last = r.last ? `<div class="src">Last: ${esc(new Date(r.last.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
+      const last = r.last ? `<div class="src">Last: ${esc(dayHm(r.last.at))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
       el.innerHTML = `<div class="two">
           <div class="field"><label>Name</label><input name="name" maxlength="40" placeholder="e.g. Peter's phone" value="${esc(r.name || '')}"></div>
           <div class="field"><label>Notify action</label><select name="service">${opts}</select></div>
@@ -3264,7 +3289,7 @@ function durationText(minutes) {
     async function loadNotifyStatus() {
       try {
         const [n, v] = await Promise.all([api('GET', 'api/notify'), api('GET', 'api/vehicles').catch(() => ({ vehicles: [] }))]);
-        const tm = (ms) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+        const tm = dayHm; // in Home Assistant's time zone, like the rest of the page
         notifyMeta = { categories: n.categories || [], messages: n.messages || [], choices: n.choices || [], cars: (v.multi_car ? v.vehicles : []).map((x) => ({ id: x.id, name: x.name })) };
         $('notify-list').innerHTML = '';
         (n.recipients || []).forEach((r) => recipientCard(r));
@@ -3405,7 +3430,7 @@ function durationText(minutes) {
     loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);
-      if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview();
+      if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview(false, true);
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {

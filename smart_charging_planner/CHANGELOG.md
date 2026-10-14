@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.30.6-dev
+
+- Fix: some charger status texts were read wrongly. Wallbox **Locked** and OCPP / Alfen **Reserved** (no car) counted as a car plugged in; now they do not. Alfen **Solar Charging** now counts as charging, **Charging Non Charging** and **Not Charging** as not charging
+- Fix: a charger that reports a problem (Peblar fault or invalid, OCPP Faulted, Alfen errors and Off, go-e Unknown/Error, Wallbox Updating, …) counted as a car plugged in. Now it counts as a charger problem: the status on Home turns orange ("Charger reports a problem", with the charger's own words), and the app pauses charging after 2 minutes, as with an unavailable charger
+- Fix: with more chargers, switching charger while Home was still loading could show the plan of the charger before. A manual Refresh is also no longer overtaken by the automatic reload
+- Fix: the time of the last notification (Settings › Notifications) is shown in Home Assistant's time zone, like the rest of the page
+- Fix: when saving a battery level you entered by hand failed, nothing was shown; now the error is shown
+- Docs: the charger status texts, a charger that reports a problem
+- Tests: the full status lists of Easee, Zaptec, Alfen, Wallbox, go-e (marq24), Peblar, OCPP and Ohme, taken from their integrations, and their problem texts (brands); the status card for a charger problem (chargestate)
+
 ## 0.30.5-dev
 
 - Fix: below your minimum, Battery care was off for the rest of the plan (for example to 100 % in the cheapest hours, days before the departure). Now the minimum comes first, and the part above the care level still waits for the last hours before the departure

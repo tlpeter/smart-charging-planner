@@ -110,6 +110,13 @@ check('problems are orange: charger offline, charger did not start, car not reac
   for (const x of [n({ status: 'unavailable', code: 'status_invalid' }), n({ code: 'no_reaction', want: 'charge', error: 'x' })]) assert.equal(S(plan(), x).color, 'orange');
 });
 
+check('the charger reports a problem (an error, a fault): orange, with its own words', () => {
+  const s = S(plan(), n({ status: 'Error Protective Earth', code: 'status_grace', plugged: null }));
+  assert.equal(s.state, 'charger_problem');
+  assert.equal(s.color, 'orange');
+  assert.ok(s.detail.includes('Error Protective Earth'), s.detail);
+});
+
 check('starting, the sun and the other charger are yellow', () => {
   assert.equal(S(plan(), n({ want: 'charge', code: 'planned' })).state, 'starting');
   const sun = S(plan(), n({ code: 'solar_wait', reason: 'Waiting for solar surplus', next_start: null }));

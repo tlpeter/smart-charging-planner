@@ -33,7 +33,9 @@ const CHARGERS = [
       },
     },
     expect: { status: 'sensor.emvgus3h_status', power: 'sensor.emvgus3h_power', startStop: 'switch', switchEntity: 'switch.emvgus3h_charger_enabled', noWarning: 'own_smart_charging_on', current: 'action_current:set_charger_dynamic_limit', phase: 'action_phase:1_phase/3_phase' },
-    statuses: { awaiting_start: [true, false], charging: [true, true], disconnected: [false, null], completed: [true, false], ready_to_charge: [true, false] },
+    // All status texts of the integration (nordicopen/easee_hass, EASEE_STATUS).
+    statuses: { awaiting_start: [true, false], charging: [true, true], disconnected: [false, null], completed: [true, false], ready_to_charge: [true, false], awaiting_authorization: [true, false], de_authorizing: [true, null], start_charging: [true, null], stop_charging: [true, null], awaiting_load_balancing: [true, false], awaiting_smart_start: [true, false] },
+    problems: ['error', 'offline'],
   },
   {
     brand: 'Zaptec',
@@ -47,7 +49,9 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.zaptec_go_charger_mode', power: 'sensor.zaptec_go_charge_power', startStop: 'buttons', current: 'number:number.zaptec_go_charger_max_current', phase: null },
+    // custom-components/zaptec, charger_operation_mode.
     statuses: { disconnected: [false, null], connected_requesting: [true, false], connected_charging: [true, true], connected_finished: [true, false] },
+    problems: ['unknown'],
   },
   {
     brand: 'Alfen',
@@ -61,7 +65,17 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.alfen_eve_status_code_socket_1', power: 'sensor.alfen_eve_active_power_total_socket_1', startStop: 'switch', warning: 'own_mode_on', warning2: 'alfen_single_login', current: 'number:number.alfen_eve_power_connector_max_current_socket_1', phase: null },
-    statuses: { Available: [false, null], 'Charging Normal': [true, true], 'Suspended Over Current': [true, false], 'Finish Wait Disconnect': [true, false] },
+    // leeyuentuen/alfen_wallbox, STATUS_DICT.
+    statuses: {
+      Available: [false, null], Authorizing: [true, null], Authorized: [true, null], 'Cable connected': [true, null], 'EV Connected': [true, null],
+      'Preparing Charging': [true, null], 'Wait Vehicle Charging': [true, false], 'Charging Normal': [true, true], 'Charging Simplified': [true, true],
+      'Suspended Over-Current': [true, false], 'Suspended Over Current': [true, false], 'Suspended HF Switching': [true, false],
+      'Finish Wait Vehicle': [true, false], 'Finish Wait Disconnect': [true, false], Reserved: [false, null],
+      'Load Balancing Limited': [true, null], 'Load Balancing Forced Off': [true, null], 'Not Charging': [true, false],
+      'Solar Charging Wait': [true, false], 'Charging Non Charging': [true, false], 'Solar Charging': [true, true], 'Partial Solar Charging': [true, true],
+      'Charge Point Ready, Waiting For Power': [true, false],
+    },
+    problems: ['Unknown', 'Off', 'Booting', 'Check Mains', 'Error Protective Earth', 'Error Contactor Fault', 'Error Illegal CP Value', 'Error Message Time-Out', 'Error', 'In Operative'],
   },
   {
     brand: 'Wallbox',
@@ -74,7 +88,14 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.wallbox_pulsar_plus_status_description', power: 'sensor.wallbox_pulsar_plus_charging_power', startStop: 'switch', warning: 'own_mode_on', current: 'number:number.wallbox_pulsar_plus_maximum_charging_current', phase: null },
-    statuses: { Charging: [true, true], Paused: [true, false], Ready: [false, null], Disconnected: [false, null], 'Waiting for car demand': [true, false] },
+    // Home Assistant core, wallbox/const.py ChargerStatus.
+    statuses: {
+      Charging: [true, true], Discharging: [true, null], Paused: [true, false], Scheduled: [true, null], Ready: [false, null], Disconnected: [false, null],
+      'Waiting for car demand': [true, false], Waiting: [true, false], Locked: [false, null], 'Locked, car connected': [true, null],
+      'Waiting in queue by Power Sharing': [true, false], 'Waiting in queue by Power Boost': [true, false], 'Waiting MID failed': [true, false],
+      'Waiting MID safety margin exceeded': [true, false], 'Waiting in queue by Eco-Smart': [true, false],
+    },
+    problems: ['Error', 'Updating', 'Unknown'],
   },
   {
     brand: 'go-e (marq24)',
@@ -90,7 +111,9 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.goe_123456_car_value', power: 'sensor.goe_123456_nrg_11', startStop: 'select', start: '2', stop: '1', current: 'number:number.goe_123456_amp', phase: 'select_phase:1/2' },
+    // marq24/ha-goecharger-api2, car state (lookup sensor).
     statuses: { Idle: [false, null], Charging: [true, true], 'Wait for car': [true, false], Complete: [true, false] },
+    problems: ['Unknown/Error', 'Error'],
   },
   {
     brand: 'go-e (cathiele)',
@@ -115,7 +138,9 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.peblar_ev_charger_state', power: 'sensor.peblar_ev_charger_power', startStop: 'switch', noWarning: 'own_mode_on', current: 'number:number.peblar_ev_charger_charge_limit', phase: 'switch_phase:on/off', switchEntity: 'switch.peblar_ev_charger_charge' },
+    // Home Assistant core, peblar/const.py PEBLAR_CP_STATE_TO_HOME_ASSISTANT.
     statuses: { no_ev_connected: [false, null], charging: [true, true], suspended: [true, false] },
+    problems: ['error', 'fault', 'invalid'],
   },
   {
     brand: 'OCPP',
@@ -128,7 +153,9 @@ const CHARGERS = [
     ]),
     services: { ocpp: { set_charge_rate: { name: 'Set charge rate', fields: { limit_amps: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } } } } } },
     expect: { status: 'sensor.charger_status_connector', power: 'sensor.charger_power_active_import', startStop: 'switch', switchEntity: 'switch.charger_charge_control', warning: 'ocpp_backend', current: 'number:number.charger_maximum_current', phase: null },
-    statuses: { Available: [false, null], Preparing: [true, false], Charging: [true, true], SuspendedEV: [true, false], SuspendedEVSE: [true, false], Finishing: [true, false] },
+    // OCPP 1.6 ChargePointStatus (lbbrhzn/ocpp).
+    statuses: { Available: [false, null], Preparing: [true, false], Charging: [true, true], SuspendedEV: [true, false], SuspendedEVSE: [true, false], Finishing: [true, false], Reserved: [false, null] },
+    problems: ['Faulted', 'Unavailable'],
   },
   {
     brand: 'Ohme',
@@ -139,7 +166,8 @@ const CHARGERS = [
     ]),
     services: {},
     expect: { status: 'sensor.ohme_home_pro_status', power: 'sensor.ohme_home_pro_power', startStop: 'select', start: 'max_charge', stop: 'paused', warning: 'own_mode_on', current: null, phase: null },
-    statuses: { unplugged: [false, null], plugged_in: [true, false], charging: [true, true], paused: [true, false], finished: [true, false] },
+    // Home Assistant core, ohme ChargerStatus.
+    statuses: { unplugged: [false, null], plugged_in: [true, false], charging: [true, true], paused: [true, false], finished: [true, false], pending_approval: [true, null] },
   },
 ];
 

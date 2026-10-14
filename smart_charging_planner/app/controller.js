@@ -41,10 +41,15 @@ const GRACE_MS = 120000;
 //   Peblar: charging, suspended, no_ev_connected
 //   OCPP: Available, Preparing, Charging, SuspendedEV, SuspendedEVSE, Finishing
 //   Ohme: unplugged, plugged_in, charging, paused, finished
-const UNPLUGGED = /disconnected|not_connected|no_ev_connected|no vehicle|unplugged|^available$|^ready$|^idle$|standby/;
-const CHARGING = /^charging|connected_charging|^charge$|in_progress|^on$/;
-const NOT_CHARGING = /finish|complete|wait|pause|suspend|requesting/;
+// (the full lists are in tests/fixtures.js, taken from the integrations.)
+// Wallbox "Locked" and OCPP / Alfen "Reserved": no car connected.
+const UNPLUGGED = /disconnected|not_connected|no_ev_connected|no vehicle|unplugged|^available$|^ready$|^idle$|standby|^locked$|^reserved$/;
+const CHARGING = /^charging|connected_charging|^charge$|in_progress|^on$|solar charging$/;
+const NOT_CHARGING = /finish|complete|wait|pause|suspend|requesting|non charging|^not charging$/;
 const INVALID = new Set(['unknown', 'unavailable', '', 'none', 'error', 'offline']);
+// The charger reports a problem (an error, a fault, starting up, an update):
+// treated like an invalid status, not as "a car is connected".
+const PROBLEM = /error|fault|invalid|illegal|^updating$|^booting$|reboot|^off$|check mains|in operative/;
 
 const DEFAULT_RULES = {
   start_stop_id: null, // null = recommended by the control check
@@ -122,7 +127,8 @@ function readActual({ vehicle, charger, states, now = Date.now() }) {
     powerW = Number(powerObj.state) * (unit === 'kW' ? 1000 : 1);
   }
 
-  const statusInvalid = !!charger && !!charger.status_entity && (status == null || INVALID.has(status.toLowerCase()));
+  const statusInvalid = !!charger && !!charger.status_entity && (status == null || INVALID.has(status.toLowerCase())
+    || (!/^binary_sensor\./.test(charger.status_entity) && PROBLEM.test(status.toLowerCase())));
   const invalidFor = statusInvalid && statusObj && statusObj.last_changed ? now - Date.parse(statusObj.last_changed) : statusInvalid ? Infinity : 0;
 
   const carSays = plug && (plug.state === 'on' || plug.state === 'off') ? plug.state === 'on' : null;

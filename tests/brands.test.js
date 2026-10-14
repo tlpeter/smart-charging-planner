@@ -106,6 +106,16 @@ for (const b of BRANDS) {
       check(`status "${text}" + car sensor ${carPlug} → plugged ${want}`, () => assert.strictEqual(v.plugged, want, `plugged ${v.plugged}`));
     }
   }
+  // Problem texts (an error, a fault, booting, updating): the charger has a
+  // problem; not "a car is connected".
+  for (const text of b.problems || []) {
+    const st = states.map((s) => (s.entity_id === c.suggested.status ? { ...s, state: text, last_changed: new Date().toISOString() } : s));
+    const a = controller.readActual({ vehicle: null, charger: { status_entity: c.suggested.status }, states: st });
+    check(`status "${text}" → a charger problem, not "plugged in"`, () => {
+      assert.strictEqual(a.status_invalid, true, 'not seen as a problem');
+      assert.notStrictEqual(a.plugged, true, 'counted as plugged in');
+    });
+  }
 }
 
 // An on/off sensor as charger status (allowed in Settings › Charger).

@@ -37,6 +37,11 @@ function chargeState(d, n, fmt) {
   if (n.plugged === false) {
     return st('not_connected', 'grey', 'plugOff', 'Car not connected', d.departure ? `Plug in to be ready by ${fmt.dayHm(d.departure.time)}.` : 'Plug in the car to charge.');
   }
+  // The charger itself reports a problem (an error, a fault, an update).
+  const unreachable = !n.status || ['unavailable', 'unknown', 'offline', 'none'].includes(String(n.status).toLowerCase());
+  if (offline && !unreachable) {
+    return st('charger_problem', 'orange', 'alert', 'Charger reports a problem', `The charger says "${n.status}". Check the charger and its integration; the app pauses charging after 2 minutes.`);
+  }
   if (offline) {
     return st('charger_offline', 'orange', 'alert', 'Charger not reachable', `Home Assistant does not get the charger's status${n.status ? ` (${n.status})` : ''}. Check the charger and its integration.`);
   }
