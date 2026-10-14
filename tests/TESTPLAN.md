@@ -16,10 +16,10 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 162 of 162 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 153 of 153 ✓ |
-| Unit tests (11 files) | 441 of 441 ✓ |
+| Unit tests (11 files) | 576 of 576 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.5-dev.
+Version: 0.30.6-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 213 kB JS | ✓ 44 kB CSS, 213 kB JS |
+| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 214 kB JS | ✓ 44 kB CSS, 214 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -94,7 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 23 charged blocks, from 22.2 h back | ✓ 23 charged blocks, from 22.2 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.9 h back | ✓ 13 charged blocks, from 12.9 h back |
 
 ## F. Planning (departures)
 
@@ -152,9 +152,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-14T05:00, limit sent 95 | ✓ 63.5 kWh before 10-14T05:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-15T05:00, limit sent 95 | ✓ 63.5 kWh before 10-15T05:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-15) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-15) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-16) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-16) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
 | J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 12.7 kWh to 35% |
@@ -174,10 +174,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.0 kWh on solar, 22.3 kWh from the grid | ✓ 12.0 kWh on solar, 38.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.0 kWh on solar | ✓ 12.0 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.8 kWh at night, 12.0 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 24.0 kWh on solar, 10.3 kWh from the grid | ✓ 24.0 kWh on solar, 26.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 24.0 kWh on solar | ✓ 24.0 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -193,7 +193,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.10 | ✓ charges in 2 block(s), saving €1.01 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.47 | ✓ charges in 3 block(s), saving €1.47 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -218,7 +218,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-15T09 (forecast) | ✓ 31 forecast hours, planned: 10-15T09 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-16T09 (forecast) | ✓ 31 forecast hours, planned: 10-16T09 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -326,12 +326,12 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 
 | File | What | Passed |
 |---|---|---|
-| [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 217 of 217 ✓ |
+| [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
 | [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 25 of 25 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
-| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 11 of 11 ✓ |
+| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 12 of 12 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
@@ -342,7 +342,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 
 Chargers per brand: detection, start/stop, current, phase switching, status texts.
 
-<details><summary>217 of 217 passed – show every check</summary>
+<details><summary>351 of 351 passed – show every check</summary>
 
 | Part | Check | Result |
 |---|---|---|
@@ -372,6 +372,26 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "ready_to_charge" → plugged true, charging false | ✓ |
 |  | status "ready_to_charge" + car sensor on → plugged true | ✓ |
 |  | status "ready_to_charge" + car sensor off → plugged true | ✓ |
+|  | status "awaiting_authorization" → plugged true, charging false | ✓ |
+|  | status "awaiting_authorization" + car sensor on → plugged true | ✓ |
+|  | status "awaiting_authorization" + car sensor off → plugged true | ✓ |
+|  | status "de_authorizing" → plugged true, charging null | ✓ |
+|  | status "de_authorizing" + car sensor on → plugged true | ✓ |
+|  | status "de_authorizing" + car sensor off → plugged true | ✓ |
+|  | status "start_charging" → plugged true, charging null | ✓ |
+|  | status "start_charging" + car sensor on → plugged true | ✓ |
+|  | status "start_charging" + car sensor off → plugged true | ✓ |
+|  | status "stop_charging" → plugged true, charging null | ✓ |
+|  | status "stop_charging" + car sensor on → plugged true | ✓ |
+|  | status "stop_charging" + car sensor off → plugged true | ✓ |
+|  | status "awaiting_load_balancing" → plugged true, charging false | ✓ |
+|  | status "awaiting_load_balancing" + car sensor on → plugged true | ✓ |
+|  | status "awaiting_load_balancing" + car sensor off → plugged true | ✓ |
+|  | status "awaiting_smart_start" → plugged true, charging false | ✓ |
+|  | status "awaiting_smart_start" + car sensor on → plugged true | ✓ |
+|  | status "awaiting_smart_start" + car sensor off → plugged true | ✓ |
+|  | status "error" → a charger problem, not "plugged in" | ✓ |
+|  | status "offline" → a charger problem, not "plugged in" | ✓ |
 | Zaptec | detected as charger | ✓ |
 |  | status sensor sensor.zaptec_go_charger_mode | ✓ |
 |  | power sensor sensor.zaptec_go_charge_power | ✓ |
@@ -392,6 +412,7 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "connected_finished" → plugged true, charging false | ✓ |
 |  | status "connected_finished" + car sensor on → plugged true | ✓ |
 |  | status "connected_finished" + car sensor off → plugged true | ✓ |
+|  | status "unknown" → a charger problem, not "plugged in" | ✓ |
 | Alfen | detected as charger | ✓ |
 |  | status sensor sensor.alfen_eve_status_code_socket_1 | ✓ |
 |  | power sensor sensor.alfen_eve_active_power_total_socket_1 | ✓ |
@@ -405,15 +426,82 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "Available" → plugged false, charging null | ✓ |
 |  | status "Available" + car sensor on → plugged true | ✓ |
 |  | status "Available" + car sensor off → plugged false | ✓ |
+|  | status "Authorizing" → plugged true, charging null | ✓ |
+|  | status "Authorizing" + car sensor on → plugged true | ✓ |
+|  | status "Authorizing" + car sensor off → plugged true | ✓ |
+|  | status "Authorized" → plugged true, charging null | ✓ |
+|  | status "Authorized" + car sensor on → plugged true | ✓ |
+|  | status "Authorized" + car sensor off → plugged true | ✓ |
+|  | status "Cable connected" → plugged true, charging null | ✓ |
+|  | status "Cable connected" + car sensor on → plugged true | ✓ |
+|  | status "Cable connected" + car sensor off → plugged true | ✓ |
+|  | status "EV Connected" → plugged true, charging null | ✓ |
+|  | status "EV Connected" + car sensor on → plugged true | ✓ |
+|  | status "EV Connected" + car sensor off → plugged true | ✓ |
+|  | status "Preparing Charging" → plugged true, charging null | ✓ |
+|  | status "Preparing Charging" + car sensor on → plugged true | ✓ |
+|  | status "Preparing Charging" + car sensor off → plugged true | ✓ |
+|  | status "Wait Vehicle Charging" → plugged true, charging false | ✓ |
+|  | status "Wait Vehicle Charging" + car sensor on → plugged true | ✓ |
+|  | status "Wait Vehicle Charging" + car sensor off → plugged true | ✓ |
 |  | status "Charging Normal" → plugged true, charging true | ✓ |
 |  | status "Charging Normal" + car sensor on → plugged true | ✓ |
 |  | status "Charging Normal" + car sensor off → plugged true | ✓ |
+|  | status "Charging Simplified" → plugged true, charging true | ✓ |
+|  | status "Charging Simplified" + car sensor on → plugged true | ✓ |
+|  | status "Charging Simplified" + car sensor off → plugged true | ✓ |
+|  | status "Suspended Over-Current" → plugged true, charging false | ✓ |
+|  | status "Suspended Over-Current" + car sensor on → plugged true | ✓ |
+|  | status "Suspended Over-Current" + car sensor off → plugged true | ✓ |
 |  | status "Suspended Over Current" → plugged true, charging false | ✓ |
 |  | status "Suspended Over Current" + car sensor on → plugged true | ✓ |
 |  | status "Suspended Over Current" + car sensor off → plugged true | ✓ |
+|  | status "Suspended HF Switching" → plugged true, charging false | ✓ |
+|  | status "Suspended HF Switching" + car sensor on → plugged true | ✓ |
+|  | status "Suspended HF Switching" + car sensor off → plugged true | ✓ |
+|  | status "Finish Wait Vehicle" → plugged true, charging false | ✓ |
+|  | status "Finish Wait Vehicle" + car sensor on → plugged true | ✓ |
+|  | status "Finish Wait Vehicle" + car sensor off → plugged true | ✓ |
 |  | status "Finish Wait Disconnect" → plugged true, charging false | ✓ |
 |  | status "Finish Wait Disconnect" + car sensor on → plugged true | ✓ |
 |  | status "Finish Wait Disconnect" + car sensor off → plugged true | ✓ |
+|  | status "Reserved" → plugged false, charging null | ✓ |
+|  | status "Reserved" + car sensor on → plugged true | ✓ |
+|  | status "Reserved" + car sensor off → plugged false | ✓ |
+|  | status "Load Balancing Limited" → plugged true, charging null | ✓ |
+|  | status "Load Balancing Limited" + car sensor on → plugged true | ✓ |
+|  | status "Load Balancing Limited" + car sensor off → plugged true | ✓ |
+|  | status "Load Balancing Forced Off" → plugged true, charging null | ✓ |
+|  | status "Load Balancing Forced Off" + car sensor on → plugged true | ✓ |
+|  | status "Load Balancing Forced Off" + car sensor off → plugged true | ✓ |
+|  | status "Not Charging" → plugged true, charging false | ✓ |
+|  | status "Not Charging" + car sensor on → plugged true | ✓ |
+|  | status "Not Charging" + car sensor off → plugged true | ✓ |
+|  | status "Solar Charging Wait" → plugged true, charging false | ✓ |
+|  | status "Solar Charging Wait" + car sensor on → plugged true | ✓ |
+|  | status "Solar Charging Wait" + car sensor off → plugged true | ✓ |
+|  | status "Charging Non Charging" → plugged true, charging false | ✓ |
+|  | status "Charging Non Charging" + car sensor on → plugged true | ✓ |
+|  | status "Charging Non Charging" + car sensor off → plugged true | ✓ |
+|  | status "Solar Charging" → plugged true, charging true | ✓ |
+|  | status "Solar Charging" + car sensor on → plugged true | ✓ |
+|  | status "Solar Charging" + car sensor off → plugged true | ✓ |
+|  | status "Partial Solar Charging" → plugged true, charging true | ✓ |
+|  | status "Partial Solar Charging" + car sensor on → plugged true | ✓ |
+|  | status "Partial Solar Charging" + car sensor off → plugged true | ✓ |
+|  | status "Charge Point Ready, Waiting For Power" → plugged true, charging false | ✓ |
+|  | status "Charge Point Ready, Waiting For Power" + car sensor on → plugged true | ✓ |
+|  | status "Charge Point Ready, Waiting For Power" + car sensor off → plugged true | ✓ |
+|  | status "Unknown" → a charger problem, not "plugged in" | ✓ |
+|  | status "Off" → a charger problem, not "plugged in" | ✓ |
+|  | status "Booting" → a charger problem, not "plugged in" | ✓ |
+|  | status "Check Mains" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error Protective Earth" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error Contactor Fault" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error Illegal CP Value" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error Message Time-Out" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error" → a charger problem, not "plugged in" | ✓ |
+|  | status "In Operative" → a charger problem, not "plugged in" | ✓ |
 | Wallbox | detected as charger | ✓ |
 |  | status sensor sensor.wallbox_pulsar_plus_status_description | ✓ |
 |  | power sensor sensor.wallbox_pulsar_plus_charging_power | ✓ |
@@ -426,9 +514,15 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "Charging" → plugged true, charging true | ✓ |
 |  | status "Charging" + car sensor on → plugged true | ✓ |
 |  | status "Charging" + car sensor off → plugged true | ✓ |
+|  | status "Discharging" → plugged true, charging null | ✓ |
+|  | status "Discharging" + car sensor on → plugged true | ✓ |
+|  | status "Discharging" + car sensor off → plugged true | ✓ |
 |  | status "Paused" → plugged true, charging false | ✓ |
 |  | status "Paused" + car sensor on → plugged true | ✓ |
 |  | status "Paused" + car sensor off → plugged true | ✓ |
+|  | status "Scheduled" → plugged true, charging null | ✓ |
+|  | status "Scheduled" + car sensor on → plugged true | ✓ |
+|  | status "Scheduled" + car sensor off → plugged true | ✓ |
 |  | status "Ready" → plugged false, charging null | ✓ |
 |  | status "Ready" + car sensor on → plugged true | ✓ |
 |  | status "Ready" + car sensor off → plugged false | ✓ |
@@ -438,6 +532,33 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "Waiting for car demand" → plugged true, charging false | ✓ |
 |  | status "Waiting for car demand" + car sensor on → plugged true | ✓ |
 |  | status "Waiting for car demand" + car sensor off → plugged true | ✓ |
+|  | status "Waiting" → plugged true, charging false | ✓ |
+|  | status "Waiting" + car sensor on → plugged true | ✓ |
+|  | status "Waiting" + car sensor off → plugged true | ✓ |
+|  | status "Locked" → plugged false, charging null | ✓ |
+|  | status "Locked" + car sensor on → plugged true | ✓ |
+|  | status "Locked" + car sensor off → plugged false | ✓ |
+|  | status "Locked, car connected" → plugged true, charging null | ✓ |
+|  | status "Locked, car connected" + car sensor on → plugged true | ✓ |
+|  | status "Locked, car connected" + car sensor off → plugged true | ✓ |
+|  | status "Waiting in queue by Power Sharing" → plugged true, charging false | ✓ |
+|  | status "Waiting in queue by Power Sharing" + car sensor on → plugged true | ✓ |
+|  | status "Waiting in queue by Power Sharing" + car sensor off → plugged true | ✓ |
+|  | status "Waiting in queue by Power Boost" → plugged true, charging false | ✓ |
+|  | status "Waiting in queue by Power Boost" + car sensor on → plugged true | ✓ |
+|  | status "Waiting in queue by Power Boost" + car sensor off → plugged true | ✓ |
+|  | status "Waiting MID failed" → plugged true, charging false | ✓ |
+|  | status "Waiting MID failed" + car sensor on → plugged true | ✓ |
+|  | status "Waiting MID failed" + car sensor off → plugged true | ✓ |
+|  | status "Waiting MID safety margin exceeded" → plugged true, charging false | ✓ |
+|  | status "Waiting MID safety margin exceeded" + car sensor on → plugged true | ✓ |
+|  | status "Waiting MID safety margin exceeded" + car sensor off → plugged true | ✓ |
+|  | status "Waiting in queue by Eco-Smart" → plugged true, charging false | ✓ |
+|  | status "Waiting in queue by Eco-Smart" + car sensor on → plugged true | ✓ |
+|  | status "Waiting in queue by Eco-Smart" + car sensor off → plugged true | ✓ |
+|  | status "Error" → a charger problem, not "plugged in" | ✓ |
+|  | status "Updating" → a charger problem, not "plugged in" | ✓ |
+|  | status "Unknown" → a charger problem, not "plugged in" | ✓ |
 | go-e (marq24) | detected as charger | ✓ |
 |  | status sensor sensor.goe_123456_car_value | ✓ |
 |  | power sensor sensor.goe_123456_nrg_11 | ✓ |
@@ -461,6 +582,8 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "Complete" → plugged true, charging false | ✓ |
 |  | status "Complete" + car sensor on → plugged true | ✓ |
 |  | status "Complete" + car sensor off → plugged true | ✓ |
+|  | status "Unknown/Error" → a charger problem, not "plugged in" | ✓ |
+|  | status "Error" → a charger problem, not "plugged in" | ✓ |
 | go-e (cathiele) | detected as charger | ✓ |
 |  | status sensor sensor.goecharger_home_car_status | ✓ |
 |  | start/stop method switch | ✓ |
@@ -499,6 +622,9 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "suspended" → plugged true, charging false | ✓ |
 |  | status "suspended" + car sensor on → plugged true | ✓ |
 |  | status "suspended" + car sensor off → plugged true | ✓ |
+|  | status "error" → a charger problem, not "plugged in" | ✓ |
+|  | status "fault" → a charger problem, not "plugged in" | ✓ |
+|  | status "invalid" → a charger problem, not "plugged in" | ✓ |
 | OCPP | detected as charger | ✓ |
 |  | status sensor sensor.charger_status_connector | ✓ |
 |  | power sensor sensor.charger_power_active_import | ✓ |
@@ -527,6 +653,11 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "Finishing" → plugged true, charging false | ✓ |
 |  | status "Finishing" + car sensor on → plugged true | ✓ |
 |  | status "Finishing" + car sensor off → plugged true | ✓ |
+|  | status "Reserved" → plugged false, charging null | ✓ |
+|  | status "Reserved" + car sensor on → plugged true | ✓ |
+|  | status "Reserved" + car sensor off → plugged false | ✓ |
+|  | status "Faulted" → a charger problem, not "plugged in" | ✓ |
+|  | status "Unavailable" → a charger problem, not "plugged in" | ✓ |
 | Ohme | detected as charger | ✓ |
 |  | status sensor sensor.ohme_home_pro_status | ✓ |
 |  | power sensor sensor.ohme_home_pro_power | ✓ |
@@ -552,6 +683,9 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 |  | status "finished" → plugged true, charging false | ✓ |
 |  | status "finished" + car sensor on → plugged true | ✓ |
 |  | status "finished" + car sensor off → plugged true | ✓ |
+|  | status "pending_approval" → plugged true, charging null | ✓ |
+|  | status "pending_approval" + car sensor on → plugged true | ✓ |
+|  | status "pending_approval" + car sensor off → plugged true | ✓ |
 | On/off sensor as charger status | plug sensor off → not plugged in, not charging | ✓ |
 |  | plug sensor off wins over a late car sensor that still says on | ✓ |
 |  | plug sensor on → plugged in, charging not known (so the app can start it) | ✓ |
@@ -787,7 +921,7 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 
 The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange).
 
-<details><summary>11 of 11 passed – show every check</summary>
+<details><summary>12 of 12 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -800,6 +934,7 @@ The charging status on Home: which state and colour (ready green, charging red, 
 | ready is green | ✓ |
 | the car's charge limit below the trip is orange (11 Oct 2026) | ✓ |
 | problems are orange: charger offline, charger did not start, car not reachable, missing data | ✓ |
+| the charger reports a problem (an error, a fault): orange, with its own words | ✓ |
 | starting, the sun and the other charger are yellow | ✓ |
 | not connected and nothing to do are grey; advice only is marked | ✓ |
 
