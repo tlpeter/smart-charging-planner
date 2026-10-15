@@ -1114,7 +1114,8 @@ function durationText(minutes) {
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
                 ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
-                </table></details>` : ''}
+                </table>
+                ${blockTableHtml(p.blocks)}</details>` : ''}
             </div>
 
         <div class="overview-grid">
@@ -1146,6 +1147,30 @@ function durationText(minutes) {
     }
 
     // ---------- Looking ahead: after this trip, the next goal ----------
+    // Every planned price block: its price, the energy, and whether the whole
+    // block is used or only a part of it (then the time it really charges).
+    function blockTableHtml(blocks) {
+      if (!blocks || !blocks.length) return '';
+      const mins = (ms) => Math.round(ms / 60000);
+      let partly = false;
+      const rows = blocks.map((b) => {
+        const bs = b.block_start ?? b.start;
+        const be = b.block_end ?? b.end;
+        const part = b.end - b.start < be - bs - 60000;
+        if (part) partly = true;
+        const tags = [
+          part ? `<span class="chip">partly: ${esc(hm(b.start))}–${esc(hm(b.end))}, ${mins(b.end - b.start)} of ${mins(be - bs)} min</span>` : '',
+          (b.min_kwh || 0) > 0.01 ? '<span class="chip">minimum</span>' : '',
+          b.solar_kwh > 0.01 ? '<span class="chip">solar</span>' : '',
+          b.forecast ? '<span class="muted small">(forecast)</span>' : '',
+        ].filter(Boolean).join(' ');
+        return `<tr><td>${esc(dayHm(bs))}–${esc(hm(be))}${tags ? `<div>${tags}</div>` : ''}</td><td class="n">${esc(tidy(b.kwh))} kWh</td><td class="n">${Number(b.price).toFixed(4)}</td></tr>`;
+      }).join('');
+      return `<h3 class="small" style="margin-top:14px">Per block</h3>
+        <table class="periods"><tr><th>Block</th><th class="n">Energy</th><th class="n">Price</th></tr>${rows}</table>
+        ${partly ? '<p class="muted small">Partly: only a part of this block is needed, so the app uses the more expensive block for that part. That part sits right against the other planned blocks, so charging runs in one go without stopping.</p>' : ''}`;
+    }
+
     function tripText(t) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
