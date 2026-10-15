@@ -16,10 +16,10 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 162 of 162 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 153 of 153 ✓ |
-| Unit tests (11 files) | 576 of 576 ✓ |
+| Unit tests (11 files) | 578 of 578 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.6-dev.
+Version: 0.30.7-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 214 kB JS | ✓ 44 kB CSS, 214 kB JS |
+| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 216 kB JS | ✓ 44 kB CSS, 216 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -152,9 +152,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-15T05:00, limit sent 95 | ✓ 63.5 kWh before 10-15T05:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-16T05:00, limit sent 95 | ✓ 63.5 kWh before 10-16T05:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-16) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-16) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-17) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-17) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
 | J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 12.7 kWh to 35% |
@@ -218,7 +218,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-16T09 (forecast) | ✓ 31 forecast hours, planned: 10-16T09 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-17T09 (forecast) | ✓ 31 forecast hours, planned: 10-17T09 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -329,7 +329,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 25 of 25 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 27 of 27 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 12 of 12 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
@@ -856,7 +856,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>25 of 25 passed – show every check</summary>
+<details><summary>27 of 27 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -885,6 +885,8 @@ Price forecast: reading it and planning with it.
 | minimum + care: care info kept for Home | ✓ |
 | minimum stops at the next departure | ✓ |
 | minimum stops at the next departure: says the minimum is not reached | ✓ |
+| plan table: one block is partly used | ✓ |
+| plan table: the partly used block touches the others (no stop in between) | ✓ |
 
 </details>
 
