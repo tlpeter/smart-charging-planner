@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.7-dev
+
+- Home › Show plan table now also lists **every planned block**: its price, the energy, and whether the whole block is used. A block that is only partly needed shows when it really charges (for example "partly: 11:22–11:30, 8 of 15 min"), with a short explanation why charging starts at that time
+- Plan tables on phones: the numbers no longer touch each other
+- Docs: the plan table per block
+
 ## 0.30.6-dev
 
 - Fix: some charger status texts were read wrongly. Wallbox **Locked** and OCPP / Alfen **Reserved** (no car) counted as a car plugged in; now they do not. Alfen **Solar Charging** now counts as charging, **Charging Non Charging** and **Not Charging** as not charging

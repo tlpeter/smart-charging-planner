@@ -88,5 +88,13 @@ const cut = planStaged({ prices: day, now: t0, firstDeadline: t0, minKwh: 30, de
 check('minimum stops at the next departure', cut.blocks.every((b) => b.end <= until + 1000) && cut.planned_kwh <= 10.01);
 check('minimum stops at the next departure: says the minimum is not reached', cut.notes.includes('minimum_not_reached'));
 
+// The plan table per block (Home): every block says its whole price block
+// (block_start/block_end) and when it really charges (start/end). A partly
+// used block sits right against the other planned blocks.
+const part = planCharging({ prices: day.slice(0, 6), now: t0, deadline: t0 + 6 * H, neededKwh: 25, powerKw: 10, continuous: true });
+const partly = part.blocks.filter((b) => b.end - b.start < b.block_end - b.block_start - 60000);
+check('plan table: one block is partly used', partly.length === 1 && Math.abs(partly[0].kwh - 5) < 0.01);
+check('plan table: the partly used block touches the others (no stop in between)', part.blocks.every((b, i) => i === 0 || Math.abs(b.start - part.blocks[i - 1].end) < 1000));
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);
