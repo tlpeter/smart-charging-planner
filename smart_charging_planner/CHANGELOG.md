@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.8-dev
+
+- New: **Just turn it on** on Home (under Charge now). One tap and the charger charges right away: no goal, no cheap hours, no car data. For a visitor's car or any car the app does not know. It keeps charging until you press Stop or the car is unplugged; a full car stops by itself
+- While it is on, the app does not change your own car's charge limit and does not learn a trip from the plugging in and out. The chart and Plan details show no plan meanwhile; the status on top says "Charge now: on until you press Stop or unplug"
+- Docs: Just turn it on
+- Tests: settings test J6b, charging status (chargestate)
+
 ## 0.30.7-dev
 
 - Home › Show plan table now also lists **every planned block**: its price, the energy, and whether the whole block is used. A block that is only partly needed shows when it really charges (for example "partly: 11:22–11:30, 8 of 15 min"), with a short explanation why charging starts at that time

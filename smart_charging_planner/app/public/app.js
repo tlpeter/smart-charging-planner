@@ -769,6 +769,7 @@ function durationText(minutes) {
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
       solar_forecast_error: 'The solar forecast could not be read; the plan counts on no sun. Charging on surplus still works.',
+      charge_on: 'Charge now is on: the charger charges until you press Stop or the car is unplugged. No plan is shown meanwhile.',
       below_minimum: 'The battery is below your minimum (Settings › Rules): that part is charged right away (purple), the rest as planned.',
       minimum_not_reached: 'The minimum cannot be reached before the departure in between with the known prices and time. The plan charges as much as fits.',
     };
@@ -1069,7 +1070,8 @@ function durationText(minutes) {
       const p = d.plan;
       const periodsList = p.periods.map((x) => `${dayHm(x.start)}–${hm(x.end)}`).join(', ');
       let headline;
-      if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
+      if (p.notes.includes('charge_on')) headline = 'Charge now is on, until you press Stop or unplug';
+      else if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
       else if (p.notes.includes('fixed_waiting')) headline = 'Waiting for the car to be plugged in';
       else if (p.notes.includes('already_at_target')) headline = 'No charging scheduled';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
@@ -1336,6 +1338,7 @@ function durationText(minutes) {
     function boostGoalText(b, d) {
       if (b.mode === 'soc') return `up to ${b.value}%`;
       if (b.mode === 'kwh') return `${b.value} kWh`;
+      if (b.mode === 'on') return 'on until you press Stop or unplug (any car, also a visitor\'s)';
       return `up to the plan's target (${d.planning.target_soc}%)`;
     }
 
@@ -1372,6 +1375,7 @@ function durationText(minutes) {
               <div class="choice-value"><input name="value" type="number" step="any" min="0" hidden><span class="muted small" id="boost-unit"></span></div>
               <button class="primary" type="submit">Continue</button>
             </form>
+            <div style="margin-top:8px"><button class="secondary" type="button" id="boost-on" style="width:100%">Just turn it on</button><p class="muted small" style="margin:6px 0 0">No goal, no cheap hours, no car data (also for a visitor's car): charges until you press Stop or the car is unplugged.</p></div>
             <div id="boost-check">${boostMessage}</div>
           </div>
           ${canMin ? `
@@ -1579,7 +1583,7 @@ function durationText(minutes) {
             ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
           ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
           ${sendHtml(b.send, 'Start')}
-          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.${d.control_allowed ? ' When the goal is reached or you stop it, the plan takes over again and starts or pauses the charger.' : ' Allow control is off: nothing is sent to the charger, the Log tab shows what would be sent.'}</p>
+          <p class="muted small">${b.mode === 'on' ? 'Stops when you press Stop or the car is unplugged; then the normal plan takes over again.' : 'Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.'}${d.control_allowed ? (b.mode === 'on' ? ' When you stop it, the plan takes over again and starts or pauses the charger.' : ' When the goal is reached or you stop it, the plan takes over again and starts or pauses the charger.') : ' Allow control is off: nothing is sent to the charger, the Log tab shows what would be sent.'}</p>
           <button class="secondary" id="boost-stop">Stop charge now</button>
         </div>`;
       }
@@ -1642,6 +1646,22 @@ function durationText(minutes) {
         boostMessage = `<p class="muted small">Charge now stopped.${r.next ? ` The plan takes over: ${esc(wantText(r.next).toLowerCase())} (${esc(r.next.reason)}).` : ''}</p>${sendHtml(r.send, r.send && r.send.command && r.send.command.what === 'start charging' ? 'Start' : 'Pause')}`;
         await loadOverview();
         setTimeout(() => { boostMessage = ''; }, 60000);
+      };
+      // "Just turn it on": Charge now without a goal, in one tap.
+      const on = $('boost-on');
+      if (on) on.onclick = async () => {
+        on.disabled = true;
+        on.textContent = 'Turning on…';
+        try {
+          const r = await api('POST', 'api/boost', { mode: 'on' });
+          boostMessage = sendHtml(r.send, 'Start');
+          await loadOverview();
+          setTimeout(() => { boostMessage = ''; }, 60000);
+        } catch (err) {
+          $('boost-check').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          on.disabled = false;
+          on.textContent = 'Just turn it on';
+        }
       };
       const f = $('boost-form');
       if (!f) return;

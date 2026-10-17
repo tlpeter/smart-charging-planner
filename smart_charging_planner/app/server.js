@@ -1304,6 +1304,10 @@ const routes = {
             activePlan = { ...activePlan, blocks: activePlan.blocks.map((x) => ({ ...x, min_kwh: x.kwh })), minimum: { soc: b.value, kwh: Math.round(kwh * 10) / 10, kind: 'quick' } };
           }
           boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
+        } else if (b.mode === 'on') {
+          // Just turned on: no goal, so no planned blocks to show (the plan of
+          // your own car would be misleading while another car may charge).
+          activePlan = { ...plan, blocks: [], planned_kwh: null, cost: null, savings: null, notes: ['charge_on'], minimum: undefined, care: undefined };
         }
       }
     }
@@ -1337,7 +1341,9 @@ const routes = {
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
-    tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
+    // Not while just turned on (Charge now "on"): the car on the charger may be
+    // a visitor's, so plugging it in or out says nothing about your car's trips.
+    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
 
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
@@ -1735,6 +1741,9 @@ const computePlan = routes['GET /api/plan'];
 // kWh still needed for a "Charge now" goal.
 async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntity, now, carLimit }) {
   if (b.mode === 'target') return normalNeeded;
+  // "On": no goal of its own and no car data (it may be a visitor's car).
+  // It ends when the car is unplugged or you stop it.
+  if (b.mode === 'on') return null;
   if (b.mode === 'soc') {
     const goal = carLimit && carLimit.value != null ? Math.min(b.value, carLimit.value) : b.value;
     return energyNeededKwh(soc, goal, capacity, loss);
@@ -1761,7 +1770,7 @@ function boostFromBody(body, cached, starting = false) {
   }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
   // Quick minimum on Home: Charge now to a level, shown as minimum charging.
-  return { mode, value: mode === 'target' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
+  return { mode, value: mode === 'target' || mode === 'on' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
 }
 
 async function freshPlan() {
@@ -1884,8 +1893,9 @@ routes['POST /api/boost'] = async (req) => {
   if (actual.plugged === false) throw badRequest('The car is not plugged in');
   const wasCharging = actual.charging === true;
   boost.start(b);
-  // Raise the car's limit first, so the car accepts the charge.
-  await manageCarLimit(cached, actual, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+  // Raise the car's limit first, so the car accepts the charge. Not for "on":
+  // the car on the charger may be a visitor's, not your own car.
+  if (b.mode !== 'on') await manageCarLimit(cached, actual, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
   let send = null;
   if (!wasCharging) {
     send = await manualControl(true, 'Charge now started by you');
@@ -2703,6 +2713,10 @@ const LIMIT_MAX_TRIES = 3;
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
+  // Charge now "on" (just turned on): the car on the charger may be a
+  // visitor's, so your own car's limit is left alone.
+  const bc = boost.current();
+  if (bc && bc.mode === 'on') return;
   // Only the car this plan is for (more cars: the connected one), and not
   // while Home asks which car is connected.
   const vehicle = planResult.vehicle ? s.vehicles.find((x) => x.id === planResult.vehicle.id) || null : null;

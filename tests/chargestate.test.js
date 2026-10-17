@@ -64,6 +64,9 @@ check('Charge now to a level: that level and its own end time', () => {
   assert.match(s.detail, /21% → 50% · ready around Sun 11:00 · Charge now/);
   const q = S({ ...d, boost: { ...d.boost, value: 40, minimum: true } }, n({ charging: true, power_w: 9000, want: 'charge', code: 'boost' }));
   assert.match(q.detail, /21% → 40% · .*Quick minimum/);
+  // "Just turn it on": no goal, no end time and no car data (it may be a visitor's car).
+  const on = S({ ...d, boost: { active: true, mode: 'on', value: null } }, n({ charging: true, power_w: 9000, want: 'charge', code: 'boost' }));
+  assert.match(on.detail, /^9\.0 kW · Charge now: on until you press Stop or unplug$/);
 });
 
 check('Ready Guard and solar charging have their own title', () => {

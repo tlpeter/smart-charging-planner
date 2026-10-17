@@ -58,13 +58,14 @@ function chargeState(d, n, fmt) {
     if (b) {
       if (b.mode === 'soc' && num(b.value) != null) goal = num(b.value);
       if (b.end) until = b.end;
-      why = b.minimum ? 'Quick minimum' : 'Charge now';
+      why = b.minimum ? 'Quick minimum' : b.mode === 'on' ? 'Charge now: on until you press Stop or unplug' : 'Charge now';
+      if (b.mode === 'on') { goal = null; until = null; }
     } else if (forMinimum && minPlan && num(minPlan.soc) != null) {
       goal = num(minPlan.soc);
       if (minBlocks.length) until = minBlocks[minBlocks.length - 1].end;
       why = 'your minimum first, then the plan';
     }
-    const lvl = soc != null && goal != null ? `${soc}% → ${goal}%` : level;
+    const lvl = soc != null && goal != null ? `${soc}% → ${goal}%` : b && b.mode === 'on' ? null : level;
     const title = n.code === 'ready_guard' ? 'Ready Guard charging'
       : n.code === 'solar' ? 'Charging on solar'
         : forMinimum && !b ? 'Charging to your minimum'
