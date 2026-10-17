@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.9-dev
+
+- Tests: the app is now tested against Home Assistant Core 2026.10.2 (was 2026.10.1), and the fake Home Assistant reports 2026.10.2
+
 ## 0.30.8-dev
 
 - New: **Just turn it on** on Home (under Charge now). One tap and the charger charges right away: no goal, no cheap hours, no car data. For a visitor's car or any car the app does not know. It keeps charging until you press Stop or the car is unplugged; a full car stops by itself
