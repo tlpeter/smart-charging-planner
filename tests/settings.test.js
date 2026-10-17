@@ -682,6 +682,23 @@ async function run() {
     assert(world.limit === lim(90), `limit after stop ${world.limit}`);
     return `limit ${lim(100)} → ${lim(90)}, start: ${CH.describe(started)}`;
   });
+  await test('J6b', 'Just turn it on (Charge now without a goal, also for a visitor\'s car): charger started right away, no end from car data, your car\'s limit is not touched', async () => {
+    world.charging = false;
+    const n0 = world.calls.length;
+    const r = await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    const started = callsSince(n0).find((c) => CH.isStart(c));
+    assert(started, `no start sent: ${JSON.stringify(callsSince(n0))}`);
+    const p = await plan();
+    const n = (await ok('GET', 'api/control')).now;
+    await ok('DELETE', 'api/boost');
+    await plan();
+    assert(p.boost && p.boost.mode === 'on' && p.boost.value == null && p.boost.remaining_kwh == null, JSON.stringify(p.boost));
+    assert(world.limit === lim(90), `limit changed to ${world.limit}`);
+    assert(!callsSince(n0).some((c) => c.domain === 'number'), 'car limit sent');
+    assert(n.code === 'boost' && n.want === 'charge', `${n.want}/${n.code}`);
+    return `${r.send && r.send.sent ? 'start sent' : 'decided'}, no end until Stop or unplug`;
+  });
   await test('J7', 'Charge now as kWh: preview converts it to a level for the limit', async () => {
     world.soc = 20;
     // Enough kWh to go from 20 % to above 100 %, whatever the battery size.

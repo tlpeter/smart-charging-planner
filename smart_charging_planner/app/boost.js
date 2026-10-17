@@ -2,6 +2,9 @@
 
 // "Charge now": a manual override that charges right away until a goal is
 // reached, the car is unplugged, or the user stops it.
+// Mode "on" (for example a visitor's car) has no goal and uses no car data:
+// it charges until the car is unplugged or the user stops it. A full car
+// stops by itself.
 
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
@@ -10,7 +13,7 @@ const scope = require('./scope');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'boost.json');
-const MODES = ['target', 'soc', 'kwh'];
+const MODES = ['target', 'soc', 'kwh', 'on'];
 
 // Per charger (scope.js).
 const S = scope.store(() => ({ state: undefined }));
@@ -31,7 +34,7 @@ function current() {
 
 // minimum: started as "Quick minimum" on Home (shown in purple in the chart).
 function start({ mode, value, minimum = false }, now = Date.now()) {
-  S().state = { mode, value: mode === 'target' ? null : value, started: now, ...(minimum ? { minimum: true } : {}) };
+  S().state = { mode, value: mode === 'target' || mode === 'on' ? null : value, started: now, ...(minimum ? { minimum: true } : {}) };
   save();
   ha.log(`Charge now started (${mode}${S().state.value != null ? ' ' + S().state.value : ''})`);
   return S().state;
