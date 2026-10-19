@@ -1761,6 +1761,29 @@ async function run() {
         world.soc = 100;
       }
     });
+    await test('Y11', 'The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home"', async () => {
+      world.plugged = false;
+      world.soc = 50;
+      world.events = [
+        ev('Naar huis', 'doel: 80 precondition: ja', '', 1, 16, 17),
+        ev('Naar Home', 'doel: 80', '', 1, 18, 19),
+        ev('Naar Werk', 'doel: 80', 'Werk', 2, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        assert(p.departure && p.departure.title === 'Naar Werk' && p.departure.time === at(2, 7), JSON.stringify(p.departure));
+        assert(p.plan.away && p.plan.away.until === at(1, 17), JSON.stringify(p.plan.away));
+        assert(p.plan.blocks.length && p.plan.blocks.every((b) => b.start >= at(1, 17)), `first block ${p.plan.blocks.length ? new Date(p.plan.blocks[0].start).toISOString() : 'none'}`);
+        const first = p.next && p.next.timeline[0];
+        assert(first && first.type === 'back' && first.away_now && first.time === at(1, 17), JSON.stringify(first));
+        assert(!p.next.timeline.some((x) => x.type === 'leave' && /^Naar (huis|Home)$/.test(x.title || '')), 'a trip home shown as a departure');
+        return `departure ${p.departure.title}, charging from ${new Date(p.plan.blocks[0].start).toISOString().slice(11, 16)} UTC`;
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

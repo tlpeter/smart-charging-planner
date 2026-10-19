@@ -941,8 +941,8 @@ function durationText(minutes) {
               <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--expected)">${esc(tidy(x.target_soc))}%</text>`);
           }
         }
-        if (x.type === 'back' && leftAt != null) {
-          const a = Math.max(leftAt, t0);
+        if (x.type === 'back' && (leftAt != null || x.away_now)) {
+          const a = Math.max(leftAt != null ? leftAt : Date.now(), t0);
           const b = Math.min(x.time, t1);
           if (b > a) {
             const w = X(b) - X(a);
@@ -1230,6 +1230,11 @@ function durationText(minutes) {
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
         const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
+        if (x.away_now) {
+          return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+            <div class="tl-sub muted">The car is away now; charging is planned from when it is back</div></div></li>`;
+        }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
           ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}

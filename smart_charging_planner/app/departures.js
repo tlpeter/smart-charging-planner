@@ -247,10 +247,12 @@ function winnersPerDay(candidates, tz) {
     });
 }
 
-function collect(dep, { states, events, tz, now, days = 7, cars = null }) {
+// skip(trip): calendar trips that are not a departure from home (the server
+// passes "a trip home", e.g. "Naar huis": the car comes back, it does not leave).
+function collect(dep, { states, events, tz, now, days = 7, cars = null, skip = null }) {
   return [
     ...fromOverride(dep, now),
-    ...fromCalendar(dep, events, tz, now, cars),
+    ...fromCalendar(dep, events, tz, now, cars).filter((t) => !(skip && skip(t))),
     ...fromHelper(dep, states, tz, now),
     ...fromSchedule(dep, tz, now, days),
   ];

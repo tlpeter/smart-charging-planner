@@ -231,7 +231,8 @@ Add trip needs a calendar Home Assistant can add events to. Apple iCloud calenda
 Always on. Home shows the coming days (up to 7 days, 6 departures) as one timeline, in the order they happen, with the battery level on the right:
 
 - **Charging** (blue): the real plan up to the first departure.
-- **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", is not a departure of its own: it is when the car is back.
+- **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", "Naar huis", "Home" or "Naar Home" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.
+- **The car is away now**: when the car is not plugged in and a trip home is in the calendar, the timeline starts with **Back home** at the end of that event, and charging is planned only from then (not while the car is still away). The battery level used is the last one the car reported; what the drive home costs is not taken off yet.
 - **Back home**: when, and with about how much battery.
 - **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. With **Always charge when the battery is below a minimum** on and the car back below it: first **right away to the minimum** (purple), then the rest in the cheapest hours. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
 

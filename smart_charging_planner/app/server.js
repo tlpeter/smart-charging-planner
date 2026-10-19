@@ -296,7 +296,7 @@ function pickVehicle(s, states, now = Date.now()) {
 // calendar (tripcost.js); the expected charging is a plan from the moment the
 // car is back. Shown on Home in orange; it never steers anything.
 
-const RETURN_TITLE = /^\s*(naar\s+(huis|thuis)|terug|home|back home|to home)\b/i;
+const RETURN_TITLE = /^\s*(naar\s+(huis|thuis|home)|terug|home|back home|to home|going home|go home)\b/i;
 function isReturnTrip(t) {
   if (!t) return false;
   if (tripcost.isHome(t.location) || RETURN_TITLE.test(t.title || '')) return true;
@@ -341,7 +341,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
   const horizon = now + AHEAD_DAYS * 86400000;
-  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow }).sort((a, b) => a.time - b.time);
+  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow, skip: isReturnTrip }).sort((a, b) => a.time - b.time);
   const trips = calendarTrips(dep, events, tz, now, carCtxNow);
   const tripAt = (x) => (x.source === 'calendar' ? trips.find((t) => t.time === x.time) : null);
   const startOf = (t) => t.event_start || t.time;
@@ -414,6 +414,9 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const p = prices.find((x) => x.start <= t && t < x.end);
     return !!p && p.total <= Number(rules.min_soc_max_price);
   };
+  // The car is away now and comes back with a trip home (plan.away): first in
+  // the timeline, so it is clear why charging starts only then.
+  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
@@ -1101,14 +1104,14 @@ const routes = {
     const planning = s.planning;
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
-    let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle) });
+    let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
     let cf = chargefor.current(now);
     // A choice made for a departure that is gone (removed from the calendar or
     // the schedule) ends by itself. Not when the calendar could not be read.
     if (cf && cf.based_on && !calendarError) {
-      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz);
+      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz);
       if (!days.some((d) => d.day === cf.based_on.date)) {
         const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
         chargefor.clear(`the departure it was chosen for is gone: ${what}`);
@@ -1221,9 +1224,18 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
       }
     }
+    // The car is away and a trip home is in the calendar (for example "Naar
+    // huis" 16:30–17:30): charging can only start when it is back.
+    let away = null;
+    if (actualNow.plugged === false && dep.calendar.enabled && Array.isArray(events)) {
+      // Every event counts here (a trip home often has no target of its own).
+      const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
+      if (home) away = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+    }
+    const planNow = away ? Math.max(now, away.until) : now;
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
-        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
+        prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
         care: care ? { windowStart: care.window_start, careKwh: care.care_kwh } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
@@ -1231,24 +1243,25 @@ const routes = {
       })
       : care
       ? planCare({
-        prices, now, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
+        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : interim && minKwh > 0.01
       ? planStaged({
-        prices, now, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
+        prices, now: planNow, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : planCharging({
-        prices, now, deadline, neededKwh, powerKw,
+        prices, now: planNow, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       });
+    if (away) plan.away = away;
     if (minNow && neededKwh > 0.01) {
       plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
       plan.notes.push('below_minimum');
@@ -1539,7 +1552,7 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error } = await calendarEvents(dep, tz, now);
-    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle) }), tz);
+    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz);
     const list = (domain) => states
       .filter((x) => x.entity_id.startsWith(domain + '.'))
       .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state }))
@@ -1929,7 +1942,7 @@ async function departureDays(s, tz, now) {
   const dep = departuresFor(s, vehicle);
   const states = await ha.call({ type: 'get_states' });
   const { events } = await calendarEvents(dep, tz, now);
-  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz) };
+  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz) };
 }
 
 function dayStart(tz, offset, now) {

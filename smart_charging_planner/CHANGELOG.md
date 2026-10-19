@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.10-dev
+
+- Fix: a trip home in the calendar ("Naar huis", "Naar Thuis", "Home", "Naar Home", "Going home", or your home as location) was taken as a departure when it was the next event, for example "Naar huis 16:30 · target 80%" while the car was at work. A trip home is never a departure now
+- Fix: with the car away and a trip home in the calendar, the plan charged while the car was still away (for example 13:00–15:00, back at 17:30). Charging is now planned only from when the car is back, and Looking ahead starts with "Back home"
+- Because of the first fix, Looking ahead again knows the battery level after each trip (it showed "?" everywhere)
+- Docs: trips home and the car being away
+- Tests: settings test Y11
+
 ## 0.30.9-dev
 
 - Tests: the app is now tested against Home Assistant Core 2026.10.2 (was 2026.10.1), and the fake Home Assistant reports 2026.10.2

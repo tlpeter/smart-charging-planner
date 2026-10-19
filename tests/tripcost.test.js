@@ -29,6 +29,7 @@ check('addresses and place names are looked up; "Werk", "Thuis" and empty are no
   assert.ok(t.looksLikePlace('Nijmegen'));
   for (const x of ['Werk', 'werk', 'Thuis', 'Home', 'Gym', '', '  ']) assert.ok(!t.looksLikePlace(x), x);
   assert.ok(t.isHome('Thuis') && t.isHome('naar huis') && !t.isHome('Werk'));
+  assert.ok(t.isHome('Home') && t.isHome('Naar Home') && t.isHome('to home') && !t.isHome('Homeoffice'));
 });
 check('use per km from the range sensor: 300 km at 75 % → 0.25 % per km', () => {
   const states = [{ entity_id: 'sensor.range', state: '300', attributes: { unit_of_measurement: 'km' } }];

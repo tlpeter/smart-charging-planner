@@ -48,7 +48,7 @@ const norm = (t) => String(t || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 // Words that are a place for you but not an address ("Werk", "Thuis").
 const GENERIC = new Set(['werk', 'work', 'kantoor', 'office', 'school', 'sport', 'gym', 'training', 'thuis', 'home', 'huis', 'naar huis', 'boodschappen', 'winkel', 'shopping', 'opa', 'oma', 'ouders', 'parents']);
-const HOME = /^(thuis|huis|home|naar huis|naar thuis|terug|back home)$/i;
+const HOME = /^(thuis|huis|home|naar huis|naar thuis|naar home|terug|back home|to home)$/i;
 
 // My places (Plan › My places): a name you use in the calendar ("Werk",
 // "Northwind Labs") with its address. The event's location, or the title
