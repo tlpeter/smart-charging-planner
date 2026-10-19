@@ -14,12 +14,12 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 163 of 163 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 154 of 154 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 164 of 164 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 155 of 155 ✓ |
 | Unit tests (11 files) | 578 of 578 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.9-dev.
+Version: 0.30.10-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 217 kB JS | ✓ 44 kB CSS, 217 kB JS |
+| A2 | Frontend assets are served separately | ✓ 44 kB CSS, 218 kB JS | ✓ 44 kB CSS, 218 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -94,7 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.4 h back | ✓ 13 charged blocks, from 12.4 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.5 h back | ✓ 13 charged blocks, from 12.5 h back |
 
 ## F. Planning (departures)
 
@@ -152,9 +152,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-18T05:00, limit sent 95 | ✓ 63.5 kWh before 10-18T05:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-20T05:00, limit sent 95 | ✓ 63.5 kWh before 10-20T05:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-19) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-19) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-21) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-21) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ |
 | J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 12.7 kWh to 35% |
@@ -219,7 +219,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-19T09 (forecast) | ✓ 31 forecast hours, planned: 10-19T09 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-21T09 (forecast) | ✓ 31 forecast hours, planned: 10-21T09 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -277,6 +277,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 31.4% both times |
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
+| Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 15:00 UTC | ✓ departure Naar Werk, charging from 15:00 UTC |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
