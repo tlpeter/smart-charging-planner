@@ -915,6 +915,22 @@
     .tl-level.exp { color: var(--expected); }
     .tl-level.min { color: var(--minimum); }
     .tl-charge.minimum .tl-title, .tl-charge.minimum .tl-sub { color: var(--minimum); }
+    .tl-days { margin: 8px 0 6px; }
+    .tl-day { border-bottom: 1px solid var(--border); }
+    .tl-day:last-child { border-bottom: 0; }
+    .tl-day > summary { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; cursor: pointer; list-style: none; }
+    .tl-day > summary::-webkit-details-marker { display: none; }
+    .tl-day > summary::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+    .tl-day[open] > summary::after { transform: rotate(90deg); }
+    .tl-dayname { flex: 0 0 64px; white-space: nowrap; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tl-daytext { flex: 1 1 auto; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+    .tl-day.warn .tl-dayname { color: var(--expected); }
+    .tl-p { white-space: normal; }
+    .tl-p.exp { color: var(--expected); }
+    .tl-p.min { color: var(--minimum); }
+    .tl-p.plan { color: var(--accent); }
+    .tl-dot { color: var(--muted); }
+    .tl-day .timeline { margin-top: 0; }
     .tl-key.exp { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--expected); margin-right: 6px; vertical-align: -1px; }
     .legend i.away { background: var(--muted); opacity: .25; }
     @media (max-width: 560px) {

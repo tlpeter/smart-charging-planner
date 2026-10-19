@@ -228,7 +228,7 @@ Add trip needs a calendar Home Assistant can add events to. Apple iCloud calenda
 
 ## Looking ahead: the coming days and what a trip costs
 
-Always on. Home shows the coming days (up to 7 days, 6 departures) as one timeline, in the order they happen, with the battery level on the right:
+Always on. Home shows the coming days (up to 7 days, 6 departures) with **one line per day**, for example "Tue 20 · ⚡ 02:00 to 100% · **Main Street** 11:00–16:00 · 100% → 32% · ⚡ 16:00 to 80%": charging (blue planned, orange expected, purple minimum), each trip with its times and the battery level when leaving and when back. A day where the battery falls short is orange. Tap a day to see its full timeline, in the order things happen, with the battery level on the right:
 
 - **Charging** (blue): the real plan up to the first departure.
 - **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", "Naar huis", "Home" or "Naar Home" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.

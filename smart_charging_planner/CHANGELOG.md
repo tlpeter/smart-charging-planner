@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.11-dev
+
+- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 1:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
+- Docs: Looking ahead per day
+
 ## 0.30.10-dev
 
 - Fix: a trip home in the calendar ("Naar huis", "Naar Thuis", "Home", "Naar Home", "Going home", or your home as location) was taken as a departure when it was the next event, for example "Naar huis 16:30 · target 80%" while the car was at work. A trip home is never a departure now

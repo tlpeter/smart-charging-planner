@@ -1206,7 +1206,7 @@ function durationText(minutes) {
         ? `${x.periods.length} blocks between ${esc(dayHm(x.periods[0].start))} and ${esc(dayHm(x.periods[x.periods.length - 1].end))}`
         : x.periods.map((p) => `${esc(dayHm(p.start))}–${esc(hm(p.end))}`).join(', '));
       let lowSeen = false;
-      const rows = items.map((x, i) => {
+      const rowHtml = (x, i) => {
         if (x.type === 'charge') {
           if (x.unknown_prices) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
@@ -1239,11 +1239,60 @@ function durationText(minutes) {
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
           ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
-      }).join('');
+      };
+
+      // One line per day; tap a day for all its details (the rows above).
+      const when = (x) => (x.type === 'charge' ? x.start : x.time);
+      const dayKey = (ms) => tzFmt(ms, { year: 'numeric', month: '2-digit', day: '2-digit' });
+      const dayName = (ms) => tzFmt(ms, { weekday: 'short', day: 'numeric' });
+      // A short name for a trip: "Naar Main Street 12 1234 AB Springfield" → "Main Street".
+      const shortName = (t) => {
+        const n = String(t || 'Trip').replace(/^\s*(naar|to)\s+/i, '').trim();
+        const cut = n.replace(/\s+\d.*$/, '').replace(/,.*$/, '').trim();
+        return (cut || n).slice(0, 28);
+      };
+      const backAfter = (i) => {
+        for (let k = i + 1; k < items.length; k++) {
+          if (items[k].type === 'leave') return null;
+          if (items[k].type === 'back') return { x: items[k], i: k };
+        }
+        return null;
+      };
+      const whole = (v) => (v == null ? '' : `${Math.round(v)}%`);
+      const days = [];
+      const used = new Set();
+      items.forEach((x, i) => {
+        const key = dayKey(when(x));
+        let day = days[days.length - 1];
+        if (!day || day.key !== key) { day = { key, at: when(x), parts: [], rows: [], warn: false }; days.push(day); }
+        day.rows.push(rowHtml(x, i));
+        if (x.type === 'charge') {
+          const cls = x.minimum ? 'min' : x.expected ? 'exp' : 'plan';
+          day.parts.push(`<span class="tl-p ${cls}">⚡ ${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
+          return;
+        }
+        if (x.type === 'leave') {
+          const b = backAfter(i);
+          const sameDay = b && dayKey(b.x.time) === key;
+          if (sameDay) used.add(b.i);
+          const low = x.soc != null && x.target_soc != null && x.soc < x.target_soc - 0.5;
+          const empty = b && b.x.soc != null && b.x.soc <= 0;
+          if (low || empty) day.warn = true;
+          const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong> ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
+          return;
+        }
+        if (used.has(i)) return;
+        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
+      });
+      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}"${k === 0 ? '' : ''}>
+          <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}</span></summary>
+          <ul class="timeline">${day.rows.join('')}</ul>
+        </details>`).join('');
       return `<div class="card next-goal${lowSeen ? ' low' : ''}">
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
-        <ul class="timeline">${rows}</ul>
-        <p class="muted small"><span class="tl-key exp"></span>Orange is an expectation: the real plan follows when the car is back and plugged in. Battery levels on the right are when leaving or arriving.</p>
+        <div class="tl-days">${rows}</div>
+        <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
       </div>`;
     }
 
