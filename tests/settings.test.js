@@ -682,6 +682,23 @@ async function run() {
     assert(world.limit === lim(90), `limit after stop ${world.limit}`);
     return `limit ${lim(100)} → ${lim(90)}, start: ${CH.describe(started)}`;
   });
+  await test('J6b', 'Just turn it on (Charge now without a goal, also for a visitor\'s car): charger started right away, no end from car data, your car\'s limit is not touched', async () => {
+    world.charging = false;
+    const n0 = world.calls.length;
+    const r = await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    const started = callsSince(n0).find((c) => CH.isStart(c));
+    assert(started, `no start sent: ${JSON.stringify(callsSince(n0))}`);
+    const p = await plan();
+    const n = (await ok('GET', 'api/control')).now;
+    await ok('DELETE', 'api/boost');
+    await plan();
+    assert(p.boost && p.boost.mode === 'on' && p.boost.value == null && p.boost.remaining_kwh == null, JSON.stringify(p.boost));
+    assert(world.limit === lim(90), `limit changed to ${world.limit}`);
+    assert(!callsSince(n0).some((c) => c.domain === 'number'), 'car limit sent');
+    assert(n.code === 'boost' && n.want === 'charge', `${n.want}/${n.code}`);
+    return `${r.send && r.send.sent ? 'start sent' : 'decided'}, no end until Stop or unplug`;
+  });
   await test('J7', 'Charge now as kWh: preview converts it to a level for the limit', async () => {
     world.soc = 20;
     // Enough kWh to go from 20 % to above 100 %, whatever the battery size.
@@ -1180,6 +1197,20 @@ async function run() {
     await ok('POST', 'api/vehicles', vehicleBody());
     await plan();
     return `assumed ${p.vehicle.soc}%, planned ${p.plan.planned_kwh.toFixed(1)} kWh`;
+  });
+
+  await test('V5', 'Just plugged in: the charger already says connected, the car\'s own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away', async () => {
+    world.plugged = true;
+    world.car1Plug = false;
+    try {
+      const p = await plan();
+      assert(p.plugged_now === true, `plugged_now ${p.plugged_now}`);
+      const n = await decision();
+      assert(n.code !== 'unplugged' && n.code !== 'not_plugged', `decision ${n.code}`);
+      return `charger: ${p.charger && p.charger.status ? p.charger.status : 'connected'} · car sensor: off → plugged in`;
+    } finally {
+      world.car1Plug = undefined;
+    }
   });
 
   // ----- K. Forecast and checklist -----------------------------------------
@@ -1728,6 +1759,29 @@ async function run() {
       } finally {
         await ok('POST', 'api/control/settings', rules());
         world.soc = 100;
+      }
+    });
+    await test('Y11', 'The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home"', async () => {
+      world.plugged = false;
+      world.soc = 50;
+      world.events = [
+        ev('Naar huis', 'doel: 80 precondition: ja', '', 1, 16, 17),
+        ev('Naar Home', 'doel: 80', '', 1, 18, 19),
+        ev('Naar Werk', 'doel: 80', 'Werk', 2, 7, 8),
+      ];
+      try {
+        const p = await settle();
+        assert(p.departure && p.departure.title === 'Naar Werk' && p.departure.time === at(2, 7), JSON.stringify(p.departure));
+        assert(p.plan.away && p.plan.away.until === at(1, 17), JSON.stringify(p.plan.away));
+        assert(p.plan.blocks.length && p.plan.blocks.every((b) => b.start >= at(1, 17)), `first block ${p.plan.blocks.length ? new Date(p.plan.blocks[0].start).toISOString() : 'none'}`);
+        const first = p.next && p.next.timeline[0];
+        assert(first && first.type === 'back' && first.away_now && first.time === at(1, 17), JSON.stringify(first));
+        assert(!p.next.timeline.some((x) => x.type === 'leave' && /^Naar (huis|Home)$/.test(x.title || '')), 'a trip home shown as a departure');
+        return `departure ${p.departure.title}, charging from ${new Date(p.plan.blocks[0].start).toISOString().slice(11, 16)} UTC`;
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
       }
     });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {

@@ -769,6 +769,7 @@ function durationText(minutes) {
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
       solar_forecast_error: 'The solar forecast could not be read; the plan counts on no sun. Charging on surplus still works.',
+      charge_on: 'Charge now is on: the charger charges until you press Stop or the car is unplugged. No plan is shown meanwhile.',
       below_minimum: 'The battery is below your minimum (Settings › Rules): that part is charged right away (purple), the rest as planned.',
       minimum_not_reached: 'The minimum cannot be reached before the departure in between with the known prices and time. The plan charges as much as fits.',
     };
@@ -940,8 +941,8 @@ function durationText(minutes) {
               <text x="${tx}" y="43" font-size="11" text-anchor="${anchor}" fill="var(--expected)">${esc(tidy(x.target_soc))}%</text>`);
           }
         }
-        if (x.type === 'back' && leftAt != null) {
-          const a = Math.max(leftAt, t0);
+        if (x.type === 'back' && (leftAt != null || x.away_now)) {
+          const a = Math.max(leftAt != null ? leftAt : Date.now(), t0);
           const b = Math.min(x.time, t1);
           if (b > a) {
             const w = X(b) - X(a);
@@ -1069,7 +1070,8 @@ function durationText(minutes) {
       const p = d.plan;
       const periodsList = p.periods.map((x) => `${dayHm(x.start)}–${hm(x.end)}`).join(', ');
       let headline;
-      if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
+      if (p.notes.includes('charge_on')) headline = 'Charge now is on, until you press Stop or unplug';
+      else if (p.notes.includes('enter_soc')) headline = 'Enter the battery level to get a plan';
       else if (p.notes.includes('fixed_waiting')) headline = 'Waiting for the car to be plugged in';
       else if (p.notes.includes('already_at_target')) headline = 'No charging scheduled';
       else if (p.notes.includes('missing_data')) headline = 'Cannot plan yet';
@@ -1114,7 +1116,8 @@ function durationText(minutes) {
               ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
                 ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
-                </table></details>` : ''}
+                </table>
+                ${blockTableHtml(p.blocks)}</details>` : ''}
             </div>
 
         <div class="overview-grid">
@@ -1146,6 +1149,30 @@ function durationText(minutes) {
     }
 
     // ---------- Looking ahead: after this trip, the next goal ----------
+    // Every planned price block: its price, the energy, and whether the whole
+    // block is used or only a part of it (then the time it really charges).
+    function blockTableHtml(blocks) {
+      if (!blocks || !blocks.length) return '';
+      const mins = (ms) => Math.round(ms / 60000);
+      let partly = false;
+      const rows = blocks.map((b) => {
+        const bs = b.block_start ?? b.start;
+        const be = b.block_end ?? b.end;
+        const part = b.end - b.start < be - bs - 60000;
+        if (part) partly = true;
+        const tags = [
+          part ? `<span class="chip">partly: ${esc(hm(b.start))}–${esc(hm(b.end))}, ${mins(b.end - b.start)} of ${mins(be - bs)} min</span>` : '',
+          (b.min_kwh || 0) > 0.01 ? '<span class="chip">minimum</span>' : '',
+          b.solar_kwh > 0.01 ? '<span class="chip">solar</span>' : '',
+          b.forecast ? '<span class="muted small">(forecast)</span>' : '',
+        ].filter(Boolean).join(' ');
+        return `<tr><td>${esc(dayHm(bs))}–${esc(hm(be))}${tags ? `<div>${tags}</div>` : ''}</td><td class="n">${esc(tidy(b.kwh))} kWh</td><td class="n">${Number(b.price).toFixed(4)}</td></tr>`;
+      }).join('');
+      return `<h3 class="small" style="margin-top:14px">Per block</h3>
+        <table class="periods"><tr><th>Block</th><th class="n">Energy</th><th class="n">Price</th></tr>${rows}</table>
+        ${partly ? '<p class="muted small">Partly: only a part of this block is needed, so the app uses the more expensive block for that part. That part sits right against the other planned blocks, so charging runs in one go without stopping.</p>' : ''}`;
+    }
+
     function tripText(t) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
@@ -1203,6 +1230,11 @@ function durationText(minutes) {
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
         const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
+        if (x.away_now) {
+          return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+            <div class="tl-sub muted">The car is away now; charging is planned from when it is back</div></div></li>`;
+        }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
           ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
@@ -1311,6 +1343,7 @@ function durationText(minutes) {
     function boostGoalText(b, d) {
       if (b.mode === 'soc') return `up to ${b.value}%`;
       if (b.mode === 'kwh') return `${b.value} kWh`;
+      if (b.mode === 'on') return 'on until you press Stop or unplug (any car, also a visitor\'s)';
       return `up to the plan's target (${d.planning.target_soc}%)`;
     }
 
@@ -1347,6 +1380,7 @@ function durationText(minutes) {
               <div class="choice-value"><input name="value" type="number" step="any" min="0" hidden><span class="muted small" id="boost-unit"></span></div>
               <button class="primary" type="submit">Continue</button>
             </form>
+            <div style="margin-top:8px"><button class="secondary" type="button" id="boost-on" style="width:100%">Just turn it on</button><p class="muted small" style="margin:6px 0 0">No goal, no cheap hours, no car data (also for a visitor's car): charges until you press Stop or the car is unplugged.</p></div>
             <div id="boost-check">${boostMessage}</div>
           </div>
           ${canMin ? `
@@ -1554,7 +1588,7 @@ function durationText(minutes) {
             ${b.remaining_kwh != null ? `Still ${tidy(b.remaining_kwh)} kWh to go${b.end ? `, ready around ${esc(dayHm(b.end))}` : ''}.` : ''}</p>
           ${b.error ? `<div class="error">${esc(b.error)}</div>` : ''}
           ${sendHtml(b.send, 'Start')}
-          <p class="muted small">Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.${d.control_allowed ? ' When the goal is reached or you stop it, the plan takes over again and starts or pauses the charger.' : ' Allow control is off: nothing is sent to the charger, the Log tab shows what would be sent.'}</p>
+          <p class="muted small">${b.mode === 'on' ? 'Stops when you press Stop or the car is unplugged; then the normal plan takes over again.' : 'Stops by itself when the goal is reached or the car is unplugged; then the normal plan takes over again.'}${d.control_allowed ? (b.mode === 'on' ? ' When you stop it, the plan takes over again and starts or pauses the charger.' : ' When the goal is reached or you stop it, the plan takes over again and starts or pauses the charger.') : ' Allow control is off: nothing is sent to the charger, the Log tab shows what would be sent.'}</p>
           <button class="secondary" id="boost-stop">Stop charge now</button>
         </div>`;
       }
@@ -1617,6 +1651,22 @@ function durationText(minutes) {
         boostMessage = `<p class="muted small">Charge now stopped.${r.next ? ` The plan takes over: ${esc(wantText(r.next).toLowerCase())} (${esc(r.next.reason)}).` : ''}</p>${sendHtml(r.send, r.send && r.send.command && r.send.command.what === 'start charging' ? 'Start' : 'Pause')}`;
         await loadOverview();
         setTimeout(() => { boostMessage = ''; }, 60000);
+      };
+      // "Just turn it on": Charge now without a goal, in one tap.
+      const on = $('boost-on');
+      if (on) on.onclick = async () => {
+        on.disabled = true;
+        on.textContent = 'Turning on…';
+        try {
+          const r = await api('POST', 'api/boost', { mode: 'on' });
+          boostMessage = sendHtml(r.send, 'Start');
+          await loadOverview();
+          setTimeout(() => { boostMessage = ''; }, 60000);
+        } catch (err) {
+          $('boost-check').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          on.disabled = false;
+          on.textContent = 'Just turn it on';
+        }
       };
       const f = $('boost-form');
       if (!f) return;
@@ -1741,11 +1791,21 @@ function durationText(minutes) {
       </div>`;
     }
 
-    async function loadOverview(force = false) {
+    // Only the newest request is shown: an answer for an earlier charger (or an
+    // older refresh that is slower) arrives too late and is left out.
+    // A manual refresh is not overtaken by the automatic one-minute reload.
+    let overviewSeq = 0;
+    let refreshing = false;
+    async function loadOverview(force = false, auto = false) {
+      if (auto && refreshing) return;
+      const seq = ++overviewSeq;
+      if (force) refreshing = true;
       try {
         const d = await api('GET', force ? 'api/plan?refresh=1&calendar=1' : 'api/plan');
+        if (seq !== overviewSeq) return;
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
+        if (seq !== overviewSeq) return;
         $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
         $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
@@ -1754,7 +1814,19 @@ function durationText(minutes) {
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
           e.preventDefault();
-          await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
+          try {
+            await api('POST', 'api/vehicle/soc', { soc: sf.soc.value });
+          } catch (err) {
+            let msg = $('soc-error');
+            if (!msg) {
+              msg = document.createElement('p');
+              msg.id = 'soc-error';
+              msg.className = 'small differ';
+              sf.after(msg);
+            }
+            msg.textContent = err.message;
+            return;
+          }
           loadOverview(true);
         };
         bindBoost();
@@ -1764,7 +1836,10 @@ function durationText(minutes) {
         const rn = $('refresh-now');
         if (rn) rn.onclick = async (e) => { e.preventDefault(); rn.textContent = 'Refreshing…'; await loadOverview(true); };
       } catch (err) {
+        if (seq !== overviewSeq) return;
         $('overview-body').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      } finally {
+        if (seq === overviewSeq) refreshing = false;
       }
     }
 
@@ -3209,7 +3284,7 @@ function durationText(minutes) {
           ${list.map((m) => `<label class="check"><input type="checkbox" name="msg" value="${esc(m.id)}"${off.has(m.id) ? '' : ' checked'}> ${esc(m.name)}</label>`).join('')}
         </details>`;
       }).join('');
-      const last = r.last ? `<div class="src">Last: ${esc(new Date(r.last.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
+      const last = r.last ? `<div class="src">Last: ${esc(dayHm(r.last.at))} · ${esc(r.last.title)}${r.last.sent ? '' : ` <span class="differ">not sent: ${esc(r.last.error || '')}</span>`}</div>` : '';
       el.innerHTML = `<div class="two">
           <div class="field"><label>Name</label><input name="name" maxlength="40" placeholder="e.g. Alex's phone" value="${esc(r.name || '')}"></div>
           <div class="field"><label>Notify action</label><select name="service">${opts}</select></div>
@@ -3264,7 +3339,7 @@ function durationText(minutes) {
     async function loadNotifyStatus() {
       try {
         const [n, v] = await Promise.all([api('GET', 'api/notify'), api('GET', 'api/vehicles').catch(() => ({ vehicles: [] }))]);
-        const tm = (ms) => new Date(ms).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+        const tm = dayHm; // in Home Assistant's time zone, like the rest of the page
         notifyMeta = { categories: n.categories || [], messages: n.messages || [], choices: n.choices || [], cars: (v.multi_car ? v.vehicles : []).map((x) => ({ id: x.id, name: x.name })) };
         $('notify-list').innerHTML = '';
         (n.recipients || []).forEach((r) => recipientCard(r));
@@ -3405,7 +3480,7 @@ function durationText(minutes) {
     loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);
-      if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview();
+      if (!wizardActive && !$('tab-overview').hidden && !busy) loadOverview(false, true);
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {

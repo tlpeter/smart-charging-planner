@@ -296,7 +296,7 @@ function pickVehicle(s, states, now = Date.now()) {
 // calendar (tripcost.js); the expected charging is a plan from the moment the
 // car is back. Shown on Home in orange; it never steers anything.
 
-const RETURN_TITLE = /^\s*(naar\s+(huis|thuis)|terug|home|back home|to home)\b/i;
+const RETURN_TITLE = /^\s*(naar\s+(huis|thuis|home)|terug|home|back home|to home|going home|go home)\b/i;
 function isReturnTrip(t) {
   if (!t) return false;
   if (tripcost.isHome(t.location) || RETURN_TITLE.test(t.title || '')) return true;
@@ -331,11 +331,17 @@ function earlierPrices(cfg, firstStart, now, tz) {
     .map((p) => ({ start: p.start, end: p.end, total: totalPrice(p.price, cfg) }));
 }
 
+// The maximum price of "Always charge below a minimum", or null (any price).
+function minMaxPrice(rules) {
+  const v = rules ? rules.min_soc_max_price : null;
+  return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
   const horizon = now + AHEAD_DAYS * 86400000;
-  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow }).sort((a, b) => a.time - b.time);
+  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow, skip: isReturnTrip }).sort((a, b) => a.time - b.time);
   const trips = calendarTrips(dep, events, tz, now, carCtxNow);
   const tripAt = (x) => (x.source === 'calendar' ? trips.find((t) => t.time === x.time) : null);
   const startOf = (t) => t.event_start || t.time;
@@ -408,6 +414,9 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const p = prices.find((x) => x.start <= t && t < x.end);
     return !!p && p.total <= Number(rules.min_soc_max_price);
   };
+  // The car is away now and comes back with a trip home (plan.away): first in
+  // the timeline, so it is clear why charging starts only then.
+  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
@@ -452,11 +461,11 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       const popts = { powerKw, continuous: planning.continuous !== false, minSplitSaving: Number(planning.min_split_saving) || 0 };
       const exp = !(need > 0.01 && window.length) ? null
         : minKwh > 0.01
-          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, ...popts })
+          ? planStaged({ prices: window, now: Math.max(now, back), firstDeadline: Math.max(now, back), minKwh, deadline: x.time, neededKwh: need, immediateFirst: true, immediateUntil: x.time, firstMaxPrice: minMaxPrice(rules), ...popts })
           : planCharging({ prices: window, now: Math.max(now, back), deadline: x.time, neededKwh: need, ...popts });
       expected = {
         soc_from: level,
-        soc_to: x.soc,
+        soc_to: goalSoc,
         needed_kwh: Math.round(need * 10) / 10,
         below_goal: level < goalSoc - 0.5,
         minimum: minKwh > 0.01 ? { soc: minSoc, kwh: Math.round(minKwh * 10) / 10 } : null,
@@ -469,14 +478,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       };
       out.expected_blocks.push(...expected.blocks);
       if (expected.periods.length) {
-        const items = chargeItems(expected.blocks, { type: 'charge', expected: true, needed_kwh: expected.needed_kwh, uses_forecast: expected.uses_forecast, soc_to: x.soc }, expected.minimum);
+        const items = chargeItems(expected.blocks, { type: 'charge', expected: true, needed_kwh: expected.needed_kwh, uses_forecast: expected.uses_forecast, soc_to: goalSoc }, expected.minimum);
         // The last part shows what is still needed in total.
         items.forEach((it) => {
           it.needed_kwh = it.minimum ? expected.minimum.kwh : Math.round((expected.needed_kwh - (expected.minimum ? expected.minimum.kwh : 0)) * 10) / 10;
         });
         timeline.push(...items);
       } else if (expected.below_goal) {
-        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: x.soc });
+        timeline.push({ type: 'charge', expected: true, unknown_prices: true, start: back, end: back, periods: [], kwh: 0, needed_kwh: expected.needed_kwh, cost: null, soc_to: expected.soc_to });
       }
     }
     if (i === 0) {
@@ -489,7 +498,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       if (!expected || !expected.below_goal) socLeave = level;
       else {
         const share = expected.needed_kwh > 0 ? Math.min(1, expected.planned_kwh / expected.needed_kwh) : 1;
-        socLeave = Math.round((level + (x.soc - level) * share) * 10) / 10;
+        socLeave = Math.round((level + (expected.soc_to - level) * share) * 10) / 10;
       }
     }
     const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
@@ -1095,14 +1104,14 @@ const routes = {
     const planning = s.planning;
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
-    let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle) });
+    let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
     let cf = chargefor.current(now);
     // A choice made for a departure that is gone (removed from the calendar or
     // the schedule) ends by itself. Not when the calendar could not be read.
     if (cf && cf.based_on && !calendarError) {
-      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz);
+      const days = winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz);
       if (!days.some((d) => d.day === cf.based_on.date)) {
         const what = `${cf.based_on.title || SOURCE_LABEL[cf.based_on.source] || 'departure'} on ${cf.based_on.date}`;
         chargefor.clear(`the departure it was chosen for is gone: ${what}`);
@@ -1194,8 +1203,14 @@ const routes = {
       const priceNow = (prices.find((p) => p.start <= now && now < p.end) || {}).total;
       const min = controller.minimumNow(careRules, states, soc, priceNow);
       if (min != null) {
-        const kwh = energyNeededKwh(soc, Math.min(min, targetSoc), vehicle.capacity_kwh, planning.loss_percent);
-        if (kwh > 0.01) minNow = { soc: min, kwh };
+        // A minimum above the target counts too (the charger charges up to the
+        // minimum anyway), unless the car's own limit stops it earlier.
+        const goal = limited ? Math.min(min, targetSoc) : min;
+        const kwh = energyNeededKwh(soc, goal, vehicle.capacity_kwh, planning.loss_percent);
+        if (kwh > 0.01) {
+          minNow = { soc: goal, kwh };
+          if (!(neededKwh >= kwh)) neededKwh = kwh;
+        }
       }
     }
     let care = null;
@@ -1209,40 +1224,51 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
       }
     }
+    // The car is away and a trip home is in the calendar (for example "Naar
+    // huis" 16:30–17:30): charging can only start when it is back.
+    let away = null;
+    if (actualNow.plugged === false && dep.calendar.enabled && Array.isArray(events)) {
+      // Every event counts here (a trip home often has no target of its own).
+      const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
+      if (home) away = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+    }
+    const planNow = away ? Math.max(now, away.until) : now;
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
-        prices, now, firstDeadline: now, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true,
+        prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : care
       ? planCare({
-        prices, now, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
+        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : interim && minKwh > 0.01
       ? planStaged({
-        prices, now, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
+        prices, now: planNow, firstDeadline: interim.time, minKwh, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : planCharging({
-        prices, now, deadline, neededKwh, powerKw,
+        prices, now: planNow, deadline, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       });
+    if (away) plan.away = away;
     if (minNow && neededKwh > 0.01) {
       plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
       plan.notes.push('below_minimum');
     } else if (interim && minKwh > 0.01) {
       plan.minimum = { soc: Math.min(cf.min_soc, targetSoc), kwh: Math.round(minKwh * 10) / 10, kind: 'ready_for', before: interim.time };
     }
-    if (care && !minNow) {
+    if (care) {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
@@ -1291,6 +1317,10 @@ const routes = {
             activePlan = { ...activePlan, blocks: activePlan.blocks.map((x) => ({ ...x, min_kwh: x.kwh })), minimum: { soc: b.value, kwh: Math.round(kwh * 10) / 10, kind: 'quick' } };
           }
           boostInfo.end = activePlan.blocks.length ? activePlan.blocks[activePlan.blocks.length - 1].end : null;
+        } else if (b.mode === 'on') {
+          // Just turned on: no goal, so no planned blocks to show (the plan of
+          // your own car would be misleading while another car may charge).
+          activePlan = { ...plan, blocks: [], planned_kwh: null, cost: null, savings: null, notes: ['charge_on'], minimum: undefined, care: undefined };
         }
       }
     }
@@ -1320,11 +1350,13 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
-      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
+      next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
-    tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
+    // Not while just turned on (Charge now "on"): the car on the charger may be
+    // a visitor's, so plugging it in or out says nothing about your car's trips.
+    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
 
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
@@ -1520,7 +1552,7 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error } = await calendarEvents(dep, tz, now);
-    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle) }), tz);
+    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz);
     const list = (domain) => states
       .filter((x) => x.entity_id.startsWith(domain + '.'))
       .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state }))
@@ -1722,6 +1754,9 @@ const computePlan = routes['GET /api/plan'];
 // kWh still needed for a "Charge now" goal.
 async function boostNeededKwh(b, { soc, capacity, loss, normalNeeded, powerEntity, now, carLimit }) {
   if (b.mode === 'target') return normalNeeded;
+  // "On": no goal of its own and no car data (it may be a visitor's car).
+  // It ends when the car is unplugged or you stop it.
+  if (b.mode === 'on') return null;
   if (b.mode === 'soc') {
     const goal = carLimit && carLimit.value != null ? Math.min(b.value, carLimit.value) : b.value;
     return energyNeededKwh(soc, goal, capacity, loss);
@@ -1748,7 +1783,7 @@ function boostFromBody(body, cached, starting = false) {
   }
   if (mode === 'target' && cached.normal_plan.needed_kwh == null) throw badRequest('The plan does not know how much to charge; choose an amount in kWh instead');
   // Quick minimum on Home: Charge now to a level, shown as minimum charging.
-  return { mode, value: mode === 'target' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
+  return { mode, value: mode === 'target' || mode === 'on' ? null : value, ...(body.minimum === true && mode === 'soc' ? { minimum: true } : {}) };
 }
 
 async function freshPlan() {
@@ -1871,8 +1906,9 @@ routes['POST /api/boost'] = async (req) => {
   if (actual.plugged === false) throw badRequest('The car is not plugged in');
   const wasCharging = actual.charging === true;
   boost.start(b);
-  // Raise the car's limit first, so the car accepts the charge.
-  await manageCarLimit(cached, actual, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+  // Raise the car's limit first, so the car accepts the charge. Not for "on":
+  // the car on the charger may be a visitor's, not your own car.
+  if (b.mode !== 'on') await manageCarLimit(cached, actual, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
   let send = null;
   if (!wasCharging) {
     send = await manualControl(true, 'Charge now started by you');
@@ -1906,7 +1942,7 @@ async function departureDays(s, tz, now) {
   const dep = departuresFor(s, vehicle);
   const states = await ha.call({ type: 'get_states' });
   const { events } = await calendarEvents(dep, tz, now);
-  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle) }), tz) };
+  return { dep, days: winnersPerDay(collect(dep, { states, events, tz, now, days: 3, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz) };
 }
 
 function dayStart(tz, offset, now) {
@@ -2690,6 +2726,10 @@ const LIMIT_MAX_TRIES = 3;
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
+  // Charge now "on" (just turned on): the car on the charger may be a
+  // visitor's, so your own car's limit is left alone.
+  const bc = boost.current();
+  if (bc && bc.mode === 'on') return;
   // Only the car this plan is for (more cars: the connected one), and not
   // while Home asks which car is connected.
   const vehicle = planResult.vehicle ? s.vehicles.find((x) => x.id === planResult.vehicle.id) || null : null;
@@ -2824,7 +2864,7 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
 function chargingNow(n) {
   if (!n || !n.time) return null;
   return {
-    at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null,
+    at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null, status: n.status ?? null,
     want: n.want || null, code: n.code || null, reason: n.reason || null,
     next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
   };

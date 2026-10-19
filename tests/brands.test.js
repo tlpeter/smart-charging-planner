@@ -96,7 +96,71 @@ for (const b of BRANDS) {
       assert.strictEqual(a.plugged, plugged, `plugged ${a.plugged}`);
       if (charging !== null) assert.strictEqual(a.charging, charging, `charging ${a.charging}`);
     });
+    // With the car's own "Plugged in" sensor too (any car brand: on/off). The
+    // charger saying "connected" wins (the car's cloud is often minutes late);
+    // otherwise the car's sensor (for example at a public charger).
+    for (const carPlug of ['on', 'off']) {
+      const withCar = [...st, { entity_id: 'binary_sensor.car_plugged_in', state: carPlug, attributes: { device_class: 'plug' }, last_changed: new Date().toISOString() }];
+      const v = controller.readActual({ vehicle: { plugged_entity: 'binary_sensor.car_plugged_in' }, charger: { status_entity: c.suggested.status }, states: withCar });
+      const want = plugged === true ? true : carPlug === 'on';
+      check(`status "${text}" + car sensor ${carPlug} → plugged ${want}`, () => assert.strictEqual(v.plugged, want, `plugged ${v.plugged}`));
+    }
   }
+  // Problem texts (an error, a fault, booting, updating): the charger has a
+  // problem; not "a car is connected".
+  for (const text of b.problems || []) {
+    const st = states.map((s) => (s.entity_id === c.suggested.status ? { ...s, state: text, last_changed: new Date().toISOString() } : s));
+    const a = controller.readActual({ vehicle: null, charger: { status_entity: c.suggested.status }, states: st });
+    check(`status "${text}" → a charger problem, not "plugged in"`, () => {
+      assert.strictEqual(a.status_invalid, true, 'not seen as a problem');
+      assert.notStrictEqual(a.plugged, true, 'counted as plugged in');
+    });
+  }
+}
+
+// An on/off sensor as charger status (allowed in Settings › Charger).
+console.log('On/off sensor as charger status');
+{
+  const read = (state, dc, carPlug, power) => {
+    const st = [{ entity_id: 'binary_sensor.wallbox_status', state, attributes: { ...(dc ? { device_class: dc } : {}) }, last_changed: new Date().toISOString() }];
+    if (carPlug) st.push({ entity_id: 'binary_sensor.car_plugged_in', state: carPlug, attributes: { device_class: 'plug' } });
+    if (power != null) st.push({ entity_id: 'sensor.wallbox_power', state: String(power), attributes: { unit_of_measurement: 'W' } });
+    return controller.readActual({
+      vehicle: carPlug ? { plugged_entity: 'binary_sensor.car_plugged_in' } : null,
+      charger: { status_entity: 'binary_sensor.wallbox_status', ...(power != null ? { power_entity: 'sensor.wallbox_power' } : {}) },
+      states: st,
+    });
+  };
+  check('plug sensor off → not plugged in, not charging', () => {
+    const a = read('off', 'plug');
+    assert.strictEqual(a.plugged, false);
+    assert.strictEqual(a.charging, false);
+  });
+  check('plug sensor off wins over a late car sensor that still says on', () => assert.strictEqual(read('off', 'plug', 'on').plugged, false));
+  check('plug sensor on → plugged in, charging not known (so the app can start it)', () => {
+    const a = read('on', 'plug');
+    assert.strictEqual(a.plugged, true);
+    assert.strictEqual(a.charging, null);
+  });
+  check('plug sensor on + power 7 kW → charging', () => assert.strictEqual(read('on', 'plug', null, 7000).charging, true));
+  check('plug sensor on + power 0 W → not charging', () => assert.strictEqual(read('on', 'plug', null, 0).charging, false));
+  check('charging sensor on → plugged in and charging', () => {
+    const a = read('on', 'battery_charging');
+    assert.strictEqual(a.plugged, true);
+    assert.strictEqual(a.charging, true);
+  });
+  check('charging sensor off + car sensor off → not plugged in', () => {
+    const a = read('off', 'battery_charging', 'off');
+    assert.strictEqual(a.plugged, false);
+    assert.strictEqual(a.charging, false);
+  });
+  check('charging sensor off + car sensor on → plugged in, not charging', () => {
+    const a = read('off', 'battery_charging', 'on');
+    assert.strictEqual(a.plugged, true);
+    assert.strictEqual(a.charging, false);
+  });
+  check('no device class: the name decides (…_status → plug)', () => assert.strictEqual(read('off', null).plugged, false));
+  check('unavailable → status invalid, as before', () => assert.strictEqual(read('unavailable', 'plug').status_invalid, true));
 }
 
 // Tesla Wall Connector can only read.

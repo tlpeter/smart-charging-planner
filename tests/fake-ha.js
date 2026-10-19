@@ -2,7 +2,7 @@
 
 // Keep the fast simulator aligned with the pinned Core compatibility test.
 // Override this only when checking a future Home Assistant release locally.
-const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.1';
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.2';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:

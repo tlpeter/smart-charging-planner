@@ -37,14 +37,40 @@ function chargeState(d, n, fmt) {
   if (n.plugged === false) {
     return st('not_connected', 'grey', 'plugOff', 'Car not connected', d.departure ? `Plug in to be ready by ${fmt.dayHm(d.departure.time)}.` : 'Plug in the car to charge.');
   }
+  // The charger itself reports a problem (an error, a fault, an update).
+  const unreachable = !n.status || ['unavailable', 'unknown', 'offline', 'none'].includes(String(n.status).toLowerCase());
+  if (offline && !unreachable) {
+    return st('charger_problem', 'orange', 'alert', 'Charger reports a problem', `The charger says "${n.status}". Check the charger and its integration; the app pauses charging after 2 minutes.`);
+  }
   if (offline) {
     return st('charger_offline', 'orange', 'alert', 'Charger not reachable', `Home Assistant does not get the charger's status${n.status ? ` (${n.status})` : ''}. Check the charger and its integration.`);
   }
   if (n.charging === true || (num(n.power_w) || 0) > 500) {
+    // What it charges to right now: Charge now or Quick minimum (their goal),
+    // your minimum (the part below it is charged first), or the plan's target.
+    const b = d.boost;
+    const minPlan = p.minimum && !b ? p.minimum : null;
+    const minBlocks = blocks.filter((x) => (num(x.min_kwh) || 0) > 0.01);
+    const forMinimum = n.code === 'below_minimum' || (minPlan && minBlocks.length && minBlocks[0].start <= n.at + 5 * 60000);
+    let goal = target;
+    let until = readyAt;
+    let why = null;
+    if (b) {
+      if (b.mode === 'soc' && num(b.value) != null) goal = num(b.value);
+      if (b.end) until = b.end;
+      why = b.minimum ? 'Quick minimum' : b.mode === 'on' ? 'Charge now: on until you press Stop or unplug' : 'Charge now';
+      if (b.mode === 'on') { goal = null; until = null; }
+    } else if (forMinimum && minPlan && num(minPlan.soc) != null) {
+      goal = num(minPlan.soc);
+      if (minBlocks.length) until = minBlocks[minBlocks.length - 1].end;
+      why = 'your minimum first, then the plan';
+    }
+    const lvl = soc != null && goal != null ? `${soc}% → ${goal}%` : b && b.mode === 'on' ? null : level;
     const title = n.code === 'ready_guard' ? 'Ready Guard charging'
       : n.code === 'solar' ? 'Charging on solar'
-        : 'Charging now';
-    return st('charging', 'red', 'bolt', title, join([kw, level, ready, d.boost ? 'Charge now' : null, n.code === 'ready_guard' ? 'to be ready in time' : null]));
+        : forMinimum && !b ? 'Charging to your minimum'
+          : 'Charging now';
+    return st('charging', 'red', 'bolt', title, join([kw, lvl, until ? `ready around ${fmt.dayHm(until)}` : null, why, n.code === 'ready_guard' ? 'to be ready in time' : null]));
   }
   if (limitLow && soc != null && soc >= limitLow.value) {
     return st('car_limit', 'orange', 'alert', `Not charging: the car's charge limit is ${limitLow.value}%`, r.message || `The car stops at ${limitLow.value}%, but ${limitLow.wanted}% is wanted. Raise it in the car.`);

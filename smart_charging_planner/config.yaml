@@ -1,7 +1,7 @@
 name: Smart Charging Planner
-version: "0.30.0"
+version: "0.31.0"
 slug: smart_charging_planner
-description: "Plans EV and home battery charging around dynamic electricity prices."
+description: "TEST VERSION: plans EV and home battery charging around dynamic electricity prices."
 url: https://github.com/tlpeter/smart-charging-planner
 arch:
   - amd64
