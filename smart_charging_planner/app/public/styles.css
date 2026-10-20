@@ -915,6 +915,13 @@
     .tl-level.exp { color: var(--expected); }
     .tl-level.min { color: var(--minimum); }
     .tl-charge.minimum .tl-title, .tl-charge.minimum .tl-sub { color: var(--minimum); }
+    .charge-now { flex-wrap: wrap; }
+    .charge-now .why { flex-basis: 100%; margin-top: 8px; font-size: 14px; }
+    .charge-now .why > summary { cursor: pointer; color: var(--muted); }
+    .charge-now .why dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 0; }
+    .charge-now .why dt { color: var(--muted); }
+    .charge-now .why dd { margin: 0; overflow-wrap: anywhere; }
+    @media (max-width: 560px) { .charge-now .why dl { grid-template-columns: 1fr; gap: 0; } .charge-now .why dd { margin-bottom: 6px; } }
     .tl-days { margin: 8px 0 6px; }
     .tl-day { border-bottom: 1px solid var(--border); }
     .tl-day:last-child { border-bottom: 0; }

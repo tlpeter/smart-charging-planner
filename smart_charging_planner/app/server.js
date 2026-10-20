@@ -2865,6 +2865,7 @@ function chargingNow(n) {
   if (!n || !n.time) return null;
   return {
     at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null, status: n.status ?? null,
+    switch_state: n.switch_state || null,
     want: n.want || null, code: n.code || null, reason: n.reason || null,
     next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
   };

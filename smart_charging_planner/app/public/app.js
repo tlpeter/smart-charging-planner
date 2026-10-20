@@ -1001,6 +1001,8 @@ function durationText(minutes) {
 
     // On top of Home: is the car charging right now, and if not, why and when.
     // The server works out the state (chargestate.js) from the check every minute.
+    let whyOpen = false; // keep "Why?" open across the one-minute reload
+    document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('why')) whyOpen = e.target.open; }, true);
     function chargeStatusHtml(d) {
       const c = d.charge_state;
       if (!c || (d.missing && d.missing.length)) return '';
@@ -1011,6 +1013,8 @@ function durationText(minutes) {
           <div class="secondary">${esc(c.detail)}${c.advice_only ? ' · Allow control is off, so the app does not start or stop the charger.' : ''}</div>
         </div></div>
         <span class="src">Checked ${esc(hm(c.at))}</span>
+        ${c.facts && c.facts.length ? `<details class="why"${whyOpen ? ' open' : ''}><summary>Why?</summary>
+          <dl>${c.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd>`).join('')}</dl></details>` : ''}
       </div>`;
     }
 

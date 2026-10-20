@@ -88,6 +88,27 @@ check('Battery care: at the care level before the last hours, the status says wh
   assert.notEqual(S(plan({ ...d, vehicle: { soc: 60, car_data: { ok: true } } }), n()).state, 'care_wait');
 });
 
+check('The app wants to charge and the charger switch is on, but no power flows: say so, with the charger status (no advice)', () => {
+  const d = plan({ vehicle: { soc: 81, car_data: { ok: true } }, car_limit: { value: 100, name: 'Charge limit' }, reliability: { base_status: 'at_risk', protect: true, reason: 'Ready Guard is protecting the departure target', expected_ready: now + 2 * H } });
+  const sw = (since) => ({ entity_id: 'switch.eh123456_charger_enabled', name: 'EH123456 Charger enabled', state: 'on', on: true, since });
+  const x = n({ want: 'charge', code: 'ready_guard', reason: 'Ready Guard is protecting the departure target', status: 'awaiting_start', switch_state: sw(now - 20 * 60000) });
+  const s = S(d, x);
+  assert.equal(s.state, 'no_power');
+  assert.equal(s.color, 'orange');
+  assert.equal(s.title, 'The charger is on, but the car takes no power');
+  assert.match(s.detail, /Charger: awaiting_start \(a car is connected; charging has not started\) · on since Sun 08:40/);
+  // The facts under "Why?".
+  const f = Object.fromEntries(s.facts.map((y) => [y.label, y.value]));
+  assert.match(f['The app wants'], /^charge · Ready Guard/);
+  assert.match(f['EH123456 Charger enabled'], /^on \(charging allowed\) · since/);
+  assert.match(f['Charger status'], /^awaiting_start · a car is connected/);
+  assert.equal(f['Power now'], '0.0 kW');
+  assert.match(f.Car, /plugged in · battery 81% · charge limit 100% · target 100%/);
+  assert.ok(f['Ready Guard']);
+  // Just switched on (less than a minute): still "Starting to charge".
+  assert.equal(S(d, { ...x, switch_state: sw(now - 20000) }).state, 'starting');
+});
+
 check('Ready Guard and solar charging have their own title', () => {
   assert.equal(S(plan(), n({ charging: true, code: 'ready_guard', want: 'charge' })).title, 'Ready Guard charging');
   assert.equal(S(plan(), n({ charging: true, code: 'solar', want: 'charge' })).title, 'Charging on solar');

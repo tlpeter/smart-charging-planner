@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.15-dev
+
+- **Why?** under the charging status on Home: the facts behind it, as the app sees them at the last check. What the app wants and why, the charger switch (on/off and since when), the charger's status in its own words with what it means, the power now, the car (plugged in, battery, charge limit, target), Battery care, Ready Guard and the next planned charging
+- When the app wants to charge and the charger is on, but no power flows for more than a minute, the status now says **"The charger is on, but the car takes no power"**, with the charger's status and since when it is on, instead of "Starting to charge" for as long as it lasts
+- Docs: Why? and the new status
+- Tests: chargestate
+
 ## 0.30.14-dev
 
 - Fix: tapping a notification on an Android phone showed "Unable to connect to Home Assistant". It now opens the Smart Charging page from the sidebar

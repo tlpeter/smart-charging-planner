@@ -400,6 +400,12 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   // method, its own on/off state tells whether a command is needed.
   let cmdActual = actual;
   const ss = methods && methods.start_stop;
+  // The state of the start/stop switch or select itself (for "Why" on Home).
+  let switchState = null;
+  if (ss && (ss.type === 'switch' || ss.type === 'select')) {
+    const o = findState(states, ss.entity_id);
+    if (o) switchState = { entity_id: ss.entity_id, name: (o.attributes && o.attributes.friendly_name) || ss.entity_id, state: String(o.state), on: ss.type === 'switch' ? o.state === 'on' : o.state === ss.start_option, since: o.last_changed ? Date.parse(o.last_changed) : null };
+  }
   if (ss && ss.type === 'switch') {
     const sw = findState(states, ss.entity_id);
     if (sw && (sw.state === 'on' || sw.state === 'off')) cmdActual = { ...actual, charging: sw.state === 'on' };
@@ -421,6 +427,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     charging: actual.charging,
     status: actual.status,
     power_w: actual.power_w,
+    switch_state: switchState,
     want: decision.want,
     code: decision.code,
     amps: decision.amps || null,
