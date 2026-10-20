@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.14-dev
+
+- Fix: tapping a notification on an Android phone showed "Unable to connect to Home Assistant". It now opens the Smart Charging page from the sidebar
+
 ## 0.30.13-dev
 
 - The charging status on Home now says **"Battery care · charging starts at 09:36"** while the car stays at the care level (for example 80 %) until the last hours before the departure. Before, it could say "Starting to charge" when the charger was on but the car did not take power because of Battery care

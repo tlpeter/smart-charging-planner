@@ -515,7 +515,7 @@ async function run() {
     await ok('POST', 'api/notify/test', {});
     const c = callsSince(n0).find((x) => x.domain === 'notify');
     const d = c && c.data && c.data.data;
-    const page = '/hassio/ingress/a0b1c2d3_smart_charging_planner';
+    const page = '/a0b1c2d3_smart_charging_planner';
     assert(d && d.url === page && d.clickAction === page, `data ${JSON.stringify(d)}`);
   });
   await test('H3', 'Test notification refused when no notify action is chosen', async () => {

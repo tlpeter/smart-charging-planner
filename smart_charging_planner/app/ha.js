@@ -246,15 +246,16 @@ function setNotifyTargets(list) {
   notifyTargets = new Set((list || []).map(normaliseNotify).filter(Boolean));
 }
 
-// Where a tap on a notification opens: the app's own page in Home Assistant
-// (/hassio/ingress/<slug>). The Supervisor names the app's container after
+// Where a tap on a notification opens: the app's own page in the Home
+// Assistant sidebar (/<slug>). The old /hassio/ingress/<slug> page does not
+// load in the phone app any more. The Supervisor names the app's container after
 // its slug, with dashes: "a0b1c2d3-smart-charging-planner" is the app
 // "a0b1c2d3_smart_charging_planner". Empty when that name is not found; then
 // a tap opens Home Assistant as before.
 function appPagePath() {
   const host = String(process.env.HOSTNAME || '').trim().toLowerCase();
   if (!/^[a-z0-9]+-smart-charging-planner$/.test(host)) return '';
-  return `/hassio/ingress/${host.replace(/-/g, '_')}`;
+  return `/${host.replace(/-/g, '_')}`;
 }
 
 // Only the Home Assistant phone app (notify.mobile_app_…) knows where to go
