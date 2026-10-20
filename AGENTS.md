@@ -61,6 +61,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 
 ## Style
 
+- `smart_charging_planner/app/public/unsaved.js` (the unsaved-changes guard) is shared with Smart Heating Planner and Smart Ventilation: keep the three copies the same. Settings forms are guarded by themselves; a part that is not a form gets `data-guard` and its save button `data-guard-save`.
 - Write code comments and UI texts in plain English: short sentences, no jargon.
 - Keep it simple: no new dependencies without a good reason.
 - Check UI changes with a screenshot, both on desktop and on phone width.

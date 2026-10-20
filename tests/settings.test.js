@@ -158,6 +158,12 @@ async function run() {
     const js = await api('GET', 'app.js');
     assert(css.status === 200 && typeof css.body === 'string' && css.body.length > 1000, 'styles.css not served');
     assert(js.status === 200 && typeof js.body === 'string' && js.body.length > 10000, 'app.js not served');
+    // The unsaved-changes guard (shared with the other apps) is served and loaded.
+    const guard = await api('GET', 'unsaved.js');
+    const page = await api('GET', '');
+    assert(guard.status === 200 && typeof guard.body === 'string' && guard.body.includes('window.unsavedGuard'), 'unsaved.js not served');
+    assert(String(page.body).includes('<script src="unsaved.js"></script>'), 'unsaved.js not on the page');
+    assert(js.body.includes('unsavedGuard.writeDone') && js.body.includes('unsavedGuard.isDirty'), 'app.js does not use the guard');
     return `${Math.round(css.body.length / 1024)} kB CSS, ${Math.round(js.body.length / 1024)} kB JS`;
   });
   await test('A3', 'Fresh install: Allow control is off by default', async () => {

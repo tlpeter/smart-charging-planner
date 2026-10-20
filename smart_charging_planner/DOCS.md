@@ -62,6 +62,8 @@ Normally the car is ready for the next departure. On Home, **Ready for** lets yo
 4. Open **Settings › Overview** to check that everything is set up, then **Home** to see the plan.
 5. Check the planning settings in the app's **Configuration** tab in Home Assistant.
 
+Changes in Settings count only after you save them. While a page has unsaved changes an orange bar shows **Save** and **Discard**, and leaving the page first asks whether to save, discard or stay.
+
 Nothing found? Open **Not listed? Choose manually** and pick the entities yourself.
 
 No integration for your car at all? Use **No car integration?** in Settings › Vehicle: either enter the battery level on Home when you plug in, or charge a fixed amount each time. The app then follows the session through the charger (a charging power sensor in Settings › Charger is needed to count the energy).

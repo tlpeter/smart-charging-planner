@@ -85,6 +85,8 @@ function durationText(minutes) {
         body: write ? JSON.stringify(body || {}) : undefined,
       });
       const data = await res.json().catch(() => ({}));
+      // Tell the unsaved-changes guard whether a save worked (unsaved.js).
+      if (write && window.unsavedGuard) unsavedGuard.writeDone(res.ok, data.error || `Request failed (${res.status})`);
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     }
@@ -3519,6 +3521,14 @@ function durationText(minutes) {
     document.querySelectorAll('h2[data-icon]').forEach((h) => h.insertAdjacentHTML('afterbegin', shape(h.dataset.icon, h.dataset.color, true)));
 
     // ---------- Start ----------
+    // Unsaved changes: an orange bar with Save and Discard, and a question
+    // before leaving a settings page with changes that are not saved yet.
+    // Only the forms on the Settings pages count (not Charge now, trips, …).
+    const GUARDED = SETTINGS_SUBS.filter((s) => s !== 'diag').map((s) => `tab-${s}`);
+    unsavedGuard.init({
+      nav: '#main-nav .tab, #settings-nav .subtab, #history-nav .subtab, #charger-bar [data-bar], [data-goto]',
+      scope: (form) => { const s = form.closest('main > section'); return !!s && GUARDED.includes(s.id); },
+    });
     for (const kind of Object.keys(SECTIONS)) {
       sectionShell(kind);
       loadSaved(kind);
@@ -3537,7 +3547,8 @@ function durationText(minutes) {
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {
-        const busy = $(`tab-${kind}`).contains(document.activeElement) || ($('control-result') && $('control-result').innerHTML && kind === 'charger');
+        // Never reload a page with unsaved changes: that would undo them.
+        const busy = $(`tab-${kind}`).contains(document.activeElement) || unsavedGuard.isDirty($(`tab-${kind}`)) || ($('control-result') && $('control-result').innerHTML && kind === 'charger');
         if ($(`${kind}-saved`).innerHTML && !busy && !$(`tab-${kind}`).hidden) loadSaved(kind);
       }
     }, 30000);

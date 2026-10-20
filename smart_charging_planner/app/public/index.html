@@ -454,14 +454,14 @@
     </section>
 
     <section id="tab-status" hidden>
-      <div class="card">
+      <div class="card" data-guard="Notifications">
         <h2>Notifications</h2>
         <p class="muted small">Add a recipient for every phone (or group) that should get messages. Per recipient you choose which messages it gets and, with more than one car, for which cars. A group switch turns all its messages on or off; open it to choose message by message.</p>
         <div id="notify-state" class="src"></div>
         <div id="notify-list"></div>
         <div class="buttons">
           <button class="secondary" type="button" id="notify-add">Add recipient</button>
-          <button class="primary" type="button" id="notify-save">Save</button>
+          <button class="primary" type="button" id="notify-save" data-guard-save>Save</button>
         </div>
         <div id="notify-test-result"></div>
         <div class="row"><span class="label">Last notification</span><span class="value" id="notify-last">–</span></div>
@@ -474,6 +474,7 @@
     </section>
   </main>
 
+  <script src="unsaved.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

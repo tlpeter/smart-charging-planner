@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.16-dev
+
+- Unsaved changes in Settings are no longer lost without warning. While a settings page has changes that are not saved, an orange bar shows **Save** and **Discard**. Leaving the page (another tab, another charger) first asks: save, discard or stay
+- Fix: a settings page reloaded itself every 30 seconds when the cursor was not in a field, and that undid changes that were not saved yet. A page with unsaved changes is no longer reloaded
+- A change only counts as saved when the app said it was saved. When saving fails, the bar stays and shows why
+- The same guard (`unsaved.js`) is used in Smart Heating Planner and Smart Ventilation
+- Tests: settings test A2
+
 ## 0.30.15-dev
 
 - **Why?** under the charging status on Home: the facts behind it, as the app sees them at the last check. What the app wants and why, the charger switch (on/off and since when), the charger's status in its own words with what it means, the power now, the car (plugged in, battery, charge limit, target), Battery care, Ready Guard and the next planned charging
