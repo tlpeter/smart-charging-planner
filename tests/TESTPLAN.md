@@ -16,10 +16,10 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 165 of 165 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 156 of 156 ✓ |
-| Unit tests (11 files) | 579 of 579 ✓ |
+| Unit tests (11 files) | 580 of 580 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.14-dev.
+Version: 0.30.15-dev.
 
 # Settings
 
@@ -231,7 +231,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 53 kB, 10 entities, 14 log lines | ✓ 49 kB, 10 entities, 14 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 63 kB, 10 entities, 14 log lines | ✓ 58 kB, 10 entities, 14 log lines |
 
 ## M. Settings export and import
 
@@ -334,7 +334,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
 | [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 27 of 27 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
-| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 13 of 13 ✓ |
+| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
 | [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
@@ -926,7 +926,7 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 
 The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange).
 
-<details><summary>13 of 13 passed – show every check</summary>
+<details><summary>14 of 14 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -934,6 +934,7 @@ The charging status on Home: which state and colour (ready green, charging red, 
 | below the minimum: "Charging to your minimum", up to the minimum, ready when the minimum part ends | ✓ |
 | Charge now to a level: that level and its own end time | ✓ |
 | Battery care: at the care level before the last hours, the status says when charging really starts (also when the charger is on) | ✓ |
+| The app wants to charge and the charger switch is on, but no power flows: say so, with the charger status (no advice) | ✓ |
 | Ready Guard and solar charging have their own title | ✓ |
 | waiting for the plan is yellow, with the start time | ✓ |
 | a plan that starts after the latest safe start shows the Ready Guard start | ✓ |
