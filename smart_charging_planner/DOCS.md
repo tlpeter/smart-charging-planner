@@ -316,7 +316,7 @@ In **Settings › Notifications** you add **recipients**: every phone (or group)
 | **Start and pause** | Charging started · Charging paused (with the reason, for example "Planned charging block until Thu 03:10") |
 | **Home battery** | What the home battery does now · Home battery command failed |
 
-A new message type in a later version is on for every recipient. **Send test** sends a test to one recipient (save first). The page shows per recipient the last message and whether it was sent. Up to 10 recipients. Some messages are sent at most every few hours (for example Ready Guard every 6 hours); a message that reached no phone does not count, so it is tried again at the next check.
+Tapping a notification in the Home Assistant phone app (`notify.mobile_app_…`) opens the Smart Charging page. A new message type in a later version is on for every recipient. **Send test** sends a test to one recipient (save first). The page shows per recipient the last message and whether it was sent. Up to 10 recipients. Some messages are sent at most every few hours (for example Ready Guard every 6 hours); a message that reached no phone does not count, so it is tried again at the next check.
 
 From a version before recipients: your notify action becomes one recipient, "My phone", for all cars. When "Notify every start and pause" was off, its start, pause and home battery messages are off. After that, the option in the Configuration tab is not used any more.
 

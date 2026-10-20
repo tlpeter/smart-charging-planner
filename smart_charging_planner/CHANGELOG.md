@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.12-dev
+
+- Tapping a notification on your phone now opens the Smart Charging page instead of the Home Assistant home screen. Only for the Home Assistant phone app (`notify.mobile_app_…`); other notify actions get the message as before
+- Docs: what a tap on a notification opens
+- Tests: settings test H2b
+
 ## 0.30.11-dev
 
 - Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 1:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange

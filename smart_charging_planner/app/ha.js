@@ -246,6 +246,26 @@ function setNotifyTargets(list) {
   notifyTargets = new Set((list || []).map(normaliseNotify).filter(Boolean));
 }
 
+// Where a tap on a notification opens: the app's own page in Home Assistant
+// (/hassio/ingress/<slug>). The Supervisor names the app's container after
+// its slug, with dashes: "a0b1c2d3-smart-charging-planner" is the app
+// "a0b1c2d3_smart_charging_planner". Empty when that name is not found; then
+// a tap opens Home Assistant as before.
+function appPagePath() {
+  const host = String(process.env.HOSTNAME || '').trim().toLowerCase();
+  if (!/^[a-z0-9]+-smart-charging-planner$/.test(host)) return '';
+  return `/hassio/ingress/${host.replace(/-/g, '_')}`;
+}
+
+// Only the Home Assistant phone app (notify.mobile_app_…) knows where to go
+// on a tap: "url" for iPhone, "clickAction" for Android. Other notify actions
+// (Telegram, e-mail, groups) get no extra data, so they do not fail on it.
+function tapData(service) {
+  const page = appPagePath();
+  if (!page || !service.startsWith('mobile_app_')) return null;
+  return { url: page, clickAction: page };
+}
+
 async function sendNotification(target, title, message) {
   const full = normaliseNotify(target);
   if (!full) throw new Error('No notify action chosen');
@@ -253,7 +273,10 @@ async function sendNotification(target, title, message) {
   const service = full.slice('notify.'.length);
   if (!/^[a-z0-9_]+$/.test(service)) throw new Error(`"${full}" is not a valid notify action`);
   debug('Notification:', title, '-', message);
-  return call({ type: 'call_service', domain: 'notify', service, service_data: { title, message } }, 20000, NOTIFY_TOKEN);
+  const serviceData = { title, message };
+  const data = tapData(service);
+  if (data) serviceData.data = data;
+  return call({ type: 'call_service', domain: 'notify', service, service_data: serviceData }, 20000, NOTIFY_TOKEN);
 }
 
 // SAFETY: the app may only write the states of its own sensors, and only
@@ -342,4 +365,4 @@ function connect() {
   });
 }
 
-module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, appPagePath, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };

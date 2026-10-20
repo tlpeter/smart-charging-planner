@@ -98,6 +98,7 @@ async function startApp(options = {}) {
       HA_WS_URL: `ws://127.0.0.1:${WS_PORT}`,
       HA_REST_URL: `http://127.0.0.1:${REST_PORT}/api`,
       SUPERVISOR_TOKEN: 'test',
+      HOSTNAME: 'a0b1c2d3-smart-charging-planner',
       SCP_CHECK_AFTER_MS: '2000',
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
@@ -508,6 +509,14 @@ async function run() {
     await ok('POST', 'api/notify/test', {});
     const c = callsSince(n0).find((x) => x.domain === 'notify');
     assert(c && c.service === 'mobile_app_pixel_8', `call ${JSON.stringify(c)}`);
+  });
+  await test('H2b', 'A tap on a phone notification opens the app page', async () => {
+    const n0 = world.calls.length;
+    await ok('POST', 'api/notify/test', {});
+    const c = callsSince(n0).find((x) => x.domain === 'notify');
+    const d = c && c.data && c.data.data;
+    const page = '/hassio/ingress/a0b1c2d3_smart_charging_planner';
+    assert(d && d.url === page && d.clickAction === page, `data ${JSON.stringify(d)}`);
   });
   await test('H3', 'Test notification refused when no notify action is chosen', async () => {
     await ok('POST', 'api/notify', { service: '' });
