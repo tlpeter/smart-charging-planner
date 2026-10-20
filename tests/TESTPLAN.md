@@ -19,7 +19,7 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 | Unit tests (11 files) | 580 of 580 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
-Version: 0.30.15-dev.
+Version: 0.30.16-dev.
 
 # Settings
 
@@ -42,7 +42,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 45 kB CSS, 221 kB JS | ✓ 45 kB CSS, 221 kB JS |
+| A2 | Frontend assets are served separately | ✓ 45 kB CSS, 222 kB JS | ✓ 45 kB CSS, 222 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -94,7 +94,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.4 h back | ✓ 13 charged blocks, from 12.4 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 24 charged blocks, from 23.1 h back | ✓ 24 charged blocks, from 23.1 h back |
 
 ## F. Planning (departures)
 
@@ -117,7 +117,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | G1 | Refused: default minimum 50 %, force window 700 min, hysteresis 2 | ✓ | ✓ |
 | G2 | Minimum battery level: below it → charge now | ✓ | ✓ |
 | G2b | Below the minimum: the plan charges that part right away, marked as minimum (purple in the chart); the rest as planned | ✓ 5.7 kWh right away to 50% | ✓ 8.5 kWh right away to 50% |
-| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: not_planned | ✓ then: not_planned |
+| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: locked_block | ✓ then: locked_block |
 | G3b | Minimum taken from an entity (the car's own minimum, here 70 %) | ✓ | ✓ |
 | G4 | Preconditioning entity on → charge | ✓ | ✓ |
 | G5 | Force window: departure within the window → charge | ✓ ready_guard | ✓ ready_guard |
@@ -176,10 +176,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 24.0 kWh on solar, 10.3 kWh from the grid | ✓ 24.0 kWh on solar, 26.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 24.0 kWh on solar | ✓ 24.0 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 24.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.0 kWh on solar, 22.3 kWh from the grid | ✓ 12.0 kWh on solar, 38.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.0 kWh on solar | ✓ 12.0 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.8 kWh at night, 12.0 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -195,7 +195,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.45 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 2 block(s), saving €1.06 | ✓ charges in 2 block(s), saving €0.96 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
