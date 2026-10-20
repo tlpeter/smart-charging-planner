@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.13-dev
+
+- The charging status on Home now says **"Battery care · charging starts at 09:36"** while the car stays at the care level (for example 80 %) until the last hours before the departure. Before, it could say "Starting to charge" when the charger was on but the car did not take power because of Battery care
+- Docs: the charging status during Battery care
+- Tests: chargestate
+
 ## 0.30.12-dev
 
 - Tapping a notification on your phone now opens the Smart Charging page instead of the Home Assistant home screen. Only for the Home Assistant phone app (`notify.mobile_app_…`); other notify actions get the message as before

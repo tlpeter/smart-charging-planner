@@ -75,6 +75,18 @@ function chargeState(d, n, fmt) {
   if (limitLow && soc != null && soc >= limitLow.value) {
     return st('car_limit', 'orange', 'alert', `Not charging: the car's charge limit is ${limitLow.value}%`, r.message || `The car stops at ${limitLow.value}%, but ${limitLow.wanted}% is wanted. Raise it in the car.`);
   }
+  // Battery care: the car stays at the care level (e.g. 80 %) until the last
+  // hours before the departure, so it does not take power now, even when the
+  // charger is on. Say when the rest really starts.
+  const care = p.care;
+  const at = n.at || Date.now();
+  if (care && !d.boost && soc != null && num(care.soc) != null && soc >= num(care.soc) - 0.5
+    && target != null && soc < target && num(care.window_start) != null && at < care.window_start) {
+    const top = blocks.find((x) => x.end > care.window_start);
+    const start = top ? Math.max(top.start, care.window_start) : care.window_start;
+    return st('care_wait', 'amber', 'clock', `Battery care · charging starts at ${fmt.hm(start)}`,
+      join([`${soc}% → ${target}%`, `the car stays at ${num(care.soc)}% until then`, readyAt ? `ready around ${fmt.dayHm(readyAt)}` : null]));
+  }
   if (n.code === 'no_reaction' || (n.error && n.want === 'charge')) {
     return st('no_reaction', 'orange', 'alert', 'The charger did not start', n.error || n.reason || 'The app turned the charger on, but it does not charge.');
   }

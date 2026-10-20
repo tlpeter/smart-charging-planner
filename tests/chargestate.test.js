@@ -69,6 +69,25 @@ check('Charge now to a level: that level and its own end time', () => {
   assert.match(on.detail, /^9\.0 kW · Charge now: on until you press Stop or unplug$/);
 });
 
+check('Battery care: at the care level before the last hours, the status says when charging really starts (also when the charger is on)', () => {
+  const d = plan({
+    vehicle: { soc: 81, car_data: { ok: true } },
+    planning: { target_soc: 100, wanted_soc: 100 },
+    reliability: { base_status: 'at_risk', expected_ready: now + 2 * H },
+    plan: { blocks: [{ start: now + 0.5 * H, end: now + 2 * H, kwh: 12 }], notes: ['battery_care'], care: { soc: 80, target: 100, window_start: now + 0.4 * H } },
+  });
+  for (const x of [n({ want: 'charge', code: 'ready_guard', charging: false, power_w: 0 }), n()]) {
+    const s = S(d, x);
+    assert.equal(s.state, 'care_wait');
+    assert.equal(s.color, 'amber');
+    assert.equal(s.title, `Battery care · charging starts at ${fmt.hm(now + 0.5 * H)}`);
+    assert.match(s.detail, /81% → 100% · the car stays at 80% until then/);
+  }
+  // Once the window has started (or the car is below the care level), the normal states again.
+  assert.notEqual(S(plan({ ...d, plan: { ...d.plan, care: { ...d.plan.care, window_start: now - H } } }), n()).state, 'care_wait');
+  assert.notEqual(S(plan({ ...d, vehicle: { soc: 60, car_data: { ok: true } } }), n()).state, 'care_wait');
+});
+
 check('Ready Guard and solar charging have their own title', () => {
   assert.equal(S(plan(), n({ charging: true, code: 'ready_guard', want: 'charge' })).title, 'Ready Guard charging');
   assert.equal(S(plan(), n({ charging: true, code: 'solar', want: 'charge' })).title, 'Charging on solar');
