@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.17-dev
+
+- New option in Settings › Rules: **Restart the car when it takes no power** (off by default). On Tuesday morning the Renault had ended its session at 80 % at night and did not start again after the app raised its limit to 100 % at 07:00: the charger was on and ready (`ready_to_charge`), but the car asked for no power. Changing the limit once more started it. With this option on, the app does that itself: when it wants to charge and no power flows for 2 minutes, it sets the car's limit one step lower and back. At most once every 30 minutes; shown under Why? on Home and in the log
+- Docs: the new option
+- Tests: settings test J6c (the fake Home Assistant can now play a car that does not start)
+
 ## 0.30.16-dev
 
 - Unsaved changes in Settings are no longer lost without warning. While a settings page has changes that are not saved, an orange bar shows **Save** and **Discard**. Leaving the page (another tab, another charger) first asks: save, discard or stay

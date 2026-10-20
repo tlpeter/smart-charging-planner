@@ -2252,6 +2252,7 @@ function durationText(minutes) {
       f.battery_care_soc.value = r.battery_care_soc ?? 80;
       f.battery_care_hours.value = r.battery_care_hours ?? 4;
       f.car_limit_off.checked = !!r.car_limit_off;
+      f.car_limit_restart.checked = !!r.car_limit_restart;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
       $('car-limit-now').innerHTML = lim && lim.entity_id
@@ -2286,7 +2287,7 @@ function durationText(minutes) {
           battery_care_enabled: f.battery_care_enabled.checked,
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
-          car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
+          car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
         });
         document.activeElement.blur();
         await loadControl();

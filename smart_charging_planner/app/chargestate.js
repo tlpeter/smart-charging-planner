@@ -59,6 +59,9 @@ function facts(d, n, fmt) {
   const r = d.reliability;
   if (r && r.protect) add('Ready Guard', r.reason || r.message || 'charging now to be ready in time');
   if (d.boost) add('Charge now', 'on, started by you');
+  if (n.restart && n.restart.at && (n.at || Date.now()) - n.restart.at < 6 * 3600000) {
+    add('Restart of the car', `charge limit set to ${pct(n.restart.to)} and back to ${pct(n.restart.from)} at ${fmt.dayHm(n.restart.at)}, because it took no power`);
+  }
   const next = (p.blocks || []).find((b) => b.start > (n.at || Date.now()));
   if (next && n.want !== 'charge') add('Next planned charging', fmt.dayHm(next.start));
   return out;

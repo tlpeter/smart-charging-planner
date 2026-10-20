@@ -137,6 +137,8 @@
           <p class="muted small"><strong>The car's own charge limit follows every choice.</strong> The app sets it to the highest goal that is active: your next departure, Charge now, or Ready for tomorrow / the day after. When that goal ends, it goes back. Only while the car is plugged in, and only when the car supports it. A new limit is sent once; it is only sent again if the car still shows the old value after 15 minutes (at most 3 times), because the car's cloud limits the number of calls.</p>
           <p class="muted small" id="car-limit-now"></p>
           <label class="check"><input type="checkbox" name="car_limit_off"> Don't change the car's charge limit (only if your own automation does that)</label>
+          <label class="check"><input type="checkbox" name="car_limit_restart"> <strong>Restart the car when it takes no power</strong></label>
+          <p class="muted small">Some cars (for example Renault) end charging at their own limit and do not start again when the limit is raised later: the charger is on, but the car asks for no power. With this on, the app sets the car's limit one step lower and back when it wants to charge and no power flows for 2 minutes, which starts the car again. At most once every 30 minutes; shown under Why? on Home and in the log.</p>
           <div class="field" style="margin-top:14px"><label>Default minimum for the quick choices on Home (20–45 %)</label>
             <input name="min_choice" type="number" min="20" max="45" step="5"></div>
           <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>

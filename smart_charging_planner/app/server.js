@@ -188,6 +188,8 @@ const ST = scope.store(() => ({
   lastLiveSend: null,
   lastManual: null,
   conflictsCache: null,
+  wantNoPowerSince: null, // the app wants to charge, but no power flows (restartCar)
+  lastRestart: null, // { at, from, to }: the car was restarted via its charge limit
 }));
 
 // ---------------------------------------------------------------------------
@@ -2724,6 +2726,48 @@ async function sendCarLimit(lim, value, reason, live) {
 // at most twice.
 const LIMIT_RETRY_MS = Number(process.env.SCP_LIMIT_GAP_MS) || 15 * 60000;
 const LIMIT_MAX_TRIES = 3;
+
+// "Restart the car" (Settings › Rules, off by default). Some cars (Renault)
+// end their charging session at their own limit and do not start again when
+// the limit is raised later: the charger is on and ready, but the car asks
+// for no power. Changing the limit once more wakes it. So: when the app wants
+// to charge, the charger allows it, and no power flows for 2 minutes, the app
+// sets the car's limit one step lower; at the next check (a minute later) it
+// sets it back to the goal as usual. At most once every 30 minutes.
+const RESTART_AFTER_MS = Number(process.env.SCP_RESTART_AFTER_MS) || 2 * 60000;
+const RESTART_GAP_MS = 30 * 60000;
+async function restartCar(planResult, entry, states, rules) {
+  const now = Date.now();
+  const stuck = entry.want === 'charge' && entry.plugged === true && entry.charging !== true && !((Number(entry.power_w) || 0) > 500)
+    && (!entry.switch_state || entry.switch_state.on === true);
+  if (!stuck) { ST().wantNoPowerSince = null; return; }
+  if (!ST().wantNoPowerSince) ST().wantNoPowerSince = now;
+  if (!rules || rules.car_limit_restart !== true) return;
+  const s = settings.load();
+  if (!managingCarLimit(s) || !planResult) return;
+  const bc = boost.current();
+  if (bc && bc.mode === 'on') return; // possibly a visitor's car
+  const since = Math.max(ST().wantNoPowerSince, entry.switch_state && entry.switch_state.since ? entry.switch_state.since : 0);
+  if (now - since < RESTART_AFTER_MS) return;
+  if (ST().lastRestart && now - ST().lastRestart.at < RESTART_GAP_MS) return;
+  const vehicle = planResult.vehicle ? s.vehicles.find((x) => x.id === planResult.vehicle.id) || null : null;
+  if (!vehicle) return;
+  const cd = planResult.vehicle.car_data;
+  if (cd && cd.ok === false) return;
+  const lim = await carChargeLimit(vehicle, states);
+  if (!lim || !lim.writable || lim.value == null) return;
+  const { wanted } = limitGoal(planResult, bc);
+  if (!Number.isFinite(Number(wanted)) || limitValue(lim, wanted) !== lim.value) return; // a change is still on its way
+  const soc = Number(planResult.vehicle.soc);
+  if (Number.isFinite(soc) && soc >= lim.value - 1) return; // at its limit: nothing to wake
+  const step = Number(lim.step) > 0 ? Number(lim.step) : 5;
+  const lower = limitValue(lim, lim.value - step);
+  if (lower >= lim.value) return;
+  ST().lastRestart = { at: now, from: lim.value, to: lower };
+  ST().lastLimitSend = null; // so the goal is sent again at the next check
+  ha.log(`The car takes no power while it should: car charge limit ${lim.value}% → ${lower}% and back, to restart it`);
+  await sendCarLimit(lim, lower, 'Restart the car: it takes no power', true);
+}
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
@@ -2867,6 +2911,7 @@ function chargingNow(n) {
   return {
     at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null, status: n.status ?? null,
     switch_state: n.switch_state || null,
+    restart: ST().lastRestart || null,
     want: n.want || null, code: n.code || null, reason: n.reason || null,
     next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
   };
@@ -3171,6 +3216,7 @@ async function actStep({ s, charger, states, methods, rules, planResult, entry }
     await sendLive(entry, chosenMethods(methods, rules));
     await sendCurrentAndPhases(entry, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
     await manageCarLimit(planResult, entry, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+    await restartCar(planResult, entry, states, rules).catch((err) => ha.warn('Restarting the car failed:', err.message));
     // The Equalizer and the home battery belong to the house: the first charger steers them.
     if (scope.isPrimary()) await equalizerStep(s, entry, states, charger).catch((err) => ha.warn('Equalizer surplus charging failed:', err.message));
   }
@@ -3879,6 +3925,7 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_soc: num(b.battery_care_soc ?? 80, 'Battery care level', 50, 95),
     battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
     car_limit_off: b.car_limit_off === true,
+    car_limit_restart: b.car_limit_restart === true,
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
   settings.save(s);

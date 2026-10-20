@@ -59,7 +59,7 @@ const PROFILES = {
     charger: {
       device: 'ch', name: 'Laadpaal', manufacturer: 'Easee', model: 'Charge', platform: 'easee',
       status: 'sensor.laadpaal_status', power: 'sensor.laadpaal_power', switch: 'switch.laadpaal_charger_enabled',
-      text: { unplugged: 'disconnected', paused: 'awaiting_start', charging: 'charging' },
+      text: { unplugged: 'disconnected', paused: 'awaiting_start', charging: 'charging', ready: 'ready_to_charge' },
       services: {
         easee: {
           action_command: { fields: { device_id: {}, action_command: { selector: { select: { options: ['start', 'stop', 'pause', 'resume', 'toggle', 'reboot'] } } } } },
@@ -77,7 +77,7 @@ const PROFILES = {
       states: (w, status) => [
         ['sensor.laadpaal_status', status, { friendly_name: 'Laadpaal Status', device_class: 'enum' }],
         ['sensor.laadpaal_power', carKw(w), { friendly_name: 'Laadpaal Power', ...KW }],
-        ['switch.laadpaal_charger_enabled', w.charging ? 'on' : 'off', { friendly_name: 'Laadpaal Charger enabled' }],
+        ['switch.laadpaal_charger_enabled', w.charging || w.enabledNoPower ? 'on' : 'off', { friendly_name: 'Laadpaal Charger enabled' }],
         ['switch.laadpaal_smart_charging', 'off', { friendly_name: 'Laadpaal Smart charging' }],
       ],
       // What a start or stop command does.
@@ -193,7 +193,7 @@ function createWorld(profileName = 'renault_easee') {
 function entityList(w) {
   const p = w.profile;
   const ch = p.charger;
-  const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : ch.text.paused;
+  const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : w.enabledNoPower && ch.text.ready ? ch.text.ready : ch.text.paused;
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
@@ -363,7 +363,12 @@ function start(w, wsPort, restPort) {
             const d = call.data;
             w.events.push({ summary: d.summary, description: d.description, location: d.location, start: String(d.start_date_time).replace(' ', 'T'), end: String(d.end_date_time).replace(' ', 'T') });
           }
-          if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) w.limit = call.data.value;
+          if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) {
+            w.limit = call.data.value;
+            // Like a Renault that ended its session: a change of its limit while
+            // the charger is on and ready wakes it (w.carAsleep, settings test J6c).
+            if (w.carAsleep && w.enabledNoPower) { w.carAsleep = false; w.enabledNoPower = false; w.charging = true; }
+          }
           if (w.hasBattery && tid) {
             if (tid === 'switch.sigen_plant_remote_ems_controlled_by_home_assistant') w.bat.ems = m.service === 'turn_on' ? 'on' : 'off';
             if (tid === 'select.sigen_plant_remote_ems_control_mode') w.bat.mode = call.data.option;
@@ -393,8 +398,9 @@ function start(w, wsPort, restPort) {
           const ph = w.profile.charger.phasesOf && w.profile.charger.phasesOf(call);
           if (ph != null) w.phases = ph;
           const r = w.profile.charger.react(call);
-          if (r === 'start') w.charging = !(w.eqSurplus && (w.pvW ?? 0) < 1400);
-          if (r === 'stop') w.charging = false;
+          if (r === 'start' && w.carAsleep) { w.enabledNoPower = true; w.charging = false; }
+          else if (r === 'start') w.charging = !(w.eqSurplus && (w.pvW ?? 0) < 1400);
+          if (r === 'stop') { w.charging = false; w.enabledNoPower = false; }
           return ok({ context: {} });
         }
         default: return fail(`not supported in the fake: ${m.type}`);

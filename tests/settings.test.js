@@ -109,6 +109,7 @@ async function startApp(options = {}) {
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
       SCP_CALENDAR_WAIT_MS: '100',
+      SCP_RESTART_AFTER_MS: '1500',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -713,6 +714,39 @@ async function run() {
     assert(!callsSince(n0).some((c) => c.domain === 'number'), 'car limit sent');
     assert(n.code === 'boost' && n.want === 'charge', `${n.want}/${n.code}`);
     return `${r.send && r.send.sent ? 'start sent' : 'decided'}, no end until Stop or unplug`;
+  });
+  await test('J6c', 'Restart the car (option): the charger is on and ready, but the car takes no power (like a Renault that ended its session at 80 %); the app sets the car limit one step lower and back, and the car charges', async () => {
+    if (!CH.text.ready) return 'not for this charger in the fake';
+    world.charging = false;
+    world.carAsleep = true;
+    const n0 = world.calls.length;
+    try {
+      await ok('POST', 'api/control/settings', rules({ car_limit_restart: true }));
+      await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
+      await sleep(800);
+      assert(world.enabledNoPower && !world.charging, `enabled ${world.enabledNoPower}, charging ${world.charging}`);
+      await plan();
+      await sleep(1800);
+      await plan();
+      await sleep(800);
+      const limits = callsSince(n0).filter((c) => c.domain === 'number').map((c) => c.data.value);
+      assert(limits.includes(lim(100) - CAR.limit_step), `limits sent: ${limits.join(', ')}`);
+      assert(world.charging === true, 'the car did not start');
+      const p = await plan();
+      await sleep(800);
+      await plan();
+      await sleep(800);
+      assert(world.limit === lim(100), `limit not back: ${world.limit}`);
+      const why = (p.charge_state.facts || []).find((f) => f.label === 'Restart of the car');
+      assert(why, `not under Why?: ${JSON.stringify(p.charge_state.facts)}`);
+      return `limits ${limits.join(' → ')}, charging`;
+    } finally {
+      world.carAsleep = false;
+      world.enabledNoPower = false;
+      await ok('DELETE', 'api/boost');
+      await ok('POST', 'api/control/settings', rules());
+      await plan();
+    }
   });
   await test('J7', 'Charge now as kWh: preview converts it to a level for the limit', async () => {
     world.soc = 20;

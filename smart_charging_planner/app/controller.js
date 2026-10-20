@@ -67,6 +67,7 @@ const DEFAULT_RULES = {
   battery_care_soc: 80,
   battery_care_hours: 4,
   car_limit_off: false, // true: never change the car's own charge limit
+  car_limit_restart: false, // true: the car takes no power while it should: set its limit one step lower and back
   min_choice: 30, // default minimum (%) for the quick choices on Home
 };
 
