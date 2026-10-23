@@ -14,8 +14,8 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 166 of 167 ✗ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 157 of 158 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 167 of 167 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 158 of 158 ✓ |
 | Unit tests (11 files) | 580 of 580 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
@@ -178,10 +178,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✗ FAIL solar 13.041838333333335 kWh, solar info {"enabled":true,"mode":"plan_solar","max_soc":90,"forecast_source":"energy","forecast_hours":18,"expected_kwh_left_today":2.4000000000000004}, notes prices_incomplete, dep {"time":1792908000000,"soc":80,"source":"schedule"}, needed 34.32, blocks [["10-23T13","1.0",0.03],["10-24T00","11.0",0.05],["10-24T01","10.2",0.05],["10-24T08","2.0",0.03],["10-24T09","2.0",0.03],["10-24T10","2.0",0.03],["10-24T11","2.0",0.03],["10-24T12","2.0",0.03],["10-24T13","2.0",0.03]] | ✗ FAIL solar 13.04638888888889 kWh, solar info {"enabled":true,"mode":"plan_solar","max_soc":90,"forecast_source":"energy","forecast_hours":18,"expected_kwh_left_today":2.4000000000000004}, notes prices_incomplete, dep {"time":1792908000000,"soc":80,"source":"schedule"}, needed 50.82, blocks [["10-23T13","1.0",0.03],["10-24T00","11.0",0.05],["10-24T01","11.0",0.05],["10-24T02","11.0",0.05],["10-24T03","4.7",0.2],["10-24T08","2.0",0.03],["10-24T09","2.0",0.03],["10-24T10","2.0",0.03],["10-24T11","2.0",0.03],["10-24T12","2.0",0.03],["10-24T13","2.0",0.03]] |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.0 kWh on solar | ✓ 13.0 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.8 kWh at night, 13.0 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 13.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.9 kWh on solar, 21.4 kWh from the grid | ✓ 12.9 kWh on solar, 37.9 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.9 kWh on solar | ✓ 12.9 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.9 kWh at night, 12.9 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 12.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
