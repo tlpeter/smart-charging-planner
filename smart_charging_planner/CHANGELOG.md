@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.18-dev
+
+- The price chart on Home can look further back: choose **12 h**, **24 h**, **3 days** or **7 days** above the chart (the same as in Smart Heating Planner and Smart Ventilation). This browser remembers the choice. The part after now (the plan) stays the same.
+- The older part shows the prices from the app's price history (or the fixed tariff) and, in yellow, the blocks the car really charged in (from the charger power sensor; Home Assistant keeps those 5-minute values for 10 days). Older prices are there from the moment the app stored them.
+- New: `GET /api/past` (only reading). Test E11.
+
 ## 0.30.17-dev
 
 - New option in Settings › Rules: **Restart the car when it takes no power** (off by default). On Tuesday morning the Renault had ended its session at 80 % at night and did not start again after the app raised its limit to 100 % at 07:00: the charger was on and ready (`ready_to_charge`), but the car asked for no power. Changing the limit once more started it. With this option on, the app does that itself: when it wants to charge and no power flows for 2 minutes, it sets the car's limit one step lower and back. At most once every 30 minutes; shown under Why? on Home and in the log

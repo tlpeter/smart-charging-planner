@@ -321,10 +321,15 @@ const AHEAD_STEPS = 6;
 // The chart looks back at least this far, to show what was charged.
 const LOOK_BACK_MS = 12 * 3600000;
 
-// Prices from before today's list, so the chart reaches back 12 hours.
-// Taken from the price history (or the fixed tariff); empty when unknown.
-function earlierPrices(cfg, firstStart, now, tz) {
-  const from = Math.floor((now - LOOK_BACK_MS) / 3600000) * 3600000;
+// How far back the chart can look, in hours (chosen on Home; 12 is the default
+// and comes with the plan itself).
+const PAST_HOURS = [12, 24, 72, 168];
+
+// Prices from before today's list, so the chart reaches back 12 hours (or
+// lookBackMs). Taken from the price history (or the fixed tariff); empty when
+// unknown.
+function earlierPrices(cfg, firstStart, now, tz, lookBackMs = LOOK_BACK_MS) {
+  const from = Math.floor((now - lookBackMs) / 3600000) * 3600000;
   if (!cfg || !cfg.source || !firstStart || from >= firstStart) return [];
   const list = cfg.source.type === 'fixed'
     ? fixedTariff(cfg.source, { start: from, end: firstStart }, tz)
@@ -1464,6 +1469,30 @@ const routes = {
   },
 
   // Savings per charging session over the last 30 days.
+  // The chart further back than the plan's 12 hours: the prices and what was
+  // charged from `hours` ago up to `before` (the first block of the plan's
+  // chart). Only reading: the price history and the charger's statistics.
+  'GET /api/past': async (req) => {
+    const url = new URL(req.url, 'http://localhost');
+    const hours = PAST_HOURS.includes(Number(url.searchParams.get('hours'))) ? Number(url.searchParams.get('hours')) : 12;
+    const s = settings.load();
+    const tz = ha.state.timeZone;
+    const now = Date.now();
+    const beforeRaw = Number(url.searchParams.get('before'));
+    const before = Number.isFinite(beforeRaw) && beforeRaw > 0 ? Math.min(beforeRaw, now) : now;
+    const prices = s.prices ? earlierPrices(s.prices, before, now, tz, hours * 3600000) : [];
+    const charger = currentCharger(s);
+    let charged = [];
+    if (charger && charger.power_entity && prices.length) {
+      try {
+        charged = await chargedBlocks(charger.power_entity, prices, now);
+      } catch (err) {
+        ha.debug('Charged history not available:', err.message);
+      }
+    }
+    return { hours, from: prices.length ? prices[0].start : before, before, prices, charged };
+  },
+
   'GET /api/savings': async () => {
     const s = settings.load();
     const tz = ha.state.timeZone;

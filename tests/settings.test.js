@@ -343,6 +343,31 @@ async function run() {
       await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
     }
   });
+  await test('E11', 'Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan\'s first block; anything else is 12 hours', async () => {
+    await ok('POST', 'api/prices', { source: { type: 'fixed' }, fixed: { mode: 'day_night', normal: 0.30, low: 0.20, low_from: '23:00', low_to: '07:00', weekend_low: false } });
+    world.chargedKw = 11;
+    try {
+      const p = await plan();
+      const before = p.prices[0].start;
+      const out = [];
+      for (const hours of [24, 72, 168]) {
+        const r = await ok('GET', `api/past?hours=${hours}&before=${before}`);
+        assert(r.hours === hours, `hours ${r.hours}`);
+        assert(r.prices.length > 0, `${hours} h: no older prices`);
+        assert(r.prices.every((x) => x.end <= before), `${hours} h: a price after the plan's first block`);
+        assert(r.prices[0].start <= p.now - hours * 3600000 + 3600000, `${hours} h: starts ${((p.now - r.prices[0].start) / 3600000).toFixed(1)} h back`);
+        assert(r.prices.every((x) => Number.isFinite(x.total)), 'a price without a number');
+        assert(r.charged.length > 0 && r.charged.every((c) => c.start < before), `${hours} h: charged ${r.charged.length}`);
+        out.push(`${hours} h: ${r.prices.length} blocks`);
+      }
+      const d = await ok('GET', `api/past?hours=5&before=${before}`);
+      assert(d.hours === 12, `hours=5 gives ${d.hours}`);
+      return out.join(', ');
+    } finally {
+      world.chargedKw = 0;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
 
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';

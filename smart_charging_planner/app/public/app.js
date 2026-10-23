@@ -810,9 +810,58 @@ function durationText(minutes) {
       return (p.end - p.start) / 60000;
     }
 
-    function drawChart(d) {
+    // How far back the chart looks: 12 hours comes with the plan; longer is
+    // fetched once (api/past) and put in front of it. Kept in this browser.
+    const PAST_RANGES = [[12, '12 h'], [24, '24 h'], [72, '3 days'], [168, '7 days']];
+    let pastHours = 12;
+    try {
+      const saved = Number(localStorage.getItem('scp-chart-past'));
+      if (PAST_RANGES.some(([h]) => h === saved)) pastHours = saved;
+    } catch { /* private window */ }
+    let pastData = null; // { hours, before, at, prices, charged }
+
+    function pastButtonsHtml() {
+      return `<div class="range" id="chart-range" role="group" aria-label="How far back">${PAST_RANGES.map(([h, label]) =>
+        `<button type="button" data-hours="${h}" aria-pressed="${h === pastHours}">${label}</button>`).join('')}</div>`;
+    }
+
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('#chart-range button[data-hours]');
+      if (!b || Number(b.dataset.hours) === pastHours) return;
+      pastHours = Number(b.dataset.hours);
+      try { localStorage.setItem('scp-chart-past', String(pastHours)); } catch { /* private window */ }
+      document.querySelectorAll('#chart-range button').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.hours) === pastHours)));
+      if (lastPlan) { drawChart(lastPlan); loadPast(lastPlan); }
+    });
+
+    // The plan with the older prices and charging in front of it.
+    function withPast(d) {
+      if (pastHours === 12 || !pastData || pastData.hours !== pastHours || !d.prices.length || pastData.before !== d.prices[0].start) return d;
+      const first = d.prices[0].start;
+      return {
+        ...d,
+        prices: pastData.prices.filter((p) => p.end <= first).concat(d.prices),
+        charged: pastData.charged.filter((c) => c.start < first).concat(d.charged || []),
+      };
+    }
+
+    async function loadPast(d) {
+      if (pastHours === 12 || !d || !d.prices.length) return;
+      const before = d.prices[0].start;
+      if (pastData && pastData.hours === pastHours && pastData.before === before && Date.now() - pastData.at < 5 * 60000) return;
+      const hours = pastHours;
+      try {
+        const r = await api('GET', `api/past?hours=${hours}&before=${before}`);
+        if (hours !== pastHours) return;
+        pastData = { ...r, hours, before, at: Date.now() };
+        if (lastPlan === d) drawChart(d);
+      } catch { /* the chart keeps its 12 hours */ }
+    }
+
+    function drawChart(plan) {
       const wrap = $('chart');
-      if (!wrap || !d.prices.length) return;
+      if (!wrap || !plan.prices.length) return;
+      const d = withPast(plan);
       const W = Math.max(320, wrap.clientWidth);
       const H = 272;
       // Three dedicated marker lanes prevent "now", "safe start" and
@@ -1116,6 +1165,7 @@ function durationText(minutes) {
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
+              ${pastButtonsHtml()}
               <div class="chart-wrap" id="chart"></div>
               <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
@@ -1866,6 +1916,7 @@ function durationText(minutes) {
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
         drawChart(d);
+        loadPast(d);
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
           e.preventDefault();
