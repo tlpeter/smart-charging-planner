@@ -912,8 +912,10 @@ async function run() {
     const p = await plan();
     const sk = solarKwh(p);
     // Tomorrow's sun (6 h × 2 kW at 80 % after the house); run in the morning, today's sun counts too.
+    // In the afternoon the sun that is left today may count as well (a run at 15:15 planned 1 kWh on it).
     const todaySun = Date.now() < at(0, 15, 0);
-    assert(sk > 11 && sk < (todaySun ? 25 : 13), `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
+    const leftToday = (p.solar && p.solar.expected_kwh_left_today) || 0;
+    assert(sk > 11 && sk < (todaySun ? 25 : 13 + leftToday), `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
     return `${sk.toFixed(1)} kWh on solar, ${(p.plan.planned_kwh - sk).toFixed(1)} kWh from the grid`;
   });
   await test('S4', 'Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen', async () => {

@@ -5,6 +5,7 @@
 - The price chart on Home can look further back: choose **12 h**, **24 h**, **3 days** or **7 days** above the chart (the same as in Smart Heating Planner and Smart Ventilation). This browser remembers the choice. The part after now (the plan) stays the same.
 - The older part shows the prices from the app's price history (or the fixed tariff) and, in yellow, the blocks the car really charged in (from the charger power sensor; Home Assistant keeps those 5-minute values for 10 days). Older prices are there from the moment the app stored them.
 - New: `GET /api/past` (only reading). Test E11.
+- Test S3 (solar) no longer fails in the afternoon when there is still some sun left today.
 
 ## 0.30.17-dev
 
