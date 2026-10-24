@@ -1,6 +1,7 @@
 /* Look and feel: Home Assistant's default theme with Mushroom-style cards,
        chips and round tinted icons. */
     :root {
+      --soc-lightness: 42%;
       --bg: #f3f1ec;
       --card: #fffdf9;
       --surface: #f0eee9;
@@ -35,6 +36,7 @@
     }
     @media (prefers-color-scheme: dark) {
       :root {
+        --soc-lightness: 60%;
         --bg: #17191c;
         --card: #222529;
         --surface: #2b2e33;
@@ -100,9 +102,9 @@
     .ok { color: var(--good); font-weight: 600; }
     .fail { color: var(--bad); font-weight: 600; }
     .error { color: var(--bad); margin: 8px 0; }
-    .price-warning { margin: 12px 0 0; padding: 12px 14px; border-left: 3px solid var(--warning); border-radius: 8px; background: rgba(var(--rgb-orange), .08); overflow-wrap: anywhere; }
-    .price-warning strong { color: var(--warning); }
-    .price-warning p { margin: 6px 0; }
+    .price-warning, .calendar-warning { margin: 12px 0 0; padding: 12px 14px; border-left: 3px solid var(--warning); border-radius: 8px; background: rgba(var(--rgb-orange), .08); overflow-wrap: anywhere; }
+    .price-warning strong, .calendar-warning strong { color: var(--warning); }
+    .price-warning p, .calendar-warning p { margin: 6px 0; }
     .price-warning ul { margin: 6px 0 0; padding-left: 20px; }
     .price-warning li + li { margin-top: 6px; }
     .chip {
@@ -307,7 +309,7 @@
     .ready-level { margin: 20px 0 12px; }
     .ready-level-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-bottom: 7px; }
     .ready-track { height: 12px; border-radius: 8px; overflow: hidden; background: var(--surface); }
-    .ready-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgb(var(--rgb-purple)), rgb(var(--rgb-green))); }
+    .ready-track span { display: block; min-width: 3px; height: 100%; border-radius: inherit; background: var(--bad); }
     .ready-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
     .ready-facts > div { background: var(--chip); border-radius: 14px; padding: 11px 12px; min-width: 0; }
     .ready-facts span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
@@ -417,7 +419,7 @@
     .ready-level-label { font-size: 13px; }
     .ready-track { position: relative; overflow: visible; height: 10px; }
     .ready-track::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(var(--rgb-text), .04); }
-    .ready-track span { background: linear-gradient(90deg, rgb(var(--rgb-purple)), rgb(var(--rgb-green))); }
+    .ready-track span { background: var(--bad); }
     .ready-track i {
       position: absolute; top: -4px; width: 3px; height: 18px; border-radius: 2px;
       background: var(--card); box-shadow: 0 0 0 1px rgba(var(--rgb-text), .25);

@@ -26,6 +26,8 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 ## Control and release safeguards
 
 - Connection sharing must explicitly pause every charger that cannot fit, including the first and start/stop-only devices. Reuse the configured grid-sign normalization; never calculate sharing from the raw signed net sensor. Capacity pauses override the temporary manual-start grace period.
+- Calendar read failures are not successful empty event sets. Keep last-confirmed fallback bounded from its original confirmation time, scoped to the selected calendar/time zone, and visible to the user; successful cancellations replace cached events immediately.
+- Battery-level colors follow the absolute SoC; readiness/target status must remain independent.
 - Keep partial price warnings separate from fatal source errors, deduplicate warnings across combined-source reads and keep valid intervals usable.
 - A numeric zero is valid data. Never replace a zero current limit with a default, or a missing price with zero.
 - Apply required phase/current constraints before enabling charging. Pause before switching phases and keep charging paused when a required command fails. An accepted Home Assistant action is not proof that physical hardware followed it.

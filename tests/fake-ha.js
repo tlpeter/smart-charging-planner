@@ -345,6 +345,7 @@ function start(w, wsPort, restPort) {
         case 'call_service': {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
           if (m.domain === 'calendar' && m.service === 'get_events') {
+            if (w.calendarFail) return fail('Calendar temporarily unavailable');
             const cal = (m.target && [].concat(m.target.entity_id)[0]) || 'calendar.auto';
             return ok({ context: {}, response: { [cal]: { events: w.events } } });
           }

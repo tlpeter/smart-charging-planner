@@ -472,6 +472,48 @@ async function run() {
     world.events = [];
     assert(p.departure.source === 'calendar' && p.departure.time === at(1, 11, 0) && p.departure.soc === 75, `departure ${JSON.stringify(p.departure)}`);
   });
+
+  await test('F8b', 'A calendar outage keeps the last confirmed departure, including after app restart', async () => {
+    world.events = [{ summary: 'Confirmed test trip', description: 'target: 90',
+      start: isoLocal(at(1, 10, 0), tz), end: isoLocal(at(1, 11, 0), tz) }];
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false,
+      calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    try {
+      const good = await plan();
+      assert(good.departure && good.departure.time === at(1, 10, 0), JSON.stringify(good.departure));
+      world.calendarFail = true; world.events = [];
+      let p = await plan();
+      assert(p.departure && p.departure.time === good.departure.time && p.departure.soc === 90, JSON.stringify(p.departure));
+      assert(p.calendar_error && p.calendar_health.state === 'cached' && p.plan.notes.includes('calendar_cached'), JSON.stringify(p.calendar_health));
+      const dep = await ok('GET', 'api/departures');
+      assert(dep.next.time === good.departure.time && dep.calendar_health.state === 'cached', JSON.stringify(dep.next));
+      await startApp({ allow_control: false });
+      p = await plan();
+      assert(p.departure && p.departure.time === good.departure.time && p.calendar_health.state === 'cached', JSON.stringify(p.departure));
+      return 'confirmed deadline preserved with an explicit stale-source warning';
+    } finally { world.calendarFail = false; }
+  });
+  await test('F8c', 'Successful rescheduling and cancellation replace cached events; expired cache is not reused', async () => {
+    try {
+      world.events = [{ summary: 'Rescheduled test trip', description: 'target: 85',
+        start: isoLocal(at(1, 12, 0), tz), end: isoLocal(at(1, 13, 0), tz) }];
+      let p = await plan();
+      assert(p.departure.time === at(1, 12, 0) && p.calendar_health.state === 'fresh', JSON.stringify(p.departure));
+      world.events = [];
+      p = await plan();
+      assert(!p.departure && !p.calendar_error, JSON.stringify(p.departure));
+      world.calendarFail = true;
+      p = await plan();
+      assert(!p.departure && p.calendar_health.state === 'cached', JSON.stringify(p.departure));
+      const file = path.join(dataDir, 'calendar_cache.json');
+      const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const row of rows) row.expires_at = Date.now() - 1;
+      fs.writeFileSync(file, JSON.stringify(rows));
+      p = await plan();
+      assert(!p.departure && p.calendar_health.state === 'unavailable' && p.plan.notes.includes('calendar_error'), JSON.stringify(p.calendar_health));
+    } finally { world.calendarFail = false; world.events = []; }
+  });
+
   await test('F9', 'Add trip with "Allow adding trips" off: test mode, nothing written', async () => {
     const pv = await ok('POST', 'api/trips/preview', { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 });
     assert(pv.write_allowed === false && pv.events.length === 1, JSON.stringify(pv).slice(0, 200));

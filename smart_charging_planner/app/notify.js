@@ -20,7 +20,7 @@ function setChargerContext(fn) {
 // What the app can send, in five groups. Each recipient chooses per message
 // (Settings › Notifications); a message that is new in a later version is on.
 const CATEGORIES = [
-  { id: 'problems', name: 'Problems', text: 'Something did not work: the charger, the Equalizer or the car\'s charge limit.' },
+  { id: 'problems', name: 'Problems', text: 'Something did not work: the charger, calendar, Equalizer or the car\'s charge limit.' },
   { id: 'action', name: 'Action needed', text: 'Ready Guard and questions only you can answer.' },
   { id: 'car', name: 'Car', text: 'The car\'s cloud, its charge limit and your Ready-for choice.' },
   { id: 'startstop', name: 'Start and pause', text: 'Every time charging starts or pauses.' },
@@ -28,6 +28,7 @@ const CATEGORIES = [
 ];
 const MESSAGES = [
   { id: 'charger_failed', category: 'problems', name: 'Charger command failed' },
+  { id: 'calendar_offline', category: 'problems', name: 'Calendar temporarily unavailable' },
   { id: 'charger_no_react', category: 'problems', name: 'Charger did not start or pause' },
   { id: 'equalizer_failed', category: 'problems', name: 'Easee Equalizer command failed' },
   { id: 'carlimit_failed', category: 'problems', name: 'Car charge limit not changed' },

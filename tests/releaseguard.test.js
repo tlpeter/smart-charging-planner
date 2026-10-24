@@ -52,6 +52,51 @@ try {
     assert(render({ prices: [], price_warnings: ['Missing interval'] }).includes('No usable price intervals'));
   });
 
+
+  check('SoC color follows the absolute level: empty red, middle yellow, full green', () => {
+    const vm = require('vm');
+    const source = fs.readFileSync(path.join(app, 'public', 'app.js'), 'utf8');
+    const begin = source.indexOf('    function socBar(value)');
+    const end = source.indexOf('    function readyGuardHtml(d)', begin);
+    const bar = (value) => vm.runInNewContext(source.slice(begin, end) + '\n socBar(value)', { value });
+    for (const level of [0, 20, 50, 80, 100]) {
+      assert.equal(bar(level).level, level);
+      assert(bar(level).color.startsWith('hsl(' + Math.round(level * 1.2) + ' '));
+    }
+    assert.equal(bar(-10).level, 0);
+    assert.equal(bar(120).level, 100);
+    for (const value of [null, undefined, '', ' ', false, NaN, 'unavailable']) assert.equal(bar(value), null);
+  });
+  check('confirmed calendar events survive restart but remain scoped and expire', () => {
+    const cachePath = path.join(app, 'calendarcache');
+    const cache = require(cachePath);
+    const now = Date.UTC(2026, 0, 1, 8);
+    const events = [{ summary: 'Synthetic trip', description: 'target: 80', start: new Date(now + 3600000).toISOString() }];
+    cache.remember('calendar.test', 'Europe/Amsterdam', events, now, now + 15 * 86400000);
+    delete require.cache[require.resolve(cachePath)];
+    const again = require(cachePath);
+    assert.equal(again.fallback('calendar.test', 'Europe/Amsterdam', now + 60000).health.state, 'cached');
+    assert.deepEqual(again.fallback('calendar.test', 'Europe/Amsterdam', now + 60000).events, events);
+    assert.equal(again.fallback('calendar.other', 'Europe/Amsterdam', now + 60000).events.length, 0);
+    assert.equal(again.fallback('calendar.test', 'UTC', now + 60000).events.length, 0);
+    scope.run('other-charger', () => assert.equal(again.fallback('calendar.test', 'Europe/Amsterdam', now + 60000).events.length, 0));
+    assert.equal(again.fallback('calendar.test', 'Europe/Amsterdam', now + again.MAX_AGE_MS).events.length, 0);
+    assert.equal(again.fallback('calendar.test', 'Europe/Amsterdam', now - 1).events.length, 0);
+  });
+  check('successful reschedules and cancellations replace the confirmed calendar immediately', () => {
+    const cache = require(path.join(app, 'calendarcache'));
+    const now = Date.UTC(2026, 0, 2, 8);
+    const event = { summary: 'Synthetic trip', description: 'target: 80', start: new Date(now + 2 * 3600000).toISOString() };
+    cache.remember('calendar.test', 'Europe/Amsterdam', [event], now, now + 15 * 86400000);
+    const departure = require(path.join(app, 'departures'));
+    const dep = departure.normalise({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.test', match: 'target', buffer_minutes: 0, soc: 80 } });
+    const cached = cache.fallback('calendar.test', 'Europe/Amsterdam', now + 60000).events;
+    assert.equal(departure.calendarTrips(dep, cached, 'Europe/Amsterdam', now + 60000)[0].time, now + 2 * 3600000);
+    assert.equal(departure.calendarTrips(dep, cached, 'Europe/Amsterdam', now + 3 * 3600000).length, 0);
+    cache.remember('calendar.test', 'Europe/Amsterdam', [], now + 120000, now + 15 * 86400000);
+    assert.equal(cache.fallback('calendar.test', 'Europe/Amsterdam', now + 180000).events.length, 0);
+  });
+
   check('an offset-free repeated DST hour is rejected with an actionable warning', () => {
     const warnings = [];
     assert(Number.isNaN(prices.priceTime('2026-10-25 02:00:00', 'Europe/Amsterdam', warnings)));

@@ -766,7 +766,8 @@ function durationText(minutes) {
       enter_soc: 'Enter the current battery level above to get a plan.',
       fixed_waiting: 'Waiting for the car to be plugged in. The plan starts when charging a new session.',
       no_departure: 'No departure planned. The plan uses the cheapest known blocks and the default battery level, without a deadline.',
-      calendar_error: 'The calendar could not be read; other departure sources are still used.',
+      calendar_error: 'The calendar could not be read and no recent confirmed events are available; check your departure. Other departure sources are still used.',
+      calendar_cached: 'The calendar is temporarily unavailable. The plan uses previously confirmed events for at most 24 hours; recent changes or cancellations may be missing.',
       uses_forecast: 'Part of the plan is in hours with only a forecast price (striped bars). The app never charges on a forecast: the plan is recalculated as soon as the real prices are published (usually around 13:00 for the next day). Forecast prices include the safety margin set in Settings › Prices.',
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
@@ -1069,6 +1070,15 @@ function durationText(minutes) {
       </div>`;
     }
 
+    // Absolute battery level determines the color, independently of the target.
+    function socBar(value) {
+      if (value == null || typeof value === 'boolean' || String(value).trim() === '') return null;
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      const level = Math.max(0, Math.min(100, n));
+      return { level, color: `hsl(${Math.round(level * 1.2)} 70% var(--soc-lightness, 42%))` };
+    }
+
     function readyGuardHtml(d) {
       const r = d.reliability;
       if (!r) return '';
@@ -1091,7 +1101,8 @@ function durationText(minutes) {
       ].join('');
       const chips = (r.factors || []).map((f) =>
         `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');
-      const current = d.vehicle && Number.isFinite(Number(d.vehicle.soc)) ? Number(d.vehicle.soc) : null;
+      const bar = socBar(d.vehicle && d.vehicle.soc);
+      const current = bar ? bar.level : null;
       const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
       const progress = current != null ? Math.max(0, Math.min(100, current)) : 0;
       const targetPos = target != null ? Math.max(0, Math.min(100, target)) : null;
@@ -1109,11 +1120,20 @@ function durationText(minutes) {
         </div>
         ${current != null && target != null ? `<div class="ready-level">
           <div class="ready-level-label"><span>Battery <strong>${esc(current)}%</strong></span><span>Target <strong>${esc(target)}%</strong></span></div>
-          <div class="ready-track"><span style="width:${progress}%"></span><i style="left:${targetPos}%"></i></div>
+          <div class="ready-track" role="progressbar" aria-label="Battery state of charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%;background:${bar.color}"></span><i style="left:${targetPos}%"></i></div>
         </div>` : ''}
         <div class="ready-facts">${facts}</div>
         <div class="reliability-chips">${chips}</div>
       </div>`;
+    }
+
+    function calendarMessagesHtml(d) {
+      if (!d.calendar_error) return '';
+      const h = d.calendar_health || {};
+      const detail = h.state === 'cached'
+        ? `Using events last confirmed ${dayHm(h.confirmed_at)}, until ${dayHm(h.expires_at)} at the latest. Recent changes or cancellations may be missing.`
+        : 'No recent confirmed calendar events are available. Check your next departure; other enabled sources are still used.';
+      return `<div class="calendar-warning" role="status"><strong>Calendar temporarily unavailable</strong><p>${esc(detail)}</p></div>`;
     }
 
     function priceMessagesHtml(d) {
@@ -1170,6 +1190,7 @@ function durationText(minutes) {
         ${chargeStatusHtml(d)}
         ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
+        ${calendarMessagesHtml(d)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
@@ -2054,7 +2075,7 @@ function durationText(minutes) {
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
-          ${d.calendar_error ? `<div class="error">Calendar could not be read: ${esc(d.calendar_error)}</div>` : ''}
+          ${calendarMessagesHtml(d)}
           ${d.upcoming.length > 1 ? `
           <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
             <table class="periods">

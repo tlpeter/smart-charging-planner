@@ -34,6 +34,7 @@ const topup = require('./topup');
 const equalizer = require('./equalizer');
 const diagnostics = require('./diagnostics');
 const cardata = require('./cardata');
+const calendarcache = require('./calendarcache');
 const controlmemory = require('./controlmemory');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
@@ -1203,7 +1204,7 @@ const routes = {
 
     const planning = s.planning;
     const dep = departuresFor(s, vehicle);
-    const { events, error: calendarError } = await calendarEvents(dep, tz, now);
+    const { events, error: calendarError, health: calendarHealth } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
     // You said yes to charging more for this trip: the higher target.
     if (vehicle && rulesFor(s).trip_topup_enabled) departure = topup.apply(vehicle.id, departure, now);
@@ -1384,7 +1385,7 @@ const routes = {
     if (vehicle && mode === 'fixed_kwh' && !(sessionInfo && sessionInfo.plugged)) {
       plan.notes = ['fixed_waiting', ...plan.notes.filter((n) => n !== 'missing_data')];
     }
-    if (calendarError) plan.notes.push('calendar_error');
+    if (calendarError) plan.notes.push(calendarHealth.state === 'cached' ? 'calendar_cached' : 'calendar_error');
     if (plan.blocks.some((b) => b.forecast)) plan.notes.push('uses_forecast');
     if (forecastInfo && forecastInfo.error) plan.notes.push('forecast_error');
     if (limited) plan.notes.push('car_limit');
@@ -1500,6 +1501,7 @@ const routes = {
       price_error: priceError,
       price_warnings: [...priceWarnings],
       calendar_error: calendarError,
+      calendar_health: calendarHealth,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
       manages_car_limit: managesLimit,
@@ -1686,7 +1688,7 @@ const routes = {
     const vehicle = vehicleParam(s, new URL(req.url, 'http://localhost').searchParams.get('vehicle'));
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
-    const { events, error } = await calendarEvents(dep, tz, now);
+    const { events, error, health } = await calendarEvents(dep, tz, now);
     // You said yes to charging more for a trip: show the higher target here
     // too, the same as Home and the plan (#3).
     const raised = vehicle && rulesFor(s).trip_topup_enabled ? (x) => topup.apply(vehicle.id, x, now) : (x) => x;
@@ -1707,6 +1709,7 @@ const routes = {
       charge_for: chargefor.current(),
       upcoming: days,
       calendar_error: error,
+      calendar_health: health,
       calendar_trips: (() => {
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
@@ -1869,17 +1872,23 @@ function calendarWritable(states, entityId) {
 
 // Calendar events for the next 15 days, when the calendar source is on.
 async function calendarEvents(dep, tz, now) {
-  if (!dep.calendar.enabled || !dep.calendar.entity) return { events: [], error: null };
+  if (!dep.calendar.enabled || !dep.calendar.entity) return { events: [], error: null, health: { state: 'off' } };
+  const entity = dep.calendar.entity;
+  const until = now + 15 * 86400000;
   try {
     const r = await ha.callAction('calendar', 'get_events', {
       start_date_time: isoLocal(now, tz),
-      end_date_time: isoLocal(now + 15 * 86400000, tz),
-    }, { entity_id: dep.calendar.entity });
-    const entry = r && r[dep.calendar.entity];
-    return { events: (entry && entry.events) || [], error: null };
+      end_date_time: isoLocal(until, tz),
+    }, { entity_id: entity });
+    const entry = r && r[entity];
+    if (!entry || !Array.isArray(entry.events)) throw new Error('Calendar returned no valid event list');
+    try { calendarcache.remember(entity, tz, entry.events, now, until); }
+    catch (err) { ha.warn('Could not save confirmed calendar events:', err.message); }
+    return { events: entry.events, error: null, health: { state: 'fresh', source: entity,
+      confirmed_at: now, expires_at: Math.min(now + calendarcache.MAX_AGE_MS, until) } };
   } catch (err) {
-    ha.warn('Could not read calendar', dep.calendar.entity, '-', err.message);
-    return { events: [], error: err.message };
+    ha.warn('Could not read calendar', entity, '-', err.message);
+    return { ...calendarcache.fallback(entity, tz, now), error: err.message };
   }
 }
 
@@ -3034,6 +3043,14 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
         } catch (err) {
           ha.warn('Control dry run failed:', err.message);
         }
+      }
+      if (result.calendar_error) {
+        const h = result.calendar_health || {};
+        const detail = h.state === 'cached'
+          ? `Using events last confirmed ${hmLocal(h.confirmed_at)}, until ${hmLocal(h.expires_at)} at the latest. Check changes or cancellations in your calendar.`
+          : 'No recent confirmed calendar events are available; the plan uses other enabled departure sources. Check your next departure.';
+        await notifier.notify('calendar_offline', 'Calendar temporarily unavailable', detail,
+          { key: `calendar:${h.source || 'unknown'}`, minGapMs: 6 * 3600000 });
       }
       const p = result.plan;
       const rg = result.reliability;

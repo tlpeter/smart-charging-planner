@@ -399,3 +399,12 @@ Release gates, remaining public-beta limitations and physical verification are d
 Home shows **Price data warning** when a price row was skipped or a forecast could not be loaded. Available prices remain in use. Identical warnings from a combined actual/forecast sensor appear once, with the source and affected time where available. A genuine failure to read the actual price source is still shown separately as an error.
 
 At a clock change, preserve UTC, epoch or explicit-offset timestamps in custom sensors. For example, both `2026-10-25T02:00:00+02:00` and `2026-10-25T02:00:00+01:00` are needed for the repeated Amsterdam hour. The app does not invent the missing hour or choose an offset for an ambiguous source row.
+
+
+## Battery level and temporary calendar outages (0.32.14-dev)
+
+The Ready Guard battery bar uses the absolute 0–100% battery level for its color: red at empty, yellow in the middle and green at full. It does not turn green just because a lower target was reached. The target marker and Ready Guard status are separate. An unknown level does not appear as 0%.
+
+When an enabled calendar temporarily fails, the app can use the last successfully read event set for **at most 24 hours from that successful read**. The local cache survives an app restart and is separated by charger, calendar and time zone. Home and Plan show the stale-source warning and confirmation/expiry time. Problem notifications include a Calendar temporarily unavailable message; existing recipient/category preferences apply.
+
+A successful empty calendar response means the events were removed and clears the old set immediately. Rescheduled events replace old events. A malformed response counts as a read failure. With no recent matching cache, the app warns and uses other enabled departure sources. Check your next departure: changes or cancellations made during an outage cannot be known until the calendar recovers. Past departures are not resurrected. Disabling the calendar disables fallback too. Cached calendar events stay local and are not added to diagnostic exports.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.14-dev
+
+- The battery bar now uses the actual level for its color: empty red, middle yellow, full green. The target marker, fill width and readiness status keep their own meaning; unknown levels are not shown as empty. (#36)
+- On a temporary calendar failure, the app keeps locally confirmed events for up to 24 hours, including after restart. Home and Plan show when the source was last confirmed, and a problem notification can be sent through the existing notification settings. Successful changes or cancellations replace the old events immediately. (#24)
+
 ## 0.32.13-dev
 
 - The new connection-sharing integration tests now disable the first car's minimum rule before selecting Charge now, so the test reaches the intended first-priority allocation. Application behavior is unchanged. (#5, #22)
