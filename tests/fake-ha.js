@@ -252,7 +252,7 @@ function states(w) {
   // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
   // for a while (a car whose cloud is down).
   const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : ago));
-  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
+  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state: w.stateOverrides && w.stateOverrides[entity_id] !== undefined ? String(w.stateOverrides[entity_id]) : state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 
 function registry(w) {

@@ -3216,18 +3216,18 @@ function durationText(minutes) {
       out.textContent = 'Collecting…';
       try {
         const d = await api('GET', 'api/diagnostics');
-        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `smart-charging-planner-diagnostics-${d.app_version}-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-        out.innerHTML = '<span class="ok">Downloaded.</span> Attach it to your bug report.';
-      } catch (err) {
-        out.innerHTML = `<span class="differ">${esc(err.message)}</span>`;
-      }
+        const text = JSON.stringify(d, null, 2);
+        out.innerHTML = '<p>Review the technical data below before sharing it. This public report uses anonymous identifiers and omits free text and raw logs. Values and timestamps can still reveal usage patterns.</p><details open><summary>Public report preview</summary><pre class="diagnostics-preview"></pre></details><button class="secondary" id="diag-save">Download reviewed report</button>';
+        out.querySelector('pre').textContent = text;
+        $('diag-save').onclick = () => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+          a.download = `smart-charging-planner-diagnostics-${d.app_version}-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(a);
+          a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        };
+      } catch (err) { out.textContent = err.message; }
     };
     $('solar-form').addEventListener('change', syncSolar);
     document.querySelectorAll('#battery-test-buttons [data-bat]').forEach((b) => {
@@ -3341,7 +3341,15 @@ function durationText(minutes) {
       const allowed = r.control_allowed && r.battery_control_allowed;
       $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'teal', true)} Battery now</h2>
           <p class="small">${r.now.soc != null ? `${tidy(r.now.soc)} %` : 'level unknown'}${r.now.power_kw != null ? ` · ${r.now.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(r.now.power_kw))} kW` : ''} · stored solar power about ${tidy(r.ledger.solar_kwh)} kWh</p>
-          <p class="muted small">${allowed ? 'The app steers the battery (Allow control and Allow home battery control are on).' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
+          <p class="muted small">${allowed && !(r.status && r.status.blocked) ? 'Battery control is enabled; current limits and available stop controls are checked before commands.' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
+      if (r.status && r.status.error) $('battery-status').innerHTML += `<div class="card error">${esc(r.status.error)}</div>`;
+      if (r.recovery && r.recovery.legacy) {
+        $('battery-status').innerHTML += '<div class="card"><h2>Older battery recovery record</h2><p>The previous version did not save the original settings. Turn battery planning off, restore the settings in Home Assistant, then confirm below. This button only clears the old record.</p><button class="secondary" id="battery-recovery-confirm">Confirm I restored the settings</button><p id="battery-recovery-result" class="small"></p></div>';
+        $('battery-recovery-confirm').onclick = async () => {
+          try { await api('POST', 'api/battery/recovery', { action: 'confirm_manual_restore' }); await loadBattery(); }
+          catch (err) { $('battery-recovery-result').textContent = err.message; }
+        };
+      }
       syncBattery();
     }
 
@@ -3400,6 +3408,8 @@ function durationText(minutes) {
         <div class="card">
           <h2>${shape('battery', 'teal', true)} Home battery</h2>
           <p class="small">${esc(b.name || '')}: <strong>${b.soc != null ? `${tidy(b.soc)} %` : '–'}</strong>${b.power_kw != null ? ` · ${b.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(b.power_kw))} kW` : ''}${now ? ` · now: <strong>${esc(ACTION_TEXT[now.action] || now.action)}</strong> <span class="muted">(${esc(now.reason)})</span>` : ''}</p>
+          ${now && now.error ? `<p class="error">${esc(now.error)}</p>` : ''}
+          <p class="muted small">App-level checks depend on fresh data and device response. Configure the battery's native safety limits too.</p>
           ${shown.length ? `<table class="periods"><tr><th>When</th><th>Battery</th><th class="n">Level after</th></tr>
             ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
             <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}

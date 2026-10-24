@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.32.15-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.32.16-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -14,10 +14,10 @@ These fixes are on dev until they have passed GitHub Actions and the owner's hom
 | --- | --- |
 | Car and charger detection | Check the suggested sensors and control method. Some integrations can only read. The stable car-sensor fixes tracked in #21 are already on dev. |
 | Solar phase switching | Requires supported hardware and current control. The app pauses, waits for the load to stop, applies the mode and allows settling before enabling again. Service-only phase methods acknowledge a requested mode; verify the real hardware during setup. |
-| Home battery | Capabilities differ by integration. Read-only models do not become controllable because a plan is shown. Original-setting restoration, live bounds and multi-charger protection remain open audit work. |
+| Home battery | Control checks fresh SoC, available stop capabilities and all chargers. App-owned settings are restored from a persistent snapshot. Unsupported bounds can make control unavailable; native inverter protections remain necessary. Read-only models remain advice only. |
 | Multiple chargers | Live sharing is available, but site planning and physical phase allocation are not yet complete. Keep hardware load balancing in place. |
 | Week prices | A forecast is optional. A custom sensor must provide timed price rows with a stated unit and an explicit raw/all-in basis. See the recipe below. |
-| Public diagnostics | Review the file before sharing it; the remaining privacy work is tracked in #20. |
+| Public diagnostics | Preview the public report before downloading. Only selected technical fields and anonymous identifiers are included; raw logs and free text are omitted. Numeric values/timestamps can still reveal usage patterns. Keep settings backups private. |
 
 Known limitations and remaining work are tracked in the [issues](https://github.com/tlpeter/smart-charging-planner/issues). Do not use the app as a substitute for the charger's electrical protections or a hardware load balancer.
 
@@ -96,7 +96,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | **Battery** | Home battery plan: charge from the grid when it pays, hold for expensive hours. Capacity, power, efficiency, wear per kWh, **Never below / Never above**. **May the home battery charge the car?** (never / only stored solar / always / between two levels). **Who gets the sun first?** (smart / car / battery). 10 brands steered (only with **Allow home battery control**). |
 | **Rules** | **Don't change the car's charge limit** (off: the limit follows every choice). **Default minimum for the quick choices** (30 %). **Always charge below a minimum** (off; optional entity and price limit). **Force charging before departure** (0 min). **Hysteresis** (0.03 per kWh). **Keep charging while the car preconditions**. **Ready Guard** (on, margin 30 min). **Battery care** (on: above 80 % only in the last 4 hours before departure). |
 | **Notifications** | Recipients (phones or groups): per recipient its notify action, which cars, and which messages (5 groups, each message on or off); a test per recipient. |
-| **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Download diagnostics** (for a bug report), **Export / Import settings** (backup, or move to the test version). |
+| **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Preview diagnostics** (public report for a bug report), **Export / Import settings** (backup, or move to the test version). |
 
 ### Configuration tab (in Home Assistant)
 
@@ -195,7 +195,7 @@ For a sensor containing actual and forecast prices:
 
 ## Reporting a problem
 
-1. In the app: Settings › Diagnostics › **Download diagnostics**. The app removes many personal fields, but inspect the export before sharing it publicly; full redaction is still tracked in #20.
+1. In the app: Settings › Diagnostics › **Preview diagnostics**, review the public report, then **Download reviewed report**. Identifiers are anonymous and free text/raw logs are omitted; review values and timestamps before sharing. A settings backup is private and must not be attached publicly.
 2. Open a [bug report](https://github.com/tlpeter/smart-charging-planner/issues/new/choose) and attach the file.
 
 Security problems: please report them privately, see [SECURITY.md](SECURITY.md).

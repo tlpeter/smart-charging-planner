@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.16-dev
+
+- Battery control now checks fresh live levels and stops charging/discharging before app bounds, using available native targets without lowering an existing reserve or raising an existing ceiling. Unsupported stop capabilities block control with an explanation. Timed control leases are shorter. (#19)
+- Every battery setting the app writes is saved before the write and restored to its original value, including modes, zero reserves and non-default power limits. Failed or unconfirmed restoration remains pending across restart. Older records without originals require explicit manual recovery. (#9)
+- One site-level battery decision now includes all enabled chargers' measured/requested charging and all EV plans, including a secondary or externally started charger. Unknown energy origin is not counted as stored solar. (#11)
+- Public diagnostics now use an allowlist, consistent anonymous identifiers and structured decisions. Free text, private settings fields and raw logs are omitted. Preview the exact report before downloading; private settings backups remain separate. (#20)
+
 ## 0.32.15-dev
 
 - Solar sensor forecasts now integrate the actual period duration, split energy across hour boundaries and merge today/tomorrow lists. Overlapping representations prefer finer periods instead of counting them twice. (#12)

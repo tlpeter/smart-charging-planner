@@ -399,6 +399,7 @@ async function runCharger(fx, n) {
     for (const bx of BATTERIES) {
       k++;
       const b = batteryOf(bx);
+      b.initial = Object.fromEntries(b.list.filter(([id]) => /^(number|select|switch)\./.test(id)).map(([id, state]) => [id, String(state)]));
       const id = `${tag}.B${k}`;
       group = `${fx.brand} + ${b.name} (${b.platform})`;
       console.log(`  ${group}`);
@@ -430,9 +431,8 @@ async function runCharger(fx, n) {
           assert(!sent.length, `sent ${sent.map(fmt)}`);
           return 'nothing to put back';
         }
-        const want = battery.commandsFor(prevCtl, 'auto', 3, null);
-        assert(same(sent.map(callKey), want.commands.map(cmdKey)), `sent ${sent.map(fmt)}, expected ${want.commands.map((c) => fmt({ ...c, service: c.service }))}`);
-        return `${prev.name}: ${sent.map(fmt).join(' · ')}`;
+        for (const [id, value] of Object.entries(prev.initial)) assert(String(world.store.get(id)) === value, `original ${id}: expected ${value}, got ${world.store.get(id)}`);
+        return `${prev.name}: original settings restored (${sent.length} commands)`;
       });
       // From here on only the new battery exists.
       setBatteries(world, [b]);
@@ -486,13 +486,17 @@ async function runCharger(fx, n) {
         const n0 = world.calls.length;
         const before = (await ok('GET', 'api/battery')).last;
         await api('DELETE', 'api/boost');
-        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && !bn.error && !(controllable && world.charging));
+        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && (!protects || !bn.error) && !(controllable && world.charging));
         const sent = batCalls(n0);
         if (controllable) assert(!world.charging, 'car still charging');
         if (ro || !protects) { assert(!sent.length, `sent ${sent.map(fmt)}`); return 'nothing sent'; }
         assert(!r.timeout, `battery ${JSON.stringify(r.bn)} last ${JSON.stringify(r.last)}`);
         // What the battery should get now: the plan's action ("auto" = own mode).
         const target = r.last ? r.last.action : 'auto';
+        if (target === 'auto') {
+          for (const [id, value] of Object.entries(b.initial)) assert(String(world.store.get(id)) === value, `original ${id}: expected ${value}, got ${world.store.get(id)}`);
+          return 'original settings restored';
+        }
         if ((before ? before.action : 'auto') === target) {
           assert(!sent.length, `sent ${sent.map(fmt)} while it already was ${target}`);
           return `${target} (${r.bn.reason}), already so: nothing sent`;

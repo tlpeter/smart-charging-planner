@@ -41,10 +41,10 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations.
 
-## Current recovery candidate: 0.32.15-dev
+## Current recovery candidate: 0.32.16-dev
 
-Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12 and #15. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
+Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11 and #20. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
 
-This candidate does not resolve all audit findings. In particular, physical site/phase capacity allocation (#29), original home-battery setting restoration (#9), site-wide battery protection (#11), live battery bounds (#19) and diagnostic privacy (#20) remain separate work. Do not advertise these areas as fully validated.
+This candidate does not resolve all audit findings. Physical site/phase capacity allocation (#29), explicit routing privacy (#31), full price-basis preview (#26), compatibility validation (#28) and project licensing (#32) remain separate work. Native inverter limits and physical hardware verification remain necessary. An older ownership record cannot reconstruct original battery settings that were never saved; validate the manual recovery flow before release. Verify the diagnostics preview at desktop/phone sizes and use synthetic secrets for the export check.
 
 The custom forecast setup correction associated with #26 is an installation configuration change. It does not close the broader enhancement for a price-breakdown preview.

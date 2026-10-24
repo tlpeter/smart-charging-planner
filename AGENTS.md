@@ -25,6 +25,9 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 
 ## Control and release safeguards
 
+- Battery control must snapshot each writable setting before its first write, retain snapshots across failures/restarts, and clear recovery only after the original writable values are reported again. Never substitute factory maximums for unknown originals. All enabled chargers participate in the battery policy and forecast.
+- Live battery commands require fresh valid SoC and supported stop/bound capabilities. Native limits and app-level checks have different guarantees; explain unsupported controls rather than pretending to enforce them.
+- Public diagnostics use an allowlist and per-export pseudonyms. Never export raw logs, free text, calendar aliases, recovery snapshots or a reverse identifier map. Preview and download must use the same document; settings backups stay private.
 - Connection sharing must explicitly pause every charger that cannot fit, including the first and start/stop-only devices. Reuse the configured grid-sign normalization; never calculate sharing from the raw signed net sensor. Capacity pauses override the temporary manual-start grace period.
 - Calendar read failures are not successful empty event sets. Keep last-confirmed fallback bounded from its original confirmation time, scoped to the selected calendar/time zone, and visible to the user; successful cancellations replace cached events immediately.
 - Battery-level colors follow the absolute SoC; readiness/target status must remain independent.

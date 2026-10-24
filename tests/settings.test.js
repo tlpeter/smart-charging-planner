@@ -1426,10 +1426,10 @@ async function run() {
     world.events = [];
     assert(d.app_version && d.settings && d.settings.chargers && d.settings.chargers.length, 'no settings');
     assert(d.control_check && d.control_check.recommended, 'no control check');
-    assert(d.entities.some((e) => e.entity_id === CH.status), 'charger status entity missing');
-    assert(Array.isArray(d.control_log) && Array.isArray(d.app_log) && d.app_log.length > 5, 'no logs');
-    for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Springfield', 'SUPERVISOR']) assert(!text.includes(secret), `contains ${secret}`);
-    return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log.length} log lines`;
+    assert(d.entities.some((e) => e.entity_id === d.settings.chargers[0].status_entity), 'anonymous charger status reference missing');
+    assert(Array.isArray(d.control_log) && d.app_log === undefined && d.app_log_summary.lines > 5, 'public log summary missing or raw logs retained');
+    for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Springfield', 'SUPERVISOR', CH.status, CAR.name]) assert(!text.includes(secret), `contains ${secret}`);
+    return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log_summary.lines} summarized log lines`;
   });
 
   // ----- M. Settings export and import --------------------------------------

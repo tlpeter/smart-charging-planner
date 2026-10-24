@@ -36,6 +36,7 @@ const diagnostics = require('./diagnostics');
 const cardata = require('./cardata');
 const calendarcache = require('./calendarcache');
 const controlmemory = require('./controlmemory');
+const batteryguard = require('./batteryguard');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
@@ -1473,7 +1474,8 @@ const routes = {
     const bcfg = batterySettings(s);
     if (bcfg.enabled && bcfg.soc_entity) {
       try {
-        batteryInfo = await batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol });
+        ST().batteryInputs = { prices, activePlan, houseLoad, tz, states, sol };
+        batteryInfo = await batteryPlanFor(s, bcfg, ST().batteryInputs);
       } catch (err) {
         batteryInfo = { enabled: true, error: err.message };
       }
@@ -2241,27 +2243,32 @@ function batterySettings(s) {
 
 async function batteryControl(bcfg) {
   const { entities, states } = await loadRegistries();
-  return { control: battery.controlFor(bcfg, entities, states, bcfg.saved), states };
+  const values = lastBattery && lastBattery.identity === bcfg.soc_entity && lastBattery.original
+    ? Object.fromEntries(Object.entries(lastBattery.original).map(([id, item]) => [id, item.value])) : {};
+  return { control: battery.controlFor(bcfg, entities, states, { values }), states };
 }
 
 function socNow(bcfg, states) {
-  const st = (states || []).find((x) => x.entity_id === bcfg.soc_entity);
-  const n = Number(st && st.state);
-  return Number.isFinite(n) ? n : null;
+  return batteryguard.reading(bcfg, states).soc;
 }
 
 // The battery plan from the price blocks, the expected sun, the house and the car.
-async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol }) {
+async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, states, sol, evBlocks: siteBlocks }) {
   const soc = socNow(bcfg, states);
   if (soc == null) return { enabled: true, error: `Battery level ${bcfg.soc_entity} not readable` };
   const { control } = await batteryControl(bcfg);
   const baseW = sol ? Number(sol.house_base_w) || 400 : 400;
   const typeOf = (p) => (p.forecast && s.prices && s.prices.forecast ? s.prices.forecast.price_type || s.prices.price_type : s.prices && s.prices.price_type);
   const now = Date.now();
-  const evBlocks = (activePlan && activePlan.blocks) || [];
+  const evBlocks = siteBlocks || chargersList(s).flatMap((c) => c.id === scope.id()
+    ? (activePlan && activePlan.blocks || [])
+    : scope.run(c.id, () => ST().planCache && ST().planCache.result.plan.blocks || []));
   const blocks = prices.filter((p) => p.end > now).map((p) => {
     const h = (p.end - Math.max(p.start, now)) / 3600000;
-    const evKwh = evBlocks.filter((b) => b.start < p.end && b.end > p.start).reduce((a, b) => a + (b.kwh - (b.solar_kwh || 0)), 0);
+    const evKwh = evBlocks.filter((b) => b.start < p.end && b.end > p.start).reduce((a, b) => {
+        const overlap = Math.max(0, Math.min(b.end, p.end) - Math.max(b.start, p.start, now));
+        return a + Math.max(0, b.kwh - (b.solar_kwh || 0)) * overlap / Math.max(1, b.end - b.start);
+      }, 0);
     return {
       start: Math.max(p.start, now),
       end: p.end,
@@ -2281,6 +2288,8 @@ async function batteryPlanFor(s, bcfg, { prices, activePlan, houseLoad, tz, stat
   });
   return {
     enabled: true,
+    ev_plan_count: chargersList(s).length,
+    ev_planned_kwh: evBlocks.reduce((sum, b) => sum + Math.max(0, b.kwh - (b.solar_kwh || 0)), 0),
     name: bcfg.name,
     soc,
     power_kw: bcfg.power_entity ? battery.powerKw(bcfg, states) : null,
@@ -2306,7 +2315,7 @@ function updateLedger(bcfg, states, gridW) {
   batteryLedger.at = now;
   if (kw == null || !(dt > 0)) return;
   if (kw > 0.05) {
-    const fromGrid = Number.isFinite(gridW) ? Math.min(kw, Math.max(0, gridW / 1000)) : 0;
+    const fromGrid = Number.isFinite(gridW) ? Math.min(kw, Math.max(0, gridW / 1000)) : kw; // Unknown origin is not confirmed solar.
     batteryLedger.grid_kwh += fromGrid * dt;
     batteryLedger.solar_kwh += (kw - fromGrid) * dt;
   } else if (kw < -0.05) {
@@ -2340,24 +2349,20 @@ function updateEvRange(bcfg, soc) {
   if (soc <= bcfg.ev_to_pct) evRange.active = false;
 }
 
-function batteryWanted(bcfg, planResult, entry, soc = null) {
+function batteryWanted(bcfg, planResult, entry, soc = null, forcedAction = null) {
   const b = planResult && planResult.battery;
   const now = Date.now();
   const blk = b && b.actions ? b.actions.find((a) => a.start <= now && now < a.end) : null;
-  let action = blk ? blk.action : 'auto';
+  let action = forcedAction || (blk ? blk.action : 'auto');
   let reason = blk ? `Battery plan: ${action.replace('_', ' ')}` : 'No battery plan: normal mode';
-  // The car charges when the app wants it, or when the charger says so
-  // (charging started outside the app, a charger the app cannot steer).
-  // A pause that was just sent successfully: the car stops in a moment.
-  const pausing = !!entry && entry.want === 'pause' && entry.sent === true;
-  // With the Easee Equalizer doing solar, "charge" only means the charger is on;
-  // the car charges when the Equalizer sees surplus: go by what it really does.
-  const eqSolar = !!entry && entry.solar_equalizer && entry.code === 'solar';
-  const evCharging = !!entry && entry.plugged !== false && (eqSolar ? entry.charging === true : (entry.want === 'charge' || (entry.charging === true && !pausing)));
-  if (evCharging && entry.code === 'solar' && bcfg.solar_priority === 'smart' && ['auto', 'no_discharge'].includes(action)) {
+  const entries = (Array.isArray(entry) ? entry : entry ? [entry] : []);
+  const charging = entries.filter((e) => e.plugged !== false && (
+    e.charging === true || e.power_w > 100 || (!(e.solar_equalizer && e.code === 'solar') && e.want === 'charge')));
+  const evCharging = charging.length > 0;
+  if (evCharging && charging.some((e) => e.code === 'solar') && bcfg.solar_priority === 'smart' && ['auto', 'no_discharge'].includes(action)) {
     action = 'hold';
     reason = 'The car is charging on solar: the battery waits, so the sun goes to the car';
-  } else if (evCharging && action === 'auto') {
+  } else if (evCharging && ['auto', 'discharge'].includes(action)) {
     if (bcfg.ev_discharge === 'never') { action = 'no_discharge'; reason = 'The car is charging: the battery does not discharge into it'; }
     if (bcfg.ev_discharge === 'solar_only' && batteryLedger.solar_kwh < 0.3) { action = 'no_discharge'; reason = 'The car is charging and the battery holds no stored solar power: no discharging into the car'; }
     if (bcfg.ev_discharge === 'range' && !evRange.active) {
@@ -2372,86 +2377,129 @@ function batteryWanted(bcfg, planResult, entry, soc = null) {
   return { action, reason };
 }
 
-let lastBattery = controlmemory.battery(); // includes the battery identity
+let lastBattery = controlmemory.battery();
+let batteryRunning = Promise.resolve();
+let lastBatteryInfo = null;
+function batteryLock(fn) {
+  const run = batteryRunning.catch(() => {}).then(fn);
+  batteryRunning = run.catch(() => {});
+  return run;
+}
 function setLastBattery(value, bcfg) {
   lastBattery = value ? { ...value, identity: bcfg.soc_entity } : null;
   controlmemory.setBattery(lastBattery);
 }
-
-// Remember values to put back later (Tesla backup reserve, Sessy strategy),
-// before the app changes the battery for the first time.
-function rememberBattery(control) {
-  if (lastBattery || !control.remember) return;
-  const st = settings.load();
-  const cur = batterySettings(st);
-  st.battery = { ...cur, saved: { ...(cur.saved || {}), ...control.remember } };
-  settings.save(st);
+function batteryEntries(s, supplied, states) {
+  const list = Array.isArray(supplied) ? supplied : supplied ? [{ ...supplied, charger_id: scope.id() }] : [];
+  return chargersList(s).map((charger) => scope.run(charger.id, () => {
+    const previous = list.find((e) => e.charger_id === charger.id) || ST().lastDryRun || {};
+    const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
+    return { ...previous, ...actual, charger_id: charger.id };
+  }));
 }
-
-// Put a battery the app changed back in its own mode (before switching to
-// another battery or when planning is turned off).
-async function releaseBattery(bcfg) {
-  if (!lastBattery || !bcfg.soc_entity) return;
+function matchesBatteryWrites(commands, states) {
+  return commands.every((c) => {
+    const id = c.target && c.target.entity_id;
+    if (!id || c.service === 'button.press') return true;
+    const st = states.find((s) => s.entity_id === id);
+    if (!st) return false;
+    if (c.service === 'number.set_value') return String(st.state).trim() !== '' && Math.abs(Number(st.state) - c.data.value) < 1e-6;
+    if (c.service === 'select.select_option') return st.state === c.data.option;
+    if (c.service === 'switch.turn_on') return st.state === 'on';
+    if (c.service === 'switch.turn_off') return st.state === 'off';
+    return true;
+  });
+}
+async function releaseBatteryUnlocked(bcfg) {
+  if (!lastBattery) return true;
+  if (lastBattery.identity !== bcfg.soc_entity) throw new Error('Recovery belongs to another battery; its settings must be released first');
   try {
     const { control, states } = await batteryControl(bcfg);
-    const c = control.available ? battery.commandsFor(control, 'auto', Number(bcfg.charge_kw) || 3, socNow(bcfg, states)) : null;
-    if (c) {
-      const allowed = battery.allowedFor(control);
-      for (const cmd of c.commands) await ha.sendBattery(cmd, allowed);
-      controller.logSent({ time: Date.now(), live: true, manual: false, want: 'battery', code: 'battery_auto', reason: 'Other battery chosen: back to its own mode', commands: c.commands.map((x) => ({ what: 'battery: auto', service: x.service, data: x.data, target: x.target })), sent: true, agrees: true });
-    }
+    if (!control.available) throw new Error('The previous battery controls are unavailable; recovery was kept');
+    const commands = batteryguard.restore(control, lastBattery.original);
+    setLastBattery({ ...lastBattery, restoring: true, failed: true, at: Date.now() }, bcfg);
+    for (const command of commands) await ha.sendBattery(command, battery.allowedFor(control));
+    const fresh = await ha.call({ type: 'get_states' });
+    if (!matchesBatteryWrites(commands, fresh)) throw new Error('Waiting for the original battery settings to be reported; recovery was kept');
+    controller.logSent({ time: Date.now(), live: true, want: 'battery', code: 'battery_restored',
+      reason: 'Original battery settings restored', commands, sent: true, agrees: true });
+    setLastBattery(null, bcfg);
+    return true;
   } catch (err) {
-    ha.warn('Putting the previous battery back in its own mode failed:', err.message);
-    setLastBattery({ ...lastBattery, failed: true, at: Date.now() }, bcfg);
+    setLastBattery({ ...lastBattery, restoring: true, failed: true, error: err.message, at: Date.now() }, bcfg);
+    ha.warn('Restoring the battery failed:', err.message);
     return false;
   }
-  setLastBattery(null, bcfg);
-  return true;
 }
-async function batteryStep(s, planResult, entry, states) {
-  const bcfg = batterySettings(s);
-  if (!bcfg.soc_entity) return null;
-  if (lastBattery && lastBattery.identity !== bcfg.soc_entity) lastBattery = null;
-  const grid = s.grid[0] || null;
-  const sol = s.solar && s.solar.enabled ? s.solar : null;
-  updateLedger(bcfg, states, solar.gridNetW(grid, states, sol ? sol.grid_sign : 'import_positive'));
-  const socLive = socNow(bcfg, states);
-  updateEvRange(bcfg, socLive);
-  const want = bcfg.enabled ? batteryWanted(bcfg, planResult, entry, socLive) : { action: 'auto', reason: 'Battery planning is off' };
-  const info = { ...want, sent: false, live: options.allow_control === true && options.allow_battery_control === true };
-  if (!info.live) return info;
-  // Nothing changed by the app yet and "auto" wanted: leave the battery alone.
-  if (!lastBattery && want.action === 'auto') return info;
-  const { control } = await batteryControl(bcfg);
-  if (!control.available) return { ...info, error: control.note };
-  // Sent again every 15 minutes (30 for timed commands such as Huawei), in
-  // case the battery or someone else changed it meanwhile.
+function releaseBattery(bcfg) { return batteryLock(() => releaseBatteryUnlocked(bcfg)); }
+async function executeBattery(bcfg, control, states, commands, action, reason, keepAuto, manual) {
+  const original = batteryguard.capture(commands, states, lastBattery && lastBattery.original || {});
+  const signature = JSON.stringify(commands);
   const refresh = (control.refresh_minutes || 15) * 60000;
-  const soc = socNow(bcfg, states);
-  // The action the battery really gets ("no discharging" can become "hold").
-  const c = battery.commandsFor(control, want.action, Number(bcfg.charge_kw) || 3, soc);
-  if (!c) return { ...info, error: `${want.action} is not possible with this battery` };
-  const same = lastBattery && !lastBattery.failed && lastBattery.action === c.action;
-  if (same && !(refresh && Date.now() - lastBattery.at >= refresh)) return { ...info, action: c.action };
-  rememberBattery(control);
-  const allowed = battery.allowedFor(control);
-  const line = { time: Date.now(), live: true, manual: false, want: 'battery', code: `battery_${c.action}`, reason: want.reason, commands: [], sent: false, agrees: true };
+  if (lastBattery && !lastBattery.failed && lastBattery.signature === signature
+    && Date.now() - lastBattery.at < refresh && matchesBatteryWrites(commands, states)) return { sent: false, action };
+  // Write-ahead journal includes the complete snapshot before any command.
+  setLastBattery({ original, action, signature, at: Date.now(), failed: true, manual }, bcfg);
+  const line = { time: Date.now(), live: true, manual, want: 'battery', code: `battery_${action}`, reason, commands: [], sent: false };
   try {
-    setLastBattery({ action: c.action, at: Date.now(), failed: true }, bcfg);
-    for (const cmd of c.commands) {
-      await ha.sendBattery(cmd, allowed);
-      line.commands.push({ what: `battery: ${c.action}`, service: cmd.service, data: cmd.data, target: cmd.target });
+    for (const command of commands) {
+      await ha.sendBattery(command, battery.allowedFor(control));
+      line.commands.push({ what: `battery: ${action}`, ...command });
     }
+    const fresh = await ha.call({ type: 'get_states' });
+    if (action === 'auto' && !keepAuto && !matchesBatteryWrites(commands, fresh)) throw new Error('Waiting for original battery settings to be reported');
     line.sent = true;
-    setLastBattery(c.action === 'auto' ? null : { action: c.action, at: Date.now() }, bcfg);
-    await notifier.notify('battery_action', 'Home battery', `${want.reason}.`);
+    setLastBattery(action === 'auto' && !keepAuto ? null : { original, action, signature, at: Date.now(), manual }, bcfg);
   } catch (err) {
     line.error = err.message;
-    setLastBattery({ action: c.action, at: Date.now(), failed: true }, bcfg);
-    await notifier.notify('battery_failed', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
+    setLastBattery({ original, action, signature, failed: true, at: Date.now(), manual,
+      ...(action === 'auto' && !keepAuto ? { restoring: true } : {}), error: err.message }, bcfg);
+    await notifier.notify('battery_failed', 'Home battery command failed', err.message, { key: 'battery', minGapMs: 60 * 60000 });
   }
   controller.logSent(line);
-  return { ...info, action: c.action, sent: line.sent, error: line.error || null };
+  return { sent: line.sent, action, error: line.error || null, commands: line.commands };
+}
+async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = null) {
+  const cfg = batterySettings(s);
+  if (!cfg.soc_entity) return null;
+  const live = options.allow_control === true && options.allow_battery_control === true;
+  if (lastBattery && lastBattery.identity !== cfg.soc_entity) return { live, action: 'none', error: 'Unreleased settings belong to another battery' };
+  const { control, states: fresh } = await batteryControl(cfg);
+  const soc = socNow(cfg, fresh);
+  const entries = batteryEntries(s, entry, fresh);
+  updateLedger(cfg, fresh, solar.gridNetW(s.grid[0] || null, fresh, s.solar && s.solar.grid_sign));
+  updateEvRange(cfg, soc);
+  let want = cfg.enabled || forcedAction ? batteryWanted(cfg, planResult, entries, soc, forcedAction) : { action: 'auto', reason: 'Battery planning is off' };
+  const info = { ...want, live, sent: false, ev_chargers: entries.filter((e) => e.charging === true || e.power_w > 100 || e.want === 'charge').length };
+  if (!live) return info;
+  if (!control.available) return { ...info, error: control.note || 'Battery control is unavailable' };
+  if ((!cfg.enabled && !forcedAction) || forcedAction === 'auto' || (lastBattery && lastBattery.restoring)) {
+    const owned = !!lastBattery;
+    const ok = await releaseBatteryUnlocked(cfg);
+    return { ...info, action: 'auto', sent: owned && ok, ...(ok ? {} : { error: lastBattery && lastBattery.error || 'Battery recovery failed' }) };
+  }
+  const guarded = batteryguard.constrain(want, cfg, control, fresh);
+  if (guarded.action === 'release') {
+    const restored = await releaseBatteryUnlocked(cfg);
+    return { ...info, code: guarded.code, blocked: true, error: guarded.reason + (restored ? '' : '; recovery is pending'), reason: guarded.reason };
+  }
+  if (lastBattery && !lastBattery.original) return { ...info, blocked: true, error: 'This older control record has no original settings. Turn battery planning off, restore the battery in Home Assistant, then confirm manual recovery.' };
+  const c = battery.commandsFor(control, guarded.action, guarded.action === 'discharge' ? cfg.discharge_kw : cfg.charge_kw, soc);
+  if (!c) return { ...info, blocked: true, error: `${guarded.action} is not possible with this battery` };
+  const bounds = batteryguard.nativeLimits(control, cfg, fresh, lastBattery && lastBattery.original || {});
+  let commands = c.action === 'auto' ? lastBattery ? batteryguard.restore(control, lastBattery.original) : [] : c.commands;
+  commands = batteryguard.merge(commands, bounds, control);
+  const blocked = !!guarded.blocked || !!forcedAction && want.action !== forcedAction;
+  if (!commands.length && !lastBattery) return { ...info, ...guarded, blocked, sent: false };
+  const result = await executeBattery(cfg, control, fresh, commands, c.action, guarded.reason, bounds.length > 0, !!forcedAction);
+  return { ...info, ...guarded, ...result, blocked };
+}
+function batteryStep(s, planResult, entry, states) {
+  return batteryLock(async () => {
+    try { lastBatteryInfo = await batteryStepUnlocked(s, planResult, entry, states); }
+    catch (err) { lastBatteryInfo = { action: 'none', blocked: true, sent: false, error: err.message, live: options.allow_control === true && options.allow_battery_control === true }; }
+    return lastBatteryInfo;
+  });
 }
 
 routes['GET /api/battery'] = async () => {
@@ -2481,6 +2529,8 @@ routes['GET /api/battery'] = async () => {
     battery_control_allowed: options.allow_battery_control === true,
     ledger: { ...batteryLedger },
     last: lastBattery,
+    recovery: { pending: !!lastBattery, legacy: !!lastBattery && !lastBattery.original },
+    status: lastBatteryInfo,
   };
 };
 
@@ -2491,6 +2541,7 @@ routes['POST /api/battery'] = async (req) => {
     if (!(n >= min && n <= max)) throw badRequest(`${name} must be between ${min} and ${max}`);
     return n;
   };
+  return batteryLock(async () => {
   const s = settings.load();
   const prev = batterySettings(s);
   const cfg = {
@@ -2525,7 +2576,7 @@ routes['POST /api/battery'] = async (req) => {
     if (!b.soc_entity) Object.assign(cfg, { platform: null, device_id: null, name: null, soc_entity: null, power_entity: null, enabled: false });
     if (cfg.soc_entity !== prev.soc_entity) {
       // Another battery: the old one back to its own mode, start afresh.
-      if (await releaseBattery(prev) === false) throw badRequest('The previous battery could not be released. Check it before choosing another battery.');
+      if (await releaseBatteryUnlocked(prev) === false) throw badRequest('The previous battery could not be released. Check it before choosing another battery.');
       cfg.saved = null;
       batteryLedger.solar_kwh = 0;
       batteryLedger.grid_kwh = 0;
@@ -2538,29 +2589,35 @@ routes['POST /api/battery'] = async (req) => {
   ST().planCache = null;
   ha.log(`Battery settings saved (${cfg.enabled ? 'on' : 'off'})`);
   return { ok: true, settings: cfg };
+  });
+};
+
+// Clear only a legacy record after an explicit acknowledgement of manual recovery.
+// This endpoint never sends a device command.
+routes['POST /api/battery/recovery'] = async (req) => {
+  const b = await readBody(req);
+  return batteryLock(async () => {
+    const cfg = batterySettings(settings.load());
+    if (b.action !== 'confirm_manual_restore' || !lastBattery || lastBattery.original || lastBattery.identity !== cfg.soc_entity) throw badRequest('No matching legacy recovery record');
+    if (cfg.enabled && options.allow_control && options.allow_battery_control) throw badRequest('Turn battery planning off before confirming manual recovery');
+    setLastBattery(null, cfg);
+    return { ok: true };
+  });
 };
 
 // Diagnostics: one battery action by hand, to check that the commands work.
 routes['POST /api/battery/test'] = async (req) => {
   const b = await readBody(req);
-  const s = settings.load();
-  const cfg = batterySettings(s);
-  if (!cfg.soc_entity) throw badRequest('Choose a battery first');
-  const { control, states } = await batteryControl(cfg);
-  if (!control.available) throw badRequest(control.note || 'This battery cannot be steered');
-  const c = battery.commandsFor(control, String(b.action || ''), Number(cfg.charge_kw) || 3, socNow(cfg, states));
-  if (!c) throw badRequest('That action is not possible with this battery');
-  rememberBattery(control);
-  const allowed = battery.allowedFor(control);
-  const sent = [];
-  setLastBattery({ action: c.action, at: Date.now(), failed: true, manual: true }, cfg);
-  for (const cmd of c.commands) {
-    await ha.sendBattery(cmd, allowed);
-    sent.push(`${cmd.service} ${JSON.stringify(cmd.data)}`);
-  }
-  setLastBattery(c.action === 'auto' ? null : { action: c.action, at: Date.now(), manual: true }, cfg);
-  controller.logSent({ time: Date.now(), live: true, manual: true, want: 'battery', code: `battery_${c.action}`, reason: `Battery test: ${c.action}`, commands: c.commands.map((x) => ({ what: `battery: ${c.action}`, service: x.service, data: x.data, target: x.target })), sent: true, agrees: true });
-  return { ok: true, action: c.action, sent };
+  if (!['auto', 'hold', 'no_discharge', 'charge', 'discharge'].includes(b.action)) throw badRequest('Choose a supported battery action');
+  return batteryLock(async () => {
+    if (!options.allow_control || !options.allow_battery_control) throw badRequest('Allow control and Allow home battery control must both be on');
+    const s = settings.load(), cfg = batterySettings(s);
+    if (!cfg.soc_entity) throw badRequest('Choose a battery first');
+    const r = await batteryStepUnlocked(s, ST().planCache && ST().planCache.result, null, [], b.action);
+    lastBatteryInfo = r;
+    if (r.error || r.blocked) throw badRequest(r.error || r.reason);
+    return { ok: true, action: r.action, sent: (r.commands || []).map((c) => `${c.service} ${JSON.stringify(c.data || {})}`) };
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -3447,7 +3504,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
 }
 
 // Send what was decided (after sharing the connection, with more chargers).
-async function actStep({ s, charger, states, methods, rules, planResult, entry }) {
+async function actStep({ s, charger, states, methods, rules, planResult, entry }, { siteBattery = false } = {}) {
   ha.debug('Control:', entry.want, entry.reason, entry.commands.map((c) => c.what).join(', ') || 'no commands');
   if (options.allow_control === true) {
     await checkReaction(entry);
@@ -3465,7 +3522,7 @@ async function actStep({ s, charger, states, methods, rules, planResult, entry }
     // The Equalizer and the home battery belong to the house: the first charger steers them.
     if (scope.isPrimary()) await equalizerStep(s, entry, states, charger).catch((err) => ha.warn('Equalizer surplus charging failed:', err.message));
   }
-  if (scope.isPrimary()) {
+  if (scope.isPrimary() && !siteBattery) {
     try {
       entry.battery_now = await batteryStep(s, planResult, entry, states);
     } catch (err) {
@@ -3503,15 +3560,31 @@ function controlSite() {
     } catch (err) {
       ha.warn('Sharing the connection failed:', err.message);
     }
+    const steps = [];
     for (const { id } of first) {
       await scope.run(id, async () => {
-        try {
-          const step = await decideStep(ST().planCache.result, { share: shares[id] || null });
-          await actStep(step);
-        } catch (err) {
-          ha.warn('Control step failed:', err.message);
-        }
+        try { steps.push({ id, step: await decideStep(ST().planCache.result, { share: shares[id] || null }) }); }
+        catch (err) { ha.warn('Control decision failed:', err.message); }
       });
+    }
+    // One battery decision for the site, before any new charger is enabled.
+    const primary = chargersList(s)[0];
+    if (primary) await scope.run(primary.id, async () => {
+      try {
+        const cached = ST().planCache && ST().planCache.result;
+        const cfg = batterySettings(s);
+        if (cached && cfg.enabled && cfg.soc_entity && ST().batteryInputs) {
+          const states = await ha.call({ type: 'get_states' });
+          const evBlocks = steps.flatMap(({ step }) => step.planResult && step.planResult.plan.blocks || []);
+          cached.battery = await batteryPlanFor(s, cfg, { ...ST().batteryInputs, states, evBlocks });
+          for (const { step } of steps) if (step.planResult) step.planResult.battery = cached.battery;
+        }
+        const info = await batteryStep(s, cached, steps.map(({ id, step }) => ({ ...step.entry, charger_id: id })), []);
+        for (const { step } of steps) step.entry.battery_now = info;
+      } catch (err) { ha.warn('Site battery step failed:', err.message); }
+    });
+    for (const { id, step } of steps) {
+      await scope.run(id, () => actStep(step, { siteBattery: true }).catch((err) => ha.warn('Control step failed:', err.message)));
     }
   });
   siteRunning = run.finally(() => { if (siteRunning === run) siteRunning = null; });
@@ -3971,7 +4044,7 @@ routes['GET /api/diagnostics'] = async () => {
     } : null,
     now: ST().lastDryRun,
     control_log: controller.recentLog(100),
-    app_log: ha.recentLog().slice(-200).map(diagnostics.redactLine),
+    app_log: ha.recentLog().slice(-200),
   });
 };
 
