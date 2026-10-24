@@ -145,7 +145,7 @@ async function run() {
     await check('a native reserve is kept while enabled and restored to its original zero on release', async () => {
       const { b } = await configureBattery('teslemetry', { min_pct: 30 });
       await plan();
-      assert.equal(Number(world.store.get('number.my_home_backup_reserve')), 30);
+      assert(Number(world.store.get('number.my_home_backup_reserve')) >= 30, 'the active reserve must protect at least the app minimum');
       const r = JSON.parse(fs.readFileSync(path.join(dir, 'battery_control.json'), 'utf8'));
       assert.equal(r.original['number.my_home_backup_reserve'].value, 0);
       await api('POST', 'api/battery', { ...CFG, min_pct: 30, enabled: false, platform: b.platform, soc_entity: b.soc_entity, power_sign: b.power_sign });

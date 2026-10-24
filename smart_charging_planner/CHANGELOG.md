@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.18-dev
+
+- The native-reserve regression check allows the stronger reserve used to stop discharging, while still requiring the original zero reserve to be restored. (#9, #19)
+
 ## 0.32.17-dev
 
 - The partial-price regression check now verifies loaded forecasts independently of the chart's departure horizon, so it also works later in the day.
