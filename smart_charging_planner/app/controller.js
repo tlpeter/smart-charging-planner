@@ -69,6 +69,8 @@ const DEFAULT_RULES = {
   car_limit_off: false, // true: never change the car's own charge limit
   car_limit_restart: false, // true: the car takes no power while it should: set its limit one step lower and back
   min_choice: 30, // default minimum (%) for the quick choices on Home
+  trip_topup_enabled: false, // ask on the phone to charge more when the next trip needs it
+  trip_topup_reserve: 10, // % to be back home with, for that question
 };
 
 // Per charger (scope.js).

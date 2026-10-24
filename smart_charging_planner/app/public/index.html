@@ -139,6 +139,11 @@
           <label class="check"><input type="checkbox" name="car_limit_off"> Don't change the car's charge limit (only if your own automation does that)</label>
           <label class="check"><input type="checkbox" name="car_limit_restart"> <strong>Restart the car when it takes no power</strong></label>
           <p class="muted small">Some cars (for example Renault) end charging at their own limit and do not start again when the limit is raised later: the charger is on, but the car asks for no power. With this on, the app sets the car's limit one step lower and back when it wants to charge and no power flows for 2 minutes, which starts the car again. At most once every 30 minutes; shown under Why? on Home and in the log.</p>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="trip_topup_enabled"> <strong>Ask to charge more when a trip needs it</strong></label>
+          <p class="muted small">When the next trip in the calendar (with all its places in a row) costs more than your target leaves room for, the app asks on your phone: "Charge to 95% for this trip?", with Yes and No buttons (Home Assistant phone app; turn on "A trip needs more charge" under Settings › Notifications). You can also answer on Home. Only Yes raises the target, and only for that trip. No answer: the target stays.</p>
+          <div class="sub" data-when="trip_topup_enabled">
+            <div class="field"><label>Be back home with at least (%)</label><input name="trip_topup_reserve" type="number" min="0" max="50" step="1"></div>
+          </div>
           <div class="field" style="margin-top:14px"><label>Default minimum for the quick choices on Home (20–45 %)</label>
             <input name="min_choice" type="number" min="20" max="45" step="5"></div>
           <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>

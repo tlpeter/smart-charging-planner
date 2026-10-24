@@ -298,6 +298,15 @@ function start(w, wsPort, restPort) {
         case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 5.19, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
+        // Like Home Assistant: events of one type are sent with the id of the
+        // subscription. w.fireEvent(type, data) sends one (a tap on a phone button).
+        case 'subscribe_events': {
+          w.subscriptions = (w.subscriptions || []).concat({ s, id: m.id, event_type: m.event_type });
+          w.fireEvent = (type, data) => {
+            for (const x of w.subscriptions) if (x.event_type === type && x.s.readyState === 1) x.s.send(JSON.stringify({ id: x.id, type: 'event', event: { event_type: type, data } }));
+          };
+          return ok(null);
+        }
         case 'config/entity_registry/list': return ok(registry(w));
         case 'config/device_registry/list': return ok(devices(w));
         case 'search/related': return ok({});

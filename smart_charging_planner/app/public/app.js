@@ -1160,6 +1160,7 @@ function durationText(minutes) {
       return `
         ${connectedCarHtml(d)}
         ${chargeStatusHtml(d)}
+        ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
@@ -1364,6 +1365,26 @@ function durationText(minutes) {
     }
 
     // ---------- More than one car: which one is connected ----------
+    // "Charge more for this trip?" (Settings › Rules): the question, or your answer.
+    function tripTopupHtml(d) {
+      const t = d.trip_topup;
+      if (!t) return '';
+      const what = `${esc(t.title || 'The next trip')} (${esc(dayHm(t.time))})`;
+      if (t.state === 'asked') {
+        return `<div class="card attention">
+          <div class="ready-kicker">THIS TRIP NEEDS MORE CHARGE</div>
+          <h2>${shape('bolt', 'orange', true)}Charge to ${esc(t.soc)}% for this trip?</h2>
+          <p class="muted small">${what} costs about ${esc(Math.round(t.pct))}%. With ${esc(t.from)}% you are back home with about ${esc(Math.round(t.from - t.pct))}%.${t.pct > 100 ? ' Even at 100% it is not enough: charge on the way.' : ''} Only for this trip; your target stays ${esc(t.from)}% for other trips.</p>
+          <div class="buttons">
+            <button type="button" class="primary" data-topup="yes" data-token="${esc(t.token)}">Yes, charge to ${esc(t.soc)}%</button>
+            <button type="button" class="secondary" data-topup="no" data-token="${esc(t.token)}">No, keep ${esc(t.from)}%</button>
+          </div>
+        </div>`;
+      }
+      if (t.state === 'yes') return `<div class="note">${shape('bolt', 'blue', true)} <strong>Charging to ${esc(t.soc)}% for ${what}</strong>, because you said yes (instead of ${esc(t.from)}%).</div>`;
+      return `<div class="note">${shape('bolt', 'grey', true)} You chose to keep ${esc(t.from)}% for ${what}. The trip costs about ${esc(Math.round(t.pct))}%.</div>`;
+    }
+
     function connectedCarHtml(d) {
       const c = d.cars;
       if (!c) return '';
@@ -2315,6 +2336,8 @@ function durationText(minutes) {
       f.battery_care_hours.value = r.battery_care_hours ?? 4;
       f.car_limit_off.checked = !!r.car_limit_off;
       f.car_limit_restart.checked = !!r.car_limit_restart;
+      f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
+      f.trip_topup_reserve.value = r.trip_topup_reserve ?? 10;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
       $('car-limit-now').innerHTML = lim && lim.entity_id
@@ -2350,6 +2373,7 @@ function durationText(minutes) {
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
           car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
+          trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
         });
         document.activeElement.blur();
         await loadControl();
@@ -2600,6 +2624,18 @@ function durationText(minutes) {
         err.textContent = e.message;
         err.hidden = false;
       }
+    });
+    // "Charge more for this trip?" answered on Home.
+    document.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-topup]');
+      if (!b) return;
+      b.disabled = true;
+      try {
+        await api('POST', 'api/topup', { token: b.dataset.token, answer: b.dataset.topup });
+      } catch (err) {
+        alert(err.message);
+      }
+      loadOverview(true);
     });
     // "Add to My places" from Home: the Plan tab with the name filled in.
     document.addEventListener('click', (e) => {

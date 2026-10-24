@@ -1900,6 +1900,49 @@ async function run() {
         world.events = [];
       }
     });
+    await test('Y13', 'Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only', async () => {
+      world.soc = 80;
+      const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
+      world.events = [
+        evm('Naar Werk', 'doel: 80', ADDR3, 1, 6, 0, 16, 30),
+        evm('Naar Sport', 'doel: 80 precondition: ja', ADDR, 1, 16, 30, 20, 30),
+        evm('Naar Thuis', 'doel: 80 precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
+      ];
+      const asked = (n) => callsSince(n).filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge');
+      try {
+        // Off (the default): no question.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        const n0 = world.calls.length;
+        let p = await settle();
+        assert(p.trip_topup === null && !asked(n0).length && p.departure.soc === 80, JSON.stringify(p.trip_topup));
+        await ok('POST', 'api/control/settings', rules({ trip_topup_enabled: true, trip_topup_reserve: 10 }));
+        p = await settle();
+        await settle();
+        const want = Math.min(100, Math.ceil(p.next.trip.pct + 10));
+        const t = p.trip_topup;
+        assert(t && t.state === 'asked' && t.soc === want && t.from === 80 && t.token, JSON.stringify(t));
+        const q = asked(n0);
+        assert(q.length === 1, `${q.length} questions sent`);
+        const buttons = q[0].data.data && q[0].data.data.actions;
+        assert(buttons && buttons.length === 2 && buttons[0].action === `SCP_TOPUP_YES_${t.token}` && buttons[1].action === `SCP_TOPUP_NO_${t.token}`, JSON.stringify(q[0].data));
+        assert(p.departure.soc === 80, 'the target went up without a yes');
+        await refused('POST', 'api/topup', { token: 'deadbeef', answer: 'yes' }, 'no longer open');
+        // A tap on Yes on the phone.
+        assert(typeof world.fireEvent === 'function', 'the app does not listen for notification buttons');
+        world.fireEvent('mobile_app_notification_action', { action: buttons[0].action });
+        await sleep(300);
+        p = await settle();
+        assert(p.departure.soc === want && p.departure.topup && p.departure.topup.from === 80, JSON.stringify(p.departure));
+        assert(p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.token === null, JSON.stringify(p.trip_topup));
+        assert(asked(n0).length === 1, 'asked again after yes');
+        return `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        world.soc = 100;
+        world.events = [];
+      }
+    });
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [

@@ -33,6 +33,7 @@ const MESSAGES = [
   { id: 'carlimit_failed', category: 'problems', name: 'Car charge limit not changed' },
   { id: 'rg_risk', category: 'action', name: 'Ready Guard: target at risk' },
   { id: 'rg_active', category: 'action', name: 'Ready Guard takes over' },
+  { id: 'trip_topup', category: 'action', name: 'A trip needs more charge: charge more? (Yes/No)' },
   { id: 'rg_needs_you', category: 'action', name: 'Ready Guard needs you (plug in, allow control, charge limit too low)' },
   { id: 'which_car', category: 'action', name: 'Which car is connected?' },
   { id: 'car_offline', category: 'car', name: 'Car not reachable' },
@@ -92,7 +93,8 @@ const lastByRecipient = new Map(); // recipient id -> { at, title, sent, error }
 // same message too often. vehicleId: the car it is about (default: the car of
 // this charger); a recipient that chose other cars does not get it.
 // only: send to this recipient only (test).
-async function notify(messageId, title, message, { key = null, minGapMs = 0, vehicleId, only = null } = {}) {
+// extra: buttons and a tag for the phone app (see ha.sendNotification).
+async function notify(messageId, title, message, { key = null, minGapMs = 0, vehicleId, only = null, extra = null } = {}) {
   const list = recipients();
   if (!list.length) return { sent: false, reason: 'off' };
   const m = MESSAGE[messageId];
@@ -115,7 +117,7 @@ async function notify(messageId, title, message, { key = null, minGapMs = 0, veh
   }
   const results = await Promise.all(to.map(async (r) => {
     try {
-      await ha.sendNotification(r.service, title, message);
+      await ha.sendNotification(r.service, title, message, extra);
       lastByRecipient.set(r.id, { at: Date.now(), title, sent: true, error: null });
       return { id: r.id, sent: true };
     } catch (err) {

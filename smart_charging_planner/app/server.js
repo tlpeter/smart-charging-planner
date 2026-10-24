@@ -30,6 +30,7 @@ const { chargedBlocks } = require('./charged');
 const pricehistory = require('./pricehistory');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
+const topup = require('./topup');
 const equalizer = require('./equalizer');
 const diagnostics = require('./diagnostics');
 const cardata = require('./cardata');
@@ -343,6 +344,38 @@ function earlierPrices(cfg, firstStart, now, tz, lookBackMs = LOOK_BACK_MS) {
 function minMaxPrice(rules) {
   const v = rules ? rules.min_soc_max_price : null;
   return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+
+// "Ask to charge more for a long trip" (Settings › Rules): when the next trip
+// (with all its places in a row) costs more than the target leaves room for,
+// plus the reserve to be back home with, ask once on the phone (Yes/No
+// buttons) and on Home. Only "Yes" raises the target, for that trip only.
+// Returns what Home shows: the question or the answer, or null.
+function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
+  const rules = rulesFor(s);
+  if (!rules.trip_topup_enabled || !vehicle) return null;
+  const view = (r) => (r ? { state: r.state, time: r.time, soc: r.soc, from: r.from, pct: r.pct, title: r.title, token: r.state === 'asked' ? r.token : null } : null);
+  const shown = () => {
+    const r = topup.current(vehicle.id, now);
+    return r && departure && Math.abs(r.time - departure.time) <= 60000 ? view(r) : null;
+  };
+  if (!departure || departure.source === 'choice' || !next || !next.trip || next.trip.status !== 'ok' || next.trip.pct == null) return shown();
+  const reserve = Number.isFinite(Number(rules.trip_topup_reserve)) ? Number(rules.trip_topup_reserve) : 10;
+  const needed = next.trip.pct + reserve;
+  if (needed <= departure.soc + 0.5) return shown();
+  const soc = Math.min(100, Math.ceil(needed));
+  if (soc <= departure.soc) return shown();
+  const title = departure.title || next.current.title || null;
+  const rec = topup.ask(vehicle.id, { time: departure.time, soc, from: departure.soc, pct: next.trip.pct, title }, now);
+  if (rec) {
+    const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(departure.time);
+    const back = Math.round(departure.soc - next.trip.pct);
+    const msg = `${title || 'Your trip'} (${when}) costs about ${Math.round(next.trip.pct)}%. With ${departure.soc}% you are back home with about ${back}%. Charge to ${soc}% for this trip?`
+      + (next.trip.pct > 100 ? ' Even at 100% it is not enough: charge on the way.' : '')
+      + ' You can also answer on Home in the app.';
+    notifier.notify('trip_topup', 'This trip needs more charge', msg, { vehicleId: vehicle.id, extra: { actions: topup.actions(rec), tag: `scp_topup_${vehicle.id}` } }).catch(() => {});
+  }
+  return shown();
 }
 
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
@@ -1143,6 +1176,8 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
+    // You said yes to charging more for this trip: the higher target.
+    if (vehicle && rulesFor(s).trip_topup_enabled) departure = topup.apply(vehicle.id, departure, now);
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
     let cf = chargefor.current(now);
@@ -1392,6 +1427,13 @@ const routes = {
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
+    // A trip that costs more than the target leaves room for: ask whether to charge more.
+    let tripTopup = null;
+    try {
+      tripTopup = tripTopupFor({ s, vehicle, departure, next, now, tz });
+    } catch (err) {
+      ha.warn('Trip top-up check failed:', err.message);
+    }
     // Not while just turned on (Charge now "on"): the car on the charger may be
     // a visitor's, so plugging it in or out says nothing about your car's trips.
     if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
@@ -1438,6 +1480,7 @@ const routes = {
       } : null,
       departure,
       next,
+      trip_topup: tripTopup,
       // More than one car: which one is connected, and how the app knows.
       cars: cars(s).length > 1 ? {
         list: cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s), plug_sensor: !!v.plugged_entity })),
@@ -2077,6 +2120,16 @@ function chargeForFromBody(b) {
   if (!(min >= lo && min <= hi)) throw badRequest(`Minimum must be between ${lo} and ${hi} %`);
   return { day: b.day, until, soc, min_soc: min };
 }
+
+// The answer to "charge more for this trip?" on Home: { token, answer: 'yes' | 'no' }.
+routes['POST /api/topup'] = async (req) => {
+  const b = await readBody(req);
+  if (!['yes', 'no'].includes(b.answer)) throw badRequest('Answer yes or no');
+  const r = topup.answer(String(b.token || ''), b.answer === 'yes');
+  if (!r) throw badRequest('This question is no longer open');
+  for (const x of ST.all.values()) x.planCache = null;
+  return { ok: true, state: r.state, soc: r.soc };
+};
 
 routes['POST /api/chargefor'] = async (req) => {
   const c = chargeForFromBody(await readBody(req));
@@ -3985,6 +4038,8 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
     car_limit_off: b.car_limit_off === true,
     car_limit_restart: b.car_limit_restart === true,
+    trip_topup_enabled: b.trip_topup_enabled === true,
+    trip_topup_reserve: num(b.trip_topup_reserve ?? 10, 'Reserve when back home', 0, 50),
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
   settings.save(s);
@@ -4225,5 +4280,18 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   ha.log(`Smart Charging Planner ${APP_VERSION} listening on port ${PORT}`);
   ha.onConnect(startBackgroundRefresh);
+  // The Yes/No buttons of "charge more for this trip?" on the phone.
+  ha.onConnect(() => {
+    ha.subscribeNotifyActions().catch((err) => ha.warn('Could not listen for notification buttons:', err.message));
+  });
+  ha.onEvent((ev) => {
+    if (!ev || ev.event_type !== 'mobile_app_notification_action') return;
+    const a = topup.fromAction(ev.data && ev.data.action);
+    if (!a) return;
+    if (topup.answer(a.token, a.yes)) {
+      for (const x of ST.all.values()) x.planCache = null;
+      refreshAll('answer on the phone').catch(() => {});
+    }
+  });
   ha.connect();
 });

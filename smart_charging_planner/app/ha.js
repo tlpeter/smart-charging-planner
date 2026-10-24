@@ -84,7 +84,10 @@ function call(message, timeoutMs = 20000, token = null) {
         message.service === 'update_entity' && message.target && typeof message.target.entity_id === 'string' &&
         /^calendar\.[a-z0-9_]+$/.test(message.target.entity_id)) ||
       (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
-        notifyTargets.has(`notify.${message.service}`));
+        notifyTargets.has(`notify.${message.service}`)) ||
+      // Listening for one event only: a tap on a button in a notification on
+      // the phone (the app's own question, "charge more for this trip?").
+      (message.type === 'subscribe_events' && message.event_type === 'mobile_app_notification_action');
     if (!allowed) {
       warn('Refused command', message.type, '- it is not on the read-only list');
       reject(new Error(`Command ${message.type} is not allowed: the app only reads data`));
@@ -267,7 +270,10 @@ function tapData(service) {
   return { url: page, clickAction: page };
 }
 
-async function sendNotification(target, title, message) {
+// extra.actions: buttons on the phone ([{ action, title }]), only for the
+// Home Assistant phone app; extra.tag: a later message with the same tag
+// replaces this one on the phone.
+async function sendNotification(target, title, message, extra = null) {
   const full = normaliseNotify(target);
   if (!full) throw new Error('No notify action chosen');
   if (!notifyTargets.has(full)) throw new Error(`${full} is not a recipient`);
@@ -275,7 +281,12 @@ async function sendNotification(target, title, message) {
   if (!/^[a-z0-9_]+$/.test(service)) throw new Error(`"${full}" is not a valid notify action`);
   debug('Notification:', title, '-', message);
   const serviceData = { title, message };
-  const data = tapData(service);
+  let data = tapData(service);
+  if (extra && service.startsWith('mobile_app_')) {
+    data = { ...(data || {}) };
+    if (Array.isArray(extra.actions) && extra.actions.length) data.actions = extra.actions;
+    if (extra.tag) data.tag = extra.tag;
+  }
   if (data) serviceData.data = data;
   return call({ type: 'call_service', domain: 'notify', service, service_data: serviceData }, 20000, NOTIFY_TOKEN);
 }
@@ -302,6 +313,16 @@ async function setState(entityId, state, attributes) {
 
 function onConnect(fn) {
   connectListeners.push(fn);
+}
+
+// Events from Home Assistant: only the ones the app subscribed to.
+const eventListeners = [];
+function onEvent(fn) {
+  eventListeners.push(fn);
+}
+// A tap on a button in a notification (Home Assistant phone app).
+function subscribeNotifyActions() {
+  return call({ type: 'subscribe_events', event_type: 'mobile_app_notification_action' });
 }
 
 function connect() {
@@ -344,6 +365,14 @@ function connect() {
       state.lastError = 'Authentication failed: ' + (msg.message || 'invalid token');
       log(state.lastError);
       socket.close();
+    } else if (msg.type === 'event' && msg.event) {
+      for (const fn of eventListeners) {
+        try {
+          fn(msg.event);
+        } catch (err) {
+          warn('Event handling failed:', err.message);
+        }
+      }
     } else if (msg.type === 'result' && pending.has(msg.id)) {
       const { resolve, reject } = pending.get(msg.id);
       pending.delete(msg.id);
@@ -366,4 +395,4 @@ function connect() {
   });
 }
 
-module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, appPagePath, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, subscribeNotifyActions, onEvent, appPagePath, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };

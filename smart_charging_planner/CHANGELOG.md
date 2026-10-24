@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.30.21-dev
+
+- New option in Settings › Rules: **Ask to charge more when a trip needs it** (off by default). When the next trip costs more than your target leaves room for, plus a reserve to be back home with (default 10 %), you get one question on your phone: "Charge to 95% for this trip?", with **Yes** and **No** buttons. Home shows the same question. Only Yes raises the target, for that one trip. No, or no answer: the target stays.
+- The app now listens for taps on its own notification buttons (only that event; it changes nothing in Home Assistant). New message "A trip needs more charge" under Action needed. Test Y13.
+
 ## 0.30.20-dev
 
 - Look ahead: the level after a trip can now be **below 0 %**. Before, the timeline stopped at 0 %, so you could not see how much the battery falls short. Now it shows for example −12 %, with "The battery runs out on this trip: about 12 % short". The next charging plan still starts from 0 %. Test Y12.
