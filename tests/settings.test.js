@@ -2371,6 +2371,26 @@ async function run() {
       world.houseW = 850;
       return `Laadpaal: ${a.reason}`;
     });
+    await test('X5a', 'Charge now goes first, also while that car is below its minimum: the Laadpaal moves before the EV6, and back after Charge now ends (#35)', async () => {
+      try {
+        await planOf(ch1); await planOf(ch2); await sleep(150);
+        let o = await overview();
+        assert(o.share.order[0] === ch2, `before: ${JSON.stringify(o.share.order)}`);
+        await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
+        await planOf(ch1); await planOf(ch2); await sleep(150);
+        o = await overview();
+        const first = o.chargers.find((c) => c.id === ch1);
+        assert(o.share.order[0] === ch1, `with Charge now: ${JSON.stringify(o.share.order)}`);
+        assert(first.want === 'charge' && first.code === 'below_minimum', JSON.stringify([first.want, first.code]));
+        await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2); await sleep(150);
+        o = await overview();
+        assert(o.share.order[0] === ch2, `after: ${JSON.stringify(o.share.order)}`);
+        return 'EV6 first → Laadpaal first (Charge now, below minimum) → EV6 first';
+      } finally {
+        await ok('DELETE', `api/boost?charger=${ch1}`).catch(() => {});
+      }
+    });
 
     await test('X5b', 'Both grid signs pause the first charger below minimum, even just after a manual start', async () => {
       const previousSolar = (await ok('GET', 'api/solar')).settings;

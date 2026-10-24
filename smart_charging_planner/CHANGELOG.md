@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.1-dev
+
+- **Charge now keeps its priority** when sharing the connection between chargers, also while that car is below its minimum. Before, the minimum rule gave the charging reason and Charge now was not seen, so the car could stay second. (#35)
+
 ## 0.32.24-dev
 
 - Duplicate detection accepts the app's millisecond start times as well as Home Assistant calendar timestamps, so both preview and writing use the same trip identity. (#38)

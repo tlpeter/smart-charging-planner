@@ -3489,6 +3489,9 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
   const liveMax = charger ? effectiveMaxCurrent(charger, states) : null;
   if (liveMax && liveMax.amps != null) planResult = { ...planResult, charger: { ...planResult.charger, max_current: liveMax.amps } };
   const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
+  // Charge now on this charger: its priority when sharing the connection,
+  // also when another rule (below the minimum) gives the charging reason (#35).
+  const boostActive = !!boost.current();
   ST().lastDryRun = controller.dryRun({
     plan: planResult,
     vehicle: plugView(s, currentVehicle(s), charger),
@@ -3499,7 +3502,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
     rules,
     controlAllowed: options.allow_control,
     live: options.allow_control === true,
-    boostActive: !!boost.current(),
+    boostActive,
     solar: solarCtx,
     share,
     record,
@@ -3507,7 +3510,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
   const entry = ST().lastDryRun;
   if (solarCtx) entry.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason, equalizer: !!solarCtx.equalizer };
   entry.solar_equalizer = !!(solarCtx && solarCtx.equalizer);
-  return { s, charger, states, methods, rules, planResult, entry };
+  return { s, charger, states, methods, rules, planResult, entry, boostActive };
 }
 
 // Send what was decided (after sharing the connection, with more chargers).
@@ -3656,7 +3659,9 @@ function shareConnection(s, steps) {
       power_w: Number.isFinite(e.power_w) ? e.power_w : 0,
       phases: step.charger.phases === 1 ? 1 : 3,
       priority: {
-        code: e.code,
+        // Charge now is the user's own choice and goes first, whichever rule
+        // gives the charging reason (for example below the minimum) (#35).
+        code: step.boostActive && e.want === 'charge' ? 'boost' : e.code,
         protect: !!(r && r.protect),
         latest_safe_start: r ? r.latest_safe_start : null,
         departure: step.planResult && step.planResult.departure ? step.planResult.departure.time : null,
