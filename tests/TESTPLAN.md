@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 171 of 176 ✗ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 161 of 165 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 176 of 176 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 165 of 165 ✓ |
 | Unit tests (17 files) | 717 of 717 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.21-dev.
+Version: 0.32.22-dev.
 
 # Settings
 
@@ -184,10 +184,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 13.2 kWh on solar, 21.1 kWh from the grid | ✓ 13.2 kWh on solar, 37.6 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.2 kWh on solar | ✓ 13.2 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.6 kWh at night, 13.2 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 13.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 13.1 kWh on solar, 21.2 kWh from the grid | ✓ 13.1 kWh on solar, 37.7 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.1 kWh on solar | ✓ 13.1 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.7 kWh at night, 13.1 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 13.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -203,7 +203,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.44 | ✓ charges in 3 block(s), saving €1.34 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.43 | ✓ charges in 3 block(s), saving €1.34 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -268,9 +268,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | W5 | Both say plugged in (one at a public charger): the app asks once, does not change a car limit; your choice wins until the charger is unplugged | ✓ asked once; chosen: EV6; unplugged: last = EV6 | ✓ asked once; chosen: EV6; unplugged: last = EV6 |
 | W6 | A car without a plug sensor is the one when no other car says it is plugged in | ✓ EV6 (no_other) | ✓ EV6 (no_other) |
 | W7 | Own departures for the EV6 (60 %); the other car keeps the shared ones (80 %) | ✓ EV6 → 60% · JLZ03X → 80% | ✓ EV6 → 60% · Enyaq → 80% |
-| W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✗ FAIL target: 75 precondition: yes car: EV6 | ✗ FAIL target: 75 precondition: yes car: EV6 |
+| W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✓ EV6 → 70% (car: kia) · JLZ03X → 90% · new trip: "target: 75 precondition: yes car: EV6" | ✓ EV6 → 70% (car: kia) · Enyaq → 90% · new trip: "target: 75 precondition: yes car: EV6" |
 | W9 | Notifications per car: Alex gets both cars, Sam only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Alex | ✓ EV6 → mobile_app_iphone_sam, mobile_app_pixel_8 · JLZ03X → mobile_app_pixel_8 | ✓ EV6 → mobile_app_iphone_sam, mobile_app_pixel_8 · Enyaq → mobile_app_pixel_8 |
-| W8 | Turned off: the first car only, as before; the EV6 stays saved; removing it works | ✗ FAIL {"time":1792904400000,"event_start":1792904400000,"event_end":1792908000000,"soc":70,"soc_from_event":true,"source":"calendar","title":"To Ghent","location":null,"precondition":null,"car":"kia","car_id":null,"car_unknown":false} | ✗ FAIL {"time":1792904400000,"event_start":1792904400000,"event_end":1792908000000,"soc":70,"soc_from_event":true,"source":"calendar","title":"To Ghent","location":null,"precondition":null,"car":"kia","car_id":null,"car_unknown":false} |
+| W8 | Turned off: the first car only, as before; the EV6 stays saved; removing it works | ✓ back to one car | ✓ back to one car |
 
 ## Y. Looking ahead: the next goal and what a trip costs
 
@@ -301,26 +301,26 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| U1 | One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at" | ✗ FAIL {"summary":"To Stationsplein 1, 3511 ED Utrecht","location":"Stationsplein 1, 3511 ED Utrecht","description":"target: 90 precondition: yes","start":1792911600000,"end":1792945800000,"duplicate":false} | ✗ FAIL {"summary":"To Stationsplein 1, 3511 ED Utrecht","location":"Stationsplein 1, 3511 ED Utrecht","description":"target: 90 precondition: yes","start":1792911600000,"end":1792945800000,"duplicate":false} |
+| U1 | One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at" | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes |
 | U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
 | U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ |
 | U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ |
 | U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ |
 | U5b | Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent |
-| U6 | More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✗ FAIL no car to choose | ✗ FAIL no car to choose |
+| U6 | More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht |
 
 ## X. More than one charger
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | X1 | Off by default: one charger as before; adding a second charger is refused | ✓ one charger: Laadpaal (charger1) | – (not for this set-up) |
-| X2 | Turned on: the Garage charger is added with its usual car (EV6); the first charger keeps its settings | ✓ Laadpaal (charger1) → car1, Garage (charger2) → car3 | – (not for this set-up) |
+| X2 | Turned on: the Garage charger is added with its usual car (EV6); the first charger keeps its settings | ✓ Laadpaal (charger1) → car1, Garage (charger2) → car2 | – (not for this set-up) |
 | X3 | Each charger has its own plan: Laadpaal for the first car, Garage for the EV6 (both plugged in) | ✓ JLZ03X: 22.9 kWh · EV6: 42.4 kWh | – (not for this set-up) |
 | X4 | Both must charge now (below the minimum), main fuse 25 A: the EV6 (least room to spare) gets 16 A, the other the rest (6 A) | ✓ available 22.8 A: Garage (EV6) 16 A, Laadpaal 6 A | – (not for this set-up) |
 | X5 | The house uses more (4.6 kW): too little left for the second car: it waits, the EV6 keeps charging | ✓ Laadpaal: Waiting: the connection is in use, EV6 goes first | – (not for this set-up) |
 | X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✓ 0/4/5 A pause; 6 A limit; import/export-positive meters | – (not for this set-up) |
 | X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✓ | – (not for this set-up) |
-| X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✗ FAIL {"list":[{"id":"car1","name":"JLZ03X","own_departures":false,"plug_sensor":true},{"id":"car2","name":"EV6","own_departures":false,"plug_sensor":true},{"id":"car3","name":"EV6","own_departures":false,"plug_sensor":true}],"connected_id":"car2","how":"guess","ask":true,"candidates":["car2","car3"],"conflict":null,"charger_plugged":true,"chosen":false} | – (not for this set-up) |
+| X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✓ Laadpaal → EV6 · Garage → JLZ03X | – (not for this set-up) |
 | X7 | Sensors and messages say which charger: sensor.smart_charging_garage_status; the first charger keeps its names | ✓ | – (not for this set-up) |
 | X8 | Turned off: the first charger only, as before; the Garage stays saved | ✓ back to one charger | – (not for this set-up) |
 
