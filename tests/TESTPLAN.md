@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 168 of 169 ✗ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 159 of 160 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 169 of 169 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 160 of 160 ✓ |
 | Unit tests (14 files) | 654 of 654 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.10-dev.
+Version: 0.32.11-dev.
 
 # Settings
 
@@ -179,10 +179,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 17.9 kWh on solar, 16.5 kWh from the grid | ✓ 17.9 kWh on solar, 33.0 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 17.9 kWh on solar | ✓ 17.9 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 17.7 kWh on solar, 16.6 kWh from the grid | ✓ 17.7 kWh on solar, 33.1 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 17.7 kWh on solar | ✓ 17.7 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 17.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 17.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S5 | Solar only: the plan uses only the sun | ✓ 17.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 17.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -214,7 +214,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | V1 | Refused: car data old after 100 hours; 2 hours is saved | ✓ | ✓ |
-| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✗ FAIL soc 20, kWh 0, expected 45.00 | ✗ FAIL soc 20, kWh 0, expected 45.00 |
+| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✓ plans with 45% (last level 45% + 0.02 kWh charged since), decision not_planned | ✓ plans with 45% (last level 45% + 0.02 kWh charged since), decision not_planned |
 | V3 | Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour | ✓ stale: 50% · back: 50% | ✓ stale: 50% · back: 50% |
 | V4 | Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges | ✓ assumed 20%, planned 40.0 kWh | ✓ assumed 20%, planned 59.3 kWh |
 | V5 | Just plugged in: the charger already says connected, the car's own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away | ✓ charger: connected · car sensor: off → plugged in | ✓ charger: connected · car sensor: off → plugged in |
