@@ -26,7 +26,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 
 - `dev` is the test version and `main` is the stable version.
 - On `dev`:
-  - In `smart_charging_planner/config.yaml`, `name` is `Smart Charging Planner (dev)` and `panel_title` is `Smart Charging (dev)`.
+  - In `smart_charging_planner/config.yaml`, `name` is `Smart Charging Planner (dev)`, `panel_title` is `Smart Charging (dev)` and `description` starts with `TEST VERSION: `.
   - The version ends in `-dev`, for example `0.29.7-dev`.
   - Bump the version on every change, in three places:
     - `smart_charging_planner/config.yaml` (with `-dev`);
@@ -34,7 +34,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
     - `smart_charging_planner/app/package-lock.json` (without `-dev`, two places).
 - **Release** ("uitbrengen X.Y.Z"):
   1. Merge `dev` into `main`.
-  2. On `main`, set `name` back to `Smart Charging Planner` and `panel_title` back to `Smart Charging`.
+  2. On `main`, set `name` back to `Smart Charging Planner` and `panel_title` back to `Smart Charging`, and remove `TEST VERSION: ` from the start of `description` (only `dev` is a test version).
   3. Set the version to `X.Y.Z` without `-dev`.
   4. Remove `-dev` from the changelog headings on `main`.
   5. Push `main` (only after the owner said so).
