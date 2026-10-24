@@ -1941,7 +1941,29 @@ async function run() {
         assert(p.departure.soc === want && p.departure.topup && p.departure.topup.from === 80, JSON.stringify(p.departure));
         assert(p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.token === null, JSON.stringify(p.trip_topup));
         assert(asked(n0).length === 1, 'asked again after yes');
-        return `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+        const first = `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+        // The trip costs more (40 kWh/100 km): asked again, Yes again.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 40 }));
+        p = await settle();
+        const big = Math.min(100, Math.ceil(p.next.trip.pct + 10));
+        assert(p.trip_topup && p.trip_topup.state === 'asked' && p.trip_topup.soc === big && big > want + 2 && asked(n0).length === 2, JSON.stringify({ t: p.trip_topup, big, want }));
+        await ok('POST', 'api/topup', { token: p.trip_topup.token, answer: 'yes' });
+        p = await settle();
+        assert(p.departure.soc === big && p.trip_topup.from === 80, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
+        // #2: the trip costs less again (30 kWh/100 km): the raised target goes down with it.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        p = await settle();
+        const less = Math.max(80, Math.min(100, Math.ceil(p.next.trip.pct + 10)));
+        assert(less < big - 2, `the test needs a trip that costs clearly less: ${less} vs ${big}`);
+        assert(p.departure.soc === less && p.departure.topup && p.departure.topup.from === 80 && p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.soc === less, JSON.stringify({ dep: p.departure, t: p.trip_topup, less }));
+        assert(asked(n0).length === 2, 'asked again when the trip got shorter');
+        // #2: a place removed (no Sport): the trip fits in 80 % again, the Yes ends.
+        world.events = world.events.filter((e) => e.summary !== 'Naar Sport');
+        p = await settle();
+        assert(p.next.trip.pct + 10 <= 80, `the shorter trip still needs ${p.next.trip.pct}%`);
+        assert(p.departure.soc === 80 && !p.departure.topup && p.trip_topup === null, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
+        assert(asked(n0).length === 2, 'asked when the trip fits');
+        return `${first} · bigger trip → ${big}% · costs less → ${less}% · Sport removed → back to 80%`;
       } finally {
         await ok('POST', 'api/control/settings', rules());
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));

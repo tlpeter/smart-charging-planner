@@ -362,11 +362,24 @@ function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
   if (!departure || departure.source === 'choice' || !next || !next.trip || next.trip.status !== 'ok' || next.trip.pct == null) return shown();
   const reserve = Number.isFinite(Number(rules.trip_topup_reserve)) ? Number(rules.trip_topup_reserve) : 10;
   const needed = next.trip.pct + reserve;
-  if (needed <= departure.soc + 0.5) return shown();
   const soc = Math.min(100, Math.ceil(needed));
-  if (soc <= departure.soc) return shown();
+  // The target from the calendar or schedule (before a Yes raised it).
+  const base = departure.topup ? departure.topup.from : departure.soc;
+  // The trip got shorter (a place removed from the calendar): after a Yes the
+  // raised target goes down with it, never below the target itself. Not
+  // needed any more: the Yes, or an open question, ends (#2). The new target
+  // counts from the next check, a minute later.
+  const r = topup.current(vehicle.id, now);
+  if (r && Math.abs(r.time - departure.time) <= 60000 && r.state !== 'no') {
+    if (needed <= base + 0.5) {
+      topup.drop(vehicle.id, now);
+      return null;
+    }
+    if (r.state === 'yes' && soc < r.soc - 2) topup.lower(vehicle.id, Math.max(soc, base), now);
+  }
+  if (needed <= departure.soc + 0.5 || soc <= departure.soc) return shown();
   const title = departure.title || next.current.title || null;
-  const rec = topup.ask(vehicle.id, { time: departure.time, soc, from: departure.soc, pct: next.trip.pct, title }, now);
+  const rec = topup.ask(vehicle.id, { time: departure.time, soc, from: base, pct: next.trip.pct, title }, now);
   if (rec) {
     const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(departure.time);
     const back = Math.round(departure.soc - next.trip.pct);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.23-dev
+
+- Fix, Ask to charge more when a trip needs it: after a Yes, the raised target now **goes down again when the trip gets shorter**. Before, it stayed, so the car could still be charged to 100 % after you removed a place from the calendar. Now the app keeps checking what the trip costs: costs less, the target goes down to what is needed (never below the target from the calendar or schedule); not needed any more, the Yes ends and the normal target counts again. An open question that is no longer needed is removed from Home. The trip grows again: you get the question again, and "No" there now keeps your own target (from the calendar or schedule), not the raised one. Test Y13. (#2)
+
 ## 0.30.22-dev
 
 - Look ahead, more places in a row: each place now shows the level **when the car arrives there**, after the drive to it, with the place it comes from ("~223 km from The Outdoor Pact Made (leaves with 41.5%, arrives with −38%)"). Before, a place showed the level when leaving the place before, so a long drive looked almost free. Back home shows the last drive too. Test Y12. (#1)
