@@ -547,6 +547,22 @@ async function run() {
   });
   // Back to: tomorrow 07:00 and the day after 06:00, 80 %.
   await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+  await test('F10', 'Looking ahead reaches 30 days (#4): the weekly schedule gives departures in weeks 3 and 4, and the plan says until when prices are known; Plan lists 7, 14 or 30 days as asked', async () => {
+    const p = await plan();
+    const leaves = p.next.timeline.filter((x) => x.type === 'leave');
+    const now = Date.now();
+    assert(leaves.length > 6 && leaves.some((x) => x.time > now + 21 * 86400000) && leaves.every((x) => x.time < now + 31 * 86400000), `${leaves.length} departures, last ${new Date(leaves[leaves.length - 1].time).toISOString()}`);
+    assert(Number.isFinite(p.next.prices_until) && p.next.prices_until > now && p.next.prices_until < now + 9 * 86400000, `prices_until ${p.next.prices_until}`);
+    const counts = [];
+    for (const ahead of [7, 14, 30]) {
+      const d = await ok('GET', `api/departures?ahead=${ahead}`);
+      assert(d.ahead_days === ahead && d.upcoming.every((u) => u.winner.time < now + (ahead + 1) * 86400000), `${ahead}: ${d.ahead_days}`);
+      counts.push(d.upcoming.length);
+    }
+    assert(counts[0] <= counts[1] && counts[1] < counts[2] && counts[2] >= 8, counts.join('/'));
+    assert((await ok('GET', 'api/departures?ahead=99')).ahead_days === 7, 'unknown range not refused to 7');
+    return `${leaves.length} departures in 30 days · Plan ${counts.join(' / ')} days with a departure`;
+  });
 
   // ----- G. Rules (Allow control off) --------------------------------------
   group = 'G. Rules';

@@ -311,16 +311,19 @@ function isReturnTrip(t) {
   return !!t.location && tripcost.distance(t.location).status === 'home';
 }
 
-// The coming days (up to 7 days, 6 departures) as one timeline: charging,
-// leaving, back home, charging again, … Each later departure gets an expected
-// charging plan from the moment the car is back (orange, never steered).
+// The coming days (up to 30 days) as one timeline: charging, leaving, back
+// home, charging again, … Each later departure gets an expected charging plan
+// from the moment the car is back (orange, never steered). Home shows 7, 14 or
+// 30 days of it, as chosen in the browser (#4).
+const AHEAD_MAX_DAYS = 30;
 const AHEAD_DAYS = 7;
-// The chart reaches the last expected charging within the timeline's seven days.
+// The chart reaches the last expected charging within seven days.
 function chartEnd(next) {
   const b = next && next.expected_blocks && next.expected_blocks.length ? next.expected_blocks[next.expected_blocks.length - 1].end : 0;
   return b ? Math.min(b, Date.now() + AHEAD_DAYS * 86400000) : 0;
 }
-const AHEAD_STEPS = 6;
+// Departures in the timeline: enough for 30 days with more trips a day.
+const AHEAD_STEPS = 60;
 
 // The chart looks back at least this far, to show what was charged.
 const LOOK_BACK_MS = 12 * 3600000;
@@ -397,8 +400,8 @@ function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
   if (!departure || !vehicle) return null;
   tripcost.setZones(states);
-  const horizon = now + AHEAD_DAYS * 86400000;
-  const all = collect(dep, { states, events, tz, now, days: 8, cars: carCtxNow, skip: isReturnTrip }).sort((a, b) => a.time - b.time);
+  const horizon = now + AHEAD_MAX_DAYS * 86400000;
+  const all = collect(dep, { states, events, tz, now, days: AHEAD_MAX_DAYS + 1, cars: carCtxNow, skip: isReturnTrip }).sort((a, b) => a.time - b.time);
   const trips = calendarTrips(dep, events, tz, now, carCtxNow);
   const tripAt = (x) => (x.source === 'calendar' ? trips.find((t) => t.time === x.time) : null);
   const startOf = (t) => t.event_start || t.time;
@@ -533,6 +536,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     expected: null,
     timeline,
     expected_blocks: [],
+    // Until when prices are known (real, and with the price forecast): later
+    // charging and levels are an estimate (#4).
+    real_prices_until: prices.filter((p) => !p.forecast).reduce((m, p) => Math.max(m, p.end), 0) || null,
+    prices_until: prices.length ? lastKnown : null,
   };
 
   // The departures after this one, one after the other.
@@ -1694,14 +1701,17 @@ const routes = {
     const s = settings.load();
     const tz = ha.state.timeZone;
     const now = Date.now();
-    const vehicle = vehicleParam(s, new URL(req.url, 'http://localhost').searchParams.get('vehicle'));
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    const vehicle = vehicleParam(s, params.get('vehicle'));
+    // How far ahead Plan looks: 7, 14 or 30 days, as chosen in the browser (#4).
+    const ahead = [7, 14, 30].includes(Number(params.get('ahead'))) ? Number(params.get('ahead')) : 7;
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error, health } = await calendarEvents(dep, tz, now);
     // You said yes to charging more for a trip: show the higher target here
     // too, the same as Home and the plan (#3).
     const raised = vehicle && rulesFor(s).trip_topup_enabled ? (x) => topup.apply(vehicle.id, x, now) : (x) => x;
-    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz)
+    const days = winnersPerDay(collect(dep, { states, events, tz, now, days: ahead, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz)
       .map((d) => ({ ...d, winner: raised(d.winner) }));
     const list = (domain) => states
       .filter((x) => x.entity_id.startsWith(domain + '.'))
@@ -1710,6 +1720,7 @@ const routes = {
     return {
       time_zone: tz,
       now,
+      ahead_days: ahead,
       vehicle_id: vehicle ? vehicle.id : null,
       own_departures: ownDepartures(vehicle, s),
       cars: cars(s).length > 1 ? cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s) })) : null,
@@ -1724,7 +1735,7 @@ const routes = {
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
-        return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000).map((t) => ({
+        return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
           ...raised(t),
           cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
         }));
@@ -1888,7 +1899,8 @@ function calendarWritable(states, entityId) {
 async function calendarEvents(dep, tz, now) {
   if (!dep.calendar.enabled || !dep.calendar.entity) return { events: [], error: null, health: { state: 'off' } };
   const entity = dep.calendar.entity;
-  const until = now + 15 * 86400000;
+  // 30 days ahead for Looking ahead (#4), plus a day.
+  const until = now + (AHEAD_MAX_DAYS + 1) * 86400000;
   try {
     const r = await ha.callAction('calendar', 'get_events', {
       start_date_time: isoLocal(now, tz),

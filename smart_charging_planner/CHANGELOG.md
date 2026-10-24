@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.6-dev
+
+- **Looking ahead: 7, 14 or 30 days.** Choose it above the list on Home; this browser remembers it. Plan follows the same choice. Days after the last known price are marked **estimate**, with a note until when prices are known. The calendar is now read 31 days ahead. (#4)
+
 ## 0.33.5-dev
 
 - Privacy: the remaining real place names in tests and the changelog were replaced with made-up ones.
