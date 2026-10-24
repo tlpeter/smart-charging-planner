@@ -1048,8 +1048,15 @@ const routes = {
   // Fetch prices with the given (unsaved) settings and summarise them.
   'POST /api/prices/test': async (req) => {
     const cfg = priceConfigFrom(await readBody(req));
-    const result = await fetchPrices(cfg.source, ha.state.timeZone);
-    return { summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), time_zone: ha.state.timeZone };
+    let result;
+    try {
+      result = await fetchPrices(cfg.source, ha.state.timeZone);
+    } catch (err) {
+      // More homes or areas: the page shows them to choose from (#16).
+      if (err.choice) return { error: err.message, choice: err.choice, currency: ha.state.currency, time_zone: ha.state.timeZone };
+      throw err;
+    }
+    return { summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), choice: result.choice, currency: ha.state.currency, time_zone: ha.state.timeZone };
   },
 
   'GET /api/prices': async () => {
@@ -1057,7 +1064,7 @@ const routes = {
     if (!cfg) return { prices: null };
     try {
       const result = await fetchPrices(cfg.source, ha.state.timeZone);
-      return { prices: cfg, summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), time_zone: ha.state.timeZone };
+      return { prices: cfg, summary: summarise(result, cfg), forecast: await forecastSummary(cfg, result), choice: result.choice, currency: ha.state.currency, time_zone: ha.state.timeZone };
     } catch (err) {
       return { prices: cfg, error: err.message, time_zone: ha.state.timeZone };
     }
@@ -4360,7 +4367,10 @@ function priceConfigFrom(body) {
   let source;
   if (src.type === 'action') {
     if (!ACTION_SOURCES[src.domain] || !src.config_entry) throw badRequest('Invalid price source');
-    source = { id: `action:${src.domain}:${src.config_entry}`, type: 'action', domain: src.domain, config_entry: String(src.config_entry), name: String(src.name || src.domain).slice(0, 80) };
+    // Which home (Tibber) or market area (Nord Pool), when the source has more than one (#16).
+    const select = ['tibber', 'nordpool'].includes(src.domain) && String(src.select || '').trim() ? String(src.select).trim().slice(0, 80) : null;
+    const base = `action:${src.domain}:${src.config_entry}`;
+    source = { id: select ? `${base}:${select}` : base, type: 'action', domain: src.domain, config_entry: String(src.config_entry), name: String(src.name || src.domain).slice(0, 80), ...(select ? { select } : {}) };
   } else if (src.type === 'attribute') {
     if (!String(src.entity_id || '').startsWith('sensor.')) throw badRequest('Invalid price sensor');
     source = { id: `attr:${src.entity_id}`, type: 'attribute', domain: src.domain || null, entity_id: src.entity_id, name: String(src.name || src.entity_id).slice(0, 80) };

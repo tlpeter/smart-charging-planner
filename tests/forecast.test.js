@@ -141,5 +141,33 @@ check('an explicit foreign currency is rejected instead of silently compared', m
   check('Other sensors keep their unit_of_measurement', unitHint({ unit_of_measurement: '€/kWh' }) === '€/kWh');
 }
 
-console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
-process.exit(failed ? 1 : 0);
+// Tibber homes and Nord Pool areas: the chosen one, never silently the first (#16).
+(async () => {
+  const ha = require(path.join(app, 'ha.js'));
+  const { fetchPrices, localMidnight, isoLocal } = require(path.join(app, 'prices.js'));
+  const t0 = localMidnight(tz, 0);
+  const rows = (price, key) => Array.from({ length: 24 }, (_, h) => ({ [key]: isoLocal(t0 + h * 3600000, tz), ...(key === 'start' ? { end: isoLocal(t0 + (h + 1) * 3600000, tz) } : {}), price }));
+  const original = ha.callAction;
+  const quiet = [ha.debug, ha.warn];
+  ha.debug = () => {}; ha.warn = () => {};
+  const fails = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(e.message) && !!e.choice; } };
+  try {
+    ha.callAction = async (domain) => (domain === 'tibber' ? { prices: { 'Home A': rows(0.2, 'start_time'), 'Home B': rows(0.4, 'start_time') } } : { SE3: rows(500, 'start'), SE4: rows(900, 'start') });
+    const tibber = { id: 'action:tibber:ce', type: 'action', domain: 'tibber', config_entry: 'ce' };
+    const np = { id: 'action:nordpool:ce', type: 'action', domain: 'nordpool', config_entry: 'ce' };
+    check('Tibber, two homes, none chosen: a clear error listing both', await fails(() => fetchPrices(tibber, tz), /Home A, Home B/));
+    const b = await fetchPrices({ ...tibber, select: 'Home B' }, tz);
+    check('Tibber, Home B chosen: its prices, not those of Home A', b.prices.length === 24 && b.prices.every((p) => p.price === 0.4) && b.choice.key === 'Home B' && b.choice.keys.length === 2);
+    check('Tibber, the chosen home is gone: a clear error, no other home', await fails(() => fetchPrices({ ...tibber, select: 'Old home' }, tz), /Old home.*not in the answer/));
+    const se4 = await fetchPrices({ ...np, select: 'SE4' }, tz);
+    check('Nord Pool, area SE4 chosen: its prices (per MWh → per kWh)', se4.prices.length === 24 && se4.prices.every((p) => Math.abs(p.price - 0.9) < 1e-9) && se4.choice.label === 'Area');
+    check('Nord Pool, two areas, none chosen: a clear error', await fails(() => fetchPrices(np, tz), /more than one area \(SE3, SE4\)/));
+    ha.callAction = async () => ({ prices: { 'Only home': rows(0.3, 'start_time') } });
+    const one = await fetchPrices(tibber, tz);
+    check('Tibber, one home: used without choosing, as before', one.prices.length === 24 && one.choice.key === 'Only home');
+  } finally {
+    ha.callAction = original; [ha.debug, ha.warn] = quiet;
+  }
+  console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
+  process.exit(failed ? 1 : 0);
+})();

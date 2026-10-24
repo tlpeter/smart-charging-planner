@@ -87,6 +87,7 @@ Settings › Prices › **Detect** lists the price sources it finds:
 
 - **Integration actions**: EnergyZero, easyEnergy, Tibber and Home Assistant's own **Nord Pool** integration. The app asks them for today's and tomorrow's prices. An action is only offered when Home Assistant really has it.
 - **Price sensors**: any sensor with a list of timed prices in its attributes. The **Nord Pool integration from HACS** (custom-components/nordpool) has the same name as Home Assistant's own, but no price action: its sensor (with `raw_today` and `raw_tomorrow`) is offered as a price sensor. That sensor includes VAT by default, so the app suggests **Market price, incl. VAT**; if you turned VAT off in that integration, choose **Market price, excl. VAT**. The unit comes from its `currency`, `unit` and `price_in_cents` attributes.
+- **More than one home or area**: a Tibber account with more homes, or a Nord Pool entry with more market areas, gives prices for each. After **Test**, choose yours under **Home** or **Area**; the test result shows which one, with the currency and time zone. The app never takes the first one silently: without a choice it says which ones there are. When the chosen home or area disappears, Home shows an error instead of switching to another one.
 
 ## Prices without a dynamic contract
 

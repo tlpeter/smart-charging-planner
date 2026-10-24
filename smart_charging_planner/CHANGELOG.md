@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.3-dev
+
+- **Tibber with more homes, Nord Pool with more areas**: choose yours under Settings › Prices (after Test). Before, the app always used the first one in the answer, which could be another home's or area's prices. With only one, nothing changes. A chosen home or area that disappears gives a clear error instead of other prices. (#16)
+
 ## 0.33.2-dev
 
 - **Nord Pool from HACS works**: the app no longer offers Home Assistant's Nord Pool price action when only the HACS integration (same name) is installed, and its sensor with `raw_today`/`raw_tomorrow` is offered instead of hidden. The unit comes from the sensor's currency and unit, and VAT is assumed included, as that integration does by default. An action source is only offered when Home Assistant has that action. (#17)

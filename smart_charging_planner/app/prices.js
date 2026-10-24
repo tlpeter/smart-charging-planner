@@ -90,6 +90,29 @@ function parseTime(v, tz) {
 // Action sources
 // ---------------------------------------------------------------------------
 
+// More than one home (Tibber) or market area (Nord Pool) in one answer: use
+// the one the user chose, never silently the first (#16). With one, use it.
+// The result (an array) carries .choice = { label, key, keys } for the page.
+function choiceError(message, label, keys) {
+  const err = new Error(message);
+  err.status = 400;
+  err.choice = { label, key: null, keys };
+  return err;
+}
+function pickEntry(map, wanted, label) {
+  const keys = Object.keys(map || {});
+  if (wanted) {
+    if (Object.prototype.hasOwnProperty.call(map || {}, wanted)) return { key: wanted, list: map[wanted] || [], keys };
+    throw choiceError(`${label} "${wanted}" is not in the answer of this price source any more (found: ${keys.join(', ') || 'none'}). Choose the ${label.toLowerCase()} again in Settings › Prices.`, label, keys);
+  }
+  if (keys.length > 1) throw choiceError(`This price source has more than one ${label.toLowerCase()} (${keys.join(', ')}). Choose one in Settings › Prices.`, label, keys);
+  return { key: keys[0] || null, list: keys.length ? map[keys[0]] || [] : [], keys };
+}
+function withChoice(list, label, picked) {
+  list.choice = { label, key: picked.key, keys: picked.keys };
+  return list;
+}
+
 const ACTION_SOURCES = {
   energyzero: {
     name: 'EnergyZero',
@@ -134,7 +157,7 @@ const ACTION_SOURCES = {
     service: 'get_prices',
     price_type: 'all_in',
     unit: 'kWh',
-    async fetch(entry, win, tz) {
+    async fetch(entry, win, tz, select = null) {
       const data = { start: isoLocal(win.start, tz), end: isoLocal(win.end, tz) };
       let r;
       try {
@@ -143,9 +166,8 @@ const ACTION_SOURCES = {
         ha.debug('Tibber: retrying with config_entry:', err.message);
         r = await ha.callAction('tibber', 'get_prices', { ...data, config_entry: entry });
       }
-      const homes = Object.values((r && r.prices) || {});
-      const list = homes[0] || [];
-      return list.map((p) => ({ start: parseTime(p.start_time), price: validPrice(p.price) ? Number(p.price) : NaN }));
+      const picked = pickEntry((r && r.prices) || {}, select, 'Home');
+      return withChoice(picked.list.map((p) => ({ start: parseTime(p.start_time), price: validPrice(p.price) ? Number(p.price) : NaN })), 'Home', picked);
     },
   },
   nordpool: {
@@ -156,24 +178,26 @@ const ACTION_SOURCES = {
     service: 'get_prices_for_date',
     price_type: 'market_excl_vat',
     unit: 'MWh',
-    async fetch(entry, win, tz) {
+    async fetch(entry, win, tz, select = null) {
       const out = [];
+      let picked = null;
       for (const day of [win.start, win.tomorrow]) {
         try {
           const r = await ha.callAction('nordpool', 'get_prices_for_date', {
             config_entry: entry, date: localDate(day, tz),
           });
-          const areas = Object.values(r || {});
-          for (const p of areas[0] || []) {
+          picked = pickEntry(r || {}, select, 'Area');
+          for (const p of picked.list) {
             out.push({ start: parseTime(p.start), end: parseTime(p.end), price: validPrice(p.price) ? Number(p.price) : NaN });
           }
         } catch (err) {
           // Tomorrow's prices are published around 13:00; before that this fails.
+          if (err.choice) throw err;
           ha.debug('Nord Pool: no prices for', localDate(day, tz), '-', err.message);
           if (day === win.start) throw err;
         }
       }
-      return out;
+      return picked ? withChoice(out, 'Area', picked) : out;
     },
   },
 };
@@ -427,7 +451,7 @@ async function fetchPrices(source, tz) {
   if (source.type === 'action') {
     const def = ACTION_SOURCES[source.domain];
     if (!def) throw new Error(`Unknown price integration: ${source.domain}`);
-    raw = await def.fetch(source.config_entry, win, tz);
+    raw = await def.fetch(source.config_entry, win, tz, source.select || null);
     unit = def.unit;
   } else if (source.type === 'attribute') {
     const states = await ha.call({ type: 'get_states' });
@@ -453,7 +477,7 @@ async function fetchPrices(source, tz) {
   } catch (err) {
     ha.warn('Could not store price history:', err.message);
   }
-  return { prices, interval_minutes, window: win, warnings };
+  return { prices, interval_minutes, window: win, warnings, choice: (raw && raw.choice) || null };
 }
 
 // Forecast: a sensor with expected prices for the coming days. Only the part
@@ -481,7 +505,7 @@ async function backfill(source, dayRanges, tz) {
   let filled = 0;
   for (const [start, end] of history.missingDays(source.id, dayRanges)) {
     try {
-      const raw = await def.fetch(source.config_entry, { start, tomorrow: end, end }, tz);
+      const raw = await def.fetch(source.config_entry, { start, tomorrow: end, end }, tz, source.select || null);
       const { prices } = finalise(toPerKwh(raw, def.unit, []), { start, end });
       history.record(source.id, prices);
       filled += prices.length ? 1 : 0;
@@ -542,7 +566,7 @@ function summarise(result, cfg, now = Date.now()) {
 
 module.exports = {
   fixedTariff, fetchForecast,
-  detectPriceSources, hasAction, unitHint, fetchPrices, backfill, summarise, totalPrice,
+  detectPriceSources, hasAction, unitHint, pickEntry, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES, priceTime, toPerKwh,
 };

@@ -2759,7 +2759,22 @@ function durationText(minutes) {
           },
         };
       }
-      return { ...data, source: src };
+      delete data.select;
+      // More homes (Tibber) or areas (Nord Pool): the chosen one (#16).
+      const sel = !$('prices-select-field').hidden && $('prices-select').value;
+      return { ...data, source: src && src.type === 'action' && sel ? { ...src, select: sel } : src };
+    }
+
+    // Show the homes or areas of the source to choose from (#16).
+    function showChoice(choice, selected) {
+      const field = $('prices-select-field');
+      if (!choice || !choice.keys || (choice.keys.length < 2 && !selected)) { field.hidden = true; return; }
+      $('prices-select-label').textContent = choice.label || 'Home';
+      const keys = choice.keys.length ? choice.keys : [selected];
+      const pick = selected || choice.key || '';
+      $('prices-select').innerHTML = (pick ? '' : '<option value="">— choose —</option>')
+        + keys.map((k) => `<option value="${esc(k)}" ${k === pick ? 'selected' : ''}>${esc(k)}</option>`).join('');
+      field.hidden = false;
     }
 
     // Show the tariff form for a fixed tariff, the cost fields otherwise.
@@ -2809,6 +2824,7 @@ function durationText(minutes) {
           : `Sensor attributes · ${src.detail}${src.note ? ` · ${src.note}` : ''}`;
       $('prices-form').price_type.value = src.price_type;
       $('prices-form').forecast_price_type.value = src.price_type;
+      showChoice(null);
       syncFixed();
     }
 
@@ -2833,6 +2849,12 @@ function durationText(minutes) {
           $('prices-form').forecast_margin.value = preselect.forecast.margin;
         }
         if (preselect) {
+          // A saved home or area: the source itself is found without it (#16).
+          const savedSelect = preselect.source.select || null;
+          const baseId = savedSelect ? preselect.source.id.slice(0, -(savedSelect.length + 1)) : preselect.source.id;
+          const base = savedSelect && candidates.find((c) => c.id === baseId);
+          if (base) preselect = { ...preselect, source: { ...preselect.source, id: base.id } };
+          showChoice(savedSelect ? { label: preselect.source.domain === 'nordpool' ? 'Area' : 'Home', keys: [savedSelect], key: savedSelect } : null, savedSelect);
           if (!candidates.some((c) => c.id === preselect.source.id)) {
             // Not found now (renamed, offline): keep it as an option, so it is not lost.
             priceSources.push(preselect.source);
@@ -2879,7 +2901,12 @@ function durationText(minutes) {
       try {
         const r = await api('POST', 'api/prices/test', priceFormData());
         priceTz = r.time_zone;
-        box.innerHTML = `<div class="card"><h2>Test result</h2>${summaryHtml(r.summary)}${forecastHtml(r.forecast)}</div>`;
+        const current = !$('prices-select-field').hidden ? $('prices-select').value : '';
+        showChoice(r.choice, current || (r.choice && r.choice.key));
+        const which = r.choice && r.choice.key ? `<p class="muted small">${esc(r.choice.label)} ${esc(r.choice.key)} · ${esc(r.currency || '')} · ${esc(r.time_zone || '')}</p>` : '';
+        box.innerHTML = r.error
+          ? `<div class="card"><h2>Test result</h2><div class="error">${esc(r.error)}</div></div>`
+          : `<div class="card"><h2>Test result</h2>${which}${summaryHtml(r.summary)}${forecastHtml(r.forecast)}</div>`;
       } catch (err) {
         box.innerHTML = `<div class="card"><h2>Test result</h2><div class="error">${esc(err.message)}</div></div>`;
       } finally {
@@ -2932,7 +2959,7 @@ function durationText(minutes) {
           : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%${r.prices.forecast ? ` · forecast from ${esc(r.prices.forecast.entity_id)}` : ''}`;
         box.innerHTML = `
           <div class="card">
-            <h2>Prices now · ${esc(r.prices.source.name)}</h2>
+            <h2>Prices now · ${esc(r.prices.source.name)}${r.prices.source.select ? ` · ${esc(r.prices.source.select)}` : ''}</h2>
             <p class="muted small">${detailLine}</p>
             ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary) + forecastHtml(r.forecast)}
             <div class="buttons">
