@@ -197,7 +197,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.44 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.43 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -281,8 +281,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
 | Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC |
-| Y12 | More places in a row: Werk 06:00–16:30, then Made 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Made → home (60 km each part), no charging at home in between, back at 22:00 | ✗ FAIL [] | ✗ FAIL [] |
-| Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
+| Y12 | More places in a row: Werk 06:00–16:30, then Made 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Made → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Made → home: 180 km ≈ 68.5% · at Made 57.2% · home 11.5% at 22:00 | ✓ home → Werk → Made → home: 180 km ≈ 46.3% · at Made 64.6% · home 33.7% at 22:00 |
+| Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✗ FAIL {"status":"ok","km":60,"back_km":60,"how":"route","use":"consumption","pct_per_km":0.34615384615384615,"pct":45.7,"via":[],"return_trip":null,"return_at":1792958400000,"soc_after":54.3} | ✗ FAIL {"status":"ok","km":60,"back_km":60,"how":"route","use":"consumption","pct_per_km":0.23376623376623376,"pct":30.9,"via":[],"return_trip":null,"return_at":1792958400000,"soc_after":69.1} |
 
 ## Z. Apple iCloud calendar (read only)
 
