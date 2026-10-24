@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.7-dev
+
+- Roadmap: looking ahead 7, 14 or 30 days. Only the README changed, not the app. (#4)
+
 ## 0.32.6-dev
 
 - Plan page: after a Yes to charging more for a trip, **Next departure** and **Trips from your calendar** now show the raised target (for example 100 %, "was 85 %"), the same as Home. Before, the Plan page still showed the calendar target. Only the display changed, not the planning. (#3)

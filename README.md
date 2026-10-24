@@ -135,6 +135,7 @@ With more chargers and too little room on the main fuse: Charge now first, then 
 - [x] More than one charger (an option): a plan and control per charger, the car with the least room to spare goes first when the connection is too small
 - [x] Battery care: above 80 % only in the last hours before departure
 - [ ] Plans of more chargers that take each other into account (now they are shared at the moment of charging)
+- [ ] Looking ahead: choose how far, 7, 14 or 30 days, like the price chart (#4)
 - [ ] Trips that need more than the battery holds: suggest charging stations on the way (from OpenStreetMap, charging stations near the route), with your preferences in Settings (operator, fast charging, minimum power)
 
 ## Tests
