@@ -16,11 +16,11 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 168 of 169 ✗ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 159 of 160 ✗ |
-| Unit tests (14 files) | 647 of 648 ✗ |
+| Unit tests (14 files) | 654 of 654 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.8-dev.
+Version: 0.32.10-dev.
 
 # Settings
 
@@ -95,8 +95,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 13.0 h back | ✓ 13 charged blocks, from 13.0 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 14 charged blocks, from 13.1 h back | ✓ 14 charged blocks, from 13.1 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 11 blocks, 72 h: 59 blocks, 168 h: 155 blocks | ✓ 24 h: 11 blocks, 72 h: 59 blocks, 168 h: 155 blocks |
 
 ## F. Planning (departures)
 
@@ -179,10 +179,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 18.0 kWh on solar, 16.3 kWh from the grid | ✓ 18.0 kWh on solar, 32.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 18.0 kWh on solar | ✓ 18.0 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 17.9 kWh on solar, 16.5 kWh from the grid | ✓ 17.9 kWh on solar, 33.0 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 17.9 kWh on solar | ✓ 17.9 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 18.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 18.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S5 | Solar only: the plan uses only the sun | ✓ 17.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 17.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -214,7 +214,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | V1 | Refused: car data old after 100 hours; 2 hours is saved | ✓ | ✓ |
-| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✗ FAIL soc 45, kWh 0, expected 45.00 | ✗ FAIL soc 45, kWh 0, expected 45.00 |
+| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✗ FAIL soc 20, kWh 0, expected 45.00 | ✗ FAIL soc 20, kWh 0, expected 45.00 |
 | V3 | Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour | ✓ stale: 50% · back: 50% | ✓ stale: 50% · back: 50% |
 | V4 | Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges | ✓ assumed 20%, planned 40.0 kWh | ✓ assumed 20%, planned 59.3 kWh |
 | V5 | Just plugged in: the charger already says connected, the car's own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away | ✓ charger: connected · car sensor: off → plugged in | ✓ charger: connected · car sensor: off → plugged in |
@@ -336,7 +336,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | File | What | Passed |
 |---|---|---|
 | [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 17 of 17 ✓ |
-| [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 0 of 1 ✗ |
+| [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 7 of 7 ✓ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
 | [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
@@ -382,11 +382,17 @@ Release safeguards: DST delivery intervals, missing prices, live current caps, d
 
 Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release.
 
-<details open><summary>0 of 1 passed – show every check</summary>
+<details><summary>7 of 7 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
-| the test stopped with an error | ✗ FAIL exit 1 |
+| a failed phase change never enables charging or sends a one-phase current | ✓ |
+| a failed current limit keeps the charger paused and is retried on the next step | ✓ |
+| a live zero or 4 A limit blocks Charge now as well as the plan | ✓ |
+| restart restores app-owned one-phase/current settings after solar is disabled | ✓ |
+| a pre-trip SoC is not reused after unplugging and reconnecting | ✓ |
+| a partial battery failure is retried without waiting for the normal refresh timeout | ✓ |
+| a held home battery is released after restart with planning disabled | ✓ |
 
 </details>
 
