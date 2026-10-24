@@ -1864,9 +1864,10 @@ async function run() {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
       world.events = [
+        // (This calendar only counts events with a target, so each has one.)
         evm('Naar Werk', 'doel: 80', ADDR3, 1, 6, 0, 16, 30),
-        evm('Naar The Outdoor Pact Made', 'precondition: ja', ADDR2, 1, 16, 30, 20, 30),
-        evm('Naar Thuis', 'precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
+        evm('Naar The Outdoor Pact Made', 'doel: 80 precondition: ja', ADDR2, 1, 16, 30, 20, 30),
+        evm('Naar Thuis', 'doel: 80 precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
         evm('Naar Werk', 'doel: 80', ADDR3, 3, 6, 0, 16, 0),
       ];
       try {
