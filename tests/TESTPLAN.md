@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 176 of 176 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 165 of 165 ✓ |
-| Unit tests (17 files) | 717 of 717 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 177 of 177 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 166 of 166 ✓ |
+| Unit tests (17 files) | 720 of 720 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.22-dev.
+Version: 0.32.24-dev.
 
 # Settings
 
@@ -95,7 +95,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.4 h back | ✓ 16 charged blocks, from 15.4 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.7 h back | ✓ 16 charged blocks, from 15.7 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
@@ -184,10 +184,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 13.1 kWh on solar, 21.2 kWh from the grid | ✓ 13.1 kWh on solar, 37.7 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.1 kWh on solar | ✓ 13.1 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.7 kWh at night, 13.1 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 13.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.6 kWh on solar, 21.8 kWh from the grid | ✓ 12.6 kWh on solar, 38.3 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.6 kWh on solar | ✓ 12.6 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.3 kWh at night, 12.6 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 12.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -203,7 +203,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.43 | ✓ charges in 3 block(s), saving €1.34 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.42 | ✓ charges in 3 block(s), saving €1.33 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -304,6 +304,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | U1 | One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at" | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes |
 | U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
 | U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ |
+| U3b | Changing the trip language skips existing English and old Dutch events in preview and writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes |
 | U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ |
 | U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ |
 | U5b | Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent |
@@ -355,7 +356,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
-| [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 15 of 15 ✓ |
+| [activecar.test.js](#activecar) | More than one car: connected car; calendar tags, trip language and duplicate prevention | 18 of 18 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
@@ -1178,9 +1179,9 @@ Notifications: a message that reached no phone is tried again.
 
 ## activecar
 
-More than one car: which car is connected; car, target and precondition in the calendar.
+More than one car: connected car; calendar tags, trip language and duplicate prevention.
 
-<details><summary>15 of 15 passed – show every check</summary>
+<details><summary>18 of 18 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1199,6 +1200,9 @@ More than one car: which car is connected; car, target and precondition in the c
 | calendar: the car is found by its calendar name, its name, or its brand when only one car has it | ✓ |
 | calendar: precondition in Dutch and English | ✓ |
 | calendar: trips the app writes are read back, in English and Dutch | ✓ |
+| calendar: changing the writing language skips the same trip, including old Dutch events | ✓ |
+| calendar: duplicate detection keeps different cars, destinations, titles and start times separate | ✓ |
+| calendar: the two repeated DST hours are different trips | ✓ |
 
 </details>
 
