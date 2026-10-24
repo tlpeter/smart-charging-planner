@@ -48,7 +48,16 @@ How a GitHub issue is handled, from report to release:
 2. **Fix on `dev`:** the fix is made on `dev` (no separate branch), with a test that would have caught it, a version bump and a changelog entry ending in `(#<number>)`.
 3. **Commit message:** contains `Fixes #<number>`. GitHub then links the commit to the issue. The issue does not close yet: GitHub only closes it when the commit reaches `main`.
 4. **Push** only when Peter says so, as always.
-5. **When the tests in GitHub Actions are green:** add a comment to the issue ("Fixed in X.Y.Z-dev, please test. Closes when released to main.") and the label `fixed in dev`.
+5. **When the tests in GitHub Actions are green:** add a comment to the issue and the label `fixed in dev`. The repository is public, so the comment explains the fix for someone who reads it later, in plain English, with these parts:
+   - **Fixed in** X.Y.Z-dev, with a link to the commit (the full code change is there; do not paste code into the issue);
+   - **Affected:** which versions had the problem, and whether `main` has it;
+   - **What was wrong:** the cause, in a few sentences;
+   - **What changed:** what the user sees now, with a before/after example (a small table when there are numbers);
+   - **What did not change**, when that matters (for example: only the display, not the planning);
+   - **Code:** the main idea of the change in one sentence, then the files and functions;
+   - **Test:** which test checks it now, and that it is green;
+   - **How to check:** a few steps to try it yourself;
+   - the last line: "Closes when released to main."
 6. **Peter tests** the dev version at home. If it is not right, the issue gets a comment and the label is removed again.
 7. **Release** ("uitbrengen"): `dev` goes to `main`, and GitHub closes the issue by itself. Remove the label `fixed in dev` then.
 
