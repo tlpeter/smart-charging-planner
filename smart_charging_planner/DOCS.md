@@ -178,7 +178,7 @@ Settings › Vehicle › **I have more than one car** (off by default; with it o
 - **Your choice on Home** (Connected car) wins, until the charger is unplugged. A choice made before plugging in counts for the next car.
 - The plan, Ready Guard, the car's charge limit, "car not reachable" and the checklist follow the connected car. The car's charge limit is never changed while the app is not sure which car is connected.
 - **Departures** are shared by all cars, unless a car has its own (Plan › choose the car › "has its own departures").
-- **One calendar for more cars**: "auto: renault" or "car: EV6" in the event (also "vehicle:", "voertuig:") says which car a trip is for; a trip without it is for every car. The car is found by its **Name in the calendar** (Settings › Vehicle), its name, or its brand when only one car has that brand. A car that is not recognised counts for every car and is marked on Plan. "Add trip" has a **For** choice.
+- **One calendar for more cars**: "car: EV6" in the event (also "vehicle:", or in Dutch "auto:", "voertuig:") says which car a trip is for; a trip without it is for every car. The car is found by its **Name in the calendar** (Settings › Vehicle), its name, or its brand when only one car has that brand. A car that is not recognised counts for every car and is marked on Plan. "Add trip" has a **For** choice.
 
 ## More than one charger
 
@@ -193,7 +193,30 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 
 ## Calendars
 
-Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "doel: 80" (or "target: 80") in the event's notes or title; "precondition: ja" and, with more cars, "auto: renault" work the same way.
+Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "target: 80" (or in Dutch "doel: 80") in the event's notes or title; "precondition: yes" and, with more cars, "car: EV6" work the same way.
+
+### Calendar words
+
+The app reads English and Dutch, also mixed in one calendar. Upper and lower case do not matter. These words count:
+
+| What | English | Dutch | Good to know |
+| --- | --- | --- | --- |
+| **Target** (battery level for the trip) | `target: 80` | `doel: 80` | Also `soc: 80`, `charge: 80`, `laaddoel: 80`, `target=80`, or just `80%`. Between 10 and 100. |
+| **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Read and shown, not used yet. |
+| **Which car** (more cars) | `car: EV6`, `vehicle: EV6` | `auto: EV6`, `voertuig: EV6` | The car's **Name in the calendar**, its name, or its brand. |
+| **Trip to a place** (title) | `To Work` | `Naar Werk` | The first word is left out to find the place. German `nach` and French `vers`/`à` also work. |
+| **Trip home** (title) | `Home`, `To home`, `Back home`, `Going home`, `Go home` | `Thuis`, `Huis`, `Naar huis`, `Naar thuis`, `Terug` | Or your home address or the Home zone as location. A trip home is never a departure: it is when the car is back. |
+| **Names that are not an address** | `Work`, `Office`, `School`, `Gym`, `Sport`, `Training`, `Shopping`, `Parents`, `Home` | `Werk`, `Kantoor`, `Boodschappen`, `Winkel`, `Opa`, `Oma`, `Ouders`, `Thuis`, `Huis` | Add them under **My places** (or make a zone) to get the trip cost. |
+
+With **Which events are trips? → Events that contain a keyword**, the keyword is your own (default `EV`) and works in any language.
+
+**Add trip** writes in the language you choose under Plan › Departures › Calendar › **Language for trips the app adds** (default: the same as Home Assistant; Dutch when Home Assistant is in Dutch, otherwise English):
+
+| | English | Nederlands |
+| --- | --- | --- |
+| Title | `To <destination>` | `Naar <destination>` |
+| Description | `target: 80 precondition: no` | `doel: 80 precondition: nee` |
+| With more cars | `… car: EV6` | `… auto: EV6` |
 
 **Add trip** (Plan) writes to the calendar the app reads departures from (Plan › Departures › Calendar must be on). The trip counts right away: on Plan and in the timeline under Looking ahead on Home. With an address as destination the app works out what the trip costs. **Back home at** (optional) is when the event ends: then the app knows when the car is back; without it the event lasts 15 minutes. **For** (which car) only appears with more than one car.
 
@@ -235,20 +258,20 @@ Add trip needs a calendar Home Assistant can add events to. Apple iCloud calenda
 Always on. Home shows the coming days (up to 7 days, 6 departures) with **one line per day**, for example "Tue 20 · ⚡ 02:00 to 100% · **Main Street** 11:00–16:00 · 100% → 32% · ⚡ 16:00 to 80%": charging (blue planned, orange expected, purple minimum), each trip with its times and the battery level when leaving and when back. A day where the battery falls short is orange. Tap a day to see its full timeline, in the order things happen, with the battery level on the right:
 
 - **Charging** (blue): the real plan up to the first departure.
-- **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Naar Thuis", "Naar huis", "Home" or "Naar Home" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.
+- **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Home", "To home", "Back home" or in Dutch "Naar huis" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.
 - **The car is away now**: when the car is not plugged in and a trip home is in the calendar, the timeline starts with **Back home** at the end of that event, and charging is planned only from then (not while the car is still away). The battery level used is the last one the car reported; what the drive home costs is not taken off yet.
 - **Back home**: when, and with about how much battery.
 - **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. With **Always charge when the battery is below a minimum** on and the car back below it: first **right away to the minimum** (purple), then the rest in the cheapest hours. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
 
 When another trip is added to the calendar, it takes its place in the timeline right away.
 
-- **Zones in Home Assistant** (Settings › Areas, labels & zones › Zones), such as "Werk": used automatically, with their GPS position, so no address is needed. A trip whose location is the zone's name ("Werk"), or whose title is "Naar Werk", goes to that zone. The Home zone is your home.
-- **My places** (Plan): names you use in the calendar, such as "Werk" or "Northwind Labs", with their address. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
-- Which place a trip goes to, first match wins: the event's location is a name from My places or a zone → that place; the location is a real address (with a house number) → that address; the title ("Naar Werk") is a name from My places or a zone → that place; otherwise the location as it is (looked up on OpenStreetMap). When the distance of a trip is not known, Home says why and offers to add its name to My places. My places are part of the settings export.
-- **What a trip costs**: when the calendar event has an address in its location (for example "Hoofdweg 1 2661 AA Bergschenhoek"). Words like "Werk" or "Thuis" are not addresses; put the full address in the location to see the cost.
+- **Zones in Home Assistant** (Settings › Areas, labels & zones › Zones), such as "Work": used automatically, with their GPS position, so no address is needed. A trip whose location is the zone's name ("Work"), or whose title is "To Work", goes to that zone. The Home zone is your home.
+- **My places** (Plan): names you use in the calendar, such as "Work" or "Gym", with their address. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
+- Which place a trip goes to, first match wins: the event's location is a name from My places or a zone → that place; the location is a real address (with a house number) → that address; the title ("To Work") is a name from My places or a zone → that place; otherwise the location as it is (looked up on OpenStreetMap). When the distance of a trip is not known, Home says why and offers to add its name to My places. My places are part of the settings export.
+- **What a trip costs**: when the calendar event has an address in its location (for example "Main Street 12, 1234 AB Springfield"). Words like "Work" or "Home" are not addresses (see [Calendar words](#calendar-words)); put the full address in the location to see the cost.
   - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
   - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
-  - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "Naar Werk" 06:00–16:30, then "Naar Sport" 16:30–20:30, then "Naar Thuis"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
+  - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "To Work" 06:00–16:30, then "To Gym" 16:30–20:30, then "Home"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
 

@@ -65,7 +65,7 @@
       </form>
       <div class="card" id="places-card">
         <h2>My places</h2>
-        <p class="muted small">Names you use in the calendar, such as "Werk" or "Northwind Labs", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("Naar Werk") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
         <p class="muted small" id="places-zones"></p>
         <div id="places-list"></div>
         <div class="buttons">
@@ -100,7 +100,7 @@
           <div class="field"><label>Calendar</label><select name="cal_entity"></select></div>
           <div class="field"><label>Which events are trips?</label>
             <select name="cal_match">
-              <option value="target">Events with a target in the description, such as "doel: 80"</option>
+              <option value="target">Events with a target in the description, such as "target: 80"</option>
               <option value="keyword">Events that contain a keyword</option>
               <option value="all">Every event with a time</option>
             </select></div>
@@ -109,7 +109,14 @@
             <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
             <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
           </div>
-          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" (or "voorverwarmen: ja") is read and shown, but not used yet. With more than one car, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car.</p>
+          <div class="field"><label>Language for trips the app adds</label>
+            <select name="cal_language">
+              <option value="auto">Same as Home Assistant</option>
+              <option value="en">English ("To Work", "target: 80")</option>
+              <option value="nl">Nederlands ("Naar Werk", "doel: 80")</option>
+            </select></div>
+          <p class="muted small" id="cal-language-note"></p>
+          <p class="muted small">The app reads English and Dutch, also mixed in one calendar. A target in the event ("target: 80", "doel: 80" or "85%") is used for that trip. "precondition: yes" (or "precondition: ja") is read and shown, but not used yet. With more than one car, "car: EV6" (or "auto: EV6") says which car the trip is for; a trip without it is for every car. All words are in the Documentation tab.</p>
           <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
           <div class="error form-error" hidden></div>
         </div>

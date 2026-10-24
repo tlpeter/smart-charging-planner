@@ -111,7 +111,7 @@ function durationText(minutes) {
         extraInputs: () => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
             <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
-            <div class="muted small">A calendar event with "auto: renault" or "car: renault" is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
+            <div class="muted small">A calendar event with "car: renault" (or "auto: renault") is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
           <div class="two">
             <div class="field"><label>Battery capacity in kWh (needed to estimate the level when the car cannot be reached)</label>
               <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
@@ -1341,7 +1341,7 @@ function durationText(minutes) {
       const when = (x) => (x.type === 'charge' ? x.start : x.time);
       const dayKey = (ms) => tzFmt(ms, { year: 'numeric', month: '2-digit', day: '2-digit' });
       const dayName = (ms) => tzFmt(ms, { weekday: 'short', day: 'numeric' });
-      // A short name for a trip: "Naar Main Street 12 1234 AB Springfield" → "Main Street".
+      // A short name for a trip: "To Main Street 12 1234 AB Springfield" → "Main Street".
       const shortName = (t) => {
         const n = String(t || 'Trip').replace(/^\s*(naar|to)\s+/i, '').trim();
         const cut = n.replace(/\s+\d.*$/, '').replace(/,.*$/, '').trim();
@@ -1376,7 +1376,7 @@ function durationText(minutes) {
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
-          // More places in a row: "Werk → Made".
+          // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
           return;
@@ -2117,7 +2117,7 @@ function durationText(minutes) {
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
-          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
+          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
 
         renderTripForm(d);
 
@@ -2163,6 +2163,8 @@ function durationText(minutes) {
         $('cal-keyword-field').hidden = f.cal_match.value !== 'keyword';
         f.cal_buffer.value = dep.calendar.buffer_minutes;
         f.cal_soc.value = dep.calendar.soc;
+        f.cal_language.value = dep.calendar.language || 'auto';
+        $('cal-language-note').innerHTML = `New trips are written as ${tripFormat(d.trip_language, !!d.cars)}${(dep.calendar.language || 'auto') === 'auto' ? ` (Home Assistant language: ${esc(d.ha_language)})` : ''}.`;
       } catch (err) {
         $('dep-next').innerHTML = `<div class="error">${esc(err.message)}</div>`;
       }
@@ -2186,7 +2188,7 @@ function durationText(minutes) {
         helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
         calendar: {
           enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
-          buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value,
+          buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value, language: f.cal_language.value,
         },
       };
       btn.disabled = true;
@@ -2539,6 +2541,13 @@ function durationText(minutes) {
     // ---------- Add trip ----------
     let tripWriteAllowed = false;
 
+    // How the app writes a trip in the chosen language (Plan › Calendar).
+    function tripFormat(lang, withCar) {
+      return lang === 'nl'
+        ? `"Naar &lt;destination&gt;" with "doel: … precondition: ja/nee"${withCar ? ' and "auto: …"' : ''}`
+        : `"To &lt;destination&gt;" with "target: … precondition: yes/no"${withCar ? ' and "car: …"' : ''}`;
+    }
+
     function renderTripForm(d) {
       const f = $('trip-form');
       f.hidden = !d.departures.calendar.enabled || !d.departures.calendar.entity;
@@ -2546,13 +2555,13 @@ function durationText(minutes) {
       $('trip-mode').textContent = tripWriteAllowed ? 'WRITES TO CALENDAR' : 'TEST MODE';
       $('trip-mode').className = tripWriteAllowed ? 'advice' : 'advice test';
       $('trip-mode-text').innerHTML = tripWriteAllowed
-        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …"${d.cars ? ' and "auto: …"' : ''}, the same format this app reads.`
+        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as ${tripFormat(d.trip_language, !!d.cars)}, the same format this app reads.`
         : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
       $('trip-add').hidden = !tripWriteAllowed || d.calendar_writable === false;
       if (d.calendar_writable === false) {
         $('trip-mode').textContent = 'READ ONLY CALENDAR';
         $('trip-mode').className = 'advice test';
-        $('trip-mode-text').innerHTML = `<strong>${esc(d.departures.calendar.entity)}</strong> is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add trips in the calendar app itself (for example on your iPhone) with "doel: 80" in the notes, or choose a calendar that can (Google, Local calendar, CalDAV). The app reads the trips from this calendar as usual.`;
+        $('trip-mode-text').innerHTML = `<strong>${esc(d.departures.calendar.entity)}</strong> is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add trips in the calendar app itself (for example on your iPhone) with "target: 80" (or "doel: 80") in the notes, or choose a calendar that can (Google, Local calendar, CalDAV). The app reads the trips from this calendar as usual.`;
       }
       // More cars: which car the trip is for ("auto: …" in the event), or every car.
       const carField = $('trip-car-field');
@@ -2623,7 +2632,7 @@ function durationText(minutes) {
     function placeRow(p = {}) {
       const row = document.createElement('div');
       row.className = 'two place-row';
-      row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Werk" value="${esc(p.name || '')}"></div>
+      row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Work" value="${esc(p.name || '')}"></div>
         <div class="field"><label>Address</label><div class="place-addr"><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
       row.querySelector('button').onclick = () => row.remove();
       $('places-list').appendChild(row);

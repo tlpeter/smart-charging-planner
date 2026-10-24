@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.21-dev
+
+- **Language for trips the app adds** (Plan › Departures › Calendar): English ("To Work", "target: 80 precondition: no") or Dutch ("Naar Werk", "doel: 80 precondition: nee"). The default follows the language of Home Assistant. Reading still understands both, also mixed in one calendar.
+- The Documentation tab has a new section **Calendar words** with every word the app reads and writes, in English and Dutch.
+- Examples in the app and the documentation are now in English.
+- Real addresses and company names in examples, tests and code comments were replaced with made-up ones.
+
 ## 0.32.20-dev
 
 - Public diagnostics retain an identifier's domain only when it is a known Home Assistant domain; a private/custom namespace is anonymised completely. (#20)
@@ -178,7 +185,7 @@
 
 ## 0.30.11-dev
 
-- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 1:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
+- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 11:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
 - Docs: Looking ahead per day
 
 ## 0.30.10-dev

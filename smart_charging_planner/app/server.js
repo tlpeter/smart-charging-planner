@@ -21,7 +21,7 @@ const tripcost = require('./tripcost');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
-const { buildTripEvents, markDuplicates, toHaData } = require('./trips');
+const { buildTripEvents, markDuplicates, toHaData, tripLanguage } = require('./trips');
 const { checkControl } = require('./control');
 const controller = require('./controller');
 const session = require('./session');
@@ -1724,6 +1724,8 @@ const routes = {
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,
       calendar_writable: calendarWritable(states, dep.calendar.entity),
+      ha_language: ha.state.language || 'en',
+      trip_language: tripLanguage(dep.calendar.language, ha.state.language),
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
@@ -1775,6 +1777,7 @@ const routes = {
         keyword: String(cal.keyword || '').slice(0, 40),
         buffer_minutes: buffer,
         soc: soc(cal.soc, 'Calendar'),
+        language: ['auto', 'en', 'nl'].includes(cal.language) ? cal.language : 'auto',
       },
     });
     settings.save(s);
@@ -1842,7 +1845,8 @@ async function tripsPlan(body) {
   // More cars: the trip says which car ("auto: renault"); "all" = every car.
   const forAll = !body || body.for_all_cars === true;
   const car = cars(s).length > 1 && vehicle && !forAll ? (vehicle.calendar_name || vehicle.name) : null;
-  const events = buildTripEvents({ ...body, car }, tz);
+  const language = tripLanguage(dep.calendar.language, ha.state.language);
+  const events = buildTripEvents({ ...body, car }, tz, Date.now(), language);
   let existing = [];
   try {
     const r = await ha.callAction('calendar', 'get_events', {
@@ -1858,6 +1862,7 @@ async function tripsPlan(body) {
     calendar,
     write_allowed: options.allow_calendar_write === true,
     calendar_writable: writable,
+    language,
     events: markDuplicates(events, existing, tz),
     time_zone: tz,
   };

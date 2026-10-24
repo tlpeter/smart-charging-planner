@@ -523,6 +523,28 @@ async function run() {
     await refused('POST', 'api/trips', { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 }, 'test mode');
     assert(!world.calls.some((c) => c.domain === 'calendar' && c.service === 'create_event'), 'event was written');
   });
+  await test('F9b', 'Add trip language: "auto" follows Home Assistant (English here), Dutch on request, an unknown value falls back to auto', async () => {
+    const trip = { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 };
+    const cal = (language) => depBody({ calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80, language } });
+    try {
+      await ok('POST', 'api/departures', cal(undefined));
+      let d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'auto' && d.trip_language === 'en', `${d.departures.calendar.language}/${d.trip_language}`);
+      let e = (await ok('POST', 'api/trips/preview', trip)).events[0];
+      assert(e.summary === 'To Utrecht' && e.description === 'target: 80 precondition: no', JSON.stringify(e));
+      await ok('POST', 'api/departures', cal('nl'));
+      d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'nl' && d.trip_language === 'nl', `${d.departures.calendar.language}/${d.trip_language}`);
+      e = (await ok('POST', 'api/trips/preview', { ...trip, precondition: true })).events[0];
+      assert(e.summary === 'Naar Utrecht' && e.description === 'doel: 80 precondition: ja', JSON.stringify(e));
+      await ok('POST', 'api/departures', cal('fr'));
+      d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'auto', d.departures.calendar.language);
+      return 'To Utrecht / Naar Utrecht';
+    } finally {
+      await ok('POST', 'api/departures', depBody());
+    }
+  });
   // Back to: tomorrow 07:00 and the day after 06:00, 80 %.
   await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
 

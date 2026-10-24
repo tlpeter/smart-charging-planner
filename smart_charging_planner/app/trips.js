@@ -1,14 +1,28 @@
 'use strict';
 
-// Building trip events for the calendar, in the same format as a typical
-// dashboard: title "Naar <destination>", the destination as location, and
-// "doel: 80 precondition: ja" as description. The app reads this format back
-// (Departures -> Calendar -> "Events with a target in the description").
+// Building trip events for the calendar: a title "To <destination>", the
+// destination as location, and "target: 80 precondition: no" as description.
+// In Dutch: "Naar <destination>" and "doel: 80 precondition: nee".
+// The app reads both languages back (Departures -> Calendar -> "Events with a
+// target in the description"), so a calendar may mix them.
 
 const { tzParts, localDateTime, parseLocal, isoLocal } = require('./prices');
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const MAX_EVENTS = 60;
+
+// The words the app writes, per language (Plan › Calendar › Language for new trips).
+const WORDS = {
+  en: { to: 'To', target: 'target', precondition: 'precondition', yes: 'yes', no: 'no', car: 'car' },
+  nl: { to: 'Naar', target: 'doel', precondition: 'precondition', yes: 'ja', no: 'nee', car: 'auto' },
+};
+
+// The language for new trips: the setting, or with "auto" the language of
+// Home Assistant (Dutch when Home Assistant is in Dutch, otherwise English).
+function tripLanguage(setting, haLanguage) {
+  if (setting === 'en' || setting === 'nl') return setting;
+  return /^nl\b/i.test(String(haLanguage || '')) ? 'nl' : 'en';
+}
 const DURATION_MIN = 15;
 
 function badRequest(message) {
@@ -28,7 +42,8 @@ function haDateTime(ms, tz) {
 }
 
 // input: { datetime: "YYYY-MM-DDTHH:MM", destination, back: "HH:MM" (optional), soc, precondition, weekdays: [], weeks }
-function buildTripEvents(input, tz, now = Date.now()) {
+function buildTripEvents(input, tz, now = Date.now(), lang = 'en') {
+  const w = WORDS[lang] || WORDS.en;
   const first = parseLocal(input.datetime, tz);
   if (!Number.isFinite(first) || first <= now) throw badRequest('Choose a departure in the future');
   const destination = String(input.destination || '').trim();
@@ -73,9 +88,9 @@ function buildTripEvents(input, tz, now = Date.now()) {
   };
 
   const car = String(input.car || '').replace(/[\n,;:]/g, ' ').trim().slice(0, 30);
-  const description = `doel: ${soc} precondition: ${input.precondition ? 'ja' : 'nee'}${car ? ` auto: ${car}` : ''}`;
+  const description = `${w.target}: ${soc} ${w.precondition}: ${input.precondition ? w.yes : w.no}${car ? ` ${w.car}: ${car}` : ''}`;
   return starts.map((start) => ({
-    summary: `Naar ${destination}`,
+    summary: `${w.to} ${destination}`,
     location: destination,
     description,
     start,
@@ -105,4 +120,4 @@ function toHaData(e, tz) {
   };
 }
 
-module.exports = { buildTripEvents, markDuplicates, toHaData, MAX_EVENTS };
+module.exports = { buildTripEvents, markDuplicates, toHaData, tripLanguage, WORDS, MAX_EVENTS };

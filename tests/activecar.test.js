@@ -129,5 +129,23 @@ check('calendar: precondition in Dutch and English', () => {
   assert.strictEqual(parsePrecondition('voorconditioneren: nee'), false);
 });
 
+check('calendar: trips the app writes are read back, in English and Dutch', () => {
+  const { buildTripEvents, tripLanguage } = require('../smart_charging_planner/app/trips');
+  const { parseTarget } = require('../smart_charging_planner/app/departures');
+  const at = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16);
+  for (const lang of ['en', 'nl']) {
+    const [e] = buildTripEvents({ datetime: at, destination: 'Gent', soc: 85, precondition: true, car: 'EV6' }, 'UTC', Date.now(), lang);
+    assert.strictEqual(e.summary, lang === 'nl' ? 'Naar Gent' : 'To Gent');
+    assert.strictEqual(parseTarget(e.description), 85);
+    assert.strictEqual(parsePrecondition(e.description), true);
+    assert.strictEqual(parseCar(e.description), 'EV6');
+  }
+  assert.strictEqual(tripLanguage('auto', 'nl'), 'nl');
+  assert.strictEqual(tripLanguage('auto', 'nl-BE'), 'nl');
+  assert.strictEqual(tripLanguage('auto', 'en-GB'), 'en');
+  assert.strictEqual(tripLanguage('auto', undefined), 'en');
+  assert.strictEqual(tripLanguage('en', 'nl'), 'en');
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

@@ -354,6 +354,8 @@ function connect() {
         const config = await call({ type: 'get_config' });
         state.timeZone = config.time_zone || 'UTC';
         state.currency = config.currency || 'EUR';
+        // Language for trips the app adds to the calendar ("auto" follows this).
+        state.language = config.language || 'en';
         // Home (for trip distances): Settings → System → General in Home Assistant.
         state.home = Number.isFinite(config.latitude) && Number.isFinite(config.longitude) ? { lat: config.latitude, lon: config.longitude } : null;
         state.country = config.country || null;
