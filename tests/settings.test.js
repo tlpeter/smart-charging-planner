@@ -1887,7 +1887,14 @@ async function run() {
         assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
         const between = tl.filter((x) => x.type === 'charge' && x.expected && x.start < at(1, 22));
         assert(!between.length, `charging while the car is away: ${JSON.stringify(between)}`);
-        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · leaving Werk ${stops[0].soc}% · home ${backs[0].soc}% at 22:00`;
+        // Not enough battery: the timeline shows how much it falls short (below 0 %),
+        // while the next plan starts from 0 %.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 60 }));
+        const q = (await settle()).next;
+        const qb = q.timeline.find((x) => x.type === 'back');
+        assert(qb.soc < 0 && q.trip.soc_after === 0 && q.trip.soc_end === qb.soc, JSON.stringify({ back: qb.soc, after: q.trip.soc_after, end: q.trip.soc_end }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · leaving Werk ${stops[0].soc}% · home ${backs[0].soc}% at 22:00 · with 60 kWh/100 km: home ${qb.soc}%`;
       } finally {
         world.soc = 100;
         world.events = [];

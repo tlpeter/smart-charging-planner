@@ -1287,11 +1287,11 @@ function durationText(minutes) {
         if (x.type === 'stop') {
           return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from the place before</span></div>
-            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from the place before · ` : ''}the car does not come home in between, so no charging</div></div>${level(x.soc)}</li>`;
+            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from the place before · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
         }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
-        const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
+        const short = x.soc != null && (x.soc < 0 || (nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5));
         if (x.away_now) {
           return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
@@ -1299,7 +1299,7 @@ function durationText(minutes) {
         }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-          ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
+          ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
       };

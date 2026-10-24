@@ -388,9 +388,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc() })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
     const returnAt = back ? endOf(back) : endOf(last);
-    const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
+    // soc_after (0 or more) is used to plan what comes next; soc_end can be
+    // below 0: how much the battery falls short, shown in the timeline.
+    const socEnd = socLeave != null && trip.pct != null ? Math.round((socLeave - trip.pct) * 10) / 10 : null;
+    const socAfter = socEnd == null ? null : Math.max(0, socEnd);
     const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
-    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -404,7 +407,8 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
   const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
   // (The first trip's level after it follows the level when leaving.)
-  trip0.soc_after = socAtDep != null && trip0.pct != null ? Math.max(0, Math.round((socAtDep - trip0.pct) * 10) / 10) : (trip0.pct == null ? socAtDep : null);
+  trip0.soc_end = socAtDep != null && trip0.pct != null ? Math.round((socAtDep - trip0.pct) * 10) / 10 : null;
+  trip0.soc_after = trip0.soc_end != null ? Math.max(0, trip0.soc_end) : (trip0.pct == null ? socAtDep : null);
 
   const timeline = [];
   // Charging in the timeline: the part for a minimum (purple) and the rest.
@@ -452,10 +456,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     // the car leaves there (after the part before).
     let lv = socLeave != null && tr && tr.pct != null ? socLeave - (tr.km || 0) * tr.pct_per_km * tripcost.MARGIN : null;
     for (const v of (tr && tr.via) || []) {
-      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, soc: lv == null ? null : Math.max(0, Math.round(lv * 10) / 10) });
+      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, soc: lv == null ? null : Math.round(lv * 10) / 10 });
       if (lv != null) lv = v.km == null ? null : lv - v.km * tr.pct_per_km * tripcost.MARGIN;
     }
-    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
@@ -534,8 +538,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       }
     }
     const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
-    if (tr.pct == null) tr.soc_after = null;
-    else if (socLeave != null) tr.soc_after = Math.max(0, Math.round((socLeave - tr.pct) * 10) / 10);
+    if (tr.pct == null) { tr.soc_after = null; tr.soc_end = null; } else if (socLeave != null) {
+      tr.soc_end = Math.round((socLeave - tr.pct) * 10) / 10;
+      tr.soc_after = Math.max(0, tr.soc_end);
+    }
     leave(x, t, tr, socLeave, x.soc);
     back = tr.return_at;
     level = tr.soc_after;

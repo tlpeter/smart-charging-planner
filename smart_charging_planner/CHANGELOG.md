@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.20-dev
+
+- Look ahead: the level after a trip can now be **below 0 %**. Before, the timeline stopped at 0 %, so you could not see how much the battery falls short. Now it shows for example −12 %, with "The battery runs out on this trip: about 12 % short". The next charging plan still starts from 0 %. Test Y12.
+
 ## 0.30.19-dev
 
 - Look ahead: **more places in a row**. When the next calendar trip starts before or when the trip before ends, and it is not a trip home, the car does not come home in between. Example: "Naar Werk" 06:00–16:30 (Rivertown), then "Naar The Outdoor Pact Made" 16:30–20:30, then "Naar Thuis": the trip is now home → Rivertown → Made → home. The part to Made is the distance from Rivertown, not from home, and no charging at home is expected while the car is away. Before, the app saw Werk as there and back and planned charging at home at 11:00, and a trip that started exactly when the one before ended was left out.
