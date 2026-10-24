@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.20-dev
+
+- Public diagnostics retain an identifier's domain only when it is a known Home Assistant domain; a private/custom namespace is anonymised completely. (#20)
+
 ## 0.32.19-dev
 
 - Refreshing one charger now rebuilds every charger plan before the shared battery decision, including immediately after adding a second charger or changing settings. Regression checks reverse primary/secondary roles and require non-zero demand from both cars. (#11)

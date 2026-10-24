@@ -36,6 +36,14 @@ check('unknown schema keys and identity maps fail closed', () => {
   assert.deepEqual(r.now, {});
   assert.equal(r.mystery, undefined);
 });
+check('identifier prefixes cannot retain a personal namespace', () => {
+  const r = diagnostics.redact({ settings: { vehicles: [{ id: 'alex.private', soc_entity: 'sensor.alex_private' }] },
+    plan: { result: { 'alex.private': { state: 'alex.private' } } } });
+  assert(!JSON.stringify(r).includes('alex'));
+  const id = r.settings.vehicles[0].id;
+  assert.equal(r.plan.result[id].state, id);
+  assert(r.settings.vehicles[0].soc_entity.startsWith('sensor.anonymous_'));
+});
 check('the diagnostic UI previews the same document before a separate download action', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'smart_charging_planner', 'app', 'public', 'app.js'), 'utf8');
   const begin = src.indexOf("    $('diag-download').onclick = async () => {");

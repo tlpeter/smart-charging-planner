@@ -48,11 +48,13 @@ marstek_local_api.set_passive_mode
 `.split(/\s+/));
 const ID = /^(?:id|.*_id|.*_ids|.*_entity|.*_entities|entity_id|entity_ids|start_entity|stop_entity)$/;
 const ENTITY = /^[a-z_]+\.[a-z0-9_]+$/;
+const ENTITY_DOMAINS = new Set('sensor binary_sensor switch select number button calendar climate person device_tracker zone input_number input_boolean input_datetime input_text input_select update light fan lock cover automation script weather notify'.split(' '));
 function redact(input) {
   const ids = new Map();
   const anon = (value) => {
     if (!ids.has(value)) {
-      const domain = ENTITY.test(value) ? value.split('.')[0] + '.' : '';
+      const prefix = ENTITY.test(value) ? value.split('.')[0] : '';
+      const domain = ENTITY_DOMAINS.has(prefix) ? prefix + '.' : '';
       ids.set(value, domain + 'anonymous_' + (ids.size + 1));
     }
     return ids.get(value);
