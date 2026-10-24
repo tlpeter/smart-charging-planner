@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 175 of 175 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 164 of 164 ✓ |
-| Unit tests (14 files) | 692 of 692 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 174 of 175 ✗ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 163 of 164 ✗ |
+| Unit tests (17 files) | 709 of 710 ✗ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.15-dev.
+Version: 0.32.16-dev.
 
 # Settings
 
@@ -43,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 231 kB JS | ✓ 46 kB CSS, 231 kB JS |
+| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 232 kB JS | ✓ 46 kB CSS, 232 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -95,9 +95,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 14 charged blocks, from 14.0 h back | ✓ 14 charged blocks, from 14.0 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 11 blocks, 72 h: 59 blocks, 168 h: 155 blocks | ✓ 24 h: 11 blocks, 72 h: 59 blocks, 168 h: 155 blocks |
-| E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 15 charged blocks, from 14.8 h back | ✓ 15 charged blocks, from 14.8 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks |
+| E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✗ FAIL valid actual/forecast prices lost | ✗ FAIL valid actual/forecast prices lost |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
 
 ## F. Planning (departures)
@@ -183,10 +183,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 16.1 kWh on solar, 18.3 kWh from the grid | ✓ 16.1 kWh on solar, 34.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 16.1 kWh on solar | ✓ 16.1 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 34.8 kWh at night, 16.1 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 16.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 16.1 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 14.3 kWh on solar, 20.0 kWh from the grid | ✓ 14.3 kWh on solar, 36.5 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 14.3 kWh on solar | ✓ 14.3 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 36.5 kWh at night, 14.3 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 14.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 14.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -202,10 +202,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.51 | ✓ charges in 3 block(s), saving €1.41 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.37 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
-| T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
+| T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
 | T7 | "Only stored solar into the car": no solar in the battery → no discharging into the car | ✓ | ✓ |
 | T7b | "Between two levels" (80 % → 40 %): refused when the levels do not fit; car charges: below 80 % no help, from 80 % the battery helps, at 40 % it stops | ✓ 60 %: hold · 85 %: auto · 39 %: hold | ✓ 60 %: hold · 85 %: auto · 39 %: hold |
 | T8 | Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits | ✓ car on solar at 8 A · battery: turn_on · select_option Standby | ✓ car on solar at 8 A · battery: turn_on · select_option Standby |
@@ -238,7 +238,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 65 kB, 10 entities, 15 log lines | ✓ 58 kB, 10 entities, 15 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 35 kB, 10 entities, 15 summarized log lines | ✓ 32 kB, 10 entities, 15 summarized log lines |
 
 ## M. Settings export and import
 
@@ -341,6 +341,9 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 
 | File | What | Passed |
 |---|---|---|
+| [batteryguard.test.js](#batteryguard) | Battery live bounds, original-setting snapshots, native reserves and site EV policies | 10 of 10 ✓ |
+| [batterysafety.test.js](#batterysafety) | Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection | 3 of 4 ✗ |
+| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 4 of 4 ✓ |
 | [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 21 of 21 ✓ |
 | [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 7 of 7 ✓ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
@@ -355,6 +358,57 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
+
+## batteryguard
+
+Battery live bounds, original-setting snapshots, native reserves and site EV policies.
+
+<details><summary>10 of 10 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| charging is stopped at/near the live maximum, including measured auto charging | ✓ |
+| discharging is stopped at the reserve, but charging can recover from below it | ✓ |
+| old, missing, invalid and out-of-range SoC never authorize charging | ✓ |
+| unsupported stop capabilities block control instead of pretending to enforce limits | ✓ |
+| huawei_solar restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| victron restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| teslemetry restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| snapshot refuses unavailable settings and never invents a maximum for legacy recovery | ✓ |
+| native reserve is never lowered below the original; a stronger EV reserve wins | ✓ |
+| every charger participates in never/solar-only/range/always policies | ✓ |
+
+</details>
+
+## batterysafety
+
+Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection.
+
+<details open><summary>3 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| huawei_solar restores exact non-default settings after restart | ✓ |
+| victron restores exact non-default settings after restart | ✓ |
+| teslemetry restores exact non-default settings after restart | ✓ |
+| a failed restore retains its snapshot and succeeds on the next control step | ✗ FAIL |
+
+</details>
+
+## diagnostics
+
+Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior.
+
+<details><summary>4 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| public diagnostics omit personal text across every exported branch | ✓ |
+| unknown schema keys and identity maps fail closed | ✓ |
+| the diagnostic UI previews the same document before a separate download action | ✓ |
+| preview and reviewed download use identical data | ✓ |
+
+</details>
 
 ## releaseguard
 
@@ -1227,16 +1281,16 @@ Per battery: 1 found, 2 switching from the previous battery puts that one back i
 
 | Battery | Can | Car charges | Car stops | Car charges by itself | All chargers |
 |---|---|---|---|---|---|
-| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ auto (Battery plan: auto): stop_forcible_charge · set_value 5000 · set_value 5000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 3600 · select_option Solar Power Only (Off) | ✓ auto (Battery plan: auto): select_option Maximize Self Consumption | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ auto (Battery plan: auto): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 8000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| GoodWe (goodwe) | ✓ can: auto, charge, discharge · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ auto (Battery plan: auto): set_value 20 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ auto (Battery plan: auto): select_option zero | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Marstek Venus (marstek_local_api) | ✓ can: charge, discharge, auto · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ auto (Battery plan: auto): select_option roi | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 120 · select_option Solar Power Only (Off) | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| GoodWe (goodwe) | ✓ can: auto, charge, discharge · cannot stop discharging into the car (warned) | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | ✓ nothing sent | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | 60 of 60 ✓ |
+| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Marstek Venus (marstek_local_api) | ✓ can: charge, discharge, auto · cannot stop discharging into the car (warned) | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | ✓ nothing sent | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | 60 of 60 ✓ |
+| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
 | Zonneplan Nexus (zonneplan_one) | ✓ read only | ✓ nothing sent (Zonneplan steers the Nexus itself (dynamic charging); the integration offers no charge or discharge command.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Growatt (growatt_server) | ✓ read only | ✓ nothing sent (Growatt cloud only offers time segments in %, not commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Anker Solix (anker_solix) | ✓ read only | ✓ nothing sent (Anker Solix is steered with schedules and presets, not with charge or discharge commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
