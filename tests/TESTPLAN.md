@@ -14,8 +14,8 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 167 of 168 ✗ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 158 of 159 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 168 of 168 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 159 of 159 ✓ |
 | Unit tests (11 files) | 580 of 580 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 
@@ -281,8 +281,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
 | Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC |
-| Y12 | More places in a row: Werk 06:00–16:30, then Made 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Made → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Made → home: 180 km ≈ 68.5% · at Made 57.2% · home 11.5% at 22:00 | ✓ home → Werk → Made → home: 180 km ≈ 46.3% · at Made 64.6% · home 33.7% at 22:00 |
-| Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✗ FAIL {"status":"ok","km":60,"back_km":60,"how":"route","use":"consumption","pct_per_km":0.34615384615384615,"pct":45.7,"via":[],"return_trip":null,"return_at":1792958400000,"soc_after":54.3} | ✗ FAIL {"status":"ok","km":60,"back_km":60,"how":"route","use":"consumption","pct_per_km":0.23376623376623376,"pct":30.9,"via":[],"return_trip":null,"return_at":1792958400000,"soc_after":69.1} |
+| Y12 | More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Sport → home: 180 km ≈ 68.5% · leaving Werk 57.2% · home 11.5% at 22:00 | ✓ home → Werk → Sport → home: 180 km ≈ 46.3% · leaving Werk 64.6% · home 33.7% at 22:00 |
+| Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
 
