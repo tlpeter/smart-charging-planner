@@ -1739,8 +1739,8 @@ async function run() {
   group = 'Y. Looking ahead: the next goal and what a trip costs';
   {
     const ADDR = 'Hoofdweg 1 2661 AA Bergschenhoek';
-    const ADDR2 = 'Molenstraat 5, 4921 AA Made';
-    const ADDR3 = 'Nieuwstraat 2, 3201 EE Spijkenisse';
+    const ADDR2 = 'Molenstraat 5, 4921 AA Hilltown';
+    const ADDR3 = 'Nieuwstraat 2, 3201 AA Harbourtown';
     world.places = {
       [ADDR]: { lat: 51.98, lon: 4.49 },
       [ADDR2]: { lat: 51.68, lon: 4.79 },
@@ -1755,12 +1755,12 @@ async function run() {
       await ok('POST', 'api/departures', calBody);
       world.soc = 100;
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 18),
+        ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 18),
         ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
       ];
       const p = await settle();
       const n = p.next;
-      assert(n && n.current.title === 'Naar Outdoorvalley' && n.current.soc_at_departure === 100, JSON.stringify(n && n.current));
+      assert(n && n.current.title === 'Naar Lakeside' && n.current.soc_at_departure === 100, JSON.stringify(n && n.current));
       assert(n.trip.status === 'ok' && n.trip.km === 60 && n.trip.how === 'route' && n.trip.use === 'consumption', JSON.stringify(n.trip));
       const pct = 120 * (18 / 100 / CAR.capacity) * 100 * 1.1;
       assert(Math.abs(n.trip.pct - pct) < 0.2 && Math.abs(n.trip.soc_after - (100 - pct)) < 0.2, `pct ${n.trip.pct} (${pct.toFixed(1)}), after ${n.trip.soc_after}`);
@@ -1772,7 +1772,7 @@ async function run() {
     });
     await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 10),
+        ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 10),
         ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
       ];
@@ -1783,19 +1783,19 @@ async function run() {
     });
     await test('Y3', 'An extra calendar trip becomes the next stop, and the 100% long trip after it becomes the next goal instead of the later work trip', async () => {
       world.events = [
-        ev('Naar Spijkenisse', 'doel: 60', ADDR3, 1, 15, 17),
-        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 2, 6, 18),
+        ev('Naar Harbourtown', 'doel: 60', ADDR3, 1, 15, 17),
+        ev('Naar Lakeside', 'doel: 100', ADDR, 2, 6, 18),
         ev('Naar Werk', 'doel: 80', 'Werk', 4, 7, 8),
       ];
       const n = (await settle()).next;
-      assert(n.current.title === 'Naar Spijkenisse' && n.current.target_soc === 60, JSON.stringify(n.current));
-      assert(n.goal && n.goal.title === 'Naar Outdoorvalley' && n.goal.soc === 100, JSON.stringify(n.goal));
+      assert(n.current.title === 'Naar Harbourtown' && n.current.target_soc === 60, JSON.stringify(n.current));
+      assert(n.goal && n.goal.title === 'Naar Lakeside' && n.goal.soc === 100, JSON.stringify(n.goal));
       return `next stop ${n.current.title} ${n.current.target_soc}% · next goal ${n.goal.title} ${n.goal.soc}%`;
     });
-    await test('Y2b', 'Outdoorvalley on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday\'s Naar Werk, the company address is found without the company name', async () => {
+    await test('Y2b', 'Lakeside on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday\'s Naar Werk, the company address is found without the company name', async () => {
       world.places = { ...world.places, 'Industrieweg 10, 3316 AA Rivertown, Nederland': { lat: 51.80, lon: 4.70 }, 'Dorpsstraat 12, 1234 AB Springfield, Nederland': { lat: 51.3705, lon: 5.1905 } };
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 6, 20),
+        ev('Naar Lakeside', 'doel: 100', ADDR, 1, 6, 20),
         ev('Naar Werk', 'doel: 80', 'Northwind Labs, Industrieweg 10, 3316 AA Rivertown, Nederland', 2, 6, 7),
         ev('Naar Thuis', 'doel: 80 precondition: ja', 'Dorpsstraat 12, 1234 AB Springfield, Nederland', 2, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 4, 6, 7),
@@ -1815,7 +1815,7 @@ async function run() {
     await test('Y5', 'The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging', async () => {
       world.soc = 50;
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 100', ADDR, 1, 8, 18),
+        ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 18),
         ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 8),
         ev('Naar Thuis', 'doel: 80', 'Thuis', 2, 16, 17),
         ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
@@ -1824,7 +1824,7 @@ async function run() {
       const tl = p.next.timeline;
       const kinds = tl.map((x) => (x.type === 'charge' && x.expected ? 'expected' : x.type)).join(' ');
       const leaves = tl.filter((x) => x.type === 'leave');
-      assert(leaves.length === 3 && leaves.map((x) => x.title).join() === 'Naar Outdoorvalley,Naar Werk,Naar Werk', kinds);
+      assert(leaves.length === 3 && leaves.map((x) => x.title).join() === 'Naar Lakeside,Naar Werk,Naar Werk', kinds);
       assert(/^charge leave back expected leave back (expected )?leave/.test(kinds), kinds);
       const backs = tl.filter((x) => x.type === 'back');
       assert(backs[0].time === at(1, 18) && backs[1].time === at(2, 17) && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
@@ -1903,7 +1903,7 @@ async function run() {
       await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
       world.soc = 80;
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Lakeside', 'doel: 80', ADDR, 1, 8, 18),
         ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
       ];
       try {
@@ -1925,9 +1925,9 @@ async function run() {
       await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 60 }));
       world.soc = 80;
       world.events = [
-        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 1, 8, 18),
+        ev('Naar Lakeside', 'doel: 80', ADDR, 1, 8, 18),
         ev('Naar Werk', 'doel: 80', ADDR3, 4, 8, 18),
-        ev('Naar Outdoorvalley', 'doel: 80', ADDR, 6, 7, 8),
+        ev('Naar Lakeside', 'doel: 80', ADDR, 6, 7, 8),
       ];
       try {
         const p = await settle();
@@ -1980,7 +1980,7 @@ async function run() {
       ];
       try {
         await settle();
-        await sleep(600); // the route from Werk to Sport is looked up once (Made stays unrouted for Y4)
+        await sleep(600); // the route from Werk to Sport is looked up once (Hilltown stays unrouted for Y4)
         const n = (await settle()).next;
         const tl = n.timeline;
         const leaves = tl.filter((x) => x.type === 'leave');
@@ -2117,7 +2117,7 @@ async function run() {
     await test('Y4', 'No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown', async () => {
       world.routeKm = null;
       world.events = [
-        ev('Naar The Outdoor Pact', 'doel: 90', ADDR2, 1, 18, 21),
+        ev('Naar Gym', 'doel: 90', ADDR2, 1, 18, 21),
         ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
       ];
       const n = (await settle()).next;

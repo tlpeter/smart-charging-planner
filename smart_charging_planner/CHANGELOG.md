@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.5-dev
+
+- Privacy: the remaining real place names in tests and the changelog were replaced with made-up ones.
+
 ## 0.33.4-dev
 
 - Nord Pool: an empty answer for tomorrow (before the prices are published) means no prices for that day, not a missing area. Test: Nord Pool answers per date. (#16)
@@ -152,7 +156,7 @@
 
 ## 0.30.22-dev
 
-- Look ahead, more places in a row: each place now shows the level **when the car arrives there**, after the drive to it, with the place it comes from ("~223 km from The Outdoor Pact Made (leaves with 41.5%, arrives with −38%)"). Before, a place showed the level when leaving the place before, so a long drive looked almost free. Back home shows the last drive too. Test Y12. (#1)
+- Look ahead, more places in a row: each place now shows the level **when the car arrives there**, after the drive to it, with the place it comes from ("~223 km from Gym (leaves with 41.5%, arrives with −38%)"). Before, a place showed the level when leaving the place before, so a long drive looked almost free. Back home shows the last drive too. Test Y12. (#1)
 
 ## 0.30.21-dev
 
@@ -165,8 +169,8 @@
 
 ## 0.30.19-dev
 
-- Look ahead: **more places in a row**. When the next calendar trip starts before or when the trip before ends, and it is not a trip home, the car does not come home in between. Example: "Naar Werk" 06:00–16:30 (Rivertown), then "Naar The Outdoor Pact Made" 16:30–20:30, then "Naar Thuis": the trip is now home → Rivertown → Made → home. The part to Made is the distance from Rivertown, not from home, and no charging at home is expected while the car is away. Before, the app saw Werk as there and back and planned charging at home at 11:00, and a trip that started exactly when the one before ended was left out.
-- The timeline shows the next place as its own row (with the level when the car leaves there), the day line as "Werk → Made", and a warning when the car is back below 10 %.
+- Look ahead: **more places in a row**. When the next calendar trip starts before or when the trip before ends, and it is not a trip home, the car does not come home in between. Example: "Naar Werk" 06:00–16:30 (Rivertown), then "Naar Gym" 16:30–20:30, then "Naar Thuis": the trip is now home → Rivertown → Gym → home. The part to Gym is the distance from Rivertown, not from home, and no charging at home is expected while the car is away. Before, the app saw Werk as there and back and planned charging at home at 11:00, and a trip that started exactly when the one before ended was left out.
+- The timeline shows the next place as its own row (with the level when the car leaves there), the day line as "Werk → Gym", and a warning when the car is back below 10 %.
 - Learning from trips counts the whole trip. Test Y12.
 
 ## 0.30.18-dev
@@ -394,7 +398,7 @@
 
 ## 0.29.4-dev
 
-- Fix: looking ahead took a trip home **after another trip** as the way back. Example: Outdoorvalley on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
+- Fix: looking ahead took a trip home **after another trip** as the way back. Example: Lakeside on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
 - A trip to your own home address (within 1 km of the home in Home Assistant) counts as a trip home, like "Thuis"
 - Addresses with a company or place name in front ("Northwind Labs, Industrieweg 10, …") are found: when OpenStreetMap does not find the whole text, the app tries again without the first part
 - Plan shows "Address not found on OpenStreetMap" for a trip whose address cannot be found
@@ -414,7 +418,7 @@
 
 ## 0.29.1-dev
 
-- Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Spijkenisse therefore moves in front of a later 100% trip automatically
+- Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Harbourtown therefore moves in front of a later 100% trip automatically
 - The fast Home Assistant simulator now reports Core 2026.10.0
 - A separate free GitHub Actions compatibility test starts a real, isolated Home Assistant Core 2026.10.0 container every Monday, on relevant `dev` changes and on demand. It checks the WebSocket contracts and the app's vehicle, charger, grid, price, control and solar discovery routes
 
