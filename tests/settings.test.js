@@ -1955,16 +1955,32 @@ async function run() {
           assert(p.departure.soc === big && p.trip_topup.from === 80, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
         }
         const questions = asked(n0).length;
-        // #2: the trip costs less (30 or 27 kWh/100 km): the raised target goes down with it.
-        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: big > want ? 30 : 27 }));
+        // #2: the trip costs less: the raised target goes down with it. Back to
+        // 30 kWh/100 km, or (a car with a range sensor, where the use comes
+        // from that sensor and not from kWh/100 km) shorter routes.
+        // Routes are remembered, so the shorter route is to new places (the
+        // same departures, moved in the calendar).
+        const move = (place, km) => {
+          world.routeKm = km;
+          world.places[place.work] = place.workAt;
+          if (place.sport) world.places[place.sport] = place.sportAt;
+          world.events = world.events
+            .filter((e) => place.sport || e.summary !== 'Naar Sport')
+            .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
+        };
+        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
+        await settle();
         p = await settle();
         const less = Math.max(80, Math.min(100, Math.ceil(p.next.trip.pct + 10)));
         assert(less > 80, `the test needs a trip that still needs more than 80 %: ${p.next.trip.pct}%`);
         assert(less < big - 2, `the test needs a trip that costs clearly less: ${less} vs ${big}`);
         assert(p.departure.soc === less && p.departure.topup && p.departure.topup.from === 80 && p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.soc === less, JSON.stringify({ dep: p.departure, t: p.trip_topup, less }));
         assert(asked(n0).length === questions, 'asked again when the trip got shorter');
-        // #2: a place removed (no Sport): the trip fits in 80 % again, the Yes ends.
-        world.events = world.events.filter((e) => e.summary !== 'Naar Sport');
+        // #2: a place removed (no Sport, shorter route): the trip fits in 80 % again, the Yes ends.
+        move({ work: 'Dorpsstraat 1, 2871 AA Schoonhoven', workAt: { lat: 51.95, lon: 4.85 } }, 20);
+        p = await settle();
+        await settle();
         p = await settle();
         assert(p.next.trip.pct + 10 <= 80, `the shorter trip still needs ${p.next.trip.pct}%`);
         assert(p.departure.soc === 80 && !p.departure.topup && p.trip_topup === null, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
@@ -1973,6 +1989,7 @@ async function run() {
       } finally {
         await ok('POST', 'api/control/settings', rules());
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        world.routeKm = 60;
         world.soc = 100;
         world.events = [];
       }

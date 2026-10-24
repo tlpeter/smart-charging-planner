@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.4-dev
+
+- Test Y13 (ask to charge more): with a car that has a range sensor, the use per km comes from that sensor, so a lower kWh/100 km did not make the trip cheaper. The test now moves the trips to nearer places instead. Only the test changed, not the app. (#2)
+
 ## 0.32.3-dev
 
 - Test Y13 (ask to charge more) now also works with a smaller battery, where the first question is already 100 %. Only the test changed, not the app. (#2)
