@@ -104,7 +104,7 @@ function buildTripEvents(input, tz, now = Date.now(), lang = 'en') {
 // the event location. Keep actual title/location changes and car tags apart.
 function tripKey(e, tz) {
   const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  const time = parseLocal(e.start, tz);
+  const time = typeof e.start === 'number' ? e.start : parseLocal(e.start, tz);
   if (!Number.isFinite(time)) return null;
   const title = norm(e.summary);
   const location = norm(e.location);

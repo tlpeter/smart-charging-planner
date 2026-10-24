@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.24-dev
+
+- Duplicate detection accepts the app's millisecond start times as well as Home Assistant calendar timestamps, so both preview and writing use the same trip identity. (#38)
+
 ## 0.32.23-dev
 
 - Changing the calendar-writing language no longer creates the same trip again. Duplicate checks keep different destinations, car tags and actual start times separate, including the repeated winter-time hour. (#38)
