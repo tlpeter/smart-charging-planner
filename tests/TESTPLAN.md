@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 169 of 169 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 160 of 160 ✓ |
-| Unit tests (12 files) | 630 of 630 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 168 of 169 ✗ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 159 of 160 ✗ |
+| Unit tests (14 files) | 647 of 648 ✗ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.7-dev.
+Version: 0.32.8-dev.
 
 # Settings
 
@@ -179,13 +179,13 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 20.0 kWh on solar, 14.3 kWh from the grid | ✓ 20.0 kWh on solar, 30.8 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 20.0 kWh on solar | ✓ 20.0 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 18.0 kWh on solar, 16.3 kWh from the grid | ✓ 18.0 kWh on solar, 32.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 18.0 kWh on solar | ✓ 18.0 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 20.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 20.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
-| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
-| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
+| S5 | Solar only: the plan uses only the sun | ✓ 18.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 18.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
+| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
+| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S9 | Solar modes raise the car limit to "solar up to" (90 %) | ✓ | ✓ |
 | S10 | Grid meter sign "delivering is positive": the reading is turned around | ✓ | ✓ |
 | S12 | Easee Equalizer does solar: surplus charging on, charger on, no current or phase commands; Charge now: surplus off (full power) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_surplus_charging true · Charge now: surplus false | ✓ |
@@ -198,7 +198,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.49 | ✓ charges in 3 block(s), saving €1.40 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.50 | ✓ charges in 3 block(s), saving €1.41 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
@@ -214,7 +214,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | V1 | Refused: car data old after 100 hours; 2 hours is saved | ✓ | ✓ |
-| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✓ plans with 48.2% (last level 45% + 1.84 kWh charged since), decision not_planned | ✓ plans with 47.2% (last level 45% + 1.84 kWh charged since), decision not_planned |
+| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✗ FAIL soc 45, kWh 0, expected 45.00 | ✗ FAIL soc 45, kWh 0, expected 45.00 |
 | V3 | Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour | ✓ stale: 50% · back: 50% | ✓ stale: 50% · back: 50% |
 | V4 | Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges | ✓ assumed 20%, planned 40.0 kWh | ✓ assumed 20%, planned 59.3 kWh |
 | V5 | Just plugged in: the charger already says connected, the car's own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away | ✓ charger: connected · car sensor: off → plugged in | ✓ charger: connected · car sensor: off → plugged in |
@@ -234,7 +234,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 63 kB, 10 entities, 14 log lines | ✓ 58 kB, 10 entities, 14 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 65 kB, 10 entities, 15 log lines | ✓ 58 kB, 10 entities, 15 log lines |
 
 ## M. Settings export and import
 
@@ -335,6 +335,8 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 
 | File | What | Passed |
 |---|---|---|
+| [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 17 of 17 ✓ |
+| [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 0 of 1 ✗ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
 | [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
@@ -347,6 +349,46 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
+
+## releaseguard
+
+Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates.
+
+<details><summary>17 of 17 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| release metadata matches both package version fields and the branch identity | ✓ |
+| an offset-free repeated DST hour is rejected with an actionable warning | ✓ |
+| both offset-tagged repeated hours remain distinct delivery intervals | ✓ |
+| a nonexistent spring clock hour is rejected, an ordinary local time is retained | ✓ |
+| price coverage uses 23 actual hours on 2026-03-29 | ✓ |
+| price coverage uses 25 actual hours on 2026-10-25 | ✓ |
+| missing price values do not become free slots; zero and negative prices remain valid | ✓ |
+| zero current remains zero planning power | ✓ |
+| a 0 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| a 4 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| a 5 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| an old locked charging period cannot exceed a lower live cap | ✓ |
+| device ownership survives a module reload and is isolated by charger and device | ✓ |
+| stale estimates only use energy from the same car, charger and observed session | ✓ |
+| a car change without a cable transition creates a new charging session | ✓ |
+| a restart cannot assume cable continuity for stale SoC | ✓ |
+| Ready Guard never confirms Ready now from an estimated battery level | ✓ |
+
+</details>
+
+## recovery
+
+Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release.
+
+<details open><summary>0 of 1 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| the test stopped with an error | ✗ FAIL exit 1 |
+
+</details>
 
 ## brands
 
@@ -1118,14 +1160,14 @@ Saving settings safely (a crash while saving loses nothing).
 
 | Charger | Method | Charge now | Solar 6 kW | Solar 2.5 kW | Back to full power | Only own commands | Batteries |
 |---|---|---|---|---|---|---|---|
-| Easee | ✓ switch, current: action_current, phases: action_phase | ✓ switch.turn_on switch.eh123456_charger_enabled {} → switch.turn_off switch.eh123456_charger_enabled {} | ✓ 7 A · switch.turn_on switch.eh123456_charger_enabled {} · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch",… | ✓ switch.turn_on switch.eh123456_charger_enabled {} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charg… | ✓ 14 commands | 90 of 90 ✓ |
-| Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":7} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
-| Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
-| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"val… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16… | ✓ 12 commands | 90 of 90 ✓ |
-| go-e (marq24) | ✓ select, current: number, phases: select_phase | ✓ select.select_option select.goe_123456_frc {"option":"2"} → select.select_option select.goe_123456_frc {"option":"1"} | ✓ 7 A · select.select_option select.goe_123456_frc {"option":"2"} · number.set_value number.goe_123456_amp {"value":7} | ✓ one phase, 6 A · select.select_option select.goe_123456_psm {"option":"1"} · number.set_value number.goe_123456_amp {"value":6} | ✓ select.select_option select.goe_123456_frc {"option":"2"} · select.select_option select.goe_123456_psm {"option":"2"} · number.set_value num… | ✓ 14 commands | 90 of 90 ✓ |
+| Easee | ✓ switch, current: action_current, phases: action_phase | ✓ switch.turn_on switch.eh123456_charger_enabled {} → switch.turn_off switch.eh123456_charger_enabled {} | ✓ 7 A · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.eh123456_charger_enabled {} | ✓ one phase, 6 A · switch.turn_off switch.eh123456_charger_enabled {} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"}… | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.eh123456_charger_enabled {} · switch.turn_of… | ✓ 20 commands | 90 of 90 ✓ |
+| Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · number.set_value number.zaptec_go_charger_max_current {"value":7} · button.press button.zaptec_go_resume_charging {} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ number.set_value number.zaptec_go_charger_max_current {"value":16} · button.press button.zaptec_go_resume_charging {} | ✓ 12 commands | 90 of 90 ✓ |
+| Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} · switch.turn_on switch.alfen_eve_charging {} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} · switch.turn_on switch.alfen_eve_charging {} | ✓ 12 commands | 90 of 90 ✓ |
+| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":7} · switch.turn_on switch.wallbox_pulsar_plus_pause_res… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16} · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {… | ✓ 12 commands | 90 of 90 ✓ |
+| go-e (marq24) | ✓ select, current: number, phases: select_phase | ✓ select.select_option select.goe_123456_frc {"option":"2"} → select.select_option select.goe_123456_frc {"option":"1"} | ✓ 7 A · number.set_value number.goe_123456_amp {"value":7} · select.select_option select.goe_123456_frc {"option":"2"} | ✓ one phase, 6 A · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option select.goe_123456_psm {"option":"1"} · sel… | ✓ select.select_option select.goe_123456_psm {"option":"2"} · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option… | ✓ 20 commands | 90 of 90 ✓ |
 | go-e (cathiele) | ✓ switch, current: none, phases: none | ✓ switch.turn_on switch.goecharger_home_allow_charging {} → switch.turn_off switch.goecharger_home_allow_charging {} | ✓ no current control: waits for 11 kW | ✓ paused · was not charging | ✓ switch.turn_on switch.goecharger_home_allow_charging {} | ✓ 8 commands | 90 of 90 ✓ |
-| Peblar | ✓ switch, current: number, phases: switch_phase | ✓ switch.turn_on switch.peblar_ev_charger_charge {} → switch.turn_off switch.peblar_ev_charger_charge {} | ✓ 7 A · switch.turn_on switch.peblar_ev_charger_charge {} · number.set_value number.peblar_ev_charger_charge_limit {"value":7} | ✓ one phase, 6 A · switch.turn_on switch.peblar_ev_charger_force_single_phase {} · number.set_value number.peblar_ev_charger_charge_limit {"va… | ✓ switch.turn_on switch.peblar_ev_charger_charge {} · switch.turn_off switch.peblar_ev_charger_force_single_phase {} · number.set_value number… | ✓ 16 commands | 90 of 90 ✓ |
-| OCPP | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.charger_charge_control {} → switch.turn_off switch.charger_charge_control {} | ✓ 7 A · switch.turn_on switch.charger_charge_control {} · number.set_value number.charger_maximum_current {"value":7} | ✓ paused · switch.turn_off switch.charger_charge_control {} | ✓ switch.turn_on switch.charger_charge_control {} · number.set_value number.charger_maximum_current {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
+| Peblar | ✓ switch, current: number, phases: switch_phase | ✓ switch.turn_on switch.peblar_ev_charger_charge {} → switch.turn_off switch.peblar_ev_charger_charge {} | ✓ 7 A · number.set_value number.peblar_ev_charger_charge_limit {"value":7} · switch.turn_on switch.peblar_ev_charger_charge {} | ✓ one phase, 6 A · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_on switch.peblar_ev_charger_force_single_phase {} · switch… | ✓ switch.turn_off switch.peblar_ev_charger_force_single_phase {} · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_off switch… | ✓ 22 commands | 90 of 90 ✓ |
+| OCPP | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.charger_charge_control {} → switch.turn_off switch.charger_charge_control {} | ✓ 7 A · number.set_value number.charger_maximum_current {"value":7} · switch.turn_on switch.charger_charge_control {} | ✓ paused · switch.turn_off switch.charger_charge_control {} | ✓ number.set_value number.charger_maximum_current {"value":16} · switch.turn_on switch.charger_charge_control {} | ✓ 12 commands | 90 of 90 ✓ |
 | Ohme | ✓ select, current: none, phases: none | ✓ select.select_option select.ohme_home_pro_charge_mode {"option":"max_charge"} → select.select_option select.ohme_home_pro_charge_mode {"opti… | ✓ no current control: waits for 11 kW | ✓ paused · was not charging | ✓ select.select_option select.ohme_home_pro_charge_mode {"option":"max_charge"} | ✓ 8 commands | 90 of 90 ✓ |
 | Tesla Wall Connector | ✓ read only: no start/stop | ✓ nothing sent (boost: 200) | ✓ nothing sent | ✓ nothing sent | ✓ nothing sent | ✓ 4 commands | 90 of 90 ✓ |
 
