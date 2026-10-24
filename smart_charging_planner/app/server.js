@@ -485,14 +485,21 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
-    // On to the next place, without going home in between: the level when
-    // the car leaves there (after the part before).
-    let lv = socLeave != null && tr && tr.pct != null ? socLeave - (tr.km || 0) * tr.pct_per_km * tripcost.MARGIN : null;
+    // On to the next place, without going home in between. Each row: the
+    // drive from the place before (km), the level when the car leaves there
+    // (soc_from) and the level when it arrives here (soc, can be below 0).
+    const round = (v) => (v == null ? null : Math.round(v * 10) / 10);
+    const use = (km) => km * tr.pct_per_km * tripcost.MARGIN;
+    let lv = socLeave != null && tr && tr.pct != null ? socLeave - use(tr.km || 0) : null;
+    let from = x.title || (t && t.title) || null;
     for (const v of (tr && tr.via) || []) {
-      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, soc: lv == null ? null : Math.round(lv * 10) / 10 });
-      if (lv != null) lv = v.km == null ? null : lv - v.km * tr.pct_per_km * tripcost.MARGIN;
+      const leaveLv = lv;
+      if (lv != null) lv = v.km == null ? null : lv - use(v.km);
+      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, from_title: from, soc_from: round(leaveLv), soc: round(lv) });
+      from = v.title;
     }
-    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
+    const chain = tr && tr.via && tr.via.length ? { from_title: from, km: tr.back_km ?? null, soc_from: round(lv) } : {};
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null, ...chain });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);

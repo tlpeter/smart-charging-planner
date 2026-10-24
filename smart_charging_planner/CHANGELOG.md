@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.22-dev
+
+- Look ahead, more places in a row: each place now shows the level **when the car arrives there**, after the drive to it, with the place it comes from ("~223 km from The Outdoor Pact Made (leaves with 41.5%, arrives with −38%)"). Before, a place showed the level when leaving the place before, so a long drive looked almost free. Back home shows the last drive too. Test Y12. (#1)
+
 ## 0.30.21-dev
 
 - New option in Settings › Rules: **Ask to charge more when a trip needs it** (off by default). When the next trip costs more than your target leaves room for, plus a reserve to be back home with (default 10 %), you get one question on your phone: "Charge to 95% for this trip?", with **Yes** and **No** buttons. Home shows the same question. Only Yes raises the target, for that one trip. No, or no answer: the target stays.

@@ -1286,9 +1286,11 @@ function durationText(minutes) {
             ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
         if (x.type === 'stop') {
+          // The level on the right: when the car arrives here.
+          const from = x.from_title ? shortName(x.from_title) : 'the place before';
           return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from the place before</span></div>
-            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from the place before · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from ${esc(from)}</span></div>
+            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
         }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
@@ -1300,6 +1302,7 @@ function durationText(minutes) {
         }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;

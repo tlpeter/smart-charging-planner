@@ -1885,6 +1885,12 @@ async function run() {
         const backs = tl.filter((x) => x.type === 'back');
         assert(backs[0].time === at(1, 22), JSON.stringify(backs));
         assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
+        // Issue #1: a stop shows the level on arrival there, after its own drive
+        // (60 km from Werk), and where it comes from.
+        const leg = 60 * n.trip.pct_per_km * 1.1;
+        assert(stops[0].from_title === 'Naar Werk' && Math.abs(stops[0].soc_from - stops[0].soc - leg) < 0.2, JSON.stringify(stops[0]));
+        assert(Math.abs(leaves[0].soc - 60 * n.trip.pct_per_km * 1.1 - stops[0].soc_from) < 0.2, `leaving Werk ${stops[0].soc_from}%`);
+        assert(backs[0].from_title === 'Naar Sport' && backs[0].km === 60 && Math.abs(stops[0].soc - backs[0].soc - leg) < 0.2, JSON.stringify(backs[0]));
         const between = tl.filter((x) => x.type === 'charge' && x.expected && x.start < at(1, 22));
         assert(!between.length, `charging while the car is away: ${JSON.stringify(between)}`);
         // Not enough battery: the timeline shows how much it falls short (below 0 %),
@@ -1894,7 +1900,7 @@ async function run() {
         const qb = q.timeline.find((x) => x.type === 'back');
         assert(qb.soc < 0 && q.trip.soc_after === 0 && q.trip.soc_end === qb.soc, JSON.stringify({ back: qb.soc, after: q.trip.soc_after, end: q.trip.soc_end }));
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
-        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · leaving Werk ${stops[0].soc}% · home ${backs[0].soc}% at 22:00 · with 40 kWh/100 km: home ${qb.soc}%`;
+        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · at Sport ${stops[0].soc}% · home ${backs[0].soc}% at 22:00 · with 40 kWh/100 km: home ${qb.soc}%`;
       } finally {
         world.soc = 100;
         world.events = [];

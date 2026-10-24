@@ -40,6 +40,18 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
   5. Push `main` (only after the owner said so).
   6. Merge `main` into the history of `dev` while keeping the current files of `dev` (the equivalent of `git merge -s ours main`), then push `dev`, so `dev` keeps its own names. Codex does this through the connector.
 
+## Issues (bugs and wishes on GitHub)
+
+How a GitHub issue is handled, from report to release:
+
+1. **Report:** a bug or wish goes in a GitHub issue (label `bug` or `enhancement`): what happens, what should happen, the version, and where in the code it probably is.
+2. **Fix on `dev`:** the fix is made on `dev` (no separate branch), with a test that would have caught it, a version bump and a changelog entry ending in `(#<number>)`.
+3. **Commit message:** contains `Fixes #<number>`. GitHub then links the commit to the issue. The issue does not close yet: GitHub only closes it when the commit reaches `main`.
+4. **Push** only when Peter says so, as always.
+5. **When the tests in GitHub Actions are green:** add a comment to the issue ("Fixed in X.Y.Z-dev, please test. Closes when released to main.") and the label `fixed in dev`.
+6. **Peter tests** the dev version at home. If it is not right, the issue gets a comment and the label is removed again.
+7. **Release** ("uitbrengen"): `dev` goes to `main`, and GitHub closes the issue by itself. Remove the label `fixed in dev` then.
+
 ## Tests
 
 - **Tests run in GitHub Actions by default.** First read the tests in `tests` and the workflows in `.github/workflows`. Add regression checks to the existing suite, then check the Actions results for the pushed commit. Do not report success until those runs have passed.
