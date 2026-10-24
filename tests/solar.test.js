@@ -111,6 +111,49 @@ function rest() {
     check('watts per time read (highest in the hour)', () => assert.strictEqual(r.hours.get(Date.parse('2026-10-04T10:00:00Z')), 3000));
   }
 
+
+  for (const minutes of [15, 30, 60]) {
+    check(minutes + '-minute solar intervals give exactly 1 kWh per full hour', () => {
+      const start = Date.parse('2026-10-24T00:00:00Z');
+      const rows = Array.from({ length: 120 / minutes }, (_, i) => ({ period_start: new Date(start + i * minutes * 60000).toISOString(), pv_estimate: 1 }));
+      const r = solar.sensorForecast({ attributes: { periods: rows } });
+      assert.strictEqual(r.hours.get(start), 1000);
+      assert.strictEqual(r.hours.get(start + 3600000), 1000);
+    });
+  }
+  check('solar merges today and tomorrow without summing duplicate coarse/fine lists', () => {
+    const r = solar.sensorForecast({ attributes: {
+      today: [{ time: '2026-10-24T00:00:00Z', kw: 1 }, { time: '2026-10-24T01:00:00Z', kw: 1 }],
+      finer: Array.from({ length: 4 }, (_, i) => ({ time: new Date(Date.parse('2026-10-24T00:00:00Z') + i * 1800000).toISOString(), kw: 1 })),
+      tomorrow: [{ time: '2026-10-25T00:00:00Z', kw: 2, period: 'PT30M' }],
+    } });
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-24T00:00:00Z')), 1000);
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-24T01:00:00Z')), 1000);
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-25T00:00:00Z')), 1000);
+    assert.strictEqual(r.hours.size, 3);
+  });
+  check('explicit solar periods split energy across hour boundaries; gaps stay gaps', () => {
+    const r = solar.sensorForecast({ attributes: { periods: [
+      { time: '2026-10-24T00:45:00Z', end: '2026-10-24T01:15:00Z', watts: 2000 },
+      { time: '2026-10-24T03:00:00Z', duration_minutes: 15, kw: 1 },
+      { time: '2026-10-24T04:00:00Z', duration_minutes: -5, kw: 1 },
+    ] } });
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-24T00:00:00Z')), 500);
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-24T01:00:00Z')), 500);
+    assert(!r.hours.has(Date.parse('2026-10-24T02:00:00Z')));
+    assert.strictEqual(r.hours.get(Date.parse('2026-10-24T03:00:00Z')), 250);
+    assert(!r.hours.has(Date.parse('2026-10-24T04:00:00Z')));
+  });
+  for (const [date, offset, hours] of [['2026-03-29', '+01:00', 23], ['2026-10-25', '+02:00', 25]]) {
+    check('solar conserves energy over the ' + hours + '-hour clock-change day', () => {
+      const start = Date.parse(date + 'T00:00:00' + offset);
+      const rows = Array.from({ length: hours * 4 }, (_, i) => ({ time: new Date(start + i * 900000).toISOString(), kw: 1 }));
+      const r = solar.sensorForecast({ attributes: { periods: rows } });
+      assert.strictEqual([...r.hours.values()].reduce((a, b) => a + b, 0), hours * 1000);
+      assert.strictEqual(r.hours.size, hours);
+    });
+  }
+
   console.log('Value of a kWh of own solar power (no more salderen from 2027)');
   check('dynamic: market price excl. VAT minus feed-in costs', () => assert.ok(Math.abs(solar.feedInValue(0.08, 'market_excl_vat', { mode: 'market', fee: 0.02 }) - 0.06) < 1e-9));
   check('dynamic with 21 % VAT on the feed-in', () => assert.ok(Math.abs(solar.feedInValue(0.10, 'market_excl_vat', { mode: 'market', fee: 0.02, vat_percent: 21 }) - 0.101) < 1e-9));

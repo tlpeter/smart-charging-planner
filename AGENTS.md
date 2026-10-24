@@ -29,6 +29,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 - Calendar read failures are not successful empty event sets. Keep last-confirmed fallback bounded from its original confirmation time, scoped to the selected calendar/time zone, and visible to the user; successful cancellations replace cached events immediately.
 - Battery-level colors follow the absolute SoC; readiness/target status must remain independent.
 - Keep partial price warnings separate from fatal source errors, deduplicate warnings across combined-source reads and keep valid intervals usable.
+- Forecast power samples must be integrated over their delivery intervals; merge alternative lists without double counting overlap. Explicit price units take precedence over magnitude, and unsupported units must not trigger guessed conversions.
 - A numeric zero is valid data. Never replace a zero current limit with a default, or a missing price with zero.
 - Apply required phase/current constraints before enabling charging. Pause before switching phases and keep charging paused when a required command fails. An accepted Home Assistant action is not proof that physical hardware followed it.
 - Use `controlmemory.js` for write-ahead device ownership. Persist before a device command and clear only after a successful release. Keep charger scope and device identity; never transfer recovery state to another device.

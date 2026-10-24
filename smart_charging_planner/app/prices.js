@@ -315,28 +315,23 @@ function detectPriceSources(entities, devices, states, tz) {
 // Fetching and normalising
 // ---------------------------------------------------------------------------
 
-function median(values) {
-  const v = [...values].sort((a, b) => a - b);
-  return v.length ? v[Math.floor(v.length / 2)] : 0;
-}
-
-// Convert to currency per kWh. Uses the stated unit first, then the size of
-// the numbers as a fallback (reported as a warning so the user can check).
-function toPerKwh(prices, unitHint, warnings) {
-  const unit = String(unitHint || '').toLowerCase();
-  let factor = 1;
-  if (unit.includes('mwh')) factor = 1 / 1000;
-  else if (/ct|cent/.test(unit)) factor = 1 / 100;
-  else {
-    const m = Math.abs(median(prices.map((p) => p.price)));
-    if (m > 100000) {
-      factor = 1e-7;
-      warnings.push('Prices looked very large; assumed units of 0.0000001 per kWh. Please check the values.');
-    } else if (m > 5) {
-      factor = 1 / 1000;
-      warnings.push('Prices looked like per MWh; converted to per kWh. Please check the values.');
-    }
+// Convert only declared energy units. Never guess a unit from the price size.
+function toPerKwh(prices, unitHint, warnings, currency = ha.state.currency) {
+  const raw = String(unitHint || '').trim();
+  const unit = raw.toLowerCase().replace(/\s+/g, '');
+  const energyUnit = /^(?:(?:[a-z]{3}|[€£$])\/)?(kwh|mwh)$/.exec(unit);
+  const cents = /^(?:[a-z]{3})?(?:ct|cents?|pence)(?:\/(?:kwh|mwh))?$/.test(unit);
+  const mwh = energyUnit ? energyUnit[1] === 'mwh' : cents && /\/mwh$/.test(unit);
+  const kwh = energyUnit && energyUnit[1] === 'kwh';
+  if (!mwh && !kwh && !cents) {
+    throw new Error('Price unit is missing or unsupported. Set an explicit currency/kWh, currency/MWh or cents/kWh unit on the source; prices were not guessed.');
   }
+  const named = (raw.match(/\b([A-Z]{3})(?=\b|ct)/) || [])[1];
+  const declared = named && !['KWH', 'MWH'].includes(named) ? named : raw.includes('€') ? 'EUR' : raw.includes('£') || unit.includes('pence') ? 'GBP' : null;
+  if (declared && currency && declared !== String(currency).toUpperCase()) {
+    throw new Error(`Price currency ${declared} differs from Home Assistant currency ${currency}. Select a matching source; currency conversion is not supported.`);
+  }
+  const factor = (mwh ? 1 / 1000 : 1) * (cents ? 1 / 100 : 1);
   return prices.map((p) => ({ ...p, price: p.price * factor }));
 }
 
@@ -520,5 +515,5 @@ module.exports = {
   fixedTariff, fetchForecast,
   detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
-  pricesFromAttributes, ACTION_SOURCES, priceTime,
+  pricesFromAttributes, ACTION_SOURCES, priceTime, toPerKwh,
 };

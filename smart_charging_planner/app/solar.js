@@ -90,18 +90,66 @@ function sensorForecast(state) {
   const hours = new Map();
   const a = (state && state.attributes) || {};
   const lists = Object.values(a).filter((v) => Array.isArray(v) && v.length && typeof v[0] === 'object');
+  const periods = [];
+  const H = 3600000;
+  const number = (v) => v == null || typeof v === 'boolean' || String(v).trim() === '' ? NaN : Number(v);
   for (const list of lists) {
+    const rows = new Map();
     for (const x of list) {
+      if (!x || typeof x !== 'object') continue;
       const t = Date.parse(x.period_start || x.time || x.start || x.datetime);
-      let kw = Number(x.pv_estimate ?? x.estimate ?? x.kw);
-      if (!Number.isFinite(kw) && Number.isFinite(Number(x.watts ?? x.value ?? x.w))) kw = Number(x.watts ?? x.value ?? x.w) / 1000;
-      if (!Number.isFinite(t) || !Number.isFinite(kw)) continue;
-      const h = Math.floor(t / 3600000) * 3600000;
-      // Half-hour periods: average over the hour.
-      const step = list.length > 1 ? Math.abs(Date.parse(list[1].period_start || list[1].time || list[1].start) - t) : 3600000;
-      hours.set(h, (hours.get(h) || 0) + kw * 1000 * Math.min(1, (step || 3600000) / 3600000));
+      let kw = number(x.pv_estimate ?? x.estimate ?? x.kw);
+      if (!Number.isFinite(kw)) kw = number(x.watts ?? x.value ?? x.w) / 1000;
+      if (!Number.isFinite(t) || !Number.isFinite(kw) || kw < 0) continue;
+      if (!rows.has(t)) rows.set(t, { t, kw, x });
     }
-    if (hours.size) break;
+    const ordered = [...rows.values()].sort((a, b) => a.t - b.t);
+    const deltas = ordered.slice(1).map((r, i) => r.t - ordered[i].t).filter((d) => d > 0 && d <= H).sort((a, b) => a - b);
+    // Infer only a normal sampling interval; never turn a missing-data gap into energy.
+    const cadence = deltas.length ? deltas[Math.floor(deltas.length / 2)] : H;
+    for (let i = 0; i < ordered.length; i++) {
+      const { t, kw, x } = ordered[i];
+      const explicitEnd = x.period_end ?? x.end ?? x.end_time;
+      let until;
+      if (explicitEnd != null) until = Date.parse(explicitEnd);
+      else if (x.duration_minutes != null) until = t + number(x.duration_minutes) * 60000;
+      else {
+        const duration = typeof x.period === 'string' && x.period.match(/^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+        const ms = duration ? ((Number(duration[1]) || 0) * 3600 + (Number(duration[2]) || 0) * 60 + (Number(duration[3]) || 0)) * 1000 : null;
+        const next = ordered[i + 1];
+        until = ms != null ? t + ms : next && next.t - t <= H ? next.t : t + cadence;
+      }
+      if (!Number.isFinite(until) || until <= t || until - t > 24 * H) continue;
+      periods.push({ start: t, end: until, kw });
+    }
+  }
+  // Lists in one sensor describe the same installation. Prefer finer periods
+  // in overlaps; fill uncovered time from other lists (for example tomorrow).
+  const covered = [];
+  periods.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start);
+  for (const p of periods) {
+    let pieces = [[p.start, p.end]];
+    for (const [a, b] of covered) {
+      pieces = pieces.flatMap(([l, r]) => b <= l || a >= r ? [[l, r]] : [
+        ...(l < a ? [[l, a]] : []), ...(b < r ? [[b, r]] : []),
+      ]);
+    }
+    for (const [l, r] of pieces) {
+      for (let t = l; t < r;) {
+        const h = Math.floor(t / H) * H;
+        const end = Math.min(r, h + H);
+        hours.set(h, (hours.get(h) || 0) + p.kw * 1000 * (end - t) / H);
+        t = end;
+      }
+    }
+    covered.push([p.start, p.end]);
+    covered.sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < covered.length;) {
+      if (covered[i][0] <= covered[i - 1][1]) {
+        covered[i - 1][1] = Math.max(covered[i - 1][1], covered[i][1]);
+        covered.splice(i, 1);
+      } else i++;
+    }
   }
   // Open-Meteo Solar Forecast: { "2026-10-04T12:00:00+02:00": watts } in "watts".
   if (!hours.size && a.watts && typeof a.watts === 'object') {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.15-dev
+
+- Solar sensor forecasts now integrate the actual period duration, split energy across hour boundaries and merge today/tomorrow lists. Overlapping representations prefer finer periods instead of counting them twice. (#12)
+- Explicit kWh prices keep their value, even above 5 or below -5. MWh and cents are converted only from their declared unit. Missing/unsupported units and an explicit currency mismatch now require correcting the source instead of guessing a conversion. (#15)
+
 ## 0.32.14-dev
 
 - The battery bar now uses the actual level for its color: empty red, middle yellow, full green. The target marker, fill width and readiness status keep their own meaning; unknown levels are not shown as empty. (#36)
