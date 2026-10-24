@@ -199,6 +199,10 @@ These enhancements are implemented on the [dev branch](https://github.com/tlpete
 
 Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
 
+## License
+
+Released under the [MIT License](LICENSE): free to use, change and share, also commercially, as long as the license text stays with it. No warranty.
+
 ## Credits
 
 Icons: [Material Design Icons](https://pictogrammers.com/library/mdi/) (`@mdi/js` 7.4.47, Apache License 2.0), the same icons Home Assistant and Mushroom use. The look follows Home Assistant's default theme and the [Mushroom](https://github.com/piitaya/lovelace-mushroom) card style.
