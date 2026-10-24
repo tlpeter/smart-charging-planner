@@ -1996,7 +1996,9 @@ function durationText(minutes) {
     const depWhen = (ms) => depFmt(ms, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const leaveOf = (x) => x.event_start || x.time;
     const readyBy = (x) => (x.event_start && x.event_start !== x.time ? ` <span class="src">ready by ${esc(depFmt(x.time, { hour: '2-digit', minute: '2-digit' }))}</span>` : '');
-    const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}`;
+    // A target raised for one trip (you said yes to charging more, #3).
+    const raisedNote = (x) => (x.topup ? `<div class="src">${esc(x.soc)}% for this trip: you said yes to charging more (was ${esc(x.topup.from)}%)</div>` : '');
+    const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}${raisedNote(x)}`;
 
     function entityOptions(list, selected, noneLabel) {
       const item = (o) => `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(o.state)})</option>`;
@@ -2084,7 +2086,7 @@ function durationText(minutes) {
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
-              <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
+              <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
 

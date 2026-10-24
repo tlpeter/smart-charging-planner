@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.6-dev
+
+- Plan page: after a Yes to charging more for a trip, **Next departure** and **Trips from your calendar** now show the raised target (for example 100 %, "was 85 %"), the same as Home. Before, the Plan page still showed the calendar target. Only the display changed, not the planning. (#3)
+
 ## 0.32.5-dev
 
 - Test Y13: the last step only removes Sport from the calendar, without a new place, so no route has to be looked up in the middle of it. Only the test changed, not the app. (#2)

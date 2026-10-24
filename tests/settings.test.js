@@ -1941,7 +1941,15 @@ async function run() {
         assert(p.departure.soc === want && p.departure.topup && p.departure.topup.from === 80, JSON.stringify(p.departure));
         assert(p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.token === null, JSON.stringify(p.trip_topup));
         assert(asked(n0).length === 1, 'asked again after yes');
-        const first = `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+        // #3: the Plan page shows the raised target too, not only Home.
+        let dd = await ok('GET', 'api/departures');
+        let werk = (dd.calendar_trips || []).find((x) => x.title === 'Naar Werk');
+        assert(dd.next && dd.next.soc === want && dd.next.topup && dd.next.topup.from === 80, `Plan › Next departure: ${JSON.stringify(dd.next)}`);
+        assert(dd.upcoming[0].winner.soc === want, `Plan › Next 7 days: ${JSON.stringify(dd.upcoming[0].winner)}`);
+        assert(werk && werk.soc === want && werk.topup && werk.topup.from === 80, `Plan › Trips from your calendar: ${JSON.stringify(werk)}`);
+        const sport = (dd.calendar_trips || []).find((x) => x.title === 'Naar Sport');
+        assert(sport && sport.soc === 80 && !sport.topup, `only this trip is raised: ${JSON.stringify(sport)}`);
+        const first = `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}% (Plan page too)`;
         // The trip costs more (40 kWh/100 km): asked again, Yes again. Not when
         // the first Yes was already (almost) 100 % (a smaller battery).
         let big = want;
@@ -1986,6 +1994,9 @@ async function run() {
         assert(p.next.trip.pct + 10 <= 80, `the shorter trip still needs ${p.next.trip.pct}%`);
         assert(p.departure.soc === 80 && !p.departure.topup && p.trip_topup === null, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
         assert(asked(n0).length === questions, 'asked when the trip fits');
+        dd = await ok('GET', 'api/departures');
+        werk = (dd.calendar_trips || []).find((x) => x.title === 'Naar Werk');
+        assert(dd.next && dd.next.soc === 80 && !dd.next.topup && werk && werk.soc === 80 && !werk.topup, `Plan page after the Yes ended: ${JSON.stringify({ next: dd.next, werk })}`);
         return `${first} · ${big > want ? `bigger trip → ${big}% · ` : ''}costs less → ${less}% · Sport removed → back to 80%`;
       } finally {
         await ok('POST', 'api/control/settings', rules());

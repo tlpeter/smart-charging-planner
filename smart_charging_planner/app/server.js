@@ -1677,7 +1677,11 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const states = await ha.call({ type: 'get_states' });
     const { events, error } = await calendarEvents(dep, tz, now);
-    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz);
+    // You said yes to charging more for a trip: show the higher target here
+    // too, the same as Home and the plan (#3).
+    const raised = vehicle && rulesFor(s).trip_topup_enabled ? (x) => topup.apply(vehicle.id, x, now) : (x) => x;
+    const days = winnersPerDay(collect(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz)
+      .map((d) => ({ ...d, winner: raised(d.winner) }));
     const list = (domain) => states
       .filter((x) => x.entity_id.startsWith(domain + '.'))
       .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state }))
@@ -1699,7 +1703,7 @@ const routes = {
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
         return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + 14 * 86400000).map((t) => ({
-          ...t,
+          ...raised(t),
           cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
         }));
       })(),
