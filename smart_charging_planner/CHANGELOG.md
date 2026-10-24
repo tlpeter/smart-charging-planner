@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.2-dev
+
+- Volvo: "Charging connection status" is no longer taken as the charging sensor (it is the plug); "Charging status" is.
+- Hyundai / Kia: a car saved before the app knew the charge limit now also gets the AC limit, not the DC limit.
+- Test fix: the cars run counted the car's limit only after the first plan, when it had already been set.
+
 ## 0.32.1-dev
 
 - **Better recognition of cars** (Settings › Vehicle › Find): checked against the real entity names of 10 car integrations, read from their source code. Fixed:

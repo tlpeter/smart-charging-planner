@@ -583,6 +583,8 @@ async function runCar(cx, n) {
     world.plugged = true;
     world.charging = false;
     let found = null;
+    // The car's limit can already change when the plan is made right after saving (test 2).
+    const n0 = world.calls.length;
     await test(`${tag}.1`, 'Found, with the right battery level, range, plug, charging and charge limit', async () => {
       const d = await ok('GET', 'api/vehicles/detect');
       found = d.candidates.find((x) => x.device_id === 'car');
@@ -610,7 +612,6 @@ async function runCar(cx, n) {
       return `${p.vehicle.soc}% → ${p.departure.soc}%`;
     });
     await test(`${tag}.3`, cx.expect.writable ? 'The car\'s charge limit follows the target (rounded to the steps the car accepts)' : 'The charge limit can only be read: nothing is sent to the car', async () => {
-      const n0 = world.calls.length;
       for (let i = 0; i < 3; i++) { await plan(); await sleep(500); }
       const p = await plan();
       const sent = world.calls.slice(n0).filter(toCar);

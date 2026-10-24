@@ -57,7 +57,7 @@ function isCharging(entity, s) {
   const a = s.attributes || {};
   if (entity.entity_id.startsWith('binary_sensor.') && a.device_class === 'battery_charging') return true;
   return /charging|charge_state|charging_status|laden/.test(words(entity, s)) &&
-    !/plug|time|power|rate|limit|current|energy/.test(words(entity, s)) &&
+    !/plug|time|power|rate|limit|current|energy|connect|cable/.test(words(entity, s)) &&
     (entity.entity_id.startsWith('binary_sensor.') || entity.entity_id.startsWith('sensor.'));
 }
 
@@ -208,7 +208,8 @@ function findChargeLimit(entities, states, deviceId) {
   const list = entities
     .filter((e) => e.device_id === deviceId && !e.disabled_by && isChargeLimit(e, stateById.get(e.entity_id)))
     .map((e) => e.entity_id);
-  return list.find((id) => id.startsWith('number.')) || list[0] || null;
+  // A number the app can set first, and the AC limit before the DC one (Kia, Hyundai).
+  return list.find((id) => id.startsWith('number.') && !/(^|_)dc_/.test(id)) || list.find((id) => id.startsWith('number.')) || list[0] || null;
 }
 
 // All sensors in %, for choosing a SoC manually when nothing is found.
