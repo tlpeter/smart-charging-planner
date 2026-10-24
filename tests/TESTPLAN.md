@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 174 of 175 ✗ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 163 of 164 ✗ |
-| Unit tests (17 files) | 709 of 710 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 175 of 175 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 164 of 164 ✓ |
+| Unit tests (17 files) | 716 of 716 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.16-dev.
+Version: 0.32.20-dev.
 
 # Settings
 
@@ -95,9 +95,9 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 15 charged blocks, from 14.8 h back | ✓ 15 charged blocks, from 14.8 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks |
-| E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✗ FAIL valid actual/forecast prices lost | ✗ FAIL valid actual/forecast prices lost |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.0 h back | ✓ 16 charged blocks, from 15.0 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks |
+| E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
 
 ## F. Planning (departures)
@@ -183,10 +183,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 14.3 kWh on solar, 20.0 kWh from the grid | ✓ 14.3 kWh on solar, 36.5 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 14.3 kWh on solar | ✓ 14.3 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 36.5 kWh at night, 14.3 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 14.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 14.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 14.0 kWh on solar, 20.4 kWh from the grid | ✓ 14.0 kWh on solar, 36.9 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 14.0 kWh on solar | ✓ 14.0 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 36.9 kWh at night, 14.0 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 14.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 14.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -202,7 +202,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.37 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.45 | ✓ charges in 3 block(s), saving €1.36 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -342,8 +342,8 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | File | What | Passed |
 |---|---|---|
 | [batteryguard.test.js](#batteryguard) | Battery live bounds, original-setting snapshots, native reserves and site EV policies | 10 of 10 ✓ |
-| [batterysafety.test.js](#batterysafety) | Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection | 3 of 4 ✗ |
-| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 4 of 4 ✓ |
+| [batterysafety.test.js](#batterysafety) | Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection | 9 of 9 ✓ |
+| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 5 of 5 ✓ |
 | [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 21 of 21 ✓ |
 | [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 7 of 7 ✓ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
@@ -384,14 +384,19 @@ Battery live bounds, original-setting snapshots, native reserves and site EV pol
 
 Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection.
 
-<details open><summary>3 of 4 passed – show every check</summary>
+<details><summary>9 of 9 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
 | huawei_solar restores exact non-default settings after restart | ✓ |
 | victron restores exact non-default settings after restart | ✓ |
 | teslemetry restores exact non-default settings after restart | ✓ |
-| a failed restore retains its snapshot and succeeds on the next control step | ✗ FAIL |
+| a failed restore retains its snapshot and succeeds on the next control step | ✓ |
+| a native reserve is kept while enabled and restored to its original zero on release | ✓ |
+| live upper/lower bounds stop unsafe manual and ongoing charge actions | ✓ |
+| stale SoC blocks charging and holds instead; recovery waits for actual reported settings | ✓ |
+| legacy ownership without originals needs explicit manual recovery, with no guessed writes | ✓ |
+| site battery protection sees secondary and externally started charging, with both EV plans | ✓ |
 
 </details>
 
@@ -399,12 +404,13 @@ Real app: exact battery restoration, failure/restart recovery, fresh SoC guards 
 
 Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior.
 
-<details><summary>4 of 4 passed – show every check</summary>
+<details><summary>5 of 5 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
 | public diagnostics omit personal text across every exported branch | ✓ |
 | unknown schema keys and identity maps fail closed | ✓ |
+| identifier prefixes cannot retain a personal namespace | ✓ |
 | the diagnostic UI previews the same document before a separate download action | ✓ |
 | preview and reviewed download use identical data | ✓ |
 
