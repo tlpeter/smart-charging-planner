@@ -41,7 +41,7 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations.
 
-## Current recovery candidate: 0.32.16-dev
+## Current recovery candidate: 0.32.17-dev
 
 Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11 and #20. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
 

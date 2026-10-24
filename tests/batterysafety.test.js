@@ -139,17 +139,17 @@ async function run() {
       let record = JSON.parse(fs.readFileSync(path.join(dir, 'battery_control.json'), 'utf8'));
       assert.equal(record.restoring, true); assert.equal(record.original['number.batteries_maximum_charging_power'].value, 1200);
       world.failCommand = null; await plan();
-      assert.equal(world.store.get('number.batteries_maximum_charging_power'), 1200);
+      assert.equal(Number(world.store.get('number.batteries_maximum_charging_power')), 1200);
       assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'battery_control.json'), 'utf8')), null);
     });
     await check('a native reserve is kept while enabled and restored to its original zero on release', async () => {
       const { b } = await configureBattery('teslemetry', { min_pct: 30 });
       await plan();
-      assert.equal(world.store.get('number.my_home_backup_reserve'), 30);
+      assert.equal(Number(world.store.get('number.my_home_backup_reserve')), 30);
       const r = JSON.parse(fs.readFileSync(path.join(dir, 'battery_control.json'), 'utf8'));
       assert.equal(r.original['number.my_home_backup_reserve'].value, 0);
       await api('POST', 'api/battery', { ...CFG, min_pct: 30, enabled: false, platform: b.platform, soc_entity: b.soc_entity, power_sign: b.power_sign });
-      await plan(); assert.equal(world.store.get('number.my_home_backup_reserve'), 0);
+      await plan(); assert.equal(Number(world.store.get('number.my_home_backup_reserve')), 0);
     });
     await check('live upper/lower bounds stop unsafe manual and ongoing charge actions', async () => {
       await useSigen({ max_pct: 80 });

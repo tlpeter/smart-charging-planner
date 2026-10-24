@@ -385,7 +385,10 @@ async function run() {
       });
       const p = await plan();
       assert(p.price_error === null, JSON.stringify(p.price_error));
-      assert(p.prices.some((x) => !x.forecast) && p.prices.some((x) => x.forecast), 'valid actual/forecast prices lost');
+      assert(p.prices.some((x) => !x.forecast), 'valid actual prices lost');
+      // The chart stops at the departure horizon, which can be before the
+      // forecast starts. Check the loaded forecast independently of that view.
+      assert(p.forecast && p.forecast.count === 48, 'valid forecast prices lost: ' + JSON.stringify(p.forecast));
       assert(p.price_warnings.length === 1, JSON.stringify(p.price_warnings));
       assert(p.price_warnings[0].includes('2026-10-25 02:00:00') && p.price_warnings[0].includes('sensor.stroom_prijzen_gecombineerd'), p.price_warnings[0]);
       return 'one source/date warning; valid prices still used';

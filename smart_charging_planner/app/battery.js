@@ -120,12 +120,17 @@ const ADAPTERS = {
       if (!Number.isFinite(value)) throw new Error('The previous battery power limit is not readable');
       return [{ service: 'number.set_value', data: { value }, target: { entity_id: n.entity_id } }];
     };
+    const limitedPower = (n, kwPower) => {
+      const cap = n ? restore(n)[0].data.value : Math.round(kwPower * 1000);
+      if (!(cap > 0)) throw new Error('The original battery power limit does not allow this action');
+      return Math.min(Math.round(kwPower * 1000), cap);
+    };
     const zero = (n) => (n ? [{ service: 'number.set_value', data: { value: 0 }, target: { entity_id: n.entity_id } }] : []);
     const svc = (name, data = {}) => ({ service: `huawei_solar.${name}`, data: { device_id: dev, ...data }, target: null });
     const actions = {
       auto: () => [svc('stop_forcible_charge'), ...restore(maxChg), ...restore(maxDis)],
-      charge: (kwPower) => [...restore(maxChg), svc('forcible_charge', { power: Math.round(kwPower * 1000), duration: 2 })],
-      discharge: (kwPower) => [...restore(maxDis), svc('forcible_discharge', { power: Math.round(kwPower * 1000), duration: 2 })],
+      charge: (kwPower) => [...restore(maxChg), svc('forcible_charge', { power: limitedPower(maxChg, kwPower), duration: 2 })],
+      discharge: (kwPower) => [...restore(maxDis), svc('forcible_discharge', { power: limitedPower(maxDis, kwPower), duration: 2 })],
     };
     if (maxDis) actions.no_discharge = () => [svc('stop_forcible_charge'), ...restore(maxChg), ...zero(maxDis)];
     if (maxDis && maxChg) actions.hold = () => [svc('stop_forcible_charge'), ...zero(maxChg), ...zero(maxDis)];

@@ -432,3 +432,6 @@ The home battery uses one site-level decision across all enabled chargers. It in
 **Preview diagnostics** shows the exact public JSON before a separate download action. The report uses a field allowlist and consistent pseudonyms for identifiers within that export. Names, calendar aliases, destinations, free-form reasons/errors, original-setting snapshots and raw app logs are omitted. Structured decision codes, selected numeric settings and a log count remain for troubleshooting. The identifier reverse map is not exported. Numeric values and timestamps can still reveal usage patterns, so review the report before sharing.
 
 Settings export/import is a private backup and intentionally retains configuration. It is separate from public diagnostics and should not be posted publicly.
+
+
+Timed-control references: [Huawei's service schema](https://github.com/wlcrs/huawei_solar/blob/main/services.py) accepts duration in minutes and validates requested power against the current maximum. [SolarEdge's timeout control](https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/custom_components/solaredge_modbus_multi/number.py) and [Marstek's passive-mode service](https://github.com/jaapp/ha-marstek-local-api#passive-mode-control) use seconds. The app uses two-minute leases for these timed controls and renews them at the control cadence.

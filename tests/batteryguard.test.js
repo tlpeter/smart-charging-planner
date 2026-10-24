@@ -60,7 +60,12 @@ for (const platform of ['huawei_solar', 'victron', 'teslemetry']) {
     ctl = battery.controlFor(selected, entities, ss, { values: Object.fromEntries(Object.entries(original).map(([id, o]) => [id, o.value])) });
     guard.restore(ctl, original).forEach(apply);
     for (const id of Object.keys(original)) assert.equal(ss.find((x) => x.entity_id === id).state, String(before[id]));
-    if (platform === 'huawei_solar') assert.equal(ss.find((x) => /maximum_charging_power/.test(x.entity_id)).state, '1200');
+    if (platform === 'huawei_solar') {
+      assert.equal(ss.find((x) => /maximum_charging_power/.test(x.entity_id)).state, '1200');
+      const request = battery.commandsFor(ctl, 'charge', 3, 50).commands.find((c) => c.service === 'huawei_solar.forcible_charge');
+      assert.equal(request.data.power, 1200);
+      assert.equal(request.data.duration, 2);
+    }
     if (platform === 'teslemetry') assert.equal(ss.find((x) => /operation_mode/.test(x.entity_id)).state, 'autonomous');
   });
 }

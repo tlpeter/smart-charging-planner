@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.17-dev
+
+- The partial-price regression check now verifies loaded forecasts independently of the chart's departure horizon, so it also works later in the day.
+
+- Huawei forced-power requests now respect the user's original power cap instead of requesting more than the integration accepts. (#9, #19)
+- The new recovery integration test compares numeric simulator state as a number, matching how Home Assistant reports number entities as text. (#9)
+
 ## 0.32.16-dev
 
 - Battery control now checks fresh live levels and stops charging/discharging before app bounds, using available native targets without lowering an existing reserve or raising an existing ceiling. Unsupported stop capabilities block control with an explanation. Timed control leases are shorter. (#19)
