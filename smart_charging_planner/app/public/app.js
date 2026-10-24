@@ -1235,7 +1235,8 @@ function durationText(minutes) {
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
-        case 'ok': return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+        case 'ok': if (t.stops > 0 && t.total_km != null) return `~${esc(Math.round(t.km))} km to here${via}${how} · whole trip with ${esc(t.stops + 1)} places ~${esc(Math.round(t.total_km))} km ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+          return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
         case 'home': return 'At home: no trip';
         case 'pending': return 'Looking up the distance (OpenStreetMap)…';
         case 'no_consumption': return `~${esc(tidy(t.km))} km; set the battery capacity or the use per 100 km (Settings › Vehicle) to see what it costs`;
@@ -1283,6 +1284,11 @@ function durationText(minutes) {
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
             ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
+        if (x.type === 'stop') {
+          return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from the place before</span></div>
+            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from the place before · ` : ''}the car does not come home in between, so no charging</div></div>${level(x.soc)}</li>`;
+        }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
         const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
@@ -1294,6 +1300,7 @@ function durationText(minutes) {
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
           ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
+          ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
       };
 
@@ -1335,10 +1342,14 @@ function durationText(minutes) {
           const empty = b && b.x.soc != null && b.x.soc <= 0;
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
-          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong> ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
+          if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
+          // More places in a row: "Werk → Made".
+          const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
           return;
         }
         if (used.has(i)) return;
+        if (x.type === 'stop') return; // shown with the trip it belongs to
         day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
       });
       const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}"${k === 0 ? '' : ''}>

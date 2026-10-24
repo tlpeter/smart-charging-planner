@@ -363,17 +363,34 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   // The car's range sensor gives the range at the level NOW, so the use per
   // km always comes from the level now, not from the level when leaving.
   const rangeSoc = () => (Number.isFinite(soc) ? soc : socAtDep);
+  // More places in a row: when the next calendar trip starts before (or when)
+  // this one ends and it is not a trip home, the car does not come home in
+  // between. It drives on from here: work, then sport, then home. A gap
+  // between the two means the car is home first (there and back).
+  const endOf = (t) => t.event_end || startOf(t) + 3600000;
+  const placeOf = (t) => t.location || tripcost.placeFor(null, t.title).place;
+  const nextCal = (t) => trips.find((x) => x.time > t.time && x.time < t.time + 36 * 3600000);
   function tripOf(cur, socLeave) {
-    const where = cur.location || tripcost.placeFor(null, cur.title).place; // the location, or a saved place by the title
-    const following = where && !tripcost.isHome(cur.location)
-      ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
+    const where = placeOf(cur); // the location, or a saved place by the title
+    const stops = [];
+    let last = cur;
+    if (where && !tripcost.isHome(cur.location)) {
+      for (let k = 0; k < 5; k++) {
+        const nx = nextCal(last);
+        if (!nx || isReturnTrip(nx) || !placeOf(nx) || startOf(nx) > endOf(last)) break;
+        stops.push(nx);
+        last = nx;
+      }
+    }
+    const following = where && !tripcost.isHome(cur.location) ? nextCal(last) : null;
     const back = following && isReturnTrip(following) ? following : null;
     const trip = where && !fixed
-      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: rangeSoc() })
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc() })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
-    const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
+    const returnAt = back ? endOf(back) : endOf(last);
     const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
-    return { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
+    const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -430,7 +447,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
   }
   const leave = (x, t, tr, socLeave, target) => {
-    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
+    // On to the next place, without going home in between: the level when
+    // the car leaves there (after the part before).
+    let lv = socLeave != null && tr && tr.pct != null ? socLeave - (tr.km || 0) * tr.pct_per_km * tripcost.MARGIN : null;
+    for (const v of (tr && tr.via) || []) {
+      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, soc: lv == null ? null : Math.max(0, Math.round(lv * 10) / 10) });
+      if (lv != null) lv = v.km == null ? null : lv - v.km * tr.pct_per_km * tripcost.MARGIN;
+    }
     if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
@@ -540,7 +564,7 @@ function tripLearning(vehicle, plugged, soc, carData, next, now) {
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
   if (w.plugged === true && plugged === false && live && next && next.trip && next.trip.status === 'ok'
     && Math.abs(next.current.time - now) < 3 * 3600000) {
-    tripcost.tripStarted(vehicle.id, soc, (next.trip.km || 0) + (next.trip.back_km || 0), now);
+    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now);
   }
   if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now);
   tripWatch.set(vehicle.id, { plugged });

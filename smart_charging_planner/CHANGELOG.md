@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.19-dev
+
+- Look ahead: **more places in a row**. When the next calendar trip starts before or when the trip before ends, and it is not a trip home, the car does not come home in between. Example: "Naar Werk" 06:00–16:30 (Rivertown), then "Naar The Outdoor Pact Made" 16:30–20:30, then "Naar Thuis": the trip is now home → Rivertown → Made → home. The part to Made is the distance from Rivertown, not from home, and no charging at home is expected while the car is away. Before, the app saw Werk as there and back and planned charging at home at 11:00, and a trip that started exactly when the one before ended was left out.
+- The timeline shows the next place as its own row (with the level when the car leaves there), the day line as "Werk → Made", and a warning when the car is back below 10 %.
+- Learning from trips counts the whole trip. Test Y12.
+
 ## 0.30.18-dev
 
 - The price chart on Home can look further back: choose **12 h**, **24 h**, **3 days** or **7 days** above the chart (the same as in Smart Heating Planner and Smart Ventilation). This browser remembers the choice. The part after now (the plan) stays the same.
