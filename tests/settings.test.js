@@ -2276,14 +2276,17 @@ async function run() {
     await test('X5b', 'Both grid signs pause the first charger below minimum, even just after a manual start', async () => {
       const previousSolar = (await ok('GET', 'api/solar')).settings;
       try {
-        // Force first priority to the first charger through Charge now.
+        // Disable its minimum rule so Charge now is the reported decision code.
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: false }));
         await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
         for (const exportPositive of [false, true]) {
           world.gridExportPositive = exportPositive;
           await ok('POST', 'api/solar', solarBody({ enabled: false, grid_sign: exportPositive ? 'export_positive' : 'import_positive' }));
           for (const availableA of [0, 4, 5, 6]) {
             world.houseW = 0;
-            await ok('POST', `api/control/manual?charger=${ch1}`, { action: 'start' });
+            await sleep(1100); // Let the preceding current restore settle.
+            const started = await ok('POST', `api/control/manual?charger=${ch1}`, { action: 'start' });
+            assert(started.sent && world.charging, JSON.stringify(started));
             world.houseW = (24 - availableA) * 3 * 230;
             await planOf(ch1); await planOf(ch2); await sleep(150);
             const o = await overview();
@@ -2301,6 +2304,7 @@ async function run() {
         return '0/4/5 A pause; 6 A limit; import/export-positive meters';
       } finally {
         world.gridExportPositive = false; world.houseW = 850;
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
         await ok('POST', 'api/solar', previousSolar);
         await ok('DELETE', `api/boost?charger=${ch1}`);
         await planOf(ch1); await planOf(ch2);
@@ -2308,7 +2312,7 @@ async function run() {
     });
     await test('X5c', 'The first start/stop-only charger pauses when 10 A cannot fit its 16 A request', async () => {
       try {
-        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: 'none', min_soc_enabled: true, min_soc: 50 }));
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: 'none', min_soc_enabled: false }));
         await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
         world.houseW = 14 * 3 * 230;
         await planOf(ch1); await planOf(ch2); await sleep(150);

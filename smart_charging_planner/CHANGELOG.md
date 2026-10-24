@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.13-dev
+
+- The new connection-sharing integration tests now disable the first car's minimum rule before selecting Charge now, so the test reaches the intended first-priority allocation. Application behavior is unchanged. (#5, #22)
+
 ## 0.32.12-dev
 
 - Connection sharing pauses any charger that cannot fit, including the first charger and start/stop-only models. A capacity pause also takes precedence over the manual-start grace period. (#5)
