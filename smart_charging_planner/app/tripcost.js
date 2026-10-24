@@ -287,9 +287,22 @@ function pctPerKm(vehicle, states, soc) {
   return null;
 }
 
+// Where a place is, for a trip from one place to the next: { status, lat, lon }.
+function pointOf(given, title) {
+  const { location, point } = placeFor(given, title);
+  const d = point ? pointDistance(point) : distance(location);
+  if (d.status === 'home') return { status: 'home', lat: ha.state.home ? ha.state.home.lat : null, lon: ha.state.home ? ha.state.home.lon : null, home_km: 0 };
+  if (d.status !== 'ok') return { status: d.status, reason: d.reason || null };
+  return { status: 'ok', lat: d.lat, lon: d.lon, home_km: d.km, how: d.how };
+}
+
 // What a trip costs: { km (one way), pct (there and back, or there plus the
 // return trip in the calendar), how, status }.
-function tripCost({ location: given, title = null, returnLocation = undefined, vehicle, states, soc }) {
+// stops: more places after the first one, without going home in between
+// (for example work, then sport, then home). Each part is the distance from
+// the place before; the way back starts at the last place.
+function tripCost({ location: given, title = null, returnLocation = undefined, stops = [], vehicle, states, soc }) {
+  if (stops && stops.length) return chainCost({ location: given, title, stops, vehicle, states, soc });
   const { location, place, kind, point } = placeFor(given, title);
   const there = { ...(point ? pointDistance(point) : distance(location)), ...(place ? { place, place_kind: kind } : {}) };
   if (there.status !== 'ok') {
@@ -306,6 +319,31 @@ function tripCost({ location: given, title = null, returnLocation = undefined, v
   })();
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
   return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(place ? { place, place_kind: kind } : {}) };
+}
+
+// A trip with more places in a row: home → first place → next place → … → home.
+function chainCost({ location: given, title, stops, vehicle, states, soc }) {
+  const first = tripCost({ location: given, title, vehicle, states, soc });
+  if (first.status !== 'ok') return first;
+  let prev = pointOf(given, title);
+  if (prev.status !== 'ok') return first;
+  const legs = [];
+  for (const s of stops) {
+    const cur = pointOf(s.location, s.title);
+    if (cur.status === 'pending') return { ...first, status: 'pending', pct: null };
+    if (cur.status !== 'ok' && cur.status !== 'home') {
+      const ask = cur.status === 'unknown' ? askName(s.location, s.title) : null;
+      return { ...first, status: 'unknown', reason: cur.reason || 'not_found', pct: null, ...(ask ? { ask } : {}) };
+    }
+    const leg = cur.status === 'home' ? { km: prev.home_km, how: prev.how } : toPoint(prev, cur, `${cur.lat},${cur.lon}`);
+    legs.push({ title: s.title || null, km: leg.km || 0, how: leg.how || null });
+    if (leg.how === 'estimate') first.how = 'estimate';
+    prev = cur;
+  }
+  const backKm = prev.home_km || 0;
+  const total = first.km + legs.reduce((a, l) => a + l.km, 0) + backKm;
+  const pct = Math.round(total * first.pct_per_km * MARGIN * 10) / 10;
+  return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct };
 }
 
 // Learning from your trips. When the car is unplugged for a trip with a known

@@ -98,6 +98,7 @@ async function startApp(options = {}) {
       HA_WS_URL: `ws://127.0.0.1:${WS_PORT}`,
       HA_REST_URL: `http://127.0.0.1:${REST_PORT}/api`,
       SUPERVISOR_TOKEN: 'test',
+      HOSTNAME: 'a0b1c2d3-smart-charging-planner',
       SCP_CHECK_AFTER_MS: '2000',
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
@@ -108,6 +109,7 @@ async function startApp(options = {}) {
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
       SCP_CALENDAR_WAIT_MS: '100',
+      SCP_RESTART_AFTER_MS: '1500',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -157,6 +159,12 @@ async function run() {
     const js = await api('GET', 'app.js');
     assert(css.status === 200 && typeof css.body === 'string' && css.body.length > 1000, 'styles.css not served');
     assert(js.status === 200 && typeof js.body === 'string' && js.body.length > 10000, 'app.js not served');
+    // The unsaved-changes guard (shared with the other apps) is served and loaded.
+    const guard = await api('GET', 'unsaved.js');
+    const page = await api('GET', '');
+    assert(guard.status === 200 && typeof guard.body === 'string' && guard.body.includes('window.unsavedGuard'), 'unsaved.js not served');
+    assert(String(page.body).includes('<script src="unsaved.js"></script>'), 'unsaved.js not on the page');
+    assert(js.body.includes('unsavedGuard.writeDone') && js.body.includes('unsavedGuard.isDirty'), 'app.js does not use the guard');
     return `${Math.round(css.body.length / 1024)} kB CSS, ${Math.round(js.body.length / 1024)} kB JS`;
   });
   await test('A3', 'Fresh install: Allow control is off by default', async () => {
@@ -335,6 +343,31 @@ async function run() {
       await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
     }
   });
+  await test('E11', 'Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan\'s first block; anything else is 12 hours', async () => {
+    await ok('POST', 'api/prices', { source: { type: 'fixed' }, fixed: { mode: 'day_night', normal: 0.30, low: 0.20, low_from: '23:00', low_to: '07:00', weekend_low: false } });
+    world.chargedKw = 11;
+    try {
+      const p = await plan();
+      const before = p.prices[0].start;
+      const out = [];
+      for (const hours of [24, 72, 168]) {
+        const r = await ok('GET', `api/past?hours=${hours}&before=${before}`);
+        assert(r.hours === hours, `hours ${r.hours}`);
+        assert(r.prices.length > 0, `${hours} h: no older prices`);
+        assert(r.prices.every((x) => x.end <= before), `${hours} h: a price after the plan's first block`);
+        assert(r.prices[0].start <= p.now - hours * 3600000 + 3600000, `${hours} h: starts ${((p.now - r.prices[0].start) / 3600000).toFixed(1)} h back`);
+        assert(r.prices.every((x) => Number.isFinite(x.total)), 'a price without a number');
+        assert(r.charged.length > 0 && r.charged.every((c) => c.start < before), `${hours} h: charged ${r.charged.length}`);
+        out.push(`${hours} h: ${r.prices.length} blocks`);
+      }
+      const d = await ok('GET', `api/past?hours=5&before=${before}`);
+      assert(d.hours === 12, `hours=5 gives ${d.hours}`);
+      return out.join(', ');
+    } finally {
+      world.chargedKw = 0;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
 
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';
@@ -508,6 +541,14 @@ async function run() {
     await ok('POST', 'api/notify/test', {});
     const c = callsSince(n0).find((x) => x.domain === 'notify');
     assert(c && c.service === 'mobile_app_pixel_8', `call ${JSON.stringify(c)}`);
+  });
+  await test('H2b', 'A tap on a phone notification opens the app page', async () => {
+    const n0 = world.calls.length;
+    await ok('POST', 'api/notify/test', {});
+    const c = callsSince(n0).find((x) => x.domain === 'notify');
+    const d = c && c.data && c.data.data;
+    const page = '/a0b1c2d3_smart_charging_planner';
+    assert(d && d.url === page && d.clickAction === page, `data ${JSON.stringify(d)}`);
   });
   await test('H3', 'Test notification refused when no notify action is chosen', async () => {
     await ok('POST', 'api/notify', { service: '' });
@@ -699,6 +740,39 @@ async function run() {
     assert(n.code === 'boost' && n.want === 'charge', `${n.want}/${n.code}`);
     return `${r.send && r.send.sent ? 'start sent' : 'decided'}, no end until Stop or unplug`;
   });
+  await test('J6c', 'Restart the car (option): the charger is on and ready, but the car takes no power (like a Renault that ended its session at 80 %); the app sets the car limit one step lower and back, and the car charges', async () => {
+    if (!CH.text.ready) return 'not for this charger in the fake';
+    world.charging = false;
+    world.carAsleep = true;
+    const n0 = world.calls.length;
+    try {
+      await ok('POST', 'api/control/settings', rules({ car_limit_restart: true }));
+      await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
+      await sleep(800);
+      assert(world.enabledNoPower && !world.charging, `enabled ${world.enabledNoPower}, charging ${world.charging}`);
+      await plan();
+      await sleep(1800);
+      await plan();
+      await sleep(800);
+      const limits = callsSince(n0).filter((c) => c.domain === 'number').map((c) => c.data.value);
+      assert(limits.includes(lim(100) - CAR.limit_step), `limits sent: ${limits.join(', ')}`);
+      assert(world.charging === true, 'the car did not start');
+      const p = await plan();
+      await sleep(800);
+      await plan();
+      await sleep(800);
+      assert(world.limit === lim(100), `limit not back: ${world.limit}`);
+      const why = (p.charge_state.facts || []).find((f) => f.label === 'Restart of the car');
+      assert(why, `not under Why?: ${JSON.stringify(p.charge_state.facts)}`);
+      return `limits ${limits.join(' → ')}, charging`;
+    } finally {
+      world.carAsleep = false;
+      world.enabledNoPower = false;
+      await ok('DELETE', 'api/boost');
+      await ok('POST', 'api/control/settings', rules());
+      await plan();
+    }
+  });
   await test('J7', 'Charge now as kWh: preview converts it to a level for the limit', async () => {
     world.soc = 20;
     // Enough kWh to go from 20 % to above 100 %, whatever the battery size.
@@ -838,8 +912,10 @@ async function run() {
     const p = await plan();
     const sk = solarKwh(p);
     // Tomorrow's sun (6 h × 2 kW at 80 % after the house); run in the morning, today's sun counts too.
+    // In the afternoon the sun that is left today may count as well (a run at 15:15 planned 1 kWh on it).
     const todaySun = Date.now() < at(0, 15, 0);
-    assert(sk > 11 && sk < (todaySun ? 25 : 13), `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
+    const leftToday = (p.solar && p.solar.expected_kwh_left_today) || 0;
+    assert(sk > 11 && sk < (todaySun ? 25 : 13 + leftToday), `solar ${sk} kWh, solar info ${JSON.stringify(p.solar)}, notes ${p.plan.notes}, dep ${JSON.stringify(p.departure)}, needed ${p.plan.needed_kwh}, blocks ${JSON.stringify(p.plan.blocks.map((b) => [new Date(b.block_start).toISOString().slice(5, 13), b.kwh.toFixed(1), b.price]))}`);
     return `${sk.toFixed(1)} kWh on solar, ${(p.plan.planned_kwh - sk).toFixed(1)} kWh from the grid`;
   });
   await test('S4', 'Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen', async () => {
@@ -1780,6 +1856,95 @@ async function run() {
         return `departure ${p.departure.title}, charging from ${new Date(p.plan.blocks[0].start).toISOString().slice(11, 16)} UTC`;
       } finally {
         world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
+      world.soc = 80;
+      const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
+      world.events = [
+        // (This calendar only counts events with a target, so each has one.)
+        evm('Naar Werk', 'doel: 80', ADDR3, 1, 6, 0, 16, 30),
+        evm('Naar Sport', 'doel: 80 precondition: ja', ADDR, 1, 16, 30, 20, 30),
+        evm('Naar Thuis', 'doel: 80 precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
+        evm('Naar Werk', 'doel: 80', ADDR3, 3, 6, 0, 16, 0),
+      ];
+      try {
+        await settle();
+        await sleep(600); // the route from Werk to Sport is looked up once (Made stays unrouted for Y4)
+        const n = (await settle()).next;
+        const tl = n.timeline;
+        const leaves = tl.filter((x) => x.type === 'leave');
+        assert(leaves.length === 2 && leaves[0].title === 'Naar Werk' && leaves[0].time === at(1, 6), JSON.stringify(leaves.map((x) => [x.title, x.time])));
+        const stops = tl.filter((x) => x.type === 'stop');
+        assert(stops.length === 1 && stops[0].title === 'Naar Sport' && stops[0].time === at(1, 16, 30) && stops[0].km === 60, JSON.stringify(stops));
+        assert(n.trip.status === 'ok' && n.trip.total_km === 180 && n.trip.via.length === 1 && leaves[0].trip.stops === 1, JSON.stringify(n.trip));
+        assert(Math.abs(n.trip.pct - 180 * n.trip.pct_per_km * 1.1) < 0.2, `pct ${n.trip.pct}`);
+        assert(n.trip.return_at === at(1, 22) && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
+        const backs = tl.filter((x) => x.type === 'back');
+        assert(backs[0].time === at(1, 22), JSON.stringify(backs));
+        assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
+        // Issue #1: a stop shows the level on arrival there, after its own drive
+        // (60 km from Werk), and where it comes from.
+        const leg = 60 * n.trip.pct_per_km * 1.1;
+        assert(stops[0].from_title === 'Naar Werk' && Math.abs(stops[0].soc_from - stops[0].soc - leg) < 0.2, JSON.stringify(stops[0]));
+        assert(Math.abs(leaves[0].soc - 60 * n.trip.pct_per_km * 1.1 - stops[0].soc_from) < 0.2, `leaving Werk ${stops[0].soc_from}%`);
+        assert(backs[0].from_title === 'Naar Sport' && backs[0].km === 60 && Math.abs(stops[0].soc - backs[0].soc - leg) < 0.2, JSON.stringify(backs[0]));
+        const between = tl.filter((x) => x.type === 'charge' && x.expected && x.start < at(1, 22));
+        assert(!between.length, `charging while the car is away: ${JSON.stringify(between)}`);
+        // Not enough battery: the timeline shows how much it falls short (below 0 %),
+        // while the next plan starts from 0 %.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 40 }));
+        const q = (await settle()).next;
+        const qb = q.timeline.find((x) => x.type === 'back');
+        assert(qb.soc < 0 && q.trip.soc_after === 0 && q.trip.soc_end === qb.soc, JSON.stringify({ back: qb.soc, after: q.trip.soc_after, end: q.trip.soc_end }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · at Sport ${stops[0].soc}% · home ${backs[0].soc}% at 22:00 · with 40 kWh/100 km: home ${qb.soc}%`;
+      } finally {
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y13', 'Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only', async () => {
+      world.soc = 80;
+      const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
+      world.events = [
+        evm('Naar Werk', 'doel: 80', ADDR3, 1, 6, 0, 16, 30),
+        evm('Naar Sport', 'doel: 80 precondition: ja', ADDR, 1, 16, 30, 20, 30),
+        evm('Naar Thuis', 'doel: 80 precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
+      ];
+      const asked = (n) => callsSince(n).filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge');
+      try {
+        // Off (the default): no question.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        const n0 = world.calls.length;
+        let p = await settle();
+        assert(p.trip_topup === null && !asked(n0).length && p.departure.soc === 80, JSON.stringify(p.trip_topup));
+        await ok('POST', 'api/control/settings', rules({ trip_topup_enabled: true, trip_topup_reserve: 10 }));
+        p = await settle();
+        await settle();
+        const want = Math.min(100, Math.ceil(p.next.trip.pct + 10));
+        const t = p.trip_topup;
+        assert(t && t.state === 'asked' && t.soc === want && t.from === 80 && t.token, JSON.stringify(t));
+        const q = asked(n0);
+        assert(q.length === 1, `${q.length} questions sent`);
+        const buttons = q[0].data.data && q[0].data.data.actions;
+        assert(buttons && buttons.length === 2 && buttons[0].action === `SCP_TOPUP_YES_${t.token}` && buttons[1].action === `SCP_TOPUP_NO_${t.token}`, JSON.stringify(q[0].data));
+        assert(p.departure.soc === 80, 'the target went up without a yes');
+        await refused('POST', 'api/topup', { token: 'deadbeef', answer: 'yes' }, 'no longer open');
+        // A tap on Yes on the phone.
+        assert(typeof world.fireEvent === 'function', 'the app does not listen for notification buttons');
+        world.fireEvent('mobile_app_notification_action', { action: buttons[0].action });
+        await sleep(300);
+        p = await settle();
+        assert(p.departure.soc === want && p.departure.topup && p.departure.topup.from === 80, JSON.stringify(p.departure));
+        assert(p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.token === null, JSON.stringify(p.trip_topup));
+        assert(asked(n0).length === 1, 'asked again after yes');
+        return `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+      } finally {
+        await ok('POST', 'api/control/settings', rules());
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
         world.soc = 100;
         world.events = [];
       }

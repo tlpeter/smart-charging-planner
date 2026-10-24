@@ -85,6 +85,8 @@ function durationText(minutes) {
         body: write ? JSON.stringify(body || {}) : undefined,
       });
       const data = await res.json().catch(() => ({}));
+      // Tell the unsaved-changes guard whether a save worked (unsaved.js).
+      if (write && window.unsavedGuard) unsavedGuard.writeDone(res.ok, data.error || `Request failed (${res.status})`);
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     }
@@ -808,9 +810,58 @@ function durationText(minutes) {
       return (p.end - p.start) / 60000;
     }
 
-    function drawChart(d) {
+    // How far back the chart looks: 12 hours comes with the plan; longer is
+    // fetched once (api/past) and put in front of it. Kept in this browser.
+    const PAST_RANGES = [[12, '12 h'], [24, '24 h'], [72, '3 days'], [168, '7 days']];
+    let pastHours = 12;
+    try {
+      const saved = Number(localStorage.getItem('scp-chart-past'));
+      if (PAST_RANGES.some(([h]) => h === saved)) pastHours = saved;
+    } catch { /* private window */ }
+    let pastData = null; // { hours, before, at, prices, charged }
+
+    function pastButtonsHtml() {
+      return `<div class="range" id="chart-range" role="group" aria-label="How far back">${PAST_RANGES.map(([h, label]) =>
+        `<button type="button" data-hours="${h}" aria-pressed="${h === pastHours}">${label}</button>`).join('')}</div>`;
+    }
+
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('#chart-range button[data-hours]');
+      if (!b || Number(b.dataset.hours) === pastHours) return;
+      pastHours = Number(b.dataset.hours);
+      try { localStorage.setItem('scp-chart-past', String(pastHours)); } catch { /* private window */ }
+      document.querySelectorAll('#chart-range button').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.hours) === pastHours)));
+      if (lastPlan) { drawChart(lastPlan); loadPast(lastPlan); }
+    });
+
+    // The plan with the older prices and charging in front of it.
+    function withPast(d) {
+      if (pastHours === 12 || !pastData || pastData.hours !== pastHours || !d.prices.length || pastData.before !== d.prices[0].start) return d;
+      const first = d.prices[0].start;
+      return {
+        ...d,
+        prices: pastData.prices.filter((p) => p.end <= first).concat(d.prices),
+        charged: pastData.charged.filter((c) => c.start < first).concat(d.charged || []),
+      };
+    }
+
+    async function loadPast(d) {
+      if (pastHours === 12 || !d || !d.prices.length) return;
+      const before = d.prices[0].start;
+      if (pastData && pastData.hours === pastHours && pastData.before === before && Date.now() - pastData.at < 5 * 60000) return;
+      const hours = pastHours;
+      try {
+        const r = await api('GET', `api/past?hours=${hours}&before=${before}`);
+        if (hours !== pastHours) return;
+        pastData = { ...r, hours, before, at: Date.now() };
+        if (lastPlan === d) drawChart(d);
+      } catch { /* the chart keeps its 12 hours */ }
+    }
+
+    function drawChart(plan) {
       const wrap = $('chart');
-      if (!wrap || !d.prices.length) return;
+      if (!wrap || !plan.prices.length) return;
+      const d = withPast(plan);
       const W = Math.max(320, wrap.clientWidth);
       const H = 272;
       // Three dedicated marker lanes prevent "now", "safe start" and
@@ -1001,6 +1052,8 @@ function durationText(minutes) {
 
     // On top of Home: is the car charging right now, and if not, why and when.
     // The server works out the state (chargestate.js) from the check every minute.
+    let whyOpen = false; // keep "Why?" open across the one-minute reload
+    document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('why')) whyOpen = e.target.open; }, true);
     function chargeStatusHtml(d) {
       const c = d.charge_state;
       if (!c || (d.missing && d.missing.length)) return '';
@@ -1011,6 +1064,8 @@ function durationText(minutes) {
           <div class="secondary">${esc(c.detail)}${c.advice_only ? ' · Allow control is off, so the app does not start or stop the charger.' : ''}</div>
         </div></div>
         <span class="src">Checked ${esc(hm(c.at))}</span>
+        ${c.facts && c.facts.length ? `<details class="why"${whyOpen ? ' open' : ''}><summary>Why?</summary>
+          <dl>${c.facts.map((f) => `<dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd>`).join('')}</dl></details>` : ''}
       </div>`;
     }
 
@@ -1105,11 +1160,13 @@ function durationText(minutes) {
       return `
         ${connectedCarHtml(d)}
         ${chargeStatusHtml(d)}
+        ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
+              ${pastButtonsHtml()}
               <div class="chart-wrap" id="chart"></div>
               <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
@@ -1179,7 +1236,8 @@ function durationText(minutes) {
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
-        case 'ok': return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+        case 'ok': if (t.stops > 0 && t.total_km != null) return `~${esc(Math.round(t.km))} km to here${via}${how} · whole trip with ${esc(t.stops + 1)} places ~${esc(Math.round(t.total_km))} km ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
+          return `~${esc(Math.round(t.km))} km one way${via}${how}${t.back_km != null && Math.abs(t.back_km - t.km) > 0.5 ? `, ~${esc(Math.round(t.back_km))} km back` : ''} · there and back ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
         case 'home': return 'At home: no trip';
         case 'pending': return 'Looking up the distance (OpenStreetMap)…';
         case 'no_consumption': return `~${esc(tidy(t.km))} km; set the battery capacity or the use per 100 km (Settings › Vehicle) to see what it costs`;
@@ -1206,7 +1264,7 @@ function durationText(minutes) {
         ? `${x.periods.length} blocks between ${esc(dayHm(x.periods[0].start))} and ${esc(dayHm(x.periods[x.periods.length - 1].end))}`
         : x.periods.map((p) => `${esc(dayHm(p.start))}–${esc(hm(p.end))}`).join(', '));
       let lowSeen = false;
-      const rows = items.map((x, i) => {
+      const rowHtml = (x, i) => {
         if (x.type === 'charge') {
           if (x.unknown_prices) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
@@ -1227,9 +1285,16 @@ function durationText(minutes) {
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
             ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
+        if (x.type === 'stop') {
+          // The level on the right: when the car arrives here.
+          const from = x.from_title ? shortName(x.from_title) : 'the place before';
+          return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from ${esc(from)}</span></div>
+            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
+        }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
-        const short = x.soc != null && nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5;
+        const short = x.soc != null && (x.soc < 0 || (nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5));
         if (x.away_now) {
           return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
@@ -1237,17 +1302,92 @@ function durationText(minutes) {
         }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-          ${x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
+          ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
+          ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
+          ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
-      }).join('');
+      };
+
+      // One line per day; tap a day for all its details (the rows above).
+      const when = (x) => (x.type === 'charge' ? x.start : x.time);
+      const dayKey = (ms) => tzFmt(ms, { year: 'numeric', month: '2-digit', day: '2-digit' });
+      const dayName = (ms) => tzFmt(ms, { weekday: 'short', day: 'numeric' });
+      // A short name for a trip: "Naar Main Street 12 1234 AB Springfield" → "Main Street".
+      const shortName = (t) => {
+        const n = String(t || 'Trip').replace(/^\s*(naar|to)\s+/i, '').trim();
+        const cut = n.replace(/\s+\d.*$/, '').replace(/,.*$/, '').trim();
+        return (cut || n).slice(0, 28);
+      };
+      const backAfter = (i) => {
+        for (let k = i + 1; k < items.length; k++) {
+          if (items[k].type === 'leave') return null;
+          if (items[k].type === 'back') return { x: items[k], i: k };
+        }
+        return null;
+      };
+      const whole = (v) => (v == null ? '' : `${Math.round(v)}%`);
+      const days = [];
+      const used = new Set();
+      items.forEach((x, i) => {
+        const key = dayKey(when(x));
+        let day = days[days.length - 1];
+        if (!day || day.key !== key) { day = { key, at: when(x), parts: [], rows: [], warn: false }; days.push(day); }
+        day.rows.push(rowHtml(x, i));
+        if (x.type === 'charge') {
+          const cls = x.minimum ? 'min' : x.expected ? 'exp' : 'plan';
+          day.parts.push(`<span class="tl-p ${cls}">⚡ ${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
+          return;
+        }
+        if (x.type === 'leave') {
+          const b = backAfter(i);
+          const sameDay = b && dayKey(b.x.time) === key;
+          if (sameDay) used.add(b.i);
+          const low = x.soc != null && x.target_soc != null && x.soc < x.target_soc - 0.5;
+          const empty = b && b.x.soc != null && b.x.soc <= 0;
+          if (low || empty) day.warn = true;
+          const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
+          if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
+          // More places in a row: "Werk → Made".
+          const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
+          return;
+        }
+        if (used.has(i)) return;
+        if (x.type === 'stop') return; // shown with the trip it belongs to
+        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
+      });
+      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}"${k === 0 ? '' : ''}>
+          <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}</span></summary>
+          <ul class="timeline">${day.rows.join('')}</ul>
+        </details>`).join('');
       return `<div class="card next-goal${lowSeen ? ' low' : ''}">
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
-        <ul class="timeline">${rows}</ul>
-        <p class="muted small"><span class="tl-key exp"></span>Orange is an expectation: the real plan follows when the car is back and plugged in. Battery levels on the right are when leaving or arriving.</p>
+        <div class="tl-days">${rows}</div>
+        <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
       </div>`;
     }
 
     // ---------- More than one car: which one is connected ----------
+    // "Charge more for this trip?" (Settings › Rules): the question, or your answer.
+    function tripTopupHtml(d) {
+      const t = d.trip_topup;
+      if (!t) return '';
+      const what = `${esc(t.title || 'The next trip')} (${esc(dayHm(t.time))})`;
+      if (t.state === 'asked') {
+        return `<div class="card attention">
+          <div class="ready-kicker">THIS TRIP NEEDS MORE CHARGE</div>
+          <h2>${shape('bolt', 'orange', true)}Charge to ${esc(t.soc)}% for this trip?</h2>
+          <p class="muted small">${what} costs about ${esc(Math.round(t.pct))}%. With ${esc(t.from)}% you are back home with about ${esc(Math.round(t.from - t.pct))}%.${t.pct > 100 ? ' Even at 100% it is not enough: charge on the way.' : ''} Only for this trip; your target stays ${esc(t.from)}% for other trips.</p>
+          <div class="buttons">
+            <button type="button" class="primary" data-topup="yes" data-token="${esc(t.token)}">Yes, charge to ${esc(t.soc)}%</button>
+            <button type="button" class="secondary" data-topup="no" data-token="${esc(t.token)}">No, keep ${esc(t.from)}%</button>
+          </div>
+        </div>`;
+      }
+      if (t.state === 'yes') return `<div class="note">${shape('bolt', 'blue', true)} <strong>Charging to ${esc(t.soc)}% for ${what}</strong>, because you said yes (instead of ${esc(t.from)}%).</div>`;
+      return `<div class="note">${shape('bolt', 'grey', true)} You chose to keep ${esc(t.from)}% for ${what}. The trip costs about ${esc(Math.round(t.pct))}%.</div>`;
+    }
+
     function connectedCarHtml(d) {
       const c = d.cars;
       if (!c) return '';
@@ -1811,6 +1951,7 @@ function durationText(minutes) {
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
         drawChart(d);
+        loadPast(d);
         const sf = $('soc-form');
         if (sf) sf.onsubmit = async (e) => {
           e.preventDefault();
@@ -2197,6 +2338,9 @@ function durationText(minutes) {
       f.battery_care_soc.value = r.battery_care_soc ?? 80;
       f.battery_care_hours.value = r.battery_care_hours ?? 4;
       f.car_limit_off.checked = !!r.car_limit_off;
+      f.car_limit_restart.checked = !!r.car_limit_restart;
+      f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
+      f.trip_topup_reserve.value = r.trip_topup_reserve ?? 10;
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
       $('car-limit-now').innerHTML = lim && lim.entity_id
@@ -2231,7 +2375,8 @@ function durationText(minutes) {
           battery_care_enabled: f.battery_care_enabled.checked,
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
-          car_limit_off: f.car_limit_off.checked, min_choice: f.min_choice.value,
+          car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
+          trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
         });
         document.activeElement.blur();
         await loadControl();
@@ -2482,6 +2627,18 @@ function durationText(minutes) {
         err.textContent = e.message;
         err.hidden = false;
       }
+    });
+    // "Charge more for this trip?" answered on Home.
+    document.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-topup]');
+      if (!b) return;
+      b.disabled = true;
+      try {
+        await api('POST', 'api/topup', { token: b.dataset.token, answer: b.dataset.topup });
+      } catch (err) {
+        alert(err.message);
+      }
+      loadOverview(true);
     });
     // "Add to My places" from Home: the Plan tab with the name filled in.
     document.addEventListener('click', (e) => {
@@ -3466,6 +3623,14 @@ function durationText(minutes) {
     document.querySelectorAll('h2[data-icon]').forEach((h) => h.insertAdjacentHTML('afterbegin', shape(h.dataset.icon, h.dataset.color, true)));
 
     // ---------- Start ----------
+    // Unsaved changes: an orange bar with Save and Discard, and a question
+    // before leaving a settings page with changes that are not saved yet.
+    // Only the forms on the Settings pages count (not Charge now, trips, …).
+    const GUARDED = SETTINGS_SUBS.filter((s) => s !== 'diag').map((s) => `tab-${s}`);
+    unsavedGuard.init({
+      nav: '#main-nav .tab, #settings-nav .subtab, #history-nav .subtab, #charger-bar [data-bar], [data-goto]',
+      scope: (form) => { const s = form.closest('main > section'); return !!s && GUARDED.includes(s.id); },
+    });
     for (const kind of Object.keys(SECTIONS)) {
       sectionShell(kind);
       loadSaved(kind);
@@ -3484,7 +3649,8 @@ function durationText(minutes) {
     }, 60000);
     setInterval(() => {
       for (const kind of Object.keys(SECTIONS)) {
-        const busy = $(`tab-${kind}`).contains(document.activeElement) || ($('control-result') && $('control-result').innerHTML && kind === 'charger');
+        // Never reload a page with unsaved changes: that would undo them.
+        const busy = $(`tab-${kind}`).contains(document.activeElement) || unsavedGuard.isDirty($(`tab-${kind}`)) || ($('control-result') && $('control-result').innerHTML && kind === 'charger');
         if ($(`${kind}-saved`).innerHTML && !busy && !$(`tab-${kind}`).hidden) loadSaved(kind);
       }
     }, 30000);

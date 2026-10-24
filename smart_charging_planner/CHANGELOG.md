@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.32.0
+
+- Stable release of the improvements tested in 0.30.11 through 0.30.22.
+- **More places in a row**: a calendar trip that starts when the one before ends (work, then sport, then home) is one trip. Each part counts from the place before, no charging at home is expected while the car is away, and each place shows the level when the car arrives there (#1).
+- The level after a trip can show **below 0 %**, so you see how much the battery falls short.
+- New option **Ask to charge more when a trip needs it** (off by default): one question on your phone with Yes and No buttons, and on Home. Only Yes raises the target, for that trip only.
+- New option **Restart the car when it takes no power** (off by default), for cars that do not start again after their own limit.
+- The price chart can look back 12 h, 24 h, 3 days or 7 days, with the blocks the car really charged in.
+- **Why?** under the charging status, clearer statuses during Battery care and when the car takes no power, and Looking ahead as one line per day.
+- Settings warn before unsaved changes are lost. Tapping a notification opens the Smart Charging page (also on Android).
+
+## 0.30.22
+
+- Look ahead, more places in a row: each place now shows the level **when the car arrives there**, after the drive to it, with the place it comes from ("~223 km from The Outdoor Pact Made (leaves with 41.5%, arrives with −38%)"). Before, a place showed the level when leaving the place before, so a long drive looked almost free. Back home shows the last drive too. Test Y12. (#1)
+
+## 0.30.21
+
+- New option in Settings › Rules: **Ask to charge more when a trip needs it** (off by default). When the next trip costs more than your target leaves room for, plus a reserve to be back home with (default 10 %), you get one question on your phone: "Charge to 95% for this trip?", with **Yes** and **No** buttons. Home shows the same question. Only Yes raises the target, for that one trip. No, or no answer: the target stays.
+- The app now listens for taps on its own notification buttons (only that event; it changes nothing in Home Assistant). New message "A trip needs more charge" under Action needed. Test Y13.
+
+## 0.30.20
+
+- Look ahead: the level after a trip can now be **below 0 %**. Before, the timeline stopped at 0 %, so you could not see how much the battery falls short. Now it shows for example −12 %, with "The battery runs out on this trip: about 12 % short". The next charging plan still starts from 0 %. Test Y12.
+
+## 0.30.19
+
+- Look ahead: **more places in a row**. When the next calendar trip starts before or when the trip before ends, and it is not a trip home, the car does not come home in between. Example: "Naar Werk" 06:00–16:30 (Rivertown), then "Naar The Outdoor Pact Made" 16:30–20:30, then "Naar Thuis": the trip is now home → Rivertown → Made → home. The part to Made is the distance from Rivertown, not from home, and no charging at home is expected while the car is away. Before, the app saw Werk as there and back and planned charging at home at 11:00, and a trip that started exactly when the one before ended was left out.
+- The timeline shows the next place as its own row (with the level when the car leaves there), the day line as "Werk → Made", and a warning when the car is back below 10 %.
+- Learning from trips counts the whole trip. Test Y12.
+
+## 0.30.18
+
+- The price chart on Home can look further back: choose **12 h**, **24 h**, **3 days** or **7 days** above the chart (the same as in Smart Heating Planner and Smart Ventilation). This browser remembers the choice. The part after now (the plan) stays the same.
+- The older part shows the prices from the app's price history (or the fixed tariff) and, in yellow, the blocks the car really charged in (from the charger power sensor; Home Assistant keeps those 5-minute values for 10 days). Older prices are there from the moment the app stored them.
+- New: `GET /api/past` (only reading). Test E11.
+- Test S3 (solar) no longer fails in the afternoon when there is still some sun left today.
+
+## 0.30.17
+
+- New option in Settings › Rules: **Restart the car when it takes no power** (off by default). On Tuesday morning the Renault had ended its session at 80 % at night and did not start again after the app raised its limit to 100 % at 07:00: the charger was on and ready (`ready_to_charge`), but the car asked for no power. Changing the limit once more started it. With this option on, the app does that itself: when it wants to charge and no power flows for 2 minutes, it sets the car's limit one step lower and back. At most once every 30 minutes; shown under Why? on Home and in the log
+- Docs: the new option
+- Tests: settings test J6c (the fake Home Assistant can now play a car that does not start)
+
+## 0.30.16
+
+- Unsaved changes in Settings are no longer lost without warning. While a settings page has changes that are not saved, an orange bar shows **Save** and **Discard**. Leaving the page (another tab, another charger) first asks: save, discard or stay
+- Fix: a settings page reloaded itself every 30 seconds when the cursor was not in a field, and that undid changes that were not saved yet. A page with unsaved changes is no longer reloaded
+- A change only counts as saved when the app said it was saved. When saving fails, the bar stays and shows why
+- The same guard (`unsaved.js`) is used in Smart Heating Planner and Smart Ventilation
+- Tests: settings test A2
+
+## 0.30.15
+
+- **Why?** under the charging status on Home: the facts behind it, as the app sees them at the last check. What the app wants and why, the charger switch (on/off and since when), the charger's status in its own words with what it means, the power now, the car (plugged in, battery, charge limit, target), Battery care, Ready Guard and the next planned charging
+- When the app wants to charge and the charger is on, but no power flows for more than a minute, the status now says **"The charger is on, but the car takes no power"**, with the charger's status and since when it is on, instead of "Starting to charge" for as long as it lasts
+- Docs: Why? and the new status
+- Tests: chargestate
+
+## 0.30.14
+
+- Fix: tapping a notification on an Android phone showed "Unable to connect to Home Assistant". It now opens the Smart Charging page from the sidebar
+
+## 0.30.13
+
+- The charging status on Home now says **"Battery care · charging starts at 09:36"** while the car stays at the care level (for example 80 %) until the last hours before the departure. Before, it could say "Starting to charge" when the charger was on but the car did not take power because of Battery care
+- Docs: the charging status during Battery care
+- Tests: chargestate
+
+## 0.30.12
+
+- Tapping a notification on your phone now opens the Smart Charging page instead of the Home Assistant home screen. Only for the Home Assistant phone app (`notify.mobile_app_…`); other notify actions get the message as before
+- Docs: what a tap on a notification opens
+- Tests: settings test H2b
+
+## 0.30.11
+
+- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 1:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
+- Docs: Looking ahead per day
+
 ## 0.31.0
 
 - Stable release of the improvements tested in 0.30.1 through 0.30.10.

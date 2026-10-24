@@ -69,6 +69,46 @@ check('Charge now to a level: that level and its own end time', () => {
   assert.match(on.detail, /^9\.0 kW · Charge now: on until you press Stop or unplug$/);
 });
 
+check('Battery care: at the care level before the last hours, the status says when charging really starts (also when the charger is on)', () => {
+  const d = plan({
+    vehicle: { soc: 81, car_data: { ok: true } },
+    planning: { target_soc: 100, wanted_soc: 100 },
+    reliability: { base_status: 'at_risk', expected_ready: now + 2 * H },
+    plan: { blocks: [{ start: now + 0.5 * H, end: now + 2 * H, kwh: 12 }], notes: ['battery_care'], care: { soc: 80, target: 100, window_start: now + 0.4 * H } },
+  });
+  for (const x of [n({ want: 'charge', code: 'ready_guard', charging: false, power_w: 0 }), n()]) {
+    const s = S(d, x);
+    assert.equal(s.state, 'care_wait');
+    assert.equal(s.color, 'amber');
+    assert.equal(s.title, `Battery care · charging starts at ${fmt.hm(now + 0.5 * H)}`);
+    assert.match(s.detail, /81% → 100% · the car stays at 80% until then/);
+  }
+  // Once the window has started (or the car is below the care level), the normal states again.
+  assert.notEqual(S(plan({ ...d, plan: { ...d.plan, care: { ...d.plan.care, window_start: now - H } } }), n()).state, 'care_wait');
+  assert.notEqual(S(plan({ ...d, vehicle: { soc: 60, car_data: { ok: true } } }), n()).state, 'care_wait');
+});
+
+check('The app wants to charge and the charger switch is on, but no power flows: say so, with the charger status (no advice)', () => {
+  const d = plan({ vehicle: { soc: 81, car_data: { ok: true } }, car_limit: { value: 100, name: 'Charge limit' }, reliability: { base_status: 'at_risk', protect: true, reason: 'Ready Guard is protecting the departure target', expected_ready: now + 2 * H } });
+  const sw = (since) => ({ entity_id: 'switch.eh123456_charger_enabled', name: 'EH123456 Charger enabled', state: 'on', on: true, since });
+  const x = n({ want: 'charge', code: 'ready_guard', reason: 'Ready Guard is protecting the departure target', status: 'awaiting_start', switch_state: sw(now - 20 * 60000) });
+  const s = S(d, x);
+  assert.equal(s.state, 'no_power');
+  assert.equal(s.color, 'orange');
+  assert.equal(s.title, 'The charger is on, but the car takes no power');
+  assert.match(s.detail, /Charger: awaiting_start \(a car is connected; charging has not started\) · on since Sun 08:40/);
+  // The facts under "Why?".
+  const f = Object.fromEntries(s.facts.map((y) => [y.label, y.value]));
+  assert.match(f['The app wants'], /^charge · Ready Guard/);
+  assert.match(f['EH123456 Charger enabled'], /^on \(charging allowed\) · since/);
+  assert.match(f['Charger status'], /^awaiting_start · a car is connected/);
+  assert.equal(f['Power now'], '0.0 kW');
+  assert.match(f.Car, /plugged in · battery 81% · charge limit 100% · target 100%/);
+  assert.ok(f['Ready Guard']);
+  // Just switched on (less than a minute): still "Starting to charge".
+  assert.equal(S(d, { ...x, switch_state: sw(now - 20000) }).state, 'starting');
+});
+
 check('Ready Guard and solar charging have their own title', () => {
   assert.equal(S(plan(), n({ charging: true, code: 'ready_guard', want: 'charge' })).title, 'Ready Guard charging');
   assert.equal(S(plan(), n({ charging: true, code: 'solar', want: 'charge' })).title, 'Charging on solar');

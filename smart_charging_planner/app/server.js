@@ -30,6 +30,7 @@ const { chargedBlocks } = require('./charged');
 const pricehistory = require('./pricehistory');
 const boost = require('./boost');
 const chargefor = require('./chargefor');
+const topup = require('./topup');
 const equalizer = require('./equalizer');
 const diagnostics = require('./diagnostics');
 const cardata = require('./cardata');
@@ -49,6 +50,7 @@ const STATIC_FILES = new Map([
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
+  ['/unsaved.js', ['unsaved.js', 'application/javascript; charset=utf-8']],
 ]);
 const APP_VERSION = require('./package.json').version;
 require('./tripcost').setUserAgent(APP_VERSION);
@@ -187,6 +189,8 @@ const ST = scope.store(() => ({
   lastLiveSend: null,
   lastManual: null,
   conflictsCache: null,
+  wantNoPowerSince: null, // the app wants to charge, but no power flows (restartCar)
+  lastRestart: null, // { at, from, to }: the car was restarted via its charge limit
 }));
 
 // ---------------------------------------------------------------------------
@@ -318,10 +322,15 @@ const AHEAD_STEPS = 6;
 // The chart looks back at least this far, to show what was charged.
 const LOOK_BACK_MS = 12 * 3600000;
 
-// Prices from before today's list, so the chart reaches back 12 hours.
-// Taken from the price history (or the fixed tariff); empty when unknown.
-function earlierPrices(cfg, firstStart, now, tz) {
-  const from = Math.floor((now - LOOK_BACK_MS) / 3600000) * 3600000;
+// How far back the chart can look, in hours (chosen on Home; 12 is the default
+// and comes with the plan itself).
+const PAST_HOURS = [12, 24, 72, 168];
+
+// Prices from before today's list, so the chart reaches back 12 hours (or
+// lookBackMs). Taken from the price history (or the fixed tariff); empty when
+// unknown.
+function earlierPrices(cfg, firstStart, now, tz, lookBackMs = LOOK_BACK_MS) {
+  const from = Math.floor((now - lookBackMs) / 3600000) * 3600000;
   if (!cfg || !cfg.source || !firstStart || from >= firstStart) return [];
   const list = cfg.source.type === 'fixed'
     ? fixedTariff(cfg.source, { start: from, end: firstStart }, tz)
@@ -335,6 +344,38 @@ function earlierPrices(cfg, firstStart, now, tz) {
 function minMaxPrice(rules) {
   const v = rules ? rules.min_soc_max_price : null;
   return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+
+// "Ask to charge more for a long trip" (Settings › Rules): when the next trip
+// (with all its places in a row) costs more than the target leaves room for,
+// plus the reserve to be back home with, ask once on the phone (Yes/No
+// buttons) and on Home. Only "Yes" raises the target, for that trip only.
+// Returns what Home shows: the question or the answer, or null.
+function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
+  const rules = rulesFor(s);
+  if (!rules.trip_topup_enabled || !vehicle) return null;
+  const view = (r) => (r ? { state: r.state, time: r.time, soc: r.soc, from: r.from, pct: r.pct, title: r.title, token: r.state === 'asked' ? r.token : null } : null);
+  const shown = () => {
+    const r = topup.current(vehicle.id, now);
+    return r && departure && Math.abs(r.time - departure.time) <= 60000 ? view(r) : null;
+  };
+  if (!departure || departure.source === 'choice' || !next || !next.trip || next.trip.status !== 'ok' || next.trip.pct == null) return shown();
+  const reserve = Number.isFinite(Number(rules.trip_topup_reserve)) ? Number(rules.trip_topup_reserve) : 10;
+  const needed = next.trip.pct + reserve;
+  if (needed <= departure.soc + 0.5) return shown();
+  const soc = Math.min(100, Math.ceil(needed));
+  if (soc <= departure.soc) return shown();
+  const title = departure.title || next.current.title || null;
+  const rec = topup.ask(vehicle.id, { time: departure.time, soc, from: departure.soc, pct: next.trip.pct, title }, now);
+  if (rec) {
+    const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(departure.time);
+    const back = Math.round(departure.soc - next.trip.pct);
+    const msg = `${title || 'Your trip'} (${when}) costs about ${Math.round(next.trip.pct)}%. With ${departure.soc}% you are back home with about ${back}%. Charge to ${soc}% for this trip?`
+      + (next.trip.pct > 100 ? ' Even at 100% it is not enough: charge on the way.' : '')
+      + ' You can also answer on Home in the app.';
+    notifier.notify('trip_topup', 'This trip needs more charge', msg, { vehicleId: vehicle.id, extra: { actions: topup.actions(rec), tag: `scp_topup_${vehicle.id}` } }).catch(() => {});
+  }
+  return shown();
 }
 
 function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow, rules = null }) {
@@ -355,17 +396,37 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   // The car's range sensor gives the range at the level NOW, so the use per
   // km always comes from the level now, not from the level when leaving.
   const rangeSoc = () => (Number.isFinite(soc) ? soc : socAtDep);
+  // More places in a row: when the next calendar trip starts before (or when)
+  // this one ends and it is not a trip home, the car does not come home in
+  // between. It drives on from here: work, then sport, then home. A gap
+  // between the two means the car is home first (there and back).
+  const endOf = (t) => t.event_end || startOf(t) + 3600000;
+  const placeOf = (t) => t.location || tripcost.placeFor(null, t.title).place;
+  const nextCal = (t) => trips.find((x) => x.time > t.time && x.time < t.time + 36 * 3600000);
   function tripOf(cur, socLeave) {
-    const where = cur.location || tripcost.placeFor(null, cur.title).place; // the location, or a saved place by the title
-    const following = where && !tripcost.isHome(cur.location)
-      ? trips.find((t) => t.time > cur.time && t.time < cur.time + 36 * 3600000) : null;
+    const where = placeOf(cur); // the location, or a saved place by the title
+    const stops = [];
+    let last = cur;
+    if (where && !tripcost.isHome(cur.location)) {
+      for (let k = 0; k < 5; k++) {
+        const nx = nextCal(last);
+        if (!nx || isReturnTrip(nx) || !placeOf(nx) || startOf(nx) > endOf(last)) break;
+        stops.push(nx);
+        last = nx;
+      }
+    }
+    const following = where && !tripcost.isHome(cur.location) ? nextCal(last) : null;
     const back = following && isReturnTrip(following) ? following : null;
     const trip = where && !fixed
-      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, vehicle, states, soc: rangeSoc() })
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc() })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
-    const returnAt = back ? (back.event_end || startOf(back) + 3600000) : cur.event_end || startOf(cur) + 3600000;
-    const socAfter = socLeave != null && trip.pct != null ? Math.max(0, Math.round((socLeave - trip.pct) * 10) / 10) : null;
-    return { ...trip, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter };
+    const returnAt = back ? endOf(back) : endOf(last);
+    // soc_after (0 or more) is used to plan what comes next; soc_end can be
+    // below 0: how much the battery falls short, shown in the timeline.
+    const socEnd = socLeave != null && trip.pct != null ? Math.round((socLeave - trip.pct) * 10) / 10 : null;
+    const socAfter = socEnd == null ? null : Math.max(0, socEnd);
+    const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -379,7 +440,8 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
   const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
   // (The first trip's level after it follows the level when leaving.)
-  trip0.soc_after = socAtDep != null && trip0.pct != null ? Math.max(0, Math.round((socAtDep - trip0.pct) * 10) / 10) : (trip0.pct == null ? socAtDep : null);
+  trip0.soc_end = socAtDep != null && trip0.pct != null ? Math.round((socAtDep - trip0.pct) * 10) / 10 : null;
+  trip0.soc_after = trip0.soc_end != null ? Math.max(0, trip0.soc_end) : (trip0.pct == null ? socAtDep : null);
 
   const timeline = [];
   // Charging in the timeline: the part for a minimum (purple) and the rest.
@@ -422,8 +484,22 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
   }
   const leave = (x, t, tr, socLeave, target) => {
-    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
-    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null });
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
+    // On to the next place, without going home in between. Each row: the
+    // drive from the place before (km), the level when the car leaves there
+    // (soc_from) and the level when it arrives here (soc, can be below 0).
+    const round = (v) => (v == null ? null : Math.round(v * 10) / 10);
+    const use = (km) => km * tr.pct_per_km * tripcost.MARGIN;
+    let lv = socLeave != null && tr && tr.pct != null ? socLeave - use(tr.km || 0) : null;
+    let from = x.title || (t && t.title) || null;
+    for (const v of (tr && tr.via) || []) {
+      const leaveLv = lv;
+      if (lv != null) lv = v.km == null ? null : lv - use(v.km);
+      timeline.push({ type: 'stop', time: v.time, title: v.title, location: v.location, km: v.km, from_title: from, soc_from: round(leaveLv), soc: round(lv) });
+      from = v.title;
+    }
+    const chain = tr && tr.via && tr.via.length ? { from_title: from, km: tr.back_km ?? null, soc_from: round(lv) } : {};
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null, ...chain });
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
@@ -502,8 +578,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       }
     }
     const tr = t ? tripOf(t, socLeave) : { status: 'unknown', reason: 'no_location', pct: null, return_at: x.time + 3600000, soc_after: null };
-    if (tr.pct == null) tr.soc_after = null;
-    else if (socLeave != null) tr.soc_after = Math.max(0, Math.round((socLeave - tr.pct) * 10) / 10);
+    if (tr.pct == null) { tr.soc_after = null; tr.soc_end = null; } else if (socLeave != null) {
+      tr.soc_end = Math.round((socLeave - tr.pct) * 10) / 10;
+      tr.soc_after = Math.max(0, tr.soc_end);
+    }
     leave(x, t, tr, socLeave, x.soc);
     back = tr.return_at;
     level = tr.soc_after;
@@ -532,7 +610,7 @@ function tripLearning(vehicle, plugged, soc, carData, next, now) {
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
   if (w.plugged === true && plugged === false && live && next && next.trip && next.trip.status === 'ok'
     && Math.abs(next.current.time - now) < 3 * 3600000) {
-    tripcost.tripStarted(vehicle.id, soc, (next.trip.km || 0) + (next.trip.back_km || 0), now);
+    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now);
   }
   if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now);
   tripWatch.set(vehicle.id, { plugged });
@@ -1105,6 +1183,8 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
+    // You said yes to charging more for this trip: the higher target.
+    if (vehicle && rulesFor(s).trip_topup_enabled) departure = topup.apply(vehicle.id, departure, now);
     // "Ready for" a later day: that becomes the departure; a departure before
     // it only gets the minimum battery level.
     let cf = chargefor.current(now);
@@ -1354,6 +1434,13 @@ const routes = {
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
     }
+    // A trip that costs more than the target leaves room for: ask whether to charge more.
+    let tripTopup = null;
+    try {
+      tripTopup = tripTopupFor({ s, vehicle, departure, next, now, tz });
+    } catch (err) {
+      ha.warn('Trip top-up check failed:', err.message);
+    }
     // Not while just turned on (Charge now "on"): the car on the charger may be
     // a visitor's, so plugging it in or out says nothing about your car's trips.
     if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
@@ -1400,6 +1487,7 @@ const routes = {
       } : null,
       departure,
       next,
+      trip_topup: tripTopup,
       // More than one car: which one is connected, and how the app knows.
       cars: cars(s).length > 1 ? {
         list: cars(s).map((v) => ({ id: v.id, name: v.name, own_departures: ownDepartures(v, s), plug_sensor: !!v.plugged_entity })),
@@ -1461,6 +1549,30 @@ const routes = {
   },
 
   // Savings per charging session over the last 30 days.
+  // The chart further back than the plan's 12 hours: the prices and what was
+  // charged from `hours` ago up to `before` (the first block of the plan's
+  // chart). Only reading: the price history and the charger's statistics.
+  'GET /api/past': async (req) => {
+    const url = new URL(req.url, 'http://localhost');
+    const hours = PAST_HOURS.includes(Number(url.searchParams.get('hours'))) ? Number(url.searchParams.get('hours')) : 12;
+    const s = settings.load();
+    const tz = ha.state.timeZone;
+    const now = Date.now();
+    const beforeRaw = Number(url.searchParams.get('before'));
+    const before = Number.isFinite(beforeRaw) && beforeRaw > 0 ? Math.min(beforeRaw, now) : now;
+    const prices = s.prices ? earlierPrices(s.prices, before, now, tz, hours * 3600000) : [];
+    const charger = currentCharger(s);
+    let charged = [];
+    if (charger && charger.power_entity && prices.length) {
+      try {
+        charged = await chargedBlocks(charger.power_entity, prices, now);
+      } catch (err) {
+        ha.debug('Charged history not available:', err.message);
+      }
+    }
+    return { hours, from: prices.length ? prices[0].start : before, before, prices, charged };
+  },
+
   'GET /api/savings': async () => {
     const s = settings.load();
     const tz = ha.state.timeZone;
@@ -2015,6 +2127,16 @@ function chargeForFromBody(b) {
   if (!(min >= lo && min <= hi)) throw badRequest(`Minimum must be between ${lo} and ${hi} %`);
   return { day: b.day, until, soc, min_soc: min };
 }
+
+// The answer to "charge more for this trip?" on Home: { token, answer: 'yes' | 'no' }.
+routes['POST /api/topup'] = async (req) => {
+  const b = await readBody(req);
+  if (!['yes', 'no'].includes(b.answer)) throw badRequest('Answer yes or no');
+  const r = topup.answer(String(b.token || ''), b.answer === 'yes');
+  if (!r) throw badRequest('This question is no longer open');
+  for (const x of ST.all.values()) x.planCache = null;
+  return { ok: true, state: r.state, soc: r.soc };
+};
 
 routes['POST /api/chargefor'] = async (req) => {
   const c = chargeForFromBody(await readBody(req));
@@ -2723,6 +2845,48 @@ async function sendCarLimit(lim, value, reason, live) {
 // at most twice.
 const LIMIT_RETRY_MS = Number(process.env.SCP_LIMIT_GAP_MS) || 15 * 60000;
 const LIMIT_MAX_TRIES = 3;
+
+// "Restart the car" (Settings › Rules, off by default). Some cars (Renault)
+// end their charging session at their own limit and do not start again when
+// the limit is raised later: the charger is on and ready, but the car asks
+// for no power. Changing the limit once more wakes it. So: when the app wants
+// to charge, the charger allows it, and no power flows for 2 minutes, the app
+// sets the car's limit one step lower; at the next check (a minute later) it
+// sets it back to the goal as usual. At most once every 30 minutes.
+const RESTART_AFTER_MS = Number(process.env.SCP_RESTART_AFTER_MS) || 2 * 60000;
+const RESTART_GAP_MS = 30 * 60000;
+async function restartCar(planResult, entry, states, rules) {
+  const now = Date.now();
+  const stuck = entry.want === 'charge' && entry.plugged === true && entry.charging !== true && !((Number(entry.power_w) || 0) > 500)
+    && (!entry.switch_state || entry.switch_state.on === true);
+  if (!stuck) { ST().wantNoPowerSince = null; return; }
+  if (!ST().wantNoPowerSince) ST().wantNoPowerSince = now;
+  if (!rules || rules.car_limit_restart !== true) return;
+  const s = settings.load();
+  if (!managingCarLimit(s) || !planResult) return;
+  const bc = boost.current();
+  if (bc && bc.mode === 'on') return; // possibly a visitor's car
+  const since = Math.max(ST().wantNoPowerSince, entry.switch_state && entry.switch_state.since ? entry.switch_state.since : 0);
+  if (now - since < RESTART_AFTER_MS) return;
+  if (ST().lastRestart && now - ST().lastRestart.at < RESTART_GAP_MS) return;
+  const vehicle = planResult.vehicle ? s.vehicles.find((x) => x.id === planResult.vehicle.id) || null : null;
+  if (!vehicle) return;
+  const cd = planResult.vehicle.car_data;
+  if (cd && cd.ok === false) return;
+  const lim = await carChargeLimit(vehicle, states);
+  if (!lim || !lim.writable || lim.value == null) return;
+  const { wanted } = limitGoal(planResult, bc);
+  if (!Number.isFinite(Number(wanted)) || limitValue(lim, wanted) !== lim.value) return; // a change is still on its way
+  const soc = Number(planResult.vehicle.soc);
+  if (Number.isFinite(soc) && soc >= lim.value - 1) return; // at its limit: nothing to wake
+  const step = Number(lim.step) > 0 ? Number(lim.step) : 5;
+  const lower = limitValue(lim, lim.value - step);
+  if (lower >= lim.value) return;
+  ST().lastRestart = { at: now, from: lim.value, to: lower };
+  ST().lastLimitSend = null; // so the goal is sent again at the next check
+  ha.log(`The car takes no power while it should: car charge limit ${lim.value}% → ${lower}% and back, to restart it`);
+  await sendCarLimit(lim, lower, 'Restart the car: it takes no power', true);
+}
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
@@ -2865,6 +3029,8 @@ function chargingNow(n) {
   if (!n || !n.time) return null;
   return {
     at: n.time, plugged: n.plugged ?? null, charging: n.charging ?? null, power_w: n.power_w ?? null, status: n.status ?? null,
+    switch_state: n.switch_state || null,
+    restart: ST().lastRestart || null,
     want: n.want || null, code: n.code || null, reason: n.reason || null,
     next_start: n.next_start || null, block_end: n.block_end || null, agrees: n.agrees ?? null, error: n.error || null,
   };
@@ -3169,6 +3335,7 @@ async function actStep({ s, charger, states, methods, rules, planResult, entry }
     await sendLive(entry, chosenMethods(methods, rules));
     await sendCurrentAndPhases(entry, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
     await manageCarLimit(planResult, entry, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
+    await restartCar(planResult, entry, states, rules).catch((err) => ha.warn('Restarting the car failed:', err.message));
     // The Equalizer and the home battery belong to the house: the first charger steers them.
     if (scope.isPrimary()) await equalizerStep(s, entry, states, charger).catch((err) => ha.warn('Equalizer surplus charging failed:', err.message));
   }
@@ -3877,6 +4044,9 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_soc: num(b.battery_care_soc ?? 80, 'Battery care level', 50, 95),
     battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
     car_limit_off: b.car_limit_off === true,
+    car_limit_restart: b.car_limit_restart === true,
+    trip_topup_enabled: b.trip_topup_enabled === true,
+    trip_topup_reserve: num(b.trip_topup_reserve ?? 10, 'Reserve when back home', 0, 50),
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
   settings.save(s);
@@ -4117,5 +4287,18 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   ha.log(`Smart Charging Planner ${APP_VERSION} listening on port ${PORT}`);
   ha.onConnect(startBackgroundRefresh);
+  // The Yes/No buttons of "charge more for this trip?" on the phone.
+  ha.onConnect(() => {
+    ha.subscribeNotifyActions().catch((err) => ha.warn('Could not listen for notification buttons:', err.message));
+  });
+  ha.onEvent((ev) => {
+    if (!ev || ev.event_type !== 'mobile_app_notification_action') return;
+    const a = topup.fromAction(ev.data && ev.data.action);
+    if (!a) return;
+    if (topup.answer(a.token, a.yes)) {
+      for (const x of ST.all.values()) x.planCache = null;
+      refreshAll('answer on the phone').catch(() => {});
+    }
+  });
   ha.connect();
 });

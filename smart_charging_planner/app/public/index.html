@@ -137,6 +137,13 @@
           <p class="muted small"><strong>The car's own charge limit follows every choice.</strong> The app sets it to the highest goal that is active: your next departure, Charge now, or Ready for tomorrow / the day after. When that goal ends, it goes back. Only while the car is plugged in, and only when the car supports it. A new limit is sent once; it is only sent again if the car still shows the old value after 15 minutes (at most 3 times), because the car's cloud limits the number of calls.</p>
           <p class="muted small" id="car-limit-now"></p>
           <label class="check"><input type="checkbox" name="car_limit_off"> Don't change the car's charge limit (only if your own automation does that)</label>
+          <label class="check"><input type="checkbox" name="car_limit_restart"> <strong>Restart the car when it takes no power</strong></label>
+          <p class="muted small">Some cars (for example Renault) end charging at their own limit and do not start again when the limit is raised later: the charger is on, but the car asks for no power. With this on, the app sets the car's limit one step lower and back when it wants to charge and no power flows for 2 minutes, which starts the car again. At most once every 30 minutes; shown under Why? on Home and in the log.</p>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="trip_topup_enabled"> <strong>Ask to charge more when a trip needs it</strong></label>
+          <p class="muted small">When the next trip in the calendar (with all its places in a row) costs more than your target leaves room for, the app asks on your phone: "Charge to 95% for this trip?", with Yes and No buttons (Home Assistant phone app; turn on "A trip needs more charge" under Settings › Notifications). You can also answer on Home. Only Yes raises the target, and only for that trip. No answer: the target stays.</p>
+          <div class="sub" data-when="trip_topup_enabled">
+            <div class="field"><label>Be back home with at least (%)</label><input name="trip_topup_reserve" type="number" min="0" max="50" step="1"></div>
+          </div>
           <div class="field" style="margin-top:14px"><label>Default minimum for the quick choices on Home (20–45 %)</label>
             <input name="min_choice" type="number" min="20" max="45" step="5"></div>
           <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>
@@ -454,14 +461,14 @@
     </section>
 
     <section id="tab-status" hidden>
-      <div class="card">
+      <div class="card" data-guard="Notifications">
         <h2>Notifications</h2>
         <p class="muted small">Add a recipient for every phone (or group) that should get messages. Per recipient you choose which messages it gets and, with more than one car, for which cars. A group switch turns all its messages on or off; open it to choose message by message.</p>
         <div id="notify-state" class="src"></div>
         <div id="notify-list"></div>
         <div class="buttons">
           <button class="secondary" type="button" id="notify-add">Add recipient</button>
-          <button class="primary" type="button" id="notify-save">Save</button>
+          <button class="primary" type="button" id="notify-save" data-guard-save>Save</button>
         </div>
         <div id="notify-test-result"></div>
         <div class="row"><span class="label">Last notification</span><span class="value" id="notify-last">–</span></div>
@@ -474,6 +481,7 @@
     </section>
   </main>
 
+  <script src="unsaved.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

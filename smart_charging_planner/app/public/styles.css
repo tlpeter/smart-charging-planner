@@ -385,6 +385,11 @@
     .overview-main, .overview-side { min-width: 0; }
     .overview-side .card, .overview-main .card { margin-bottom: 18px; }
     .card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    /* Chart: how far back, as small round buttons */
+    .range { display: inline-flex; gap: 2px; background: var(--chip, rgba(66, 72, 76, 0.065)); border-radius: 999px; padding: 3px; margin: 10px 0 2px; }
+    .range button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; cursor: pointer; min-height: 0; box-shadow: none; }
+    .range button[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+    .range button:focus-visible { outline: 2px solid var(--accent); }
     .card-title-row h2 { margin: 0; }
     .card-title-row p { margin: 4px 0 0; }
     .chart-plan-chip {
@@ -915,6 +920,29 @@
     .tl-level.exp { color: var(--expected); }
     .tl-level.min { color: var(--minimum); }
     .tl-charge.minimum .tl-title, .tl-charge.minimum .tl-sub { color: var(--minimum); }
+    .charge-now { flex-wrap: wrap; }
+    .charge-now .why { flex-basis: 100%; margin-top: 8px; font-size: 14px; }
+    .charge-now .why > summary { cursor: pointer; color: var(--muted); }
+    .charge-now .why dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 0; }
+    .charge-now .why dt { color: var(--muted); }
+    .charge-now .why dd { margin: 0; overflow-wrap: anywhere; }
+    @media (max-width: 560px) { .charge-now .why dl { grid-template-columns: 1fr; gap: 0; } .charge-now .why dd { margin-bottom: 6px; } }
+    .tl-days { margin: 8px 0 6px; }
+    .tl-day { border-bottom: 1px solid var(--border); }
+    .tl-day:last-child { border-bottom: 0; }
+    .tl-day > summary { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; cursor: pointer; list-style: none; }
+    .tl-day > summary::-webkit-details-marker { display: none; }
+    .tl-day > summary::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+    .tl-day[open] > summary::after { transform: rotate(90deg); }
+    .tl-dayname { flex: 0 0 64px; white-space: nowrap; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tl-daytext { flex: 1 1 auto; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
+    .tl-day.warn .tl-dayname { color: var(--expected); }
+    .tl-p { white-space: normal; }
+    .tl-p.exp { color: var(--expected); }
+    .tl-p.min { color: var(--minimum); }
+    .tl-p.plan { color: var(--accent); }
+    .tl-dot { color: var(--muted); }
+    .tl-day .timeline { margin-top: 0; }
     .tl-key.exp { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--expected); margin-right: 6px; vertical-align: -1px; }
     .legend i.away { background: var(--muted); opacity: .25; }
     @media (max-width: 560px) {
