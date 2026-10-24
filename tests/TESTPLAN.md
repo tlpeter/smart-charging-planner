@@ -16,11 +16,11 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 178 of 178 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 166 of 166 ✓ |
-| Unit tests (17 files) | 736 of 737 ✗ |
+| Unit tests (17 files) | 737 of 737 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.33.3-dev.
+Version: 0.33.4-dev.
 
 # Settings
 
@@ -203,7 +203,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.39 | ✓ charges in 3 block(s), saving €1.30 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.38 | ✓ charges in 3 block(s), saving €1.29 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -353,7 +353,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 53 of 53 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 63 of 64 ✗ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 64 of 64 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
@@ -1055,7 +1055,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details open><summary>63 of 64 passed – show every check</summary>
+<details><summary>64 of 64 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1120,7 +1120,7 @@ Price forecast: reading it and planning with it.
 | Tibber, two homes, none chosen: a clear error listing both | ✓ |
 | Tibber, Home B chosen: its prices, not those of Home A | ✓ |
 | Tibber, the chosen home is gone: a clear error, no other home | ✓ |
-| Nord Pool, area SE4 chosen: its prices (per MWh → per kWh) | ✗ FAIL |
+| Nord Pool, area SE4 chosen: its prices (per MWh → per kWh) | ✓ |
 | Nord Pool, two areas, none chosen: a clear error | ✓ |
 | Tibber, one home: used without choosing, as before | ✓ |
 
