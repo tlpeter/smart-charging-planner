@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.23-dev
+
+- Changing the calendar-writing language no longer creates the same trip again. Duplicate checks keep different destinations, car tags and actual start times separate, including the repeated winter-time hour. (#38)
+- Added contribution guidance under the existing MIT license, retaining third-party notices and matching package license metadata. (#32)
+- Updated the candidate version and release notes, and brought main's prioritized GitHub roadmap onto dev so the next release preserves it.
+
 ## 0.32.22-dev
 
 - Tests: the checks for "Add trip" now expect the new default (English when Home Assistant is not in Dutch).

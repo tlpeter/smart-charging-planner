@@ -33,6 +33,7 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 
 ## Stable release
 
+- Preserve main's prioritized, issue-linked roadmap and any other main-only documentation changes when merging. MIT licensing is already published on both branches; include the dev contribution guide with the release.
 - Get the owner's release instruction after the dev home check.
 - Re-read both heads, merge tested dev into main and use the release version without -dev.
 - On main remove (dev) from app/panel names and TEST VERSION from the description. Check all metadata and changelog headings.
@@ -41,10 +42,12 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations.
 
-## Current recovery candidate: 0.32.20-dev
+## Current recovery candidate: 0.32.23-dev
 
-Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11 and #20. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
+Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11 and #20, plus #38 and the remaining contribution guidance for #32. English/Dutch trip writing from 0.32.21-dev is included. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
 
-This candidate does not resolve all audit findings. Physical site/phase capacity allocation (#29), explicit routing privacy (#31), full price-basis preview (#26), compatibility validation (#28) and project licensing (#32) remain separate work. Native inverter limits and physical hardware verification remain necessary. An older ownership record cannot reconstruct original battery settings that were never saved; validate the manual recovery flow before release. Verify the diagnostics preview at desktop/phone sizes and use synthetic secrets for the export check.
+This candidate does not resolve all audit findings. Physical site/phase capacity allocation (#29), explicit routing privacy (#31), full price-basis preview (#26) and compatibility validation (#28) remain separate work. Native inverter limits and physical hardware verification remain necessary. An older ownership record cannot reconstruct original battery settings that were never saved; validate the manual recovery flow before release. Verify the diagnostics preview at desktop/phone sizes and use synthetic secrets for the export check.
+
+The MIT license and third-party icon notice are retained. Contribution expectations are in CONTRIBUTING.md. Switching the trip-writing language must not write an equivalent event again; check preview and Add trip with an existing Dutch/English event. Different car tags, destinations and distinct start instants remain separate.
 
 The custom forecast setup correction associated with #26 is an installation configuration change. It does not close the broader enhancement for a price-breakdown preview.

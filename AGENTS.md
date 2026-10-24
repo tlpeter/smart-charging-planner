@@ -22,6 +22,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 - **Easee:** start and stop with the "Charger enabled" switch (on/off), never pause/resume.
 - **New behaviour is an option** when not everyone has it (more cars, more chargers, home battery, …); off by default unless the owner says otherwise.
 - **Every version gets a changelog entry**, short and in plain words.
+- Preserve the prioritized, issue-linked roadmap and main-only documentation changes when merging branches. Keep README and RELEASE candidate versions aligned with config.yaml.
 
 ## Control and release safeguards
 

@@ -7,6 +7,7 @@
 // target in the description"), so a calendar may mix them.
 
 const { tzParts, localDateTime, parseLocal, isoLocal } = require('./prices');
+const { parseCar } = require('./departures');
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const MAX_EVENTS = 60;
@@ -98,15 +99,29 @@ function buildTripEvents(input, tz, now = Date.now(), lang = 'en') {
   }));
 }
 
-// Mark events that already exist in the calendar (same title, same start).
+// A writing-language change must not create the same trip a second time.
+// Only normalize the app's To/Naar prefix when its destination agrees with
+// the event location. Keep actual title/location changes and car tags apart.
+function tripKey(e, tz) {
+  const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const time = parseLocal(e.start, tz);
+  if (!Number.isFinite(time)) return null;
+  const title = norm(e.summary);
+  const location = norm(e.location);
+  const trip = title.match(/^(?:to|naar)\s+(.+)$/);
+  const appTitle = !!(trip && location && trip[1] === location);
+  const destination = appTitle ? trip[1] : title;
+  const car = norm(parseCar(`${e.summary || ''}\n${e.description || ''}`));
+  return JSON.stringify([appTitle, destination, location, car, Math.round(time / 60000)]);
+}
+
+// Existing trips are skipped, not edited. A different target alone does not
+// replace an existing event; edit it in the calendar.
 function markDuplicates(planned, existing, tz) {
-  const keys = new Set((existing || []).map((e) => {
-    const t = parseLocal(e.start, tz);
-    return `${String(e.summary || '').trim().toLowerCase()}|${Math.round(t / 60000)}`;
-  }));
+  const keys = new Set((existing || []).map((e) => tripKey(e, tz)).filter(Boolean));
   return planned.map((e) => ({
     ...e,
-    duplicate: keys.has(`${e.summary.toLowerCase()}|${Math.round(e.start / 60000)}`),
+    duplicate: keys.has(tripKey(e, tz)),
   }));
 }
 

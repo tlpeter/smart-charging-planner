@@ -218,6 +218,8 @@ With **Which events are trips? → Events that contain a keyword**, the keyword 
 | Description | `target: 80 precondition: no` | `doel: 80 precondition: nee` |
 | With more cars | `… car: EV6` | `… auto: EV6` |
 
+**Duplicate trips:** an existing event with the same destination, start minute and car tag is skipped, also when the writing language changes between English and Dutch. The app recognizes its `To`/`Naar` prefix when it agrees with the event location; it does not translate place names. Different car tags, destinations and actual start times remain separate. Existing events are not edited: changing only the target does not replace an event. Edit that event in the calendar.
+
 **Add trip** (Plan) writes to the calendar the app reads departures from (Plan › Departures › Calendar must be on). The trip counts right away: on Plan and in the timeline under Looking ahead on Home. With an address as destination the app works out what the trip costs. **Back home at** (optional) is when the event ends: then the app knows when the car is back; without it the event lasts 15 minutes. **For** (which car) only appears with more than one car.
 
 ### A trip added in Google Calendar (or another online calendar)
@@ -395,8 +397,7 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 ## Planned
 
-Plans of more chargers that take each other into account. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap and an overview of all options.
-
+The [project roadmap](../README.md#roadmap) lists planned improvements by priority with their GitHub issues. It distinguishes stable features, improvements awaiting release and remaining work.
 
 ## Recovery safeguards (0.32.8-dev)
 

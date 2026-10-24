@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.32.20-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.32.23-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -146,6 +146,10 @@ For a sensor containing actual and forecast prices:
 
 ## Roadmap
 
+GitHub issues track the scope, acceptance checks and current status. P1 comes before broader public promotion; P2 improves reliability and usability; P3 is a later extension. Features listed as available may still have [open bugs](https://github.com/tlpeter/smart-charging-planner/issues?q=is%3Aissue%20is%3Aopen%20label%3Abug); a completed feature is not a claim that every physical device is verified.
+
+### Available features
+
 - [x] Setup checks: vehicle, charger, grid, price source
 - [x] Charging plan as advice, with price chart
 - [x] Departure times: schedule, helper, calendar, one-off
@@ -161,9 +165,33 @@ For a sensor containing actual and forecast prices:
 - [x] More than one car on one charger (an option): recognises the connected car, own departures per car
 - [x] More than one charger (an option): a plan and control per charger, the car with the least room to spare goes first when the connection is too small
 - [x] Battery care: above 80 % only in the last hours before departure
-- [ ] Plans of more chargers that take each other into account (now they are shared at the moment of charging)
-- [ ] Looking ahead: choose how far, 7, 14 or 30 days, like the price chart (#4)
-- [ ] Trips that need more than the battery holds: suggest charging stations on the way (from OpenStreetMap, charging stations near the route), with your preferences in Settings (operator, fast charging, minimum power)
+
+### Before broader public promotion (P1)
+
+- [ ] Show actual and forecast price breakdowns, including VAT, fees and forecast margin, to prevent applying VAT twice. [#26](https://github.com/tlpeter/smart-charging-planner/issues/26)
+- [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
+- [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
+- [ ] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
+
+### Reliability and usability (P2)
+
+- [ ] Explain departure-source precedence and warn about ambiguous car tags or ignored calendar events. [#25](https://github.com/tlpeter/smart-charging-planner/issues/25)
+- [ ] Provide a supported week-price forecast path with freshness, schema and price-basis checks. [#27](https://github.com/tlpeter/smart-charging-planner/issues/27)
+- [ ] Plan all chargers against shared capacity before charging time, including realistic readiness estimates. [#30](https://github.com/tlpeter/smart-charging-planner/issues/30)
+- [ ] Add Pause until and a guided release/recovery action for app-owned device settings. [#33](https://github.com/tlpeter/smart-charging-planner/issues/33)
+
+### Later extensions (P3)
+
+- [ ] Choose a 7-, 14- or 30-day look-ahead horizon, clearly marking estimates beyond known prices. [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
+- [ ] Suggest suitable charging stations along routes that exceed the usable battery range, with operator, connector and power preferences. Depends on the routing privacy choice. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
+
+### Implemented on dev, awaiting a stable release
+
+These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.32.0.
+
+- [x] Keep recently confirmed calendar departures during temporary read failures, with bounded expiry and a visible warning. [#24](https://github.com/tlpeter/smart-charging-planner/issues/24)
+- [x] Color the battery SoC bar from red at empty to green at full, independently of the charging target. [#36](https://github.com/tlpeter/smart-charging-planner/issues/36)
+- [x] Publish the MIT project license and contribution guidance. The license is already on main; the contribution guide awaits release. [#32](https://github.com/tlpeter/smart-charging-planner/issues/32)
 
 ## Tests
 
@@ -203,6 +231,10 @@ Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
 ## License
 
 Released under the [MIT License](LICENSE): free to use, change and share, also commercially, as long as the license text stays with it. No warranty.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports, proposed changes, validation and contribution licensing. Changes submitted for inclusion use the project's MIT License; preserve third-party notices.
 
 ## Credits
 

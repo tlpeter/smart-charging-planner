@@ -147,5 +147,48 @@ check('calendar: trips the app writes are read back, in English and Dutch', () =
   assert.strictEqual(tripLanguage('en', 'nl'), 'en');
 });
 
+check('calendar: changing the writing language skips the same trip, including old Dutch events', () => {
+  const { buildTripEvents, markDuplicates, tripLanguage } = require('../smart_charging_planner/app/trips');
+  const now = Date.UTC(2026, 9, 24), tz = 'Europe/Amsterdam';
+  const input = { datetime: '2026-10-26T08:00', destination: 'Work', soc: 80, car: 'EV6' };
+  const event = (lang) => buildTripEvents(input, tz, now, lang)[0];
+  for (const [before, after] of [['nl', 'en'], ['en', 'nl'],
+    [tripLanguage('auto', 'nl'), tripLanguage('auto', 'en')],
+    ['nl', tripLanguage('auto', 'en')]]) {
+    const old = event(before), next = event(after);
+    const existing = { ...old, start: new Date(old.start).toISOString() };
+    assert.strictEqual(markDuplicates([next], [existing], tz)[0].duplicate, true);
+  }
+});
+check('calendar: duplicate detection keeps different cars, destinations, titles and start times separate', () => {
+  const { buildTripEvents, markDuplicates } = require('../smart_charging_planner/app/trips');
+  const now = Date.UTC(2026, 9, 24), tz = 'Europe/Amsterdam';
+  const input = { datetime: '2026-10-26T08:00', destination: 'Work', soc: 80, car: 'EV6' };
+  const old = buildTripEvents(input, tz, now, 'nl')[0];
+  const next = buildTripEvents(input, tz, now, 'en')[0];
+  const distinct = [
+    buildTripEvents({ ...input, car: 'Leaf' }, tz, now, 'en')[0],
+    buildTripEvents({ ...input, car: '' }, tz, now, 'en')[0],
+    buildTripEvents({ ...input, destination: 'Gym' }, tz, now, 'en')[0],
+    { ...next, location: 'Another address' },
+    { ...next, summary: 'To Work via Gym' },
+    { ...next, summary: 'Work' },
+    { ...next, start: next.start + 60000 },
+  ];
+  assert(markDuplicates(distinct, [old], tz).every((e) => !e.duplicate));
+  assert.strictEqual(markDuplicates([next], [{ ...old, summary: '  NAAR   Work  ', location: ' WORK ', description: 'doel: 80 auto: ev6' }], tz)[0].duplicate, true);
+  // Keep the old same-trip rule: changing a target does not edit or add an event.
+  const differentGoal = buildTripEvents({ ...input, soc: 90 }, tz, now, 'en')[0];
+  assert.strictEqual(markDuplicates([differentGoal], [old], tz)[0].duplicate, true);
+});
+check('calendar: the two repeated DST hours are different trips', () => {
+  const { markDuplicates } = require('../smart_charging_planner/app/trips');
+  const old = { summary: 'Naar Work', location: 'Work', description: 'doel: 80 auto: EV6', start: '2026-10-25T02:00:00+02:00' };
+  const later = { ...old, summary: 'To Work', description: 'target: 80 car: EV6', start: Date.parse('2026-10-25T02:00:00+01:00') };
+  assert.strictEqual(markDuplicates([later], [old], 'Europe/Amsterdam')[0].duplicate, false);
+  assert.strictEqual(markDuplicates([later], [{ ...old, start: '2026-10-25T02:00:00+01:00' }], 'Europe/Amsterdam')[0].duplicate, true);
+  assert.strictEqual(markDuplicates([later], [{ ...old, start: 'invalid' }], 'Europe/Amsterdam')[0].duplicate, false);
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

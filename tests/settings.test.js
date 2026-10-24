@@ -2207,6 +2207,38 @@ async function run() {
       const ct = d.calendar_trips.find((x) => x.location === ADDR);
       assert(ct && ct.cost && ct.cost.status === 'ok' && ct.precondition === true, JSON.stringify(d.calendar_trips));
     });
+    await test('U3b', 'Changing the trip language skips existing English and old Dutch events in preview and writes', async () => {
+      const savedEvents = world.events.map((e) => ({ ...e }));
+      try {
+        // U2 wrote an English event. Switching to Dutch must not write it again.
+        await ok('POST', 'api/departures', calOn({ language: 'nl' }));
+        let preview = await ok('POST', 'api/trips/preview', trip());
+        assert(preview.events[0].duplicate === true && preview.events[0].summary === `Naar ${ADDR}`, JSON.stringify(preview));
+        let mark = world.calls.length;
+        let written = await ok('POST', 'api/trips', trip());
+        assert(written.created === 0 && written.skipped === 1, JSON.stringify(written));
+        assert(!callsSince(mark).some((c) => c.service === 'create_event'), 'wrote the English trip again in Dutch');
+
+        // Simulate a pre-upgrade Dutch event; auto on this English HA writes English.
+        world.events = savedEvents.map((e) => ({ ...e, summary: `Naar ${ADDR}`, description: 'doel: 90 precondition: ja' }));
+        for (const language of ['en', 'auto']) {
+          await ok('POST', 'api/departures', calOn({ language }));
+          preview = await ok('POST', 'api/trips/preview', trip());
+          assert(preview.events[0].duplicate === true && preview.events[0].summary === `To ${ADDR}`, JSON.stringify(preview));
+          mark = world.calls.length;
+          written = await ok('POST', 'api/trips', trip());
+          assert(written.created === 0 && written.skipped === 1, JSON.stringify(written));
+          assert(!callsSince(mark).some((c) => c.service === 'create_event'), 'wrote the old Dutch trip again');
+        }
+        assert(world.events.length === savedEvents.length);
+        const different = await ok('POST', 'api/trips/preview', trip({ destination: 'Gym' }));
+        assert(different.events[0].duplicate === false, 'suppressed a different destination');
+        return 'English ↔ Dutch, and upgrade to auto: zero extra calendar writes';
+      } finally {
+        world.events = savedEvents;
+        await ok('POST', 'api/departures', calOn());
+      }
+    });
     await test('U4', 'Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts', async () => {
       await ok('POST', 'api/departures', calOn({ match: 'keyword', keyword: 'EV' }));
       const p = await home((x) => x.departure && x.departure.time === at(1, 8));
