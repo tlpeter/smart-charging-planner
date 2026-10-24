@@ -201,7 +201,7 @@ function priceTime(value, tz, warnings = []) {
       return [got.y, got.m, got.d, got.h, got.mi, got.s].every((v, i) => v === want[i]);
     });
     if (candidates.length !== 1) {
-      warnings.push('A price time is ambiguous or does not exist at a clock change. Use UTC or timestamps with an explicit offset; that slot was skipped.');
+      warnings.push(`The price time ${text} (${tz}) is ambiguous or does not exist at a clock change. Use UTC or timestamps with an explicit offset; that slot was skipped.`);
       return NaN;
     }
     return candidates[0];

@@ -1088,11 +1088,16 @@ const routes = {
 
     let prices = [];
     let priceError = null;
+    const priceWarnings = new Set();
+    const warnPrices = (warnings, source) => {
+      const name = source.entity_id || source.name || source.domain || 'Price source';
+      for (const warning of warnings || []) priceWarnings.add(`${name}: ${warning}`);
+    };
     if (s.prices) {
       try {
         const result = await fetchPrices(s.prices.source, tz);
         prices = result.prices.map((p) => ({ ...p, total: totalPrice(p.price, s.prices) }));
-        if (result.warnings.length) priceError = result.warnings.join(' ');
+        warnPrices(result.warnings, s.prices.source);
       } catch (err) {
         priceError = err.message;
       }
@@ -1105,9 +1110,10 @@ const routes = {
         const fc = await forecastPrices(s.prices, tz, realEnd);
         prices = prices.concat(fc.prices);
         forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null, warnings: fc.warnings };
-        if (fc.warnings.length) priceError = [priceError, ...fc.warnings].filter(Boolean).join(' ');
+        warnPrices(fc.warnings, s.prices.forecast);
       } catch (err) {
         forecastInfo = { entity_id: s.prices.forecast.entity_id, error: err.message };
+        warnPrices([`Forecast could not be loaded: ${err.message}`], s.prices.forecast);
       }
     }
 
@@ -1492,6 +1498,7 @@ const routes = {
       missing,
       battery: batteryInfo,
       price_error: priceError,
+      price_warnings: [...priceWarnings],
       calendar_error: calendarError,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
@@ -3546,7 +3553,7 @@ function shareConnection(s, steps) {
       id,
       name: (step.planResult && step.planResult.vehicle && step.planResult.vehicle.name) || step.charger.name,
       want: e.want,
-      amps: e.amps || maxA,
+      amps: e.amps ?? maxA,
       can_set_current: !!(chosen && chosen.current),
       solar: !!e.solar,
       power_w: Number.isFinite(e.power_w) ? e.power_w : 0,
@@ -3565,7 +3572,8 @@ function shareConnection(s, steps) {
   if (grid && grid.load_balancer) how = 'load_balancer';
   else if (grid && grid.main_fuse > 0) {
     const phaseA = [grid.current_l1_entity, grid.current_l2_entity, grid.current_l3_entity].map(num).filter((x) => x != null);
-    const net = grid.net_entity ? num(grid.net_entity) : grid.import_entity && num(grid.import_entity) != null ? num(grid.import_entity) - (num(grid.export_entity) ?? 0) : null;
+    // Use the same import-positive net power as solar, even when solar control is off.
+    const net = solar.gridNetW(grid, states, s.solar && s.solar.grid_sign);
     const chargersW = list.reduce((a, c) => a + c.power_w, 0);
     const chargersA = list.reduce((a, c) => a + c.power_w / 230 / c.phases, 0);
     availableA = sharing.available({ mainFuse: grid.main_fuse, phases: grid.phases, gridA: phaseA.length ? Math.max(...phaseA) : null, gridW: Number.isFinite(net) ? net : null, chargersW, chargersA });
@@ -3642,7 +3650,7 @@ const MANUAL_GRACE_MS = 3 * 60000;
 async function sendLive(entry, chosen) {
   const c = entry.commands.find((x) => x.what === 'start charging' || x.what === 'pause charging');
   if (!c) return;
-  if (ST().lastManual && Date.now() - ST().lastManual.at < MANUAL_GRACE_MS && (c.what === 'start charging') !== ST().lastManual.on) {
+  if (entry.code !== 'shared_wait' && ST().lastManual && Date.now() - ST().lastManual.at < MANUAL_GRACE_MS && (c.what === 'start charging') !== ST().lastManual.on) {
     entry.held = true;
     ha.debug('Not sending', c.what, '- you', ST().lastManual.on ? 'started' : 'stopped', 'charging less than 3 minutes ago');
     return;

@@ -1116,6 +1116,14 @@ function durationText(minutes) {
       </div>`;
     }
 
+    function priceMessagesHtml(d) {
+      const error = d.price_error ? `<div class="error" role="alert">Prices could not be loaded: ${esc(d.price_error)}</div>` : '';
+      const warnings = [...new Set(d.price_warnings || [])];
+      if (!warnings.length) return error;
+      const available = (d.prices || []).length > 0;
+      return error + `<div class="price-warning" role="status"><strong>Price data warning</strong><p>${available ? 'Available prices are still used. Some price data is missing or was skipped.' : 'No usable price intervals are available. Check the price source.'}</p><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
+    }
+
     function overviewHtml(d) {
       if (d.missing.length) {
         const tabs = { prices: 'Prices', vehicle: 'Vehicle' };
@@ -1194,7 +1202,7 @@ function durationText(minutes) {
                 ${vehicleSessionHtml(d)}
                 ${continuousNote(p)}
                 ${notes}
-                ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
+                ${priceMessagesHtml(d)}
               </div>
             </details>
           </div>

@@ -8,8 +8,8 @@
 //    needs, the time until it leaves and a margin). A car that leaves early
 //    but needs little, waits for a car that leaves later but needs a lot.
 //    Without a departure: last.
-// 2. The first car gets what it wants (less only when even that does not fit
-//    and its charger can lower the current).
+// 2. The first car gets what it wants if it fits. Otherwise lower its current
+//    to at least 6 A, or pause it if that is not possible.
 // 3. What is left is shared fairly by the others. A charger that can only
 //    start and stop gets its full current or waits; a charger whose current
 //    can be set gets at least 6 A or waits.
@@ -54,11 +54,14 @@ function share(chargers, availableA) {
   const rest = wanting.slice(1).filter((c) => !result[c.id]);
   if (availableA == null) return { order, result };
 
-  let left = availableA;
-  const fa = Number(first.amps) || 0;
-  if (fa > left && first.can_set_current && left >= MIN_A) {
-    result[first.id] = { amps: Math.floor(left), pause: false, reason: `Sharing the connection: ${Math.floor(left)} A` };
-    left = 0;
+  let left = Math.max(0, availableA);
+  const fa = Number(first.amps);
+  if (!Number.isFinite(fa) || fa < MIN_A || (fa > left && (!first.can_set_current || left < MIN_A))) {
+    result[first.id] = { amps: null, pause: true, reason: 'Waiting: not enough connection capacity for this charger' };
+  } else if (fa > left) {
+    const amps = Math.floor(left);
+    result[first.id] = { amps, pause: false, reason: `Sharing the connection: ${amps} A` };
+    left -= amps;
   } else {
     left -= fa;
   }
@@ -72,7 +75,7 @@ function share(chargers, availableA) {
     let amps;
     if (!c.can_set_current) amps = want <= left ? want : 0;
     else amps = Math.min(want, Math.floor(fair) >= MIN_A ? Math.floor(fair) : (left >= MIN_A ? MIN_A : 0));
-    if (amps <= 0) {
+    if (!Number.isFinite(amps) || amps < MIN_A) {
       result[c.id] = { amps: null, pause: true, reason: `Waiting: the connection is in use, ${first.name} goes first` };
       continue;
     }

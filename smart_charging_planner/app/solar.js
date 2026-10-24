@@ -32,7 +32,8 @@ const PV_NAME = /\bpv\b|pv.?power|ppv|photovoltaic|solar.?power|power.?productio
 const NOT_PV = /grid|load|consum|battery|batt|meter|house|export|import|feed|charge|discharge|backup|reactive|apparent/;
 
 function powerW(s) {
-  const n = Number(s && s.state);
+  if (!s || s.state == null || String(s.state).trim() === '') return null;
+  const n = Number(s.state);
   if (!Number.isFinite(n)) return null;
   const u = (s.attributes && s.attributes.unit_of_measurement) || 'W';
   return u === 'kW' ? n * 1000 : u === 'MW' ? n * 1e6 : n;

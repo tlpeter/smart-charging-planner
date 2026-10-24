@@ -213,7 +213,7 @@ function entityList(w) {
     ...charger,
     ...(w.liveLimit === undefined ? [] : [['sensor.laadpaal_live_limit', String(w.liveLimit), { unit_of_measurement: 'A', friendly_name: 'Live charger limit' }, 'ch']]),
     ...ch2,
-    ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
+    ['sensor.p1_power', String(gridW(w) * (w.gridExportPositive ? -1 : 1)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],

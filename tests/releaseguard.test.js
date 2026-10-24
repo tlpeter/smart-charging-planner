@@ -35,6 +35,23 @@ try {
     assert.equal(lock.packages[''].version, pkg.version);
     assert.equal(/^description:.*TEST VERSION:/m.test(cfg), dev);
   });
+
+  check('partial price warnings render once without claiming a total load failure', () => {
+    const vm = require('vm');
+    const source = fs.readFileSync(path.join(app, 'public', 'app.js'), 'utf8');
+    const begin = source.indexOf('    function priceMessagesHtml(d)');
+    const end = source.indexOf('    function overviewHtml(d)', begin);
+    assert(begin >= 0 && end > begin);
+    const render = (input) => vm.runInNewContext(source.slice(begin, end) + '\npriceMessagesHtml(input)', { input, esc: (v) => String(v).replaceAll('<', '&lt;') });
+    const warning = 'sensor.example: The price time 2026-10-25 02:00:00 is ambiguous';
+    const html = render({ prices: [{ start: 1 }], price_error: null, price_warnings: [warning, warning] });
+    assert(html.includes('Available prices are still used.'));
+    assert.equal(html.split(warning).length - 1, 1);
+    assert(!html.includes('Prices could not be loaded:'));
+    assert(render({ prices: [], price_error: 'Sensor missing', price_warnings: [] }).includes('Prices could not be loaded: Sensor missing'));
+    assert(render({ prices: [], price_warnings: ['Missing interval'] }).includes('No usable price intervals'));
+  });
+
   check('an offset-free repeated DST hour is rejected with an actionable warning', () => {
     const warnings = [];
     assert(Number.isNaN(prices.priceTime('2026-10-25 02:00:00', 'Europe/Amsterdam', warnings)));

@@ -41,10 +41,10 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations.
 
-## Current recovery candidate: 0.32.11-dev
+## Current recovery candidate: 0.32.12-dev
 
-Scope: #18, #14, #6, #7, #8, #10 and #13. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
+Scope: #18, #14, #6, #7, #8, #10, #13, #5, #22 and #34. Existing dev fixes for #2, #3 and #21 are included in the candidate history.
 
-This candidate does not resolve all audit findings. In particular, main-fuse sharing (#5/#22/#29), original home-battery setting restoration (#9), site-wide battery protection (#11), solar forecast aggregation (#12), live battery bounds (#19) and diagnostic privacy (#20) remain separate work. Do not advertise these areas as fully validated.
+This candidate does not resolve all audit findings. In particular, physical site/phase capacity allocation (#29), original home-battery setting restoration (#9), site-wide battery protection (#11), solar forecast aggregation (#12), live battery bounds (#19) and diagnostic privacy (#20) remain separate work. Do not advertise these areas as fully validated.
 
 The custom forecast setup correction associated with #26 is an installation configuration change. It does not close the broader enhancement for a price-breakdown preview.

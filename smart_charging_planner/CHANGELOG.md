@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.12-dev
+
+- Connection sharing pauses any charger that cannot fit, including the first charger and start/stop-only models. A capacity pause also takes precedence over the manual-start grace period. (#5)
+- Connection sharing uses the configured import/export sign, also with solar control off, through the same net-power reader as solar. (#22)
+- Home distinguishes skipped price data from a failed price source. A combined source gives each warning once, with the affected time and source; valid prices remain in use. This does not repair missing timestamps in the source itself. (#34)
+
 ## 0.32.11-dev
 
 - Made the stale-car integration test establish its plug-in session before taking the trusted reading, and allow enough charging time for the displayed energy precision. The new failure/restart suite, all hardware-fixture matrices and Core compatibility already pass. Application behaviour is unchanged. (#13)

@@ -369,6 +369,42 @@ async function run() {
     }
   });
 
+
+  await test('E12', 'A skipped forecast interval gives one warning while valid actual prices remain usable', async () => {
+    const combined = world.combined;
+    const begin = Math.floor(Date.now() / H) * H - 6 * H;
+    world.combined = () => [
+      ...Array.from({ length: 72 }, (_, i) => ({ time: begin + i * H, price: 0.2, source: i < 24 ? 'actual' : 'forecast' })),
+      { time: '2026-10-25 02:00:00', price: 0.1, source: 'forecast' },
+    ];
+    try {
+      await ok('POST', 'api/prices', {
+        source: { id: 'attr:sensor.stroom_prijzen_gecombineerd', type: 'attribute', entity_id: 'sensor.stroom_prijzen_gecombineerd' },
+        price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd',
+        forecast_price_type: 'all_in', forecast_margin: 0.02,
+      });
+      const p = await plan();
+      assert(p.price_error === null, JSON.stringify(p.price_error));
+      assert(p.prices.some((x) => !x.forecast) && p.prices.some((x) => x.forecast), 'valid actual/forecast prices lost');
+      assert(p.price_warnings.length === 1, JSON.stringify(p.price_warnings));
+      assert(p.price_warnings[0].includes('2026-10-25 02:00:00') && p.price_warnings[0].includes('sensor.stroom_prijzen_gecombineerd'), p.price_warnings[0]);
+      return 'one source/date warning; valid prices still used';
+    } finally {
+      world.combined = combined;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+  await test('E13', 'A genuinely missing price source remains an error', async () => {
+    try {
+      await ok('POST', 'api/prices', { source: { type: 'attribute', entity_id: 'sensor.missing_prices' }, price_type: 'all_in' });
+      const p = await plan();
+      assert(p.price_error && p.price_error.includes('not found'), JSON.stringify(p.price_error));
+      assert(p.price_warnings.length === 0, JSON.stringify(p.price_warnings));
+    } finally {
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';
   const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -2236,6 +2272,57 @@ async function run() {
       world.houseW = 850;
       return `Laadpaal: ${a.reason}`;
     });
+
+    await test('X5b', 'Both grid signs pause the first charger below minimum, even just after a manual start', async () => {
+      const previousSolar = (await ok('GET', 'api/solar')).settings;
+      try {
+        // Force first priority to the first charger through Charge now.
+        await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
+        for (const exportPositive of [false, true]) {
+          world.gridExportPositive = exportPositive;
+          await ok('POST', 'api/solar', solarBody({ enabled: false, grid_sign: exportPositive ? 'export_positive' : 'import_positive' }));
+          for (const availableA of [0, 4, 5, 6]) {
+            world.houseW = 0;
+            await ok('POST', `api/control/manual?charger=${ch1}`, { action: 'start' });
+            world.houseW = (24 - availableA) * 3 * 230;
+            await planOf(ch1); await planOf(ch2); await sleep(150);
+            const o = await overview();
+            assert(near(o.share.available_a, availableA, 0.11), JSON.stringify(o.share));
+            assert(o.share.order[0] === ch1, JSON.stringify(o.share.order));
+            const first = o.chargers.find((c) => c.id === ch1);
+            if (availableA < 6) {
+              assert(first.want === 'pause' && first.code === 'shared_wait', JSON.stringify(first));
+              assert(world.charging === false, 'first charger kept charging');
+            } else {
+              assert(first.want === 'charge' && first.amps === 6, JSON.stringify(first));
+            }
+          }
+        }
+        return '0/4/5 A pause; 6 A limit; import/export-positive meters';
+      } finally {
+        world.gridExportPositive = false; world.houseW = 850;
+        await ok('POST', 'api/solar', previousSolar);
+        await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+    await test('X5c', 'The first start/stop-only charger pauses when 10 A cannot fit its 16 A request', async () => {
+      try {
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: 'none', min_soc_enabled: true, min_soc: 50 }));
+        await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
+        world.houseW = 14 * 3 * 230;
+        await planOf(ch1); await planOf(ch2); await sleep(150);
+        const o = await overview(), first = o.chargers.find((c) => c.id === ch1);
+        assert(o.share.order[0] === ch1 && near(o.share.available_a, 10, 0.11), JSON.stringify(o.share));
+        assert(first.want === 'pause' && first.code === 'shared_wait' && world.charging === false, JSON.stringify(first));
+      } finally {
+        world.houseW = 850;
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
+        await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+
     await test('X6', 'Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car', async () => {
       world.car1Plug = false;
       world.ch2 = { plugged: false, charging: false, amps: 16 };
