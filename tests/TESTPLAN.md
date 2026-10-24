@@ -16,11 +16,11 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 168 of 169 ✗ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 160 of 160 ✓ |
-| Unit tests (12 files) | 628 of 630 ✗ |
+| Unit tests (12 files) | 630 of 630 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
-| Cars (10 car integrations × Easee) | 42 of 50 ✗ |
+| Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.1-dev.
+Version: 0.32.2-dev.
 
 # Settings
 
@@ -95,7 +95,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.3 h back | ✓ 13 charged blocks, from 12.3 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.4 h back | ✓ 13 charged blocks, from 12.4 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
 
 ## F. Planning (departures)
@@ -179,10 +179,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 21.3 kWh on solar, 13.0 kWh from the grid | ✓ 21.3 kWh on solar, 29.5 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 21.3 kWh on solar | ✓ 21.3 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 21.2 kWh on solar, 13.1 kWh from the grid | ✓ 21.2 kWh on solar, 29.6 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 21.2 kWh on solar | ✓ 21.2 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 21.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 21.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S5 | Solar only: the plan uses only the sun | ✓ 21.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 21.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
@@ -336,7 +336,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | File | What | Passed |
 |---|---|---|
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
-| [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 48 of 50 ✗ |
+| [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
 | [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 27 of 27 ✓ |
@@ -714,60 +714,60 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 
 Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names.
 
-<details open><summary>48 of 50 passed – show every check</summary>
+<details><summary>50 of 50 passed – show every check</summary>
 
-| Part | Check | Result |
-|---|---|---|
-|  | Tesla (Tesla Fleet): found as a car, by its integration (tesla_fleet) | ✓ |
-|  | Tesla (Tesla Fleet): picks the battery level, range, plug, charging and charge limit (sensor.model_y_battery_level · binary_sensor.model_y_charge_cable · number.model_y_charge_limit) | ✓ |
-|  | Tesla (Tesla Fleet): entities that are off by default are not used | ✓ |
-|  | Tesla (Tesla Fleet): the charge limit is found again for a car saved without it | ✓ |
-|  | Tesla (Tesla Fleet): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Tesla (Teslemetry): found as a car, by its integration (teslemetry) | ✓ |
-|  | Tesla (Teslemetry): picks the battery level, range, plug, charging and charge limit (sensor.model_3_battery_level · binary_sensor.model_3_charge_cable · number.model_3_charge_limit) | ✓ |
-|  | Tesla (Teslemetry): entities that are off by default are not used | ✓ |
-|  | Tesla (Teslemetry): the charge limit is found again for a car saved without it | ✓ |
-|  | Tesla (Teslemetry): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Tesla (Tessie): found as a car, by its integration (tessie) | ✓ |
-|  | Tesla (Tessie): picks the battery level, range, plug, charging and charge limit (sensor.model_s_battery_level · binary_sensor.model_s_charge_cable · number.model_s_charge_limit) | ✓ |
-|  | Tesla (Tessie): entities that are off by default are not used | ✓ |
-|  | Tesla (Tessie): the charge limit is found again for a car saved without it | ✓ |
-|  | Tesla (Tessie): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Renault: found as a car, by its integration (renault) | ✓ |
-|  | Renault: picks the battery level, range, plug, charging and charge limit (sensor.megane_battery · binary_sensor.megane_plug · number.megane_target_charge_level) | ✓ |
-|  | Renault: entities that are off by default are not used | ✓ |
-|  | Renault: the charge limit is found again for a car saved without it | ✓ |
-|  | Renault: the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Hyundai / Kia (Kia Uvo / Hyundai Bluelink): found as a car, by its integration (kia_uvo) | ✓ |
-|  | Hyundai / Kia (Kia Uvo / Hyundai Bluelink): picks the battery level, range, plug, charging and charge limit (sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug · number.ioniq_5_ac_charging_limit) | ✓ |
-|  | Hyundai / Kia (Kia Uvo / Hyundai Bluelink): entities that are off by default are not used | ✓ |
-|  | Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the charge limit is found again for a car saved without it | ✗ FAIL Expected values to be strictly equal: |
-| - 'number.ioniq_5_ac_charging_limit' | Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Skoda (MySkoda): found as a car, by its integration (myskoda) | ✓ |
-|  | Skoda (MySkoda): picks the battery level, range, plug, charging and charge limit (sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected · number.enyaq_charge_limit) | ✓ |
-|  | Skoda (MySkoda): entities that are off by default are not used | ✓ |
-|  | Skoda (MySkoda): the charge limit is found again for a car saved without it | ✓ |
-|  | Skoda (MySkoda): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
-|  | Volkswagen ID (WeConnect ID): found as a car, by its integration (volkswagen_we_connect_id) | ✓ |
-|  | Volkswagen ID (WeConnect ID): picks the battery level, range, plug, charging and charge limit (sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state · number.id_4_target_state_of_charge) | ✓ |
-|  | Volkswagen ID (WeConnect ID): entities that are off by default are not used | ✓ |
-|  | Volkswagen ID (WeConnect ID): the charge limit is found again for a car saved without it | ✓ |
-|  | Volkswagen ID (WeConnect ID): the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
-|  | Volvo: found as a car, by its integration (volvo) | ✓ |
-|  | Volvo: picks the battery level, range, plug, charging and charge limit | ✗ FAIL Expected values to be strictly deep-equal: |
-| -   charging: 'sensor.ex30_charging_status', | Volvo: entities that are off by default are not used | ✓ |
-|  | Volvo: the charge limit is found again for a car saved without it | ✓ |
-|  | Volvo: the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
-|  | Polestar: found as a car, by its integration (polestar_api) | ✓ |
-|  | Polestar: picks the battery level, range, plug, charging and charge limit (sensor.polestar_2_battery_charge_level · sensor.polestar_2_charger_connection_status · sensor.polestar_2_charging_target_level) | ✓ |
-|  | Polestar: entities that are off by default are not used | ✓ |
-|  | Polestar: the charge limit is found again for a car saved without it | ✓ |
-|  | Polestar: the plug sensor is read (plugged in and unplugged) ("Connected" / "Disconnected") | ✓ |
-|  | Mercedes-Benz (mbapi2020): found as a car, by its integration (mbapi2020) | ✓ |
-|  | Mercedes-Benz (mbapi2020): picks the battery level, range, plug, charging and charge limit (sensor.eqa_state_of_charge · no plug sensor · sensor.eqa_max_state_of_charge) | ✓ |
-|  | Mercedes-Benz (mbapi2020): entities that are off by default are not used | ✓ |
-|  | Mercedes-Benz (mbapi2020): the charge limit is found again for a car saved without it | ✓ |
-|  | every car integration in the app has a test car, or is listed as untested here (tested: tesla_fleet, teslemetry, tessie, renault, kia_uvo, myskoda, volkswagen_we_connect_id, volvo, polestar_api, mbapi2020 · not tested yet: tesla_custom, bmw_connected_drive, volkswagencarnet, audiconnect, skodaconnect, nissan_leaf, fordpass, toyota, mazda, subaru, volvooncall, smart_hashtag, stellantis_vehicles, psa_car_controller, hyundai_kia_connect) | ✓ |
+| Check | Result |
+|---|---|
+| Tesla (Tesla Fleet): found as a car, by its integration (tesla_fleet) | ✓ |
+| Tesla (Tesla Fleet): picks the battery level, range, plug, charging and charge limit (sensor.model_y_battery_level · binary_sensor.model_y_charge_cable · number.model_y_charge_limit) | ✓ |
+| Tesla (Tesla Fleet): entities that are off by default are not used | ✓ |
+| Tesla (Tesla Fleet): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Tesla Fleet): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Tesla (Teslemetry): found as a car, by its integration (teslemetry) | ✓ |
+| Tesla (Teslemetry): picks the battery level, range, plug, charging and charge limit (sensor.model_3_battery_level · binary_sensor.model_3_charge_cable · number.model_3_charge_limit) | ✓ |
+| Tesla (Teslemetry): entities that are off by default are not used | ✓ |
+| Tesla (Teslemetry): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Teslemetry): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Tesla (Tessie): found as a car, by its integration (tessie) | ✓ |
+| Tesla (Tessie): picks the battery level, range, plug, charging and charge limit (sensor.model_s_battery_level · binary_sensor.model_s_charge_cable · number.model_s_charge_limit) | ✓ |
+| Tesla (Tessie): entities that are off by default are not used | ✓ |
+| Tesla (Tessie): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Tessie): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Renault: found as a car, by its integration (renault) | ✓ |
+| Renault: picks the battery level, range, plug, charging and charge limit (sensor.megane_battery · binary_sensor.megane_plug · number.megane_target_charge_level) | ✓ |
+| Renault: entities that are off by default are not used | ✓ |
+| Renault: the charge limit is found again for a car saved without it | ✓ |
+| Renault: the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): found as a car, by its integration (kia_uvo) | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): picks the battery level, range, plug, charging and charge limit (sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug · number.ioniq_5_ac_charging_limit) | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): entities that are off by default are not used | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the charge limit is found again for a car saved without it | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Skoda (MySkoda): found as a car, by its integration (myskoda) | ✓ |
+| Skoda (MySkoda): picks the battery level, range, plug, charging and charge limit (sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected · number.enyaq_charge_limit) | ✓ |
+| Skoda (MySkoda): entities that are off by default are not used | ✓ |
+| Skoda (MySkoda): the charge limit is found again for a car saved without it | ✓ |
+| Skoda (MySkoda): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Volkswagen ID (WeConnect ID): found as a car, by its integration (volkswagen_we_connect_id) | ✓ |
+| Volkswagen ID (WeConnect ID): picks the battery level, range, plug, charging and charge limit (sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state · number.id_4_target_state_of_charge) | ✓ |
+| Volkswagen ID (WeConnect ID): entities that are off by default are not used | ✓ |
+| Volkswagen ID (WeConnect ID): the charge limit is found again for a car saved without it | ✓ |
+| Volkswagen ID (WeConnect ID): the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
+| Volvo: found as a car, by its integration (volvo) | ✓ |
+| Volvo: picks the battery level, range, plug, charging and charge limit (sensor.ex30_battery_charge_level · sensor.ex30_charging_connection_status · sensor.ex30_target_battery_charge_level) | ✓ |
+| Volvo: entities that are off by default are not used | ✓ |
+| Volvo: the charge limit is found again for a car saved without it | ✓ |
+| Volvo: the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
+| Polestar: found as a car, by its integration (polestar_api) | ✓ |
+| Polestar: picks the battery level, range, plug, charging and charge limit (sensor.polestar_2_battery_charge_level · sensor.polestar_2_charger_connection_status · sensor.polestar_2_charging_target_level) | ✓ |
+| Polestar: entities that are off by default are not used | ✓ |
+| Polestar: the charge limit is found again for a car saved without it | ✓ |
+| Polestar: the plug sensor is read (plugged in and unplugged) ("Connected" / "Disconnected") | ✓ |
+| Mercedes-Benz (mbapi2020): found as a car, by its integration (mbapi2020) | ✓ |
+| Mercedes-Benz (mbapi2020): picks the battery level, range, plug, charging and charge limit (sensor.eqa_state_of_charge · no plug sensor · sensor.eqa_max_state_of_charge) | ✓ |
+| Mercedes-Benz (mbapi2020): entities that are off by default are not used | ✓ |
+| Mercedes-Benz (mbapi2020): the charge limit is found again for a car saved without it | ✓ |
+| every car integration in the app has a test car, or is listed as untested here (tested: tesla_fleet, teslemetry, tessie, renault, kia_uvo, myskoda, volkswagen_we_connect_id, volvo, polestar_api, mbapi2020 · not tested yet: tesla_custom, bmw_connected_drive, volkswagencarnet, audiconnect, skodaconnect, nissan_leaf, fordpass, toyota, mazda, subaru, volvooncall, smart_hashtag, stellantis_vehicles, psa_car_controller, hyundai_kia_connect) | ✓ |
 
 </details>
 
@@ -1157,26 +1157,15 @@ The real entity names of each car integration (`tests/fixtures.js`, CARS; `SCP_C
 
 | Car | Found | Battery level | Charge limit | Charges | Only own commands |
 |---|---|---|---|---|---|
-| Tesla (Tesla Fleet) | ✓ sensor.model_y_battery_level · binary_sensor.model_y_charge_cable | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 85 | ✓ charging true, status ? | ✓ 1 to the car |
-| Tesla (Teslemetry) | ✓ sensor.model_3_battery_level · binary_sensor.model_3_charge_cable | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 85 | ✓ charging true, status ? | ✓ 1 to the car |
-| Tesla (Tessie) | ✓ sensor.model_s_battery_level · binary_sensor.model_s_charge_cable | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 85 | ✓ charging true, status ? | ✓ 1 to the car |
-| Renault | ✓ sensor.megane_battery · binary_sensor.megane_plug | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 85 | ✓ charging true, status ? | ✓ 1 to the car |
-| Hyundai / Kia (Kia Uvo / Hyundai Bluelink) | ✓ sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 90 | ✓ charging true, status ? | ✓ 1 to the car |
-| Skoda (MySkoda) | ✓ sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 90 | ✓ charging true, status ? | ✓ 1 to the car |
-| Volkswagen ID (WeConnect ID) | ✓ sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state | ✓ 40% → 85% | ✗ FAIL sent nothing, limit now 90 | ✓ charging true, status ? | ✓ 1 to the car |
-| Volvo | ✗ FAIL picked ["sensor.ex30_battery_charge_level","sensor.ex30_distance_to_empty_battery","sensor.ex30_charging_connection_status","sensor.ex30_cha… | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
+| Tesla (Tesla Fleet) | ✓ sensor.model_y_battery_level · binary_sensor.model_y_charge_cable | ✓ 40% → 85% | ✓ number.model_y_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Tesla (Teslemetry) | ✓ sensor.model_3_battery_level · binary_sensor.model_3_charge_cable | ✓ 40% → 85% | ✓ number.model_3_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Tesla (Tessie) | ✓ sensor.model_s_battery_level · binary_sensor.model_s_charge_cable | ✓ 40% → 85% | ✓ number.model_s_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Renault | ✓ sensor.megane_battery · binary_sensor.megane_plug | ✓ 40% → 85% | ✓ number.megane_target_charge_level → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink) | ✓ sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug | ✓ 40% → 85% | ✓ number.ioniq_5_ac_charging_limit → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Skoda (MySkoda) | ✓ sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected | ✓ 40% → 85% | ✓ number.enyaq_charge_limit → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Volkswagen ID (WeConnect ID) | ✓ sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state | ✓ 40% → 85% | ✓ number.id_4_target_state_of_charge → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Volvo | ✓ sensor.ex30_battery_charge_level · sensor.ex30_charging_connection_status | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
 | Polestar | ✓ sensor.polestar_2_battery_charge_level · sensor.polestar_2_charger_connection_status | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
 | Mercedes-Benz (mbapi2020) | ✓ sensor.eqa_state_of_charge · no plug sensor | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
 
 GoodWe and Marstek (Local API) cannot be told to stop discharging from Home Assistant: the app says so on Settings › Battery. The read-only brands are never sent anything.
-
-## Failed
-
-- C1.3 Tesla (Tesla Fleet): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 85
-- C2.3 Tesla (Teslemetry): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 85
-- C3.3 Tesla (Tessie): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 85
-- C4.3 Renault: The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 85
-- C5.3 Hyundai / Kia (Kia Uvo / Hyundai Bluelink): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 90
-- C6.3 Skoda (MySkoda): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 90
-- C7.3 Volkswagen ID (WeConnect ID): The car's charge limit follows the target (rounded to the steps the car accepts) – sent nothing, limit now 90
-- C8.1 Volvo: Found, with the right battery level, range, plug, charging and charge limit – picked ["sensor.ex30_battery_charge_level","sensor.ex30_distance_to_empty_battery","sensor.ex30_charging_connection_status","sensor.ex30_charging_connection_status","sensor.ex30_target_battery_charge_level"], expected ["sensor.ex30_battery_charge_level","sensor.ex30_distance_to_empty_battery","sensor.ex30_charging_connection_status","sensor.ex30_charging_status","sensor.ex30_target_battery_charge_level"]
