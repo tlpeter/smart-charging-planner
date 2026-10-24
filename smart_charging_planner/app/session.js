@@ -17,7 +17,7 @@ const FILE = path.join(DATA_DIR, 'session.json');
 const CACHE_MS = 60000;
 
 // Per charger (scope.js).
-const S = scope.store(() => ({ state: null, energyCache: null })); // energyCache: { key, at, kwh }
+const S = scope.store(() => ({ state: null, energyCache: null, observed: false })); // energyCache: { key, at, kwh }
 
 function load() {
   if (S().state) return S().state;
@@ -37,15 +37,23 @@ function save() {
 }
 
 // Called at every refresh with the current plugged-in state.
-function update(plugged, now = Date.now()) {
+function update(plugged, now = Date.now(), vehicleId = null) {
   const s = load();
   if (plugged == null) return s;
   let changed = false;
-  if (plugged && s.plugged !== true) {
+  const first = !S().observed;
+  S().observed = true;
+  // A restart cannot prove that the cable/car stayed the same while we were
+  // offline. A different car on the same cable also starts a new session.
+  const newCar = vehicleId != null && s.vehicle_id !== vehicleId;
+  if (plugged && (s.plugged !== true || first || newCar)) {
     // Plugged in. If the app did not see it happen (first start), the real
     // moment is unknown.
     s.since = now;
-    s.since_known = s.plugged === false;
+    s.since_known = !first && (s.plugged === false || newCar);
+    s.id = require('crypto').randomUUID();
+    s.vehicle_id = vehicleId;
+    if (newCar) s.manual_soc = null;
     changed = true;
   }
   if (!plugged && s.plugged !== false) {
@@ -53,6 +61,8 @@ function update(plugged, now = Date.now()) {
     s.since = null;
     s.since_known = false;
     s.manual_soc = null;
+    s.id = null;
+    s.vehicle_id = null;
     changed = true;
   }
   s.plugged = plugged;

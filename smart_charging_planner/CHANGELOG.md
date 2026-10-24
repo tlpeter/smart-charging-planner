@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.32.8-dev
+
+- Price times: the repeated winter-time hour stays distinct when the source supplies UTC offsets. Ambiguous or nonexistent local clock times are skipped with a warning; day coverage uses 23, 24 or 25 real hours. (#18)
+- Missing, blank and boolean prices are no longer treated as free energy. Real zero and negative prices still work. (#14)
+- A followed current limit of 0–5 A now pauses charging, also for Charge now, preconditioning and Ready Guard. Live limits are checked between plan refreshes. (#6)
+- Required current limits are applied before charging is enabled. Phase changes pause the charger first, wait for the load to stop, and wait for the charger to settle. A failed required command keeps charging paused and is retried. (#7)
+- The app saves its current, phase and battery-control ownership before sending commands, so it can recover after a crash or update. A battery release that fails is kept for recovery. Original battery-limit restoration is still tracked separately in #9. (#8)
+- Failed battery transitions are retried at the next control step instead of being hidden for 15–30 minutes. (#10)
+- An estimated car level only uses energy from that car's observed session on that charger. A trip, car change or restart breaks that continuity. Ready Guard does not say Ready now from an estimate. (#13)
+- Documentation: custom forecast price bases and DST timestamps, known public-beta limitations, and a release checklist. Added regression and real-app restart/failure checks to GitHub Actions.
+
+
 ## 0.32.7-dev
 
 - Roadmap: looking ahead 7, 14 or 30 days. Only the README changed, not the app. (#4)

@@ -19,6 +19,8 @@ const ROOT = path.join(__dirname, '..');
 const PLAN = path.join(__dirname, 'TESTPLAN.md');
 
 const UNIT = [
+  ['releaseguard', 'Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates'],
+  ['recovery', 'Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release'],
   ['brands', 'Chargers per brand: detection, start/stop, current, phase switching, status texts'],
   ['cars', 'Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names'],
   ['solar', 'Inverters, solar forecasts, the value of own solar power, charging on surplus'],

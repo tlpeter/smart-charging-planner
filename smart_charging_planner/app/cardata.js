@@ -52,10 +52,11 @@ function check(st, now, staleHours = DEFAULT_STALE_HOURS) {
   return { ok: true, reason: null, soc: value, at, age_ms: age };
 }
 
-function remember(entityId, soc, at) {
+function remember(entityId, soc, at, context = null) {
   const cur = load().entities[entityId];
-  if (cur && cur.soc === soc && cur.at === at) return;
-  last.entities[entityId] = { soc, at: at || Date.now() };
+  const session = context && context.session_id;
+  if (cur && cur.soc === soc && cur.at === at && cur.session_id === session) return;
+  last.entities[entityId] = { soc, at: at || Date.now(), ...(context || {}) };
   save();
 }
 
@@ -65,4 +66,13 @@ function lastGood(entityId) {
   return cur ? { entity_id: entityId, ...cur } : null;
 }
 
-module.exports = { check, remember, lastGood, DEFAULT_STALE_HOURS };
+// Only a reading taken during this car's observed charging session may be
+// extended with that session's charger energy. Never carry it across a trip.
+function usable(lastGood, session, { vehicleId, chargerId, plugged }) {
+  return !!(lastGood && session && plugged === true && session.id
+    && session.vehicle_id === vehicleId
+    && lastGood.vehicle_id === vehicleId && lastGood.charger_id === chargerId
+    && lastGood.session_id === session.id && lastGood.at >= session.since);
+}
+
+module.exports = { check, remember, lastGood, usable, DEFAULT_STALE_HOURS };

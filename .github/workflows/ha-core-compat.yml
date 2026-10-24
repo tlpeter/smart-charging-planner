@@ -2,12 +2,14 @@ name: Home Assistant Core compatibility
 
 on:
   push:
-    branches: [dev]
+    branches: [main, dev]
     paths:
       - '.github/workflows/ha-core-compat.yml'
       - 'smart_charging_planner/app/**'
       - 'tests/ha-core/**'
       - 'tests/ha-core-compat.test.js'
+  pull_request:
+    branches: [main, dev]
   workflow_dispatch:
   schedule:
     - cron: '17 4 * * 1'

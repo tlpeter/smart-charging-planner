@@ -181,21 +181,27 @@ function minimumOnly(b) {
 }
 
 function ampsFor(powerKw, phases, maxAmps) {
-  const a = powerKw ? Math.floor((powerKw * 1000) / (VOLTAGE * (phases || 3))) : maxAmps;
-  return Math.max(MIN_CURRENT, Math.min(maxAmps || a || 16, a || 16));
+  const cap = maxAmps == null ? 16 : Number(maxAmps);
+  if (!Number.isFinite(cap) || cap < MIN_CURRENT) return 0;
+  const a = powerKw == null ? cap : Math.floor((powerKw * 1000) / (VOLTAGE * (phases || 3)));
+  return Math.min(cap, Math.max(MIN_CURRENT, a));
 }
 
 // What the app would want right now.
 function decide(ctx) {
   const { plan, actual, rules, now, phases, states } = ctx;
   const p = plan && plan.plan;
-  const maxAmps = (plan && plan.charger && plan.charger.max_current) || 16;
+  const maxAmps = (plan && plan.charger && plan.charger.max_current) ?? 16;
   const lock = ctx.lock && ctx.lock.end > now ? ctx.lock : null;
   const priceNow = plan && plan.prices ? (plan.prices.find((x) => x.start <= now && now < x.end) || {}).total : undefined;
   const soc = plan && plan.vehicle ? plan.vehicle.soc : null;
   const target = plan && plan.planning ? plan.planning.target_soc : null;
   const departure = plan && plan.departure ? plan.departure.time : null;
-  const charge = (reason, code, extra = {}) => ({ want: 'charge', amps: extra.amps || maxAmps, reason, code, ...extra });
+  const charge = (reason, code, extra = {}) => {
+    const amps = Math.min(maxAmps, extra.amps ?? maxAmps);
+    if (amps < MIN_CURRENT) return { want: 'pause', code: 'current_limit', reason: 'The available current is below 6 A', clear_lock: true };
+    return { want: 'charge', reason, code, ...extra, amps };
+  };
   const pause = (reason, code, extra = {}) => ({ want: 'pause', reason, code, ...extra });
 
   // 1. Not plugged in (a plugged-in sensor that says "off" is trusted first).
@@ -206,6 +212,7 @@ function decide(ctx) {
     return pause('Charger status invalid for more than 2 minutes', 'status_invalid');
   }
   if (actual.plugged == null) return { want: 'none', reason: 'Cannot tell whether the car is plugged in', code: 'unknown_plug' };
+  if (maxAmps < MIN_CURRENT) return pause('The available current is below 6 A', 'current_limit', { clear_lock: true });
   if (!p) return { want: 'leave', reason: 'No plan yet', code: 'no_plan' };
 
   // 3. Below the minimum battery level.
@@ -395,6 +402,8 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
     if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
     else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };
   }
+
+  if (decision.want === 'charge' && decision.amps < MIN_CURRENT) decision = { want: 'pause', code: 'current_limit', reason: 'The available current is below 6 A', clear_lock: true };
 
   // Keep the lock up to date.
   let lock = st.lock && st.lock.end > now ? st.lock : null;

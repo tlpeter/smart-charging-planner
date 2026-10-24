@@ -34,6 +34,7 @@ const topup = require('./topup');
 const equalizer = require('./equalizer');
 const diagnostics = require('./diagnostics');
 const cardata = require('./cardata');
+const controlmemory = require('./controlmemory');
 const solar = require('./solar');
 const solarctl = require('./solarctl');
 const chargeMode = require('./mode');
@@ -1091,6 +1092,7 @@ const routes = {
       try {
         const result = await fetchPrices(s.prices.source, tz);
         prices = result.prices.map((p) => ({ ...p, total: totalPrice(p.price, s.prices) }));
+        if (result.warnings.length) priceError = result.warnings.join(' ');
       } catch (err) {
         priceError = err.message;
       }
@@ -1102,7 +1104,8 @@ const routes = {
       try {
         const fc = await forecastPrices(s.prices, tz, realEnd);
         prices = prices.concat(fc.prices);
-        forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null };
+        forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null, warnings: fc.warnings };
+        if (fc.warnings.length) priceError = [priceError, ...fc.warnings].filter(Boolean).join(' ');
       } catch (err) {
         forecastInfo = { entity_id: s.prices.forecast.entity_id, error: err.message };
       }
@@ -1120,7 +1123,7 @@ const routes = {
 
     // Cars without integration: follow the session and the energy charged.
     const actualNow = controller.readActual({ vehicle: plugView(s, vehicle, charger), charger, states, now });
-    const sess = session.update(actualNow.plugged, now);
+    const sess = session.update(actualNow.plugged, now, vehicle && vehicle.id);
 
     // The car's cloud down (battery level unavailable or not read for a long
     // time): go on from the last good level plus what the charger delivered.
@@ -1129,23 +1132,22 @@ const routes = {
       const st = states.find((x) => x.entity_id === vehicle.soc_entity);
       const h = cardata.check(st, now, vehicle.stale_hours);
       if (h.ok) {
-        cardata.remember(vehicle.soc_entity, h.soc, h.at);
+        cardata.remember(vehicle.soc_entity, h.soc, h.at, { vehicle_id: vehicle.id, charger_id: scope.id(), session_id: actualNow.plugged === true ? sess.id : null });
         carData = { ok: true };
       } else {
-        // The newest of: the last good level, and an old (stale) reading.
-        const remembered = cardata.lastGood(vehicle.soc_entity);
-        const staleRead = h.reason === 'stale' ? { soc: h.soc, at: h.at } : null;
-        const lastGood = [remembered, staleRead].filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0))[0] || null;
+        const lastGood = cardata.lastGood(vehicle.soc_entity);
+        const usable = cardata.usable(lastGood, sess, { vehicleId: vehicle.id, chargerId: scope.id(), plugged: actualNow.plugged });
         let kwh = 0;
         let estimate;
-        if (lastGood) {
+        if (usable) {
           if (charger && charger.power_entity && vehicle.capacity_kwh > 0) {
-            kwh = await session.energySince(charger.power_entity, lastGood.at, now).catch(() => 0);
+            kwh = await session.energySince(charger.power_entity, Math.max(lastGood.at, sess.since), now).catch(() => 0);
           }
           const loss = 1 + (Number(s.planning.loss_percent) || 0) / 100;
           estimate = vehicle.capacity_kwh > 0 ? Math.min(100, lastGood.soc + (kwh / loss / vehicle.capacity_kwh) * 100) : lastGood.soc;
         } else {
-          // Nothing known: plan carefully, as if the car is at the minimum.
+          // The car may have driven or another car may have used the charger.
+          // Plan conservatively, and do not present this as a confirmed level.
           const rules = rulesFor(s);
           estimate = rules.min_soc_enabled && Number.isFinite(Number(rules.min_soc)) ? Number(rules.min_soc) : 20;
         }
@@ -1157,7 +1159,8 @@ const routes = {
           last_soc: lastGood ? lastGood.soc : null,
           kwh_since: Math.round(kwh * 100) / 100,
           estimate: soc,
-          assumed: !lastGood,
+          assumed: !usable,
+          session_uncertain: !usable,
         };
       }
       carDataChanged(vehicle, carData);
@@ -1220,7 +1223,7 @@ const routes = {
     }
 
     const maxInfo = charger ? effectiveMaxCurrent(charger, states) : null;
-    const maxCurrent = maxInfo && maxInfo.amps ? maxInfo.amps : null;
+    const maxCurrent = maxInfo ? maxInfo.amps : null;
     const phases = charger ? charger.phases : 3;
     const theoreticalKw = chargePowerKw(phases, maxCurrent);
     // What the car really charges at, learned from the charger power sensor.
@@ -1234,7 +1237,7 @@ const routes = {
     if (grid && planning.use_house_load !== false) {
       houseLoad = await houseLoadProfile(grid, charger, tz, now);
       if (houseLoad.available) {
-        const opts = { profile: houseLoad.profile, mainFuse: grid.main_fuse, phases, chargerMax: maxCurrent || 16 };
+        const opts = { profile: houseLoad.profile, mainFuse: grid.main_fuse, phases, chargerMax: maxCurrent ?? 16 };
         prices = prices.map((p) => {
           const a = availableForBlock(p.start, tz, opts);
           return { ...p, power_kw: learnedKw ? Math.min(a.power_kw, learnedKw) : a.power_kw, amps: a.amps };
@@ -1525,11 +1528,11 @@ const routes = {
         plugged: plugged ? plugged.state : null,
       } : null,
       charger: charger ? { name: charger.name, phases: charger.phases, max_current: maxCurrent, max_source: maxInfo && maxInfo.source } : null,
-      assumed_current: maxCurrent ? null : 16,
+      assumed_current: maxCurrent == null ? 16 : null,
       power: {
         planned_kw: powerKw,
         theoretical_kw: theoreticalKw,
-        amps: maxCurrent || 16,
+        amps: maxCurrent ?? 16,
         phases,
         max_source: maxInfo ? maxInfo.source : null,
         max_name: maxInfo ? maxInfo.name || null : null,
@@ -2008,6 +2011,12 @@ async function manualControl(on, reason) {
     entry.error = 'Allow control is off, so nothing was sent';
   } else {
     try {
+      if (on) {
+        const maxInfo = effectiveMaxCurrent(charger, states);
+        const livePlan = { ...(ST().planCache ? ST().planCache.result : {}), charger: { max_current: maxInfo.amps } };
+        const prepared = await sendCurrentAndPhases(entry, s, methods, rules, livePlan);
+        if (!prepared) throw new Error(entry.control_wait || 'Waiting for charger limits');
+      }
       await ha.sendControl(command, controller.allowedFor(m));
       entry.sent = true;
       ST().lastManual = { on, at: entry.time };
@@ -2347,7 +2356,11 @@ function batteryWanted(bcfg, planResult, entry, soc = null) {
   return { action, reason };
 }
 
-let lastBattery = null; // { action, at, sent }
+let lastBattery = controlmemory.battery(); // includes the battery identity
+function setLastBattery(value, bcfg) {
+  lastBattery = value ? { ...value, identity: bcfg.soc_entity } : null;
+  controlmemory.setBattery(lastBattery);
+}
 
 // Remember values to put back later (Tesla backup reserve, Sessy strategy),
 // before the app changes the battery for the first time.
@@ -2373,12 +2386,16 @@ async function releaseBattery(bcfg) {
     }
   } catch (err) {
     ha.warn('Putting the previous battery back in its own mode failed:', err.message);
+    setLastBattery({ ...lastBattery, failed: true, at: Date.now() }, bcfg);
+    return false;
   }
-  lastBattery = null;
+  setLastBattery(null, bcfg);
+  return true;
 }
 async function batteryStep(s, planResult, entry, states) {
   const bcfg = batterySettings(s);
   if (!bcfg.soc_entity) return null;
+  if (lastBattery && lastBattery.identity !== bcfg.soc_entity) lastBattery = null;
   const grid = s.grid[0] || null;
   const sol = s.solar && s.solar.enabled ? s.solar : null;
   updateLedger(bcfg, states, solar.gridNetW(grid, states, sol ? sol.grid_sign : 'import_positive'));
@@ -2398,22 +2415,23 @@ async function batteryStep(s, planResult, entry, states) {
   // The action the battery really gets ("no discharging" can become "hold").
   const c = battery.commandsFor(control, want.action, Number(bcfg.charge_kw) || 3, soc);
   if (!c) return { ...info, error: `${want.action} is not possible with this battery` };
-  const same = lastBattery && lastBattery.action === c.action;
+  const same = lastBattery && !lastBattery.failed && lastBattery.action === c.action;
   if (same && !(refresh && Date.now() - lastBattery.at >= refresh)) return { ...info, action: c.action };
   rememberBattery(control);
   const allowed = battery.allowedFor(control);
   const line = { time: Date.now(), live: true, manual: false, want: 'battery', code: `battery_${c.action}`, reason: want.reason, commands: [], sent: false, agrees: true };
   try {
+    setLastBattery({ action: c.action, at: Date.now(), failed: true }, bcfg);
     for (const cmd of c.commands) {
       await ha.sendBattery(cmd, allowed);
       line.commands.push({ what: `battery: ${c.action}`, service: cmd.service, data: cmd.data, target: cmd.target });
     }
     line.sent = true;
-    lastBattery = c.action === 'auto' ? null : { action: c.action, at: Date.now() };
+    setLastBattery(c.action === 'auto' ? null : { action: c.action, at: Date.now() }, bcfg);
     await notifier.notify('battery_action', 'Home battery', `${want.reason}.`);
   } catch (err) {
     line.error = err.message;
-    lastBattery = { action: c.action, at: Date.now(), failed: true };
+    setLastBattery({ action: c.action, at: Date.now(), failed: true }, bcfg);
     await notifier.notify('battery_failed', 'Home battery command failed', `${c.action}: ${err.message}`, { key: 'battery', minGapMs: 60 * 60000 });
   }
   controller.logSent(line);
@@ -2491,7 +2509,7 @@ routes['POST /api/battery'] = async (req) => {
     if (!b.soc_entity) Object.assign(cfg, { platform: null, device_id: null, name: null, soc_entity: null, power_entity: null, enabled: false });
     if (cfg.soc_entity !== prev.soc_entity) {
       // Another battery: the old one back to its own mode, start afresh.
-      await releaseBattery(prev);
+      if (await releaseBattery(prev) === false) throw badRequest('The previous battery could not be released. Check it before choosing another battery.');
       cfg.saved = null;
       batteryLedger.solar_kwh = 0;
       batteryLedger.grid_kwh = 0;
@@ -2519,11 +2537,12 @@ routes['POST /api/battery/test'] = async (req) => {
   rememberBattery(control);
   const allowed = battery.allowedFor(control);
   const sent = [];
+  setLastBattery({ action: c.action, at: Date.now(), failed: true, manual: true }, cfg);
   for (const cmd of c.commands) {
     await ha.sendBattery(cmd, allowed);
     sent.push(`${cmd.service} ${JSON.stringify(cmd.data)}`);
   }
-  lastBattery = c.action === 'auto' ? null : { action: c.action, at: Date.now(), manual: true };
+  setLastBattery(c.action === 'auto' ? null : { action: c.action, at: Date.now(), manual: true }, cfg);
   controller.logSent({ time: Date.now(), live: true, manual: true, want: 'battery', code: `battery_${c.action}`, reason: `Battery test: ${c.action}`, commands: c.commands.map((x) => ({ what: `battery: ${c.action}`, service: x.service, data: x.data, target: x.target })), sent: true, agrees: true });
   return { ok: true, action: c.action, sent };
 };
@@ -3179,7 +3198,7 @@ function solarStep(s, planResult, states, methods, rules, charger) {
   }
   const chosen = chosenMethods(methods, rules);
   const currentControl = sol.current_control !== false && !!(chosen && chosen.current);
-  const maxAmps = (planResult.charger && planResult.charger.max_current) || 16;
+  const maxAmps = (planResult.charger && planResult.charger.max_current) ?? 16;
   const r = solarctl.step(ST().solarState, {
     now: Date.now(),
     available_w: available,
@@ -3245,50 +3264,106 @@ async function equalizerStep(s, entry, states, charger) {
 const CURRENT_GAP_MS = Number(process.env.SCP_CURRENT_GAP_MS) || 60000;
 const PHASE_RESTORE_MS = Number(process.env.SCP_PHASE_GAP_MS) || 2 * 60000;
 async function sendCurrentAndPhases(entry, s, methods, rules, planResult) {
-  const sol = s.solar && s.solar.enabled ? s.solar : null;
-  // More chargers: a current lowered to share the connection (sharing.js).
-  const shared = !!entry.shared;
-  if (entry.want !== 'charge' || entry.plugged === false) return;
-  if (!sol && !shared && !ST().lastCurrent) return;
-  // The Equalizer sets the current and phases itself while charging on solar.
-  if (entry.solar && entry.solar_equalizer) return;
+  if (entry.want !== 'charge' || entry.plugged === false) return true;
   const chosen = chosenMethods(methods, rules);
-  const curM = chosen && (shared || !sol || sol.current_control !== false) ? chosen.current : null;
-  const phaseM = sol ? phaseMethodFor(methods, sol) : null;
   const charger = currentCharger(s) || {};
-  const maxAmps = (planResult && planResult.charger && planResult.charger.max_current) || 16;
-  const wantAmps = entry.solar || shared ? entry.amps : maxAmps;
-  const wantPhases = entry.solar ? entry.phases : (charger.phases === 1 ? 1 : 3);
+  const identity = methods && methods.device_id;
+  if (!identity) return true;
+  const owned = controlmemory.charger(identity);
+  ST().lastCurrent = owned.current;
+  ST().lastPhases = owned.phases;
+  const sol = s.solar && s.solar.enabled ? s.solar : null;
+  const shared = !!entry.shared;
+  const maxAmps = (planResult && planResult.charger && planResult.charger.max_current) ?? 16;
+  const limited = maxAmps < (charger.max_current ?? 16);
+  const curM = chosen && (owned.current || shared || limited || !sol || sol.current_control !== false) ? chosen.current : null;
+  // A stored phase method may restore a phase change after solar was disabled.
+  const savedPhase = owned.phases && (methods.phase || []).find((m) => JSON.stringify(m) === JSON.stringify(owned.phases.method));
+  const phaseM = (sol ? phaseMethodFor(methods, sol) : null) || savedPhase;
+  const managedSolar = entry.solar && !entry.solar_equalizer;
+  if (entry.solar_equalizer && !owned.current && (!owned.phases || (!owned.phases.pending && owned.phases.phases === (charger.phases === 1 ? 1 : 3)))) return true;
+  const wantAmps = Math.min(maxAmps, managedSolar || shared ? entry.amps : maxAmps);
+  const wantPhases = managedSolar ? entry.phases : (charger.phases === 1 ? 1 : 3);
   const now = Date.now();
-  const send = async (command, method, what) => {
-    const line = { ...entry, time: now, live: true, commands: [command], sent: false };
-    try {
-      await ha.sendControl(command, controller.allowedFor(method));
-      line.sent = true;
-    } catch (err) {
-      line.error = err.message;
-      ha.warn('Could not', command.what, '-', err.message);
-      await notifier.notify('charger_failed', 'Charger command failed', `Could not ${command.what}: ${err.message}`, { key: `fail:${what}`, minGapMs: 30 * 60000 });
-    }
-    controller.logSent(line);
-    return line.sent;
+  const remember = (patch) => controlmemory.setCharger(identity, patch);
+  const send = async (command, method) => {
+    if (!command) throw new Error('The required charger control is unavailable');
+    await ha.sendControl(command, controller.allowedFor(method));
+    controller.logSent({ ...entry, time: now, live: true, commands: [command], sent: true });
   };
-  if (phaseM && wantPhases && (!ST().lastPhases || ST().lastPhases.phases !== wantPhases)) {
-    // Unknown and three phases wanted: leave the charger as it is.
-    const needed = ST().lastPhases ? true : wantPhases === 1;
-    if (needed && (!ST().lastPhases || now - ST().lastPhases.at >= PHASE_RESTORE_MS)) {
-      const c = controller.phaseCommand(phaseM, wantPhases, methods.device_id);
-      if (c && await send(c, phaseM, 'phase')) ST().lastPhases = { phases: wantPhases, at: now };
+  const hold = async (reason) => {
+    const command = controller.startStopCommand(chosen && chosen.start_stop, false, identity);
+    // A safety pause is not delayed by the normal retry or manual-start grace.
+    if (command) {
+      await send({ what: 'pause charging for charger limits', ...command }, chosen.start_stop);
+      ST().lastLiveSend = null;
     }
-  }
-  if (curM && Number.isFinite(wantAmps)) {
-    const changedByApp = ST().lastCurrent != null;
-    if (!entry.solar && !shared && !changedByApp) return; // never touched: leave it
-    if (!ST().lastCurrent || ST().lastCurrent.amps !== wantAmps) {
-      if (ST().lastCurrent && now - ST().lastCurrent.at < CURRENT_GAP_MS && wantAmps !== maxAmps) return;
-      const c = controller.currentCommand(curM, wantAmps, methods.device_id);
-      if (c && await send(c, curM, 'current')) ST().lastCurrent = wantAmps === maxAmps && !entry.solar ? null : { amps: wantAmps, at: now };
+    entry.control_wait = reason;
+    return false;
+  };
+  try {
+    if (!(wantAmps >= 6)) return await hold('The available current is below 6 A');
+    const phaseNeeded = phaseM && wantPhases && (!owned.phases
+      ? wantPhases === 1
+      : owned.phases.pending || owned.phases.phases !== wantPhases);
+    if (phaseNeeded) {
+      // Never switch a live load. Re-read on the next step after pausing.
+      if (entry.charging === true || (Number.isFinite(entry.power_w) && entry.power_w > 100)) {
+        return await hold('Waiting for charging power to fall before switching phases');
+      }
+      if (entry.charging !== false && !(Number.isFinite(entry.power_w) && entry.power_w <= 100)) {
+        return await hold('Waiting for confirmation that charging has stopped');
+      }
+      if (owned.phases && !owned.phases.pending && now - owned.phases.at < PHASE_RESTORE_MS) {
+        return await hold('Waiting before the next phase change');
+      }
+      if (entry.switch_state && entry.switch_state.on) await hold('Preparing a phase change');
+      const pending = { phases: wantPhases, at: now, method: phaseM, pending: true };
+      remember({ phases: pending }); // before the command: also survives a crash
+      await send(controller.phaseCommand(phaseM, wantPhases, identity), phaseM);
+      remember({ phases: { ...pending, pending: false } });
+      return await hold('Phase change accepted; waiting for the charger to settle');
     }
+    const settleMs = Number(process.env.SCP_PHASE_GAP_MS) || 5000;
+    if (owned.phases && now - owned.phases.at < settleMs) return await hold('Waiting for the charger phases to settle');
+    if (phaseM && owned.phases && !owned.phases.pending && phaseM.entity_id) {
+      const states = await ha.call({ type: 'get_states' });
+      const reported = states.find((x) => x.entity_id === phaseM.entity_id);
+      const expected = phaseM.type === 'switch_phase' ? (wantPhases === 1 ? 'on' : 'off')
+        : wantPhases === 1 ? phaseM.one_value : phaseM.three_value;
+      if (!reported || reported.state !== expected) return await hold('The charger has not confirmed the selected phase mode');
+    }
+    const needCurrent = curM && (managedSolar || shared || limited || owned.current);
+    if (needCurrent) {
+      const old = owned.current;
+      const changed = !old || old.pending || old.amps !== wantAmps;
+      // TTL-based commands must be refreshed even when the desired value is unchanged.
+      const renew = old && curM.ttl_field && now - old.at >= 10 * 60000;
+      if (changed || renew) {
+        if (old && !old.pending && now - old.at < CURRENT_GAP_MS && wantAmps < old.amps) {
+          return await hold('Waiting to apply a lower current limit');
+        }
+        const pending = { amps: wantAmps, at: now, method: curM, pending: true };
+        remember({ current: pending });
+        await send(controller.currentCommand(curM, wantAmps, identity), curM);
+        remember({ current: !managedSolar && !shared && !limited ? null : { ...pending, pending: false } });
+      }
+    } else if ((shared || (managedSolar && sol && sol.current_control !== false)) && wantAmps < maxAmps) {
+      return await hold('The required current limit cannot be set');
+    }
+    const fresh = controlmemory.charger(identity);
+    ST().lastCurrent = fresh.current;
+    ST().lastPhases = fresh.phases;
+    return true;
+  } catch (err) {
+    entry.error = err.message;
+    ha.warn('Charger limits could not be applied:', err.message);
+    await notifier.notify('charger_failed', 'Charger limits not applied', err.message, { key: 'limits', minGapMs: 30 * 60000 });
+    try { await hold('Charging paused because a required limit failed'); } catch (pauseError) {
+      entry.error += '; pause failed: ' + pauseError.message;
+    }
+    entry.control_wait = 'A required charger limit failed; charging was not enabled';
+    return false;
   }
 }
 
@@ -3322,6 +3397,9 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
   const charger = currentCharger(s);
   const [states, methods] = await Promise.all([ha.call({ type: 'get_states' }), currentControlMethods(charger)]);
   const rules = rulesFor(s);
+  // Live current limits win over a plan cached up to an hour ago.
+  const liveMax = charger ? effectiveMaxCurrent(charger, states) : null;
+  if (liveMax && liveMax.amps != null) planResult = { ...planResult, charger: { ...planResult.charger, max_current: liveMax.amps } };
   const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
   ST().lastDryRun = controller.dryRun({
     plan: planResult,
@@ -3349,8 +3427,15 @@ async function actStep({ s, charger, states, methods, rules, planResult, entry }
   ha.debug('Control:', entry.want, entry.reason, entry.commands.map((c) => c.what).join(', ') || 'no commands');
   if (options.allow_control === true) {
     await checkReaction(entry);
-    await sendLive(entry, chosenMethods(methods, rules));
-    await sendCurrentAndPhases(entry, s, methods, rules, planResult).catch((err) => ha.warn('Setting the current or phases failed:', err.message));
+    const prepared = await sendCurrentAndPhases(entry, s, methods, rules, planResult);
+    if (prepared) await sendLive(entry, chosenMethods(methods, rules));
+    else {
+      entry.want = 'pause';
+      entry.code = 'control_wait';
+      entry.reason = entry.control_wait || 'Waiting for charger limits';
+      entry.commands = [];
+      controller.logSent({ ...entry, time: Date.now(), live: true, sent: false });
+    }
     await manageCarLimit(planResult, entry, states).catch((err) => ha.warn('Managing the car limit failed:', err.message));
     await restartCar(planResult, entry, states, rules).catch((err) => ha.warn('Restarting the car failed:', err.message));
     // The Equalizer and the home battery belong to the house: the first charger steers them.
@@ -3456,7 +3541,7 @@ function shareConnection(s, steps) {
     const e = step.entry;
     const r = step.planResult && step.planResult.reliability;
     const chosen = chosenMethods(step.methods, step.rules);
-    const maxA = (step.planResult && step.planResult.charger && step.planResult.charger.max_current) || 16;
+    const maxA = (step.planResult && step.planResult.charger && step.planResult.charger.max_current) ?? 16;
     return {
       id,
       name: (step.planResult && step.planResult.vehicle && step.planResult.vehicle.name) || step.charger.name,
@@ -4102,7 +4187,7 @@ function effectiveMaxCurrent(charger, states) {
   for (const id of charger.max_current_entities || []) {
     const s = states.find((x) => x.entity_id === id);
     const n = s ? Number(s.state) : NaN;
-    if (Number.isFinite(n) && n > 0) values.push({ amps: n, source: id, name: (s.attributes && s.attributes.friendly_name) || id });
+    if (s && String(s.state).trim() !== '' && Number.isFinite(n) && n >= 0) values.push({ amps: n, source: id, name: (s.attributes && s.attributes.friendly_name) || id });
   }
   if (charger.max_current > 0) values.push({ amps: charger.max_current, source: 'manual', name: 'set manually' });
   if (!values.length) return { amps: null, source: null };

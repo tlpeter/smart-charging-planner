@@ -106,7 +106,7 @@ const ACTION_SOURCES = {
         ha.debug('EnergyZero: today + tomorrow failed, trying today only:', err.message);
         r = await call(win.tomorrow - 1000);
       }
-      return (r.prices || []).map((p) => ({ start: parseTime(p.timestamp), price: Number(p.price) }));
+      return (r.prices || []).map((p) => ({ start: parseTime(p.timestamp), price: validPrice(p.price) ? Number(p.price) : NaN }));
     },
   },
   easyenergy: {
@@ -124,7 +124,7 @@ const ACTION_SOURCES = {
         ha.debug('easyEnergy: today + tomorrow failed, trying today only:', err.message);
         r = await call(win.tomorrow - 1000);
       }
-      return (r.prices || []).map((p) => ({ start: parseTime(p.timestamp), price: Number(p.price) }));
+      return (r.prices || []).map((p) => ({ start: parseTime(p.timestamp), price: validPrice(p.price) ? Number(p.price) : NaN }));
     },
   },
   tibber: {
@@ -142,7 +142,7 @@ const ACTION_SOURCES = {
       }
       const homes = Object.values((r && r.prices) || {});
       const list = homes[0] || [];
-      return list.map((p) => ({ start: parseTime(p.start_time), price: Number(p.price) }));
+      return list.map((p) => ({ start: parseTime(p.start_time), price: validPrice(p.price) ? Number(p.price) : NaN }));
     },
   },
   nordpool: {
@@ -158,7 +158,7 @@ const ACTION_SOURCES = {
           });
           const areas = Object.values(r || {});
           for (const p of areas[0] || []) {
-            out.push({ start: parseTime(p.start), end: parseTime(p.end), price: Number(p.price) });
+            out.push({ start: parseTime(p.start), end: parseTime(p.end), price: validPrice(p.price) ? Number(p.price) : NaN });
           }
         } catch (err) {
           // Tomorrow's prices are published around 13:00; before that this fails.
@@ -187,6 +187,31 @@ const MARK_KEYS = ['source', 'type', 'kind', 'status', 'price_type', 'origin'];
 const FORECAST_RE = /forecast|predict|voorspel|estimat|expected/i;
 const isForecast = (x) => MARK_KEYS.some((k) => typeof x[k] === 'string' && FORECAST_RE.test(x[k])) || x.forecast === true || x.is_forecast === true;
 
+// Local clock times in a repeated/missing DST hour do not identify a price slot.
+// Departures keep their existing clock-time policy; price input must be unambiguous.
+function priceTime(value, tz, warnings = []) {
+  const text = String(value ?? '').trim();
+  const local = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (tz && local) {
+    const want = local.slice(1).map((x) => Number(x || 0));
+    const guess = Date.UTC(want[0], want[1] - 1, want[2], want[3], want[4], want[5]);
+    const offsets = new Set([-86400000, 0, 86400000].map((d) => tzOffsetMs(guess + d, tz)));
+    const candidates = [...offsets].map((off) => guess - off).filter((ms) => {
+      const got = tzParts(ms, tz);
+      return [got.y, got.m, got.d, got.h, got.mi, got.s].every((v, i) => v === want[i]);
+    });
+    if (candidates.length !== 1) {
+      warnings.push('A price time is ambiguous or does not exist at a clock change. Use UTC or timestamps with an explicit offset; that slot was skipped.');
+      return NaN;
+    }
+    return candidates[0];
+  }
+  return parseTime(value, tz);
+}
+
+const validPrice = (v) => v !== null && v !== undefined && typeof v !== 'boolean'
+  && !(typeof v === 'string' && !v.trim()) && Number.isFinite(Number(v));
+
 function parseList(list, tz) {
   if (!Array.isArray(list) || list.length < 4) return null;
   const first = list.find((x) => x && typeof x === 'object');
@@ -196,28 +221,40 @@ function parseList(list, tz) {
   if (!tKey || !pKey) return null;
   const eKey = END_KEYS.find((k) => k in first);
   const out = [];
+  out.warnings = [];
   for (const x of list) {
     if (!x || typeof x !== 'object') continue;
-    const start = parseTime(x[tKey], tz);
+    const start = priceTime(x[tKey], tz, out.warnings);
+    if (!validPrice(x[pKey])) {
+      out.warnings.push('A missing or invalid price was skipped; it is not a free charging slot.');
+      continue;
+    }
     const price = Number(x[pKey]);
-    if (!Number.isFinite(start) || !Number.isFinite(price)) continue;
-    const item = { start, end: eKey ? parseTime(x[eKey], tz) : undefined, price };
+    if (!Number.isFinite(start)) continue;
+    const end = eKey ? priceTime(x[eKey], tz, out.warnings) : undefined;
+    if (eKey && (!Number.isFinite(end) || end <= start)) {
+      out.warnings.push('A price interval with an invalid end was skipped.');
+      continue;
+    }
+    const item = { start, end, price };
     if (isForecast(x)) item.forecast = true;
     out.push(item);
   }
-  return out.length >= 4 ? out : null;
+  return out.length || out.warnings.length ? out : null;
 }
 
 function pricesFromAttributes(attributes, tz) {
   const merged = new Map();
   const keys = [];
+  const warnings = [];
   for (const [key, value] of Object.entries(attributes || {})) {
     const parsed = parseList(value, tz);
     if (!parsed) continue;
     keys.push(key);
+    warnings.push(...parsed.warnings);
     for (const p of parsed) if (!merged.has(p.start)) merged.set(p.start, p);
   }
-  return { keys, prices: [...merged.values()] };
+  return { keys, prices: [...merged.values()], warnings: [...new Set(warnings)] };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +341,7 @@ function toPerKwh(prices, unitHint, warnings) {
 }
 
 function finalise(prices, win) {
-  const sorted = prices.filter((p) => Number.isFinite(p.start)).sort((a, b) => a.start - b.start);
+  const sorted = prices.filter((p) => Number.isFinite(p.start) && validPrice(p.price)).sort((a, b) => a.start - b.start);
   let step = Infinity;
   for (let i = 1; i < sorted.length; i++) {
     const d = sorted[i].start - sorted[i - 1].start;
@@ -315,7 +352,7 @@ function finalise(prices, win) {
     interval_minutes: Math.round(step / 60000),
     prices: sorted
       .map((p) => ({ start: p.start, end: Number.isFinite(p.end) ? p.end : p.start + step, price: p.price }))
-      .filter((p) => p.start >= win.start && p.start < win.end),
+      .filter((p) => p.start >= win.start && p.start < win.end && p.end > p.start),
   };
 }
 
@@ -372,7 +409,9 @@ async function fetchPrices(source, tz) {
     const states = await ha.call({ type: 'get_states' });
     const s = states.find((x) => x.entity_id === source.entity_id);
     if (!s) throw new Error(`Sensor ${source.entity_id} not found`);
-    const all = pricesFromAttributes(s.attributes, tz).prices;
+    const parsed = pricesFromAttributes(s.attributes, tz);
+    const all = parsed.prices;
+    warnings.push(...parsed.warnings);
     // Entries marked as a forecast are not real prices; the forecast
     // setting decides whether they are used.
     raw = all.filter((p) => !p.forecast);
@@ -383,6 +422,7 @@ async function fetchPrices(source, tz) {
   }
 
   ha.debug('Price source', source.id, 'returned', raw.length, 'prices; unit hint:', unit);
+  if (raw.some((p) => !validPrice(p.price))) warnings.push('Invalid price values were skipped; they are not free charging slots.');
   const { interval_minutes, prices } = finalise(toPerKwh(raw, unit, warnings), win);
   try {
     history.record(source.id, prices);
@@ -399,8 +439,9 @@ async function fetchForecast(forecast, tz, fromMs) {
   const states = await ha.call({ type: 'get_states' });
   const s = states.find((x) => x.entity_id === forecast.entity_id);
   if (!s) throw new Error(`Forecast sensor ${forecast.entity_id} not found`);
-  const warnings = [];
-  const raw = pricesFromAttributes(s.attributes, tz).prices;
+  const parsed = pricesFromAttributes(s.attributes, tz);
+  const warnings = [...parsed.warnings];
+  const raw = parsed.prices;
   const unit = s.attributes && s.attributes.unit_of_measurement;
   const win = { start: fromMs, end: localMidnight(tz, 8) };
   const { prices } = finalise(toPerKwh(raw, unit, warnings), win);
@@ -444,10 +485,24 @@ function summarise(result, cfg, now = Date.now()) {
   const tomorrow = withTotal.filter((p) => p.start >= win.tomorrow);
   const current = withTotal.find((p) => p.start <= now && now < p.end) || null;
   const pick = (list, fn) => (list.length ? list.reduce((a, b) => (fn(b.total, a.total) ? b : a)) : null);
-  const expected = Math.round((24 * 60) / interval_minutes);
-  if (today.length && today.length < expected - 1) {
-    warnings.push(`Only ${today.length} of ${expected} prices found for today.`);
-  }
+  const checkDay = (list, start, end, label) => {
+    if (!list.length) return; // tomorrow may not have been published yet
+    const expected = Math.round((end - start) / (interval_minutes * 60000));
+    if (list.length < expected) warnings.push(`Only ${list.length} of ${expected} prices found for ${label}.`);
+    let covered = start;
+    let gap = false;
+    let overlap = false;
+    for (const p of [...list].sort((a, b) => a.start - b.start)) {
+      if (p.start > covered + 1) gap = true;
+      if (p.start < covered - 1) overlap = true;
+      covered = Math.max(covered, Math.min(end, p.end));
+    }
+    if (covered < end - 1) gap = true;
+    if (gap) warnings.push(`Price coverage for ${label} has a gap. Check timestamps, offsets and missing slots.`);
+    if (overlap) warnings.push(`Price coverage for ${label} has overlapping intervals.`);
+  };
+  checkDay(today, win.start, win.tomorrow, 'today');
+  checkDay(tomorrow, win.tomorrow, win.end, 'tomorrow');
   return {
     interval_minutes,
     count_today: today.length,
@@ -457,7 +512,7 @@ function summarise(result, cfg, now = Date.now()) {
     lowest_today: pick(today, (a, b) => a < b),
     highest_today: pick(today, (a, b) => a > b),
     average_today: today.length ? today.reduce((s, p) => s + p.total, 0) / today.length : null,
-    warnings,
+    warnings: [...new Set(warnings)],
   };
 }
 
@@ -465,5 +520,5 @@ module.exports = {
   fixedTariff, fetchForecast,
   detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
-  pricesFromAttributes, ACTION_SOURCES,
+  pricesFromAttributes, ACTION_SOURCES, priceTime,
 };

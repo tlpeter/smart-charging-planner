@@ -2,7 +2,24 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+> Status: public beta. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+
+## Recovery candidate and compatibility
+
+The current development candidate is **0.32.8-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+
+These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
+
+| Capability | What to expect |
+| --- | --- |
+| Car and charger detection | Check the suggested sensors and control method. Some integrations can only read. The stable car-sensor fixes tracked in #21 are already on dev. |
+| Solar phase switching | Requires supported hardware and current control. The app pauses, waits for the load to stop, applies the mode and allows settling before enabling again. Service-only phase methods acknowledge a requested mode; verify the real hardware during setup. |
+| Home battery | Capabilities differ by integration. Read-only models do not become controllable because a plan is shown. Original-setting restoration, live bounds and multi-charger protection remain open audit work. |
+| Multiple chargers | Live sharing is available, but site planning and physical phase allocation are not yet complete. Keep hardware load balancing in place. |
+| Week prices | A forecast is optional. A custom sensor must provide timed price rows with a stated unit and an explicit raw/all-in basis. See the recipe below. |
+| Public diagnostics | Review the file before sharing it; the remaining privacy work is tracked in #20. |
+
+Known limitations and remaining work are tracked in the [issues](https://github.com/tlpeter/smart-charging-planner/issues). Do not use the app as a substitute for the charger's electrical protections or a hardware load balancer.
 
 ## Installation
 
@@ -10,7 +27,7 @@ Choose **one** version before adding the repository:
 
 | Version | Recommended for | Repository URL | Name in Home Assistant |
 | --- | --- | --- | --- |
-| **Stable (`main`)** | Most users | `https://github.com/tlpeter/smart-charging-planner` | **Smart Charging Planner** |
+| **Stable (`main`)** | Published beta; check the limitations above | `https://github.com/tlpeter/smart-charging-planner` | **Smart Charging Planner** |
 | **Test (`dev`)** | Testing the newest changes and reporting problems | `https://github.com/tlpeter/smart-charging-planner#dev` | **Smart Charging Planner (dev)** |
 
 The test version may contain unfinished or less-tested changes. Its version number ends in `-dev`.
@@ -117,6 +134,16 @@ Settings → Apps → Smart Charging Planner → **Configuration**. Saving resta
 
 With more chargers and too little room on the main fuse: Charge now first, then a car below its minimum or preconditioning, then a car Ready Guard protects, then the car with the least room to spare (the earliest latest safe start). The rest is shared fairly (at least 6 A each); a charger that can only start and stop charges at full current or waits.
 
+## Custom combined price sensors
+
+For a sensor containing actual and forecast prices:
+
+- Use rows such as `{ "time": "2026-10-25T02:00:00+02:00", "price": 0.22, "source": "forecast" }`. Preserve UTC or the offset from the upstream data. The repeated hour `02:00+01:00` is a different delivery hour.
+- Select the actual and forecast price bases separately. If a template already adds tax, supplier fees or an adjustment calibrated against an all-in tariff, do not add those amounts again in the app. For an already adjusted consumer forecast, choose **All-in** as its forecast basis, then add only the desired forecast margin.
+- A raw market forecast should instead receive the configured taxes/fees once. A fixed learned adjustment against actual tariffs is an approximation, not an exact tax formula.
+- Missing prices are gaps. They are not zero. On clock-change days an offset-free ambiguous or nonexistent hour is skipped and reported; the app never guesses which repeated hour a price means.
+- The app does not install a scraping automation or depend on a particular public forecast endpoint. Keep the source's supported integration/API and freshness visible.
+
 ## Roadmap
 
 - [x] Setup checks: vehicle, charger, grid, price source
@@ -168,7 +195,7 @@ With more chargers and too little room on the main fuse: Charge now first, then 
 
 ## Reporting a problem
 
-1. In the app: Settings › Diagnostics › **Download diagnostics**. Names, trip titles, places and your notify target are removed from the file.
+1. In the app: Settings › Diagnostics › **Download diagnostics**. The app removes many personal fields, but inspect the export before sharing it publicly; full redaction is still tracked in #20.
 2. Open a [bug report](https://github.com/tlpeter/smart-charging-planner/issues/new/choose) and attach the file.
 
 Security problems: please report them privately, see [SECURITY.md](SECURITY.md).

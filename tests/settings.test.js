@@ -1218,7 +1218,7 @@ async function run() {
     assert(v.stale_hours === 2, `stale_hours ${v.stale_hours}`);
   });
   await test('V2', 'Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification', async () => {
-    world.soc = 45; world.ages = {}; world.limit = 80; world.charging = false;
+    world.soc = 45; world.ages = {}; world.reportedAt = { [CAR.soc]: Date.now() }; world.limit = 80; world.charging = false;
     await plan();
     const n0 = world.calls.length;
     world.soc = 'unavailable';
@@ -1240,13 +1240,16 @@ async function run() {
     assert(!callsSince(n0).some((c) => c.domain === 'number' && c.target && c.target.entity_id === CAR.limit), 'car limit sent while the car is not reachable');
     const titles = notesSince(n0).filter((t) => t === 'Car not reachable');
     assert(titles.length === 1, `notifications ${notesSince(n0)}`);
+    world.reportedAt = {};
     return `plans with ${p.vehicle.soc}% (last level 45% + ${cd.kwh_since} kWh charged since), decision ${n.code}`;
   });
   await test('V3', 'Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour', async () => {
     const nBack = world.calls.length;
     world.soc = 50;
     world.ages = {};
+    world.reportedAt = { [CAR.soc]: Date.now() };
     await plan(); // read while live again: 50 % (back after V2)
+    world.reportedAt = {};
     world.ages = { [CAR.soc]: 3 * H }; // then Home Assistant does not read it any more
     const p = await plan();
     const cd = p.vehicle.car_data;

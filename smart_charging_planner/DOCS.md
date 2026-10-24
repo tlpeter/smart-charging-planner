@@ -373,3 +373,22 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 ## Planned
 
 Plans of more chargers that take each other into account. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap and an overview of all options.
+
+
+## Recovery safeguards (0.32.8-dev)
+
+A followed numeric current limit of 0–5 A pauses charging. This also applies to Charge now, minimum charging, preconditioning and Ready Guard. The live limit is read on each control step, even when the price plan is cached. A missing/unavailable limit and a real zero are different.
+
+Required current settings are sent before enabling charging. Before a phase change, the app pauses and waits for charging power to stop. It sends the phase request, waits for settling, and checks the reported selection when the method exposes a readable switch/select. A failed phase or current command keeps charging paused and is retried at the next step. For service-only methods the response confirms acceptance of the request, not a physical measurement of all phases.
+
+The app keeps a write-ahead ownership record in /data/device_control*.json and /data/battery_control.json. A normal restart or crash no longer forgets changes recorded by this version. The record is tied to the charger/battery identity. A successful return to the normal current or battery mode clears the relevant record; a failed release is kept. These records cannot reconstruct changes made by an older version that did not save them.
+
+Recovery obeys Allow control and Allow home battery control. With control disabled the app sends no recovery commands. If you want the app to restore a device before disabling control, first return to the price plan/full-power mode and turn battery planning off while control is still allowed, then check the physical device. Original home-battery limit/mode restoration remains a separate limitation tracked in #9.
+
+An old car battery reading is extended with charger energy only when it belongs to the same vehicle, charger and observed plug-in session, and its timestamp is after that session began. A trip, a car change or app restart breaks that continuity. If the level is unavailable then, the plan starts from a conservative assumption (normally 20%, or the configured minimum) and marks it as assumed. Ready Guard does not confirm Ready now from an estimated level. Wait for a fresh car reading or use the manual battery-level mode when needed.
+
+Price rows should use UTC, epoch values or ISO timestamps with a UTC offset. For example, 2026-10-25T02:00:00+02:00 and 2026-10-25T02:00:00+01:00 are distinct hours in Europe/Amsterdam. Offset-free times in a repeated or nonexistent clock hour are skipped with a warning. Coverage checks use the actual time between local midnights: 23/24/25 hours, or 92/96/100 quarter-hours. Missing/blank/boolean prices are rejected; an explicit numeric zero or negative price remains valid.
+
+For a combined actual/forecast sensor, check both price bases. A forecast already calibrated against consumer tariffs should use All-in, with only the chosen forecast margin added. A raw market forecast should receive fees/tax/VAT exactly once. The app does not install or maintain an external scraping automation. See the custom-source recipe in README.md and #26/#27 for the remaining provider/preview improvements.
+
+Release gates, remaining public-beta limitations and physical verification are described in [RELEASE.md](../RELEASE.md).

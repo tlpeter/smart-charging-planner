@@ -211,6 +211,7 @@ function entityList(w) {
     ...car,
     ...car2,
     ...charger,
+    ...(w.liveLimit === undefined ? [] : [['sensor.laadpaal_live_limit', String(w.liveLimit), { unit_of_measurement: 'A', friendly_name: 'Live charger limit' }, 'ch']]),
     ...ch2,
     ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
@@ -250,7 +251,7 @@ function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
   // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
   // for a while (a car whose cloud is down).
-  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : ago);
+  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : ago));
   return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 
@@ -355,6 +356,8 @@ function start(w, wsPort, restPort) {
             if (typeof v !== 'string') return fail("value should be a string at 'device_id'");
           }
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
+          if (w.attempts) w.attempts.push(call);
+          if (w.failCommand && w.failCommand(call)) return fail('simulated selected command failure');
           if (w.failNextControl > 0 && w.profile.charger.isControl(call)) {
             w.failNextControl--;
             return fail('simulated charger command failure');
