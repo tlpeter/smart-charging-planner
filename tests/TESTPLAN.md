@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 177 of 177 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 178 of 178 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 166 of 166 ✓ |
-| Unit tests (17 files) | 720 of 720 ✓ |
+| Unit tests (17 files) | 736 of 737 ✗ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.24-dev.
+Version: 0.33.3-dev.
 
 # Settings
 
@@ -43,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 233 kB JS | ✓ 46 kB CSS, 233 kB JS |
+| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 235 kB JS | ✓ 46 kB CSS, 235 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -95,8 +95,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.9 h back | ✓ 16 charged blocks, from 15.9 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 17 charged blocks, from 16.4 h back | ✓ 17 charged blocks, from 16.4 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
 
@@ -184,10 +184,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.2 kWh on solar, 22.1 kWh from the grid | ✓ 12.3 kWh on solar, 38.6 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.2 kWh on solar | ✓ 12.3 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.6 kWh at night, 12.3 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 12.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.3 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.0 kWh on solar, 22.3 kWh from the grid | ✓ 12.0 kWh on solar, 38.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.0 kWh on solar | ✓ 12.0 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.8 kWh at night, 12.0 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -203,7 +203,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.41 | ✓ charges in 3 block(s), saving €1.32 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.39 | ✓ charges in 3 block(s), saving €1.30 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -319,6 +319,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | X3 | Each charger has its own plan: Laadpaal for the first car, Garage for the EV6 (both plugged in) | ✓ JLZ03X: 22.9 kWh · EV6: 42.4 kWh | – (not for this set-up) |
 | X4 | Both must charge now (below the minimum), main fuse 25 A: the EV6 (least room to spare) gets 16 A, the other the rest (6 A) | ✓ available 22.8 A: Garage (EV6) 16 A, Laadpaal 6 A | – (not for this set-up) |
 | X5 | The house uses more (4.6 kW): too little left for the second car: it waits, the EV6 keeps charging | ✓ Laadpaal: Waiting: the connection is in use, EV6 goes first | – (not for this set-up) |
+| X5a | Charge now goes first, also while that car is below its minimum: the Laadpaal moves before the EV6, and back after Charge now ends (#35) | ✓ EV6 first → Laadpaal first (Charge now, below minimum) → EV6 first | – (not for this set-up) |
 | X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✓ 0/4/5 A pause; 6 A limit; import/export-positive meters | – (not for this set-up) |
 | X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✓ | – (not for this set-up) |
 | X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✓ Laadpaal → EV6 · Garage → JLZ03X | – (not for this set-up) |
@@ -352,7 +353,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 53 of 53 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 47 of 47 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 63 of 64 ✗ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
@@ -1054,7 +1055,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>47 of 47 passed – show every check</summary>
+<details open><summary>63 of 64 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1105,6 +1106,23 @@ Price forecast: reading it and planning with it.
 | ambiguous unit requires correction: electricity | ✓ |
 | ambiguous unit requires correction: currency | ✓ |
 | an explicit foreign currency is rejected instead of silently compared | ✓ |
+| Core Nord Pool: the action is offered | ✓ |
+| Core Nord Pool: its sensor is not offered twice | ✓ |
+| HACS Nord Pool: no action without get_prices_for_date | ✓ |
+| HACS Nord Pool: the raw_today/raw_tomorrow sensor is offered | ✓ |
+| HACS Nord Pool: VAT included by default, with a note | ✓ |
+| Unknown services: the action is offered as before | ✓ |
+| HACS unit from currency and unit | ✓ |
+| HACS unit in cents | ✓ |
+| HACS cents converted once | ✓ |
+| HACS MWh converted once | ✓ |
+| Other sensors keep their unit_of_measurement | ✓ |
+| Tibber, two homes, none chosen: a clear error listing both | ✓ |
+| Tibber, Home B chosen: its prices, not those of Home A | ✓ |
+| Tibber, the chosen home is gone: a clear error, no other home | ✓ |
+| Nord Pool, area SE4 chosen: its prices (per MWh → per kWh) | ✗ FAIL |
+| Nord Pool, two areas, none chosen: a clear error | ✓ |
+| Tibber, one home: used without choosing, as before | ✓ |
 
 </details>
 
