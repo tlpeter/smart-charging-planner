@@ -164,7 +164,13 @@ jobs:
           git add tests/TESTPLAN.md
           git commit -m "Test plan: results of ${GITHUB_SHA::7} [skip ci]"
           for i in 1 2 3; do
-            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            git fetch origin "${GITHUB_REF_NAME}"
+            remote_head="$(git rev-parse "refs/remotes/origin/${GITHUB_REF_NAME}")"
+            if [ "$remote_head" != "$GITHUB_SHA" ]; then
+              echo "Newer code is on the branch; its workflow will publish the test plan."
+              exit 0
+            fi
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
             sleep 5
           done
           exit 1

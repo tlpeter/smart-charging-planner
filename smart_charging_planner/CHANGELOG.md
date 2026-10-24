@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.9-dev
+
+- Corrected the weekly-schedule setup in the new real-app recovery tests, so failure and restart scenarios reach the controller. (#7, #8)
+- The test-plan workflow now refuses to publish old results over a newer code revision.
+
 ## 0.32.8-dev
 
 - Price times: the repeated winter-time hour stays distinct when the source supplies UTC offsets. Ambiguous or nonexistent local clock times are skipped with a warning; day coverage uses 23, 24 or 25 real hours. (#18)
