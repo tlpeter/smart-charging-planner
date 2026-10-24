@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 178 of 178 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 166 of 166 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 179 of 179 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 167 of 167 ✓ |
 | Unit tests (17 files) | 737 of 737 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.33.5-dev.
+Version: 0.33.6-dev.
 
 # Settings
 
@@ -43,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 235 kB JS | ✓ 46 kB CSS, 235 kB JS |
+| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 238 kB JS | ✓ 47 kB CSS, 238 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -95,7 +95,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 18 charged blocks, from 17.2 h back | ✓ 18 charged blocks, from 17.2 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 18 charged blocks, from 17.3 h back | ✓ 18 charged blocks, from 17.3 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
@@ -116,6 +116,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | F8c | Successful rescheduling and cancellation replace cached events; expired cache is not reused | ✓ | ✓ |
 | F9 | Add trip with "Allow adding trips" off: test mode, nothing written | ✓ | ✓ |
 | F9b | Add trip language: "auto" follows Home Assistant (English here), Dutch on request, an unknown value falls back to auto | ✓ To Utrecht / Naar Utrecht | ✓ To Utrecht / Naar Utrecht |
+| F10 | Looking ahead reaches 30 days (#4): the weekly schedule gives departures in weeks 3 and 4, and the plan says until when prices are known; Plan lists 7, 14 or 30 days as asked | ✓ 10 departures in 30 days · Plan 2 / 4 / 10 days with a departure | ✓ 10 departures in 30 days · Plan 2 / 4 / 10 days with a departure |
 
 ## G. Rules
 
