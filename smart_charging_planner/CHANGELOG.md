@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.3-dev
+
+- Test Y13 (ask to charge more) now also works with a smaller battery, where the first question is already 100 %. Only the test changed, not the app. (#2)
+
 ## 0.32.2-dev
 
 - Volvo: "Charging connection status" is no longer taken as the charging sensor (it is the plug); "Charging status" is.
