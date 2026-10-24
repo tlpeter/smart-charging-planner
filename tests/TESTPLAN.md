@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 171 of 173 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 173 of 173 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 162 of 162 ✓ |
 | Unit tests (14 files) | 662 of 662 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.12-dev.
+Version: 0.32.13-dev.
 
 # Settings
 
@@ -181,10 +181,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 16.9 kWh on solar, 17.5 kWh from the grid | ✓ 16.9 kWh on solar, 34.0 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 16.9 kWh on solar | ✓ 16.9 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 34.0 kWh at night, 16.9 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 16.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 16.9 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 16.7 kWh on solar, 17.6 kWh from the grid | ✓ 16.7 kWh on solar, 34.1 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 16.7 kWh on solar | ✓ 16.7 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 34.1 kWh at night, 16.7 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 16.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 16.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -315,8 +315,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | X3 | Each charger has its own plan: Laadpaal for the first car, Garage for the EV6 (both plugged in) | ✓ JLZ03X: 22.9 kWh · EV6: 42.4 kWh | – (not for this set-up) |
 | X4 | Both must charge now (below the minimum), main fuse 25 A: the EV6 (least room to spare) gets 16 A, the other the rest (6 A) | ✓ available 22.8 A: Garage (EV6) 16 A, Laadpaal 6 A | – (not for this set-up) |
 | X5 | The house uses more (4.6 kW): too little left for the second car: it waits, the EV6 keeps charging | ✓ Laadpaal: Waiting: the connection is in use, EV6 goes first | – (not for this set-up) |
-| X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✗ FAIL ["charger2","charger1"] | – (not for this set-up) |
-| X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✗ FAIL {"at":1792841743312,"how":"net_power","available_a":10,"order":["charger2","charger1"],"result":{"charger2":{"amps":10,"pause":false,"reason":"Sharing the connection: 10 A"},"charger1":{"amps":null,"pause":true,"reason":"Waiting: the connection is in use, EV6 goes first"}},"main_fuse":25} | – (not for this set-up) |
+| X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✓ 0/4/5 A pause; 6 A limit; import/export-positive meters | – (not for this set-up) |
+| X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✓ | – (not for this set-up) |
 | X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✓ Laadpaal → EV6 · Garage → JLZ03X | – (not for this set-up) |
 | X7 | Sensors and messages say which charger: sensor.smart_charging_garage_status; the first charger keeps its names | ✓ | – (not for this set-up) |
 | X8 | Turned off: the first charger only, as before; the Garage stays saved | ✓ back to one charger | – (not for this set-up) |
