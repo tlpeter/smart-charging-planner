@@ -1938,8 +1938,8 @@ function boostFromBody(body, cached, starting = false) {
 
 async function freshPlan() {
   if (!ST().planCache || Date.now() - ST().planCache.at > 60000) {
-    const r = await refreshPlan('on request', { fresh: !ST().planCache });
-    if (r) return r;
+    await refreshAll('on request', { fresh: !ST().planCache });
+    if (ST().planCache) return ST().planCache.result;
   }
   if (!ST().planCache) throw new Error('The plan could not be calculated yet; try again in a moment');
   return ST().planCache.result;
@@ -3171,8 +3171,10 @@ routes['GET /api/plan'] = async (req) => {
     }
   }
   const maxAge = options.refresh_minutes * 60000;
-  if (force || !ST().planCache || Date.now() - ST().planCache.at > maxAge) await refreshPlan(force ? 'manual' : 'on request', { fresh: force });
-  if (!ST().planCache) await refreshPlan('on request', { fresh: true });
+  // A request for one charger must also rebuild the other EV plans before
+  // the site battery decision. Settings changes invalidate every scope.
+  if (force || !ST().planCache || Date.now() - ST().planCache.at > maxAge) await refreshAll(force ? 'manual' : 'on request', { fresh: force });
+  if (!ST().planCache) await refreshAll('on request', { fresh: true });
   if (!ST().planCache) throw new Error('The plan could not be calculated yet; see the app log');
   return {
     ...ST().planCache.result,

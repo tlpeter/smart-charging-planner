@@ -87,9 +87,17 @@ check('every charger participates in never/solar-only/range/always policies', ()
   const source = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
   const begin = source.indexOf('function batteryWanted('), end = source.indexOf('let lastBattery', begin);
   const entries = [{ want: 'pause', charging: false, plugged: false }, { want: 'none', charging: true, plugged: true, power_w: 7000 }];
-  const policy = (ev_discharge, solar = 0, active = false) => vm.runInNewContext(source.slice(begin, end) + '\n batteryWanted(cfg, null, entries, 50)', {
-    cfg: { ev_discharge, solar_priority: 'battery', ev_from_pct: 80, ev_to_pct: 40 }, entries, batteryLedger: { solar_kwh: solar }, evRange: { active },
+  const policy = (ev_discharge, solar = 0, active = false, sample = entries) => vm.runInNewContext(source.slice(begin, end) + '\n batteryWanted(cfg, null, entries, 50)', {
+    cfg: { ev_discharge, solar_priority: 'battery', ev_from_pct: 80, ev_to_pct: 40 }, entries: sample, batteryLedger: { solar_kwh: solar }, evRange: { active },
   });
+  for (const sample of [entries, [...entries].reverse(),
+    [{ want: 'pause', plugged: false }, { want: 'charge', charging: false, plugged: true, power_w: 0 }],
+    [{ want: 'charge', charging: false, plugged: true, power_w: 0 }, { want: 'pause', plugged: false }]]) {
+    assert.equal(policy('never', 0, false, sample).action, 'no_discharge');
+    assert.equal(policy('solar_only', 0, false, sample).action, 'no_discharge');
+    assert.equal(policy('range', 0, false, sample).action, 'no_discharge');
+    assert.equal(policy('always', 0, false, sample).action, 'auto');
+  }
   assert.equal(policy('never').action, 'no_discharge');
   assert.equal(policy('solar_only').action, 'no_discharge');
   assert.equal(policy('solar_only', 1).action, 'auto');

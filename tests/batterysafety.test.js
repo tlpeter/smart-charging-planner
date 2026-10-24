@@ -218,6 +218,20 @@ async function run() {
       const expected = [p, other].flatMap((x) => x.plan.blocks).reduce((a, b) => a + Math.max(0, b.kwh - (b.solar_kwh || 0)), 0);
       assert(Math.abs(p.battery.ev_planned_kwh - expected) < 0.1, JSON.stringify([p.battery.ev_planned_kwh, expected]));
       assert(p.battery_now.ev_chargers >= 1);
+      assert(other.plan.planned_kwh > 0, 'the second EV must have actual demand');
+      // Reverse the roles: primary charging, secondary idle, then both
+      // connected with non-zero demand. The same site policy must apply.
+      world.plugged = true; world.car1Plug = true; world.charging = true;
+      world.ch2.plugged = false; world.ch2.charging = false;
+      const reversed = await plan();
+      assert.equal(world.bat.mode, 'Standby');
+      assert(reversed.battery_now.ev_chargers >= 1);
+      world.ch2.plugged = true;
+      const both = await plan();
+      const secondPlan = await api('GET', 'api/plan?charger=' + second.charger.id);
+      assert(both.plan.planned_kwh > 0 && secondPlan.plan.planned_kwh > 0, 'both EV demands must be non-zero');
+      const combined = [both, secondPlan].flatMap((x) => x.plan.blocks).reduce((a, b) => a + Math.max(0, b.kwh - (b.solar_kwh || 0)), 0);
+      assert(Math.abs(both.battery.ev_planned_kwh - combined) < 0.1);
     });
   } finally { await stop(); await ha.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 }

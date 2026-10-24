@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.19-dev
+
+- Refreshing one charger now rebuilds every charger plan before the shared battery decision, including immediately after adding a second charger or changing settings. Regression checks reverse primary/secondary roles and require non-zero demand from both cars. (#11)
+
 ## 0.32.18-dev
 
 - The native-reserve regression check allows the stronger reserve used to stop discharging, while still requiring the original zero reserve to be restored. (#9, #19)
