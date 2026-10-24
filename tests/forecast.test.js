@@ -96,5 +96,26 @@ const partly = part.blocks.filter((b) => b.end - b.start < b.block_end - b.block
 check('plan table: one block is partly used', partly.length === 1 && Math.abs(partly[0].kwh - 5) < 0.01);
 check('plan table: the partly used block touches the others (no stop in between)', part.blocks.every((b, i) => i === 0 || Math.abs(b.start - part.blocks[i - 1].end) < 1000));
 
+const assert = require('assert');
+const { toPerKwh } = require(path.join(app, 'prices.js'));
+for (const currency of ['EUR', 'SEK', 'NOK', 'JPY']) {
+  for (const values of [[6, 7, 8, 9], [-6, -7, -8, -9], [0, 0, 0, 0]]) {
+    const rows = values.map((price) => ({ price }));
+    const warnings = [];
+    check(currency + '/kWh preserves explicit prices ' + values.join(','), JSON.stringify(toPerKwh(rows, currency + '/kWh', warnings, currency).map((p) => p.price)) === JSON.stringify(values) && warnings.length === 0);
+  }
+}
+check('explicit MWh converted once', toPerKwh([{ price: 7000 }], 'SEK/MWh', [], 'SEK')[0].price === 7);
+check('explicit cents converted once', toPerKwh([{ price: 25 }], 'ct/kWh', [], 'EUR')[0].price === 0.25);
+check('negative cents preserved', toPerKwh([{ price: -25 }], 'EURct/kWh', [], 'EUR')[0].price === -0.25);
+for (const unit of [null, '', 'electricity', 'currency']) {
+  let rejected = false;
+  try { toPerKwh([{ price: 7000 }], unit, [], 'EUR'); } catch (e) { rejected = /unit/.test(e.message); }
+  check('ambiguous unit requires correction: ' + unit, rejected);
+}
+let mismatch = false;
+try { toPerKwh([{ price: 7 }], 'SEK/kWh', [], 'EUR'); } catch (e) { mismatch = /currency/.test(e.message); }
+check('an explicit foreign currency is rejected instead of silently compared', mismatch);
+
 console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
 process.exit(failed ? 1 : 0);

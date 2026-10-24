@@ -134,6 +134,14 @@ function evaluateReadyGuard(input = {}) {
     };
   }
 
+  if (neededKwh <= EPSILON_KWH && input.carData && input.carData.ok === false) {
+    return {
+      ...base, status: 'action_needed', base_status: 'action_needed',
+      label: 'Confirm the battery level',
+      message: 'The target appears reached using an estimate. A current reading is needed to confirm the car is ready.',
+      reason: 'Ready Guard cannot confirm readiness from an estimated battery level',
+    };
+  }
   if (neededKwh <= EPSILON_KWH) {
     return {
       ...base,

@@ -46,13 +46,13 @@ function save() {
 
 const norm = (t) => String(t || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-// Words that are a place for you but not an address ("Werk", "Thuis").
+// Words that are a place for you but not an address ("Work", "Werk", "Home", "Thuis").
 const GENERIC = new Set(['werk', 'work', 'kantoor', 'office', 'school', 'sport', 'gym', 'training', 'thuis', 'home', 'huis', 'naar huis', 'boodschappen', 'winkel', 'shopping', 'opa', 'oma', 'ouders', 'parents']);
 const HOME = /^(thuis|huis|home|naar huis|naar thuis|naar home|terug|back home|to home)$/i;
 
-// My places (Plan › My places): a name you use in the calendar ("Werk",
-// "Northwind Labs") with its address. The event's location, or the title
-// ("Naar Werk"), is matched against the names.
+// My places (Plan › My places): a name you use in the calendar ("Work",
+// "Gym") with its address. The event's location, or the title
+// ("To Work", "Naar Werk"), is matched against the names.
 let savedPlaces = () => [];
 function setSavedPlaces(fn) {
   savedPlaces = typeof fn === 'function' ? fn : () => fn || [];
@@ -216,7 +216,7 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
     enqueue(`place:${key}`, async () => {
       let p = null;
       try {
-        // Not found: try again without the first part ("Northwind Labs, Pieter
+        // Not found: try again without the first part ("Northwind Labs,
         // Industrieweg 10, …" → "Industrieweg 10, …"): a company or place
         // name in front of the address.
         const parts = text.split(',').map((x) => x.trim()).filter(Boolean);

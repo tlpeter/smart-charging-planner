@@ -111,7 +111,7 @@ function durationText(minutes) {
         extraInputs: () => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
             <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
-            <div class="muted small">A calendar event with "auto: renault" or "car: renault" is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
+            <div class="muted small">A calendar event with "car: renault" (or "auto: renault") is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
           <div class="two">
             <div class="field"><label>Battery capacity in kWh (needed to estimate the level when the car cannot be reached)</label>
               <input name="capacity_kwh" type="number" min="1" max="300" step="0.1" placeholder="e.g. 60"></div>
@@ -766,7 +766,8 @@ function durationText(minutes) {
       enter_soc: 'Enter the current battery level above to get a plan.',
       fixed_waiting: 'Waiting for the car to be plugged in. The plan starts when charging a new session.',
       no_departure: 'No departure planned. The plan uses the cheapest known blocks and the default battery level, without a deadline.',
-      calendar_error: 'The calendar could not be read; other departure sources are still used.',
+      calendar_error: 'The calendar could not be read and no recent confirmed events are available; check your departure. Other departure sources are still used.',
+      calendar_cached: 'The calendar is temporarily unavailable. The plan uses previously confirmed events for at most 24 hours; recent changes or cancellations may be missing.',
       uses_forecast: 'Part of the plan is in hours with only a forecast price (striped bars). The app never charges on a forecast: the plan is recalculated as soon as the real prices are published (usually around 13:00 for the next day). Forecast prices include the safety margin set in Settings › Prices.',
       forecast_error: 'The price forecast could not be read; the plan uses the real prices only.',
       solar_only: 'Solar only: the plan only uses the expected solar surplus, nothing from the grid. Charge now, the minimum battery level and preconditioning still work. Change this under Quick choices.',
@@ -1069,6 +1070,15 @@ function durationText(minutes) {
       </div>`;
     }
 
+    // Absolute battery level determines the color, independently of the target.
+    function socBar(value) {
+      if (value == null || typeof value === 'boolean' || String(value).trim() === '') return null;
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      const level = Math.max(0, Math.min(100, n));
+      return { level, color: `hsl(${Math.round(level * 1.2)} 70% var(--soc-lightness, 42%))` };
+    }
+
     function readyGuardHtml(d) {
       const r = d.reliability;
       if (!r) return '';
@@ -1091,7 +1101,8 @@ function durationText(minutes) {
       ].join('');
       const chips = (r.factors || []).map((f) =>
         `<span class="reliability-chip ${esc(f.state)}"><i></i>${esc(f.label)}</span>`).join('');
-      const current = d.vehicle && Number.isFinite(Number(d.vehicle.soc)) ? Number(d.vehicle.soc) : null;
+      const bar = socBar(d.vehicle && d.vehicle.soc);
+      const current = bar ? bar.level : null;
       const target = d.planning && Number.isFinite(Number(d.planning.target_soc)) ? Number(d.planning.target_soc) : null;
       const progress = current != null ? Math.max(0, Math.min(100, current)) : 0;
       const targetPos = target != null ? Math.max(0, Math.min(100, target)) : null;
@@ -1109,11 +1120,28 @@ function durationText(minutes) {
         </div>
         ${current != null && target != null ? `<div class="ready-level">
           <div class="ready-level-label"><span>Battery <strong>${esc(current)}%</strong></span><span>Target <strong>${esc(target)}%</strong></span></div>
-          <div class="ready-track"><span style="width:${progress}%"></span><i style="left:${targetPos}%"></i></div>
+          <div class="ready-track" role="progressbar" aria-label="Battery state of charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%;background:${bar.color}"></span><i style="left:${targetPos}%"></i></div>
         </div>` : ''}
         <div class="ready-facts">${facts}</div>
         <div class="reliability-chips">${chips}</div>
       </div>`;
+    }
+
+    function calendarMessagesHtml(d) {
+      if (!d.calendar_error) return '';
+      const h = d.calendar_health || {};
+      const detail = h.state === 'cached'
+        ? `Using events last confirmed ${dayHm(h.confirmed_at)}, until ${dayHm(h.expires_at)} at the latest. Recent changes or cancellations may be missing.`
+        : 'No recent confirmed calendar events are available. Check your next departure; other enabled sources are still used.';
+      return `<div class="calendar-warning" role="status"><strong>Calendar temporarily unavailable</strong><p>${esc(detail)}</p></div>`;
+    }
+
+    function priceMessagesHtml(d) {
+      const error = d.price_error ? `<div class="error" role="alert">Prices could not be loaded: ${esc(d.price_error)}</div>` : '';
+      const warnings = [...new Set(d.price_warnings || [])];
+      if (!warnings.length) return error;
+      const available = (d.prices || []).length > 0;
+      return error + `<div class="price-warning" role="status"><strong>Price data warning</strong><p>${available ? 'Available prices are still used. Some price data is missing or was skipped.' : 'No usable price intervals are available. Check the price source.'}</p><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
     }
 
     function overviewHtml(d) {
@@ -1162,6 +1190,7 @@ function durationText(minutes) {
         ${chargeStatusHtml(d)}
         ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
+        ${calendarMessagesHtml(d)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
@@ -1194,7 +1223,7 @@ function durationText(minutes) {
                 ${vehicleSessionHtml(d)}
                 ${continuousNote(p)}
                 ${notes}
-                ${d.price_error ? `<div class="error">Prices could not be loaded: ${esc(d.price_error)}</div>` : ''}
+                ${priceMessagesHtml(d)}
               </div>
             </details>
           </div>
@@ -1312,7 +1341,7 @@ function durationText(minutes) {
       const when = (x) => (x.type === 'charge' ? x.start : x.time);
       const dayKey = (ms) => tzFmt(ms, { year: 'numeric', month: '2-digit', day: '2-digit' });
       const dayName = (ms) => tzFmt(ms, { weekday: 'short', day: 'numeric' });
-      // A short name for a trip: "Naar Main Street 12 1234 AB Springfield" → "Main Street".
+      // A short name for a trip: "To Main Street 12 1234 AB Springfield" → "Main Street".
       const shortName = (t) => {
         const n = String(t || 'Trip').replace(/^\s*(naar|to)\s+/i, '').trim();
         const cut = n.replace(/\s+\d.*$/, '').replace(/,.*$/, '').trim();
@@ -1347,7 +1376,7 @@ function durationText(minutes) {
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
-          // More places in a row: "Werk → Made".
+          // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
           return;
@@ -1996,7 +2025,9 @@ function durationText(minutes) {
     const depWhen = (ms) => depFmt(ms, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const leaveOf = (x) => x.event_start || x.time;
     const readyBy = (x) => (x.event_start && x.event_start !== x.time ? ` <span class="src">ready by ${esc(depFmt(x.time, { hour: '2-digit', minute: '2-digit' }))}</span>` : '');
-    const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}`;
+    // A target raised for one trip (you said yes to charging more, #3).
+    const raisedNote = (x) => (x.topup ? `<div class="src">${esc(x.soc)}% for this trip: you said yes to charging more (was ${esc(x.topup.from)}%)</div>` : '');
+    const depLabel = (x) => `${esc(depWhen(leaveOf(x)))} · ${esc(x.soc)}% <span class="chip">${esc(SOURCE_NAMES[x.source])}</span>${x.title ? ` <span class="src">${esc(x.title)}</span>` : ''}${readyBy(x)}${raisedNote(x)}`;
 
     function entityOptions(list, selected, noneLabel) {
       const item = (o) => `<option value="${esc(o.entity_id)}" ${o.entity_id === selected ? 'selected' : ''}>${esc(o.name)} (${esc(o.state)})</option>`;
@@ -2044,7 +2075,7 @@ function durationText(minutes) {
           ${d.next ? `<div class="headline">${depLabel(d.next)}</div>` : '<p class="muted">No departure planned. The plan then charges in the cheapest known blocks without a deadline.</p>'}
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
-          ${d.calendar_error ? `<div class="error">Calendar could not be read: ${esc(d.calendar_error)}</div>` : ''}
+          ${calendarMessagesHtml(d)}
           ${d.upcoming.length > 1 ? `
           <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
             <table class="periods">
@@ -2084,9 +2115,9 @@ function durationText(minutes) {
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
-              <td class="n">${esc(t.soc)}%${t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
+              <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
-          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "doel: 80" or similar in the description)' : ''}.</p>`}`;
+          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
 
         renderTripForm(d);
 
@@ -2132,6 +2163,8 @@ function durationText(minutes) {
         $('cal-keyword-field').hidden = f.cal_match.value !== 'keyword';
         f.cal_buffer.value = dep.calendar.buffer_minutes;
         f.cal_soc.value = dep.calendar.soc;
+        f.cal_language.value = dep.calendar.language || 'auto';
+        $('cal-language-note').innerHTML = `New trips are written as ${tripFormat(d.trip_language, !!d.cars)}${(dep.calendar.language || 'auto') === 'auto' ? ` (Home Assistant language: ${esc(d.ha_language)})` : ''}.`;
       } catch (err) {
         $('dep-next').innerHTML = `<div class="error">${esc(err.message)}</div>`;
       }
@@ -2155,7 +2188,7 @@ function durationText(minutes) {
         helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
         calendar: {
           enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
-          buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value,
+          buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value, language: f.cal_language.value,
         },
       };
       btn.disabled = true;
@@ -2508,6 +2541,13 @@ function durationText(minutes) {
     // ---------- Add trip ----------
     let tripWriteAllowed = false;
 
+    // How the app writes a trip in the chosen language (Plan › Calendar).
+    function tripFormat(lang, withCar) {
+      return lang === 'nl'
+        ? `"Naar &lt;destination&gt;" with "doel: … precondition: ja/nee"${withCar ? ' and "auto: …"' : ''}`
+        : `"To &lt;destination&gt;" with "target: … precondition: yes/no"${withCar ? ' and "car: …"' : ''}`;
+    }
+
     function renderTripForm(d) {
       const f = $('trip-form');
       f.hidden = !d.departures.calendar.enabled || !d.departures.calendar.entity;
@@ -2515,13 +2555,13 @@ function durationText(minutes) {
       $('trip-mode').textContent = tripWriteAllowed ? 'WRITES TO CALENDAR' : 'TEST MODE';
       $('trip-mode').className = tripWriteAllowed ? 'advice' : 'advice test';
       $('trip-mode-text').innerHTML = tripWriteAllowed
-        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as "Naar &lt;destination&gt;" with "doel: … precondition: …"${d.cars ? ' and "auto: …"' : ''}, the same format this app reads.`
+        ? `Trips are added to <strong>${esc(d.departures.calendar.entity)}</strong> as ${tripFormat(d.trip_language, !!d.cars)}, the same format this app reads.`
         : `Nothing is written: you see which events would be added. To add them for real, turn on <strong>Allow adding trips to calendar</strong> in the app's Configuration tab.`;
       $('trip-add').hidden = !tripWriteAllowed || d.calendar_writable === false;
       if (d.calendar_writable === false) {
         $('trip-mode').textContent = 'READ ONLY CALENDAR';
         $('trip-mode').className = 'advice test';
-        $('trip-mode-text').innerHTML = `<strong>${esc(d.departures.calendar.entity)}</strong> is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add trips in the calendar app itself (for example on your iPhone) with "doel: 80" in the notes, or choose a calendar that can (Google, Local calendar, CalDAV). The app reads the trips from this calendar as usual.`;
+        $('trip-mode-text').innerHTML = `<strong>${esc(d.departures.calendar.entity)}</strong> is read only (for example an Apple iCloud calendar): Home Assistant cannot add events to it. Add trips in the calendar app itself (for example on your iPhone) with "target: 80" (or "doel: 80") in the notes, or choose a calendar that can (Google, Local calendar, CalDAV). The app reads the trips from this calendar as usual.`;
       }
       // More cars: which car the trip is for ("auto: …" in the event), or every car.
       const carField = $('trip-car-field');
@@ -2592,7 +2632,7 @@ function durationText(minutes) {
     function placeRow(p = {}) {
       const row = document.createElement('div');
       row.className = 'two place-row';
-      row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Werk" value="${esc(p.name || '')}"></div>
+      row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Work" value="${esc(p.name || '')}"></div>
         <div class="field"><label>Address</label><div class="place-addr"><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
       row.querySelector('button').onclick = () => row.remove();
       $('places-list').appendChild(row);
@@ -3185,18 +3225,18 @@ function durationText(minutes) {
       out.textContent = 'Collecting…';
       try {
         const d = await api('GET', 'api/diagnostics');
-        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `smart-charging-planner-diagnostics-${d.app_version}-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-        out.innerHTML = '<span class="ok">Downloaded.</span> Attach it to your bug report.';
-      } catch (err) {
-        out.innerHTML = `<span class="differ">${esc(err.message)}</span>`;
-      }
+        const text = JSON.stringify(d, null, 2);
+        out.innerHTML = '<p>Review the technical data below before sharing it. This public report uses anonymous identifiers and omits free text and raw logs. Values and timestamps can still reveal usage patterns.</p><details open><summary>Public report preview</summary><pre class="diagnostics-preview"></pre></details><button class="secondary" id="diag-save">Download reviewed report</button>';
+        out.querySelector('pre').textContent = text;
+        $('diag-save').onclick = () => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+          a.download = `smart-charging-planner-diagnostics-${d.app_version}-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(a);
+          a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        };
+      } catch (err) { out.textContent = err.message; }
     };
     $('solar-form').addEventListener('change', syncSolar);
     document.querySelectorAll('#battery-test-buttons [data-bat]').forEach((b) => {
@@ -3310,7 +3350,15 @@ function durationText(minutes) {
       const allowed = r.control_allowed && r.battery_control_allowed;
       $('battery-status').innerHTML = c.enabled && r.now ? `<div class="card"><h2>${shape('battery', 'teal', true)} Battery now</h2>
           <p class="small">${r.now.soc != null ? `${tidy(r.now.soc)} %` : 'level unknown'}${r.now.power_kw != null ? ` · ${r.now.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(r.now.power_kw))} kW` : ''} · stored solar power about ${tidy(r.ledger.solar_kwh)} kWh</p>
-          <p class="muted small">${allowed ? 'The app steers the battery (Allow control and Allow home battery control are on).' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
+          <p class="muted small">${allowed && !(r.status && r.status.blocked) ? 'Battery control is enabled; current limits and available stop controls are checked before commands.' : 'Advice only: turn on Allow control and Allow home battery control in Home Assistant › Apps › Smart Charging Planner › Configuration to let the app steer the battery.'}</p></div>` : '';
+      if (r.status && r.status.error) $('battery-status').innerHTML += `<div class="card error">${esc(r.status.error)}</div>`;
+      if (r.recovery && r.recovery.legacy) {
+        $('battery-status').innerHTML += '<div class="card"><h2>Older battery recovery record</h2><p>The previous version did not save the original settings. Turn battery planning off, restore the settings in Home Assistant, then confirm below. This button only clears the old record.</p><button class="secondary" id="battery-recovery-confirm">Confirm I restored the settings</button><p id="battery-recovery-result" class="small"></p></div>';
+        $('battery-recovery-confirm').onclick = async () => {
+          try { await api('POST', 'api/battery/recovery', { action: 'confirm_manual_restore' }); await loadBattery(); }
+          catch (err) { $('battery-recovery-result').textContent = err.message; }
+        };
+      }
       syncBattery();
     }
 
@@ -3369,6 +3417,8 @@ function durationText(minutes) {
         <div class="card">
           <h2>${shape('battery', 'teal', true)} Home battery</h2>
           <p class="small">${esc(b.name || '')}: <strong>${b.soc != null ? `${tidy(b.soc)} %` : '–'}</strong>${b.power_kw != null ? ` · ${b.power_kw >= 0 ? 'charging' : 'discharging'} ${tidy(Math.abs(b.power_kw))} kW` : ''}${now ? ` · now: <strong>${esc(ACTION_TEXT[now.action] || now.action)}</strong> <span class="muted">(${esc(now.reason)})</span>` : ''}</p>
+          ${now && now.error ? `<p class="error">${esc(now.error)}</p>` : ''}
+          <p class="muted small">App-level checks depend on fresh data and device response. Configure the battery's native safety limits too.</p>
           ${shown.length ? `<table class="periods"><tr><th>When</th><th>Battery</th><th class="n">Level after</th></tr>
             ${shown.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}</td><td>${esc(ACTION_TEXT[x.action] || x.action)}</td><td class="n">${tidy(x.soc)} %</td></tr>`).join('')}</table>
             <p class="muted small">Other times: normal (its own mode, covering the house and taking the sun).</p>` : '<p class="muted small">The battery stays in its own mode: nothing to gain by steering it with the known prices.</p>'}

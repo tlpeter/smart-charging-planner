@@ -369,6 +369,45 @@ async function run() {
     }
   });
 
+
+  await test('E12', 'A skipped forecast interval gives one warning while valid actual prices remain usable', async () => {
+    const combined = world.combined;
+    const begin = Math.floor(Date.now() / H) * H - 6 * H;
+    world.combined = () => [
+      ...Array.from({ length: 72 }, (_, i) => ({ time: begin + i * H, price: 0.2, source: i < 24 ? 'actual' : 'forecast' })),
+      { time: '2026-10-25 02:00:00', price: 0.1, source: 'forecast' },
+    ];
+    try {
+      await ok('POST', 'api/prices', {
+        source: { id: 'attr:sensor.stroom_prijzen_gecombineerd', type: 'attribute', entity_id: 'sensor.stroom_prijzen_gecombineerd' },
+        price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd',
+        forecast_price_type: 'all_in', forecast_margin: 0.02,
+      });
+      const p = await plan();
+      assert(p.price_error === null, JSON.stringify(p.price_error));
+      assert(p.prices.some((x) => !x.forecast), 'valid actual prices lost');
+      // The chart stops at the departure horizon, which can be before the
+      // forecast starts. Check the loaded forecast independently of that view.
+      assert(p.forecast && p.forecast.count === 48, 'valid forecast prices lost: ' + JSON.stringify(p.forecast));
+      assert(p.price_warnings.length === 1, JSON.stringify(p.price_warnings));
+      assert(p.price_warnings[0].includes('2026-10-25 02:00:00') && p.price_warnings[0].includes('sensor.stroom_prijzen_gecombineerd'), p.price_warnings[0]);
+      return 'one source/date warning; valid prices still used';
+    } finally {
+      world.combined = combined;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+  await test('E13', 'A genuinely missing price source remains an error', async () => {
+    try {
+      await ok('POST', 'api/prices', { source: { type: 'attribute', entity_id: 'sensor.missing_prices' }, price_type: 'all_in' });
+      const p = await plan();
+      assert(p.price_error && p.price_error.includes('not found'), JSON.stringify(p.price_error));
+      assert(p.price_warnings.length === 0, JSON.stringify(p.price_warnings));
+    } finally {
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+
   // ----- F. Departures ------------------------------------------------------
   group = 'F. Planning (departures)';
   const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -436,11 +475,75 @@ async function run() {
     world.events = [];
     assert(p.departure.source === 'calendar' && p.departure.time === at(1, 11, 0) && p.departure.soc === 75, `departure ${JSON.stringify(p.departure)}`);
   });
+
+  await test('F8b', 'A calendar outage keeps the last confirmed departure, including after app restart', async () => {
+    world.events = [{ summary: 'Confirmed test trip', description: 'target: 90',
+      start: isoLocal(at(1, 10, 0), tz), end: isoLocal(at(1, 11, 0), tz) }];
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false,
+      calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    try {
+      const good = await plan();
+      assert(good.departure && good.departure.time === at(1, 10, 0), JSON.stringify(good.departure));
+      world.calendarFail = true; world.events = [];
+      let p = await plan();
+      assert(p.departure && p.departure.time === good.departure.time && p.departure.soc === 90, JSON.stringify(p.departure));
+      assert(p.calendar_error && p.calendar_health.state === 'cached' && p.plan.notes.includes('calendar_cached'), JSON.stringify(p.calendar_health));
+      const dep = await ok('GET', 'api/departures');
+      assert(dep.next.time === good.departure.time && dep.calendar_health.state === 'cached', JSON.stringify(dep.next));
+      await startApp({ allow_control: false });
+      p = await plan();
+      assert(p.departure && p.departure.time === good.departure.time && p.calendar_health.state === 'cached', JSON.stringify(p.departure));
+      return 'confirmed deadline preserved with an explicit stale-source warning';
+    } finally { world.calendarFail = false; }
+  });
+  await test('F8c', 'Successful rescheduling and cancellation replace cached events; expired cache is not reused', async () => {
+    try {
+      world.events = [{ summary: 'Rescheduled test trip', description: 'target: 85',
+        start: isoLocal(at(1, 12, 0), tz), end: isoLocal(at(1, 13, 0), tz) }];
+      let p = await plan();
+      assert(p.departure.time === at(1, 12, 0) && p.calendar_health.state === 'fresh', JSON.stringify(p.departure));
+      world.events = [];
+      p = await plan();
+      assert(!p.departure && !p.calendar_error, JSON.stringify(p.departure));
+      world.calendarFail = true;
+      p = await plan();
+      assert(!p.departure && p.calendar_health.state === 'cached', JSON.stringify(p.departure));
+      const file = path.join(dataDir, 'calendar_cache.json');
+      const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const row of rows) row.expires_at = Date.now() - 1;
+      fs.writeFileSync(file, JSON.stringify(rows));
+      p = await plan();
+      assert(!p.departure && p.calendar_health.state === 'unavailable' && p.plan.notes.includes('calendar_error'), JSON.stringify(p.calendar_health));
+    } finally { world.calendarFail = false; world.events = []; }
+  });
+
   await test('F9', 'Add trip with "Allow adding trips" off: test mode, nothing written', async () => {
     const pv = await ok('POST', 'api/trips/preview', { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 });
     assert(pv.write_allowed === false && pv.events.length === 1, JSON.stringify(pv).slice(0, 200));
     await refused('POST', 'api/trips', { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 }, 'test mode');
     assert(!world.calls.some((c) => c.domain === 'calendar' && c.service === 'create_event'), 'event was written');
+  });
+  await test('F9b', 'Add trip language: "auto" follows Home Assistant (English here), Dutch on request, an unknown value falls back to auto', async () => {
+    const trip = { datetime: isoLocal(at(2, 8, 0), tz).slice(0, 16), destination: 'Utrecht', soc: 80 };
+    const cal = (language) => depBody({ calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80, language } });
+    try {
+      await ok('POST', 'api/departures', cal(undefined));
+      let d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'auto' && d.trip_language === 'en', `${d.departures.calendar.language}/${d.trip_language}`);
+      let e = (await ok('POST', 'api/trips/preview', trip)).events[0];
+      assert(e.summary === 'To Utrecht' && e.description === 'target: 80 precondition: no', JSON.stringify(e));
+      await ok('POST', 'api/departures', cal('nl'));
+      d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'nl' && d.trip_language === 'nl', `${d.departures.calendar.language}/${d.trip_language}`);
+      e = (await ok('POST', 'api/trips/preview', { ...trip, precondition: true })).events[0];
+      assert(e.summary === 'Naar Utrecht' && e.description === 'doel: 80 precondition: ja', JSON.stringify(e));
+      await ok('POST', 'api/departures', cal('fr'));
+      d = await ok('GET', 'api/departures');
+      assert(d.departures.calendar.language === 'auto', d.departures.calendar.language);
+      return 'To Utrecht / Naar Utrecht';
+    } finally {
+      await ok('POST', 'api/departures', depBody());
+    }
   });
   // Back to: tomorrow 07:00 and the day after 06:00, 80 %.
   await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
@@ -1219,11 +1322,13 @@ async function run() {
   });
   await test('V2', 'Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification', async () => {
     world.soc = 45; world.ages = {}; world.limit = 80; world.charging = false;
-    await plan();
+    await plan(); // establish the observed plug-in session first
+    world.reportedAt = { [CAR.soc]: Date.now() };
+    await plan(); // then a reading taken inside that session
     const n0 = world.calls.length;
     world.soc = 'unavailable';
     world.chargedKw = 11; // the charger delivers 11 kW meanwhile
-    await sleep(1500);
+    await sleep(5000);
     const p = await plan();
     await sleep(600);
     await plan();
@@ -1240,13 +1345,16 @@ async function run() {
     assert(!callsSince(n0).some((c) => c.domain === 'number' && c.target && c.target.entity_id === CAR.limit), 'car limit sent while the car is not reachable');
     const titles = notesSince(n0).filter((t) => t === 'Car not reachable');
     assert(titles.length === 1, `notifications ${notesSince(n0)}`);
+    world.reportedAt = {};
     return `plans with ${p.vehicle.soc}% (last level 45% + ${cd.kwh_since} kWh charged since), decision ${n.code}`;
   });
   await test('V3', 'Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour', async () => {
     const nBack = world.calls.length;
     world.soc = 50;
     world.ages = {};
+    world.reportedAt = { [CAR.soc]: Date.now() };
     await plan(); // read while live again: 50 % (back after V2)
+    world.reportedAt = {};
     world.ages = { [CAR.soc]: 3 * H }; // then Home Assistant does not read it any more
     const p = await plan();
     const cd = p.vehicle.car_data;
@@ -1343,10 +1451,10 @@ async function run() {
     world.events = [];
     assert(d.app_version && d.settings && d.settings.chargers && d.settings.chargers.length, 'no settings');
     assert(d.control_check && d.control_check.recommended, 'no control check');
-    assert(d.entities.some((e) => e.entity_id === CH.status), 'charger status entity missing');
-    assert(Array.isArray(d.control_log) && Array.isArray(d.app_log) && d.app_log.length > 5, 'no logs');
-    for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Springfield', 'SUPERVISOR']) assert(!text.includes(secret), `contains ${secret}`);
-    return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log.length} log lines`;
+    assert(d.entities.some((e) => e.entity_id === d.settings.chargers[0].status_entity), 'anonymous charger status reference missing');
+    assert(Array.isArray(d.control_log) && d.app_log === undefined && d.app_log_summary.lines > 5, 'public log summary missing or raw logs retained');
+    for (const secret of ['mobile_app_pixel_8', 'Naar Werk', 'Kerkstraat', 'Springfield', 'SUPERVISOR', CH.status, CAR.name]) assert(!text.includes(secret), `contains ${secret}`);
+    return `${Math.round(text.length / 1024)} kB, ${d.entities.length} entities, ${d.app_log_summary.lines} summarized log lines`;
   });
 
   // ----- M. Settings export and import --------------------------------------
@@ -1571,9 +1679,9 @@ async function run() {
     const tesla = d.calendar_trips.find((t) => t.title === 'Tesla trip');
     assert(tesla.car_unknown === true && tesla.car === 'tesla', JSON.stringify(tesla));
     const pv = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: true });
-    assert(pv.events[0].description === 'doel: 75 precondition: ja auto: EV6', pv.events[0].description);
+    assert(pv.events[0].description === 'target: 75 precondition: yes car: EV6', pv.events[0].description);
     const all = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, for_all_cars: true, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: false });
-    assert(all.events[0].description === 'doel: 75 precondition: nee', all.events[0].description);
+    assert(all.events[0].description === 'target: 75 precondition: no', all.events[0].description);
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
     return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
@@ -1941,10 +2049,67 @@ async function run() {
         assert(p.departure.soc === want && p.departure.topup && p.departure.topup.from === 80, JSON.stringify(p.departure));
         assert(p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.token === null, JSON.stringify(p.trip_topup));
         assert(asked(n0).length === 1, 'asked again after yes');
-        return `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}%`;
+        // #3: the Plan page shows the raised target too, not only Home.
+        let dd = await ok('GET', 'api/departures');
+        let werk = (dd.calendar_trips || []).find((x) => x.title === 'Naar Werk');
+        assert(dd.next && dd.next.soc === want && dd.next.topup && dd.next.topup.from === 80, `Plan › Next departure: ${JSON.stringify(dd.next)}`);
+        assert(dd.upcoming[0].winner.soc === want, `Plan › Next 7 days: ${JSON.stringify(dd.upcoming[0].winner)}`);
+        assert(werk && werk.soc === want && werk.topup && werk.topup.from === 80, `Plan › Trips from your calendar: ${JSON.stringify(werk)}`);
+        const sport = (dd.calendar_trips || []).find((x) => x.title === 'Naar Sport');
+        assert(sport && sport.soc === 80 && !sport.topup, `only this trip is raised: ${JSON.stringify(sport)}`);
+        const first = `trip ≈ ${p.next.trip.pct}% → asked to charge to ${want}% · Yes on the phone → target ${p.departure.soc}% (Plan page too)`;
+        // The trip costs more (40 kWh/100 km): asked again, Yes again. Not when
+        // the first Yes was already (almost) 100 % (a smaller battery).
+        let big = want;
+        if (want < 98) {
+          await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 40 }));
+          p = await settle();
+          big = Math.min(100, Math.ceil(p.next.trip.pct + 10));
+          assert(p.trip_topup && p.trip_topup.state === 'asked' && p.trip_topup.soc === big && big > want + 2 && asked(n0).length === 2, JSON.stringify({ t: p.trip_topup, big, want }));
+          await ok('POST', 'api/topup', { token: p.trip_topup.token, answer: 'yes' });
+          p = await settle();
+          assert(p.departure.soc === big && p.trip_topup.from === 80, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
+        }
+        const questions = asked(n0).length;
+        // #2: the trip costs less: the raised target goes down with it. Back to
+        // 30 kWh/100 km, or (a car with a range sensor, where the use comes
+        // from that sensor and not from kWh/100 km) shorter routes.
+        // Routes are remembered, so the shorter route is to new places (the
+        // same departures, moved in the calendar).
+        const move = (place, km) => {
+          world.routeKm = km;
+          world.places[place.work] = place.workAt;
+          if (place.sport) world.places[place.sport] = place.sportAt;
+          world.events = world.events
+            .filter((e) => place.sport || e.summary !== 'Naar Sport')
+            .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
+        };
+        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
+        await settle();
+        p = await settle();
+        const less = Math.max(80, Math.min(100, Math.ceil(p.next.trip.pct + 10)));
+        assert(less > 80, `the test needs a trip that still needs more than 80 %: ${p.next.trip.pct}%`);
+        assert(less < big - 2, `the test needs a trip that costs clearly less: ${less} vs ${big}`);
+        assert(p.departure.soc === less && p.departure.topup && p.departure.topup.from === 80 && p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.soc === less, JSON.stringify({ dep: p.departure, t: p.trip_topup, less }));
+        assert(asked(n0).length === questions, 'asked again when the trip got shorter');
+        // #2: a place removed (no Sport): the trip fits in 80 % again, the Yes ends.
+        // (Same places as before, so no route has to be looked up again.)
+        world.events = world.events.filter((e) => e.summary !== 'Naar Sport');
+        p = await settle();
+        await settle();
+        p = await settle();
+        assert(p.next.trip.pct + 10 <= 80, `the shorter trip still needs ${p.next.trip.pct}%`);
+        assert(p.departure.soc === 80 && !p.departure.topup && p.trip_topup === null, JSON.stringify({ dep: p.departure, t: p.trip_topup }));
+        assert(asked(n0).length === questions, 'asked when the trip fits');
+        dd = await ok('GET', 'api/departures');
+        werk = (dd.calendar_trips || []).find((x) => x.title === 'Naar Werk');
+        assert(dd.next && dd.next.soc === 80 && !dd.next.topup && werk && werk.soc === 80 && !werk.topup, `Plan page after the Yes ended: ${JSON.stringify({ next: dd.next, werk })}`);
+        return `${first} · ${big > want ? `bigger trip → ${big}% · ` : ''}costs less → ${less}% · Sport removed → back to 80%`;
       } finally {
         await ok('POST', 'api/control/settings', rules());
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        world.routeKm = 60;
         world.soc = 100;
         world.events = [];
       }
@@ -2012,12 +2177,12 @@ async function run() {
       return p;
     };
     await ok('POST', 'api/departures', calOn());
-    await test('U1', 'One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at"', async () => {
+    await test('U1', 'One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at"', async () => {
       const d = await ok('GET', 'api/departures');
       assert(d.cars === null && d.calendar_write_allowed === true && d.calendar_writable === true, JSON.stringify({ cars: d.cars, w: d.calendar_write_allowed }));
       const pv = await ok('POST', 'api/trips/preview', trip());
       const e = pv.events[0];
-      assert(pv.events.length === 1 && e.summary === `Naar ${ADDR}` && e.location === ADDR && e.description === 'doel: 90 precondition: ja', JSON.stringify(e));
+      assert(pv.events.length === 1 && e.summary === `To ${ADDR}` && e.location === ADDR && e.description === 'target: 90 precondition: yes', JSON.stringify(e));
       assert(e.start === at(1, 8) && e.end === at(1, 17, 30), `${new Date(e.start).toISOString()} – ${new Date(e.end).toISOString()}`);
       await refused('POST', 'api/trips/preview', trip({ back: '25:00' }), 'Back home');
       return `${e.summary} · ${e.description}`;
@@ -2041,6 +2206,38 @@ async function run() {
       const d = await ok('GET', 'api/departures');
       const ct = d.calendar_trips.find((x) => x.location === ADDR);
       assert(ct && ct.cost && ct.cost.status === 'ok' && ct.precondition === true, JSON.stringify(d.calendar_trips));
+    });
+    await test('U3b', 'Changing the trip language skips existing English and old Dutch events in preview and writes', async () => {
+      const savedEvents = world.events.map((e) => ({ ...e }));
+      try {
+        // U2 wrote an English event. Switching to Dutch must not write it again.
+        await ok('POST', 'api/departures', calOn({ language: 'nl' }));
+        let preview = await ok('POST', 'api/trips/preview', trip());
+        assert(preview.events[0].duplicate === true && preview.events[0].summary === `Naar ${ADDR}`, JSON.stringify(preview));
+        let mark = world.calls.length;
+        let written = await ok('POST', 'api/trips', trip());
+        assert(written.created === 0 && written.skipped === 1, JSON.stringify(written));
+        assert(!callsSince(mark).some((c) => c.service === 'create_event'), 'wrote the English trip again in Dutch');
+
+        // Simulate a pre-upgrade Dutch event; auto on this English HA writes English.
+        world.events = savedEvents.map((e) => ({ ...e, summary: `Naar ${ADDR}`, description: 'doel: 90 precondition: ja' }));
+        for (const language of ['en', 'auto']) {
+          await ok('POST', 'api/departures', calOn({ language }));
+          preview = await ok('POST', 'api/trips/preview', trip());
+          assert(preview.events[0].duplicate === true && preview.events[0].summary === `To ${ADDR}`, JSON.stringify(preview));
+          mark = world.calls.length;
+          written = await ok('POST', 'api/trips', trip());
+          assert(written.created === 0 && written.skipped === 1, JSON.stringify(written));
+          assert(!callsSince(mark).some((c) => c.service === 'create_event'), 'wrote the old Dutch trip again');
+        }
+        assert(world.events.length === savedEvents.length);
+        const different = await ok('POST', 'api/trips/preview', trip({ destination: 'Gym' }));
+        assert(different.events[0].duplicate === false, 'suppressed a different destination');
+        return 'English ↔ Dutch, and upgrade to auto: zero extra calendar writes';
+      } finally {
+        world.events = savedEvents;
+        await ok('POST', 'api/departures', calOn());
+      }
     });
     await test('U4', 'Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts', async () => {
       await ok('POST', 'api/departures', calOn({ match: 'keyword', keyword: 'EV' }));
@@ -2070,7 +2267,7 @@ async function run() {
       world.events = [];
       return `update_entity ${upd[0].target.entity_id} → departure ${after.departure.title}`;
     });
-    await test('U6', 'More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
+    await test('U6', 'More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
       await ok('POST', 'api/vehicles/multi', { enabled: true });
       const ev6 = (await ok('POST', 'api/vehicles', { ...EV6, add: true })).vehicle.id;
       const car1 = (await carsNow())[0].id;
@@ -2080,10 +2277,10 @@ async function run() {
         assert(d.cars && d.cars.length === 2, 'no car to choose');
         await ok('POST', 'api/trips', trip({ vehicle_id: ev6 }));
         await ok('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16), destination: 'Utrecht', for_all_cars: true }));
-        assert(world.events[0].description.includes('auto: EV6') && !world.events[1].description.includes('auto:'), JSON.stringify(world.events.map((e) => e.description)));
+        assert(world.events[0].description.includes('car: EV6') && !world.events[1].description.includes('car:'), JSON.stringify(world.events.map((e) => e.description)));
         const forCar1 = (await ok('GET', `api/departures?vehicle=${car1}`)).calendar_trips.map((x) => x.title);
         const forEv6 = (await ok('GET', `api/departures?vehicle=${ev6}`)).calendar_trips.map((x) => x.title);
-        assert(forCar1.length === 1 && forCar1[0] === 'Naar Utrecht' && forEv6.length === 2, JSON.stringify({ forCar1, forEv6 }));
+        assert(forCar1.length === 1 && forCar1[0] === 'To Utrecht' && forEv6.length === 2, JSON.stringify({ forCar1, forEv6 }));
         return `${car1}: ${forCar1.join(', ')} · EV6: ${forEv6.join(', ')}`;
       } finally {
         await ok('POST', 'api/vehicles/multi', { enabled: false });
@@ -2174,6 +2371,61 @@ async function run() {
       world.houseW = 850;
       return `Laadpaal: ${a.reason}`;
     });
+
+    await test('X5b', 'Both grid signs pause the first charger below minimum, even just after a manual start', async () => {
+      const previousSolar = (await ok('GET', 'api/solar')).settings;
+      try {
+        // Disable its minimum rule so Charge now is the reported decision code.
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: false }));
+        await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
+        for (const exportPositive of [false, true]) {
+          world.gridExportPositive = exportPositive;
+          await ok('POST', 'api/solar', solarBody({ enabled: false, grid_sign: exportPositive ? 'export_positive' : 'import_positive' }));
+          for (const availableA of [0, 4, 5, 6]) {
+            world.houseW = 0;
+            await sleep(1100); // Let the preceding current restore settle.
+            const started = await ok('POST', `api/control/manual?charger=${ch1}`, { action: 'start' });
+            assert(started.sent && world.charging, JSON.stringify(started));
+            world.houseW = (24 - availableA) * 3 * 230;
+            await planOf(ch1); await planOf(ch2); await sleep(150);
+            const o = await overview();
+            assert(near(o.share.available_a, availableA, 0.11), JSON.stringify(o.share));
+            assert(o.share.order[0] === ch1, JSON.stringify(o.share.order));
+            const first = o.chargers.find((c) => c.id === ch1);
+            if (availableA < 6) {
+              assert(first.want === 'pause' && first.code === 'shared_wait', JSON.stringify(first));
+              assert(world.charging === false, 'first charger kept charging');
+            } else {
+              assert(first.want === 'charge' && first.amps === 6, JSON.stringify(first));
+            }
+          }
+        }
+        return '0/4/5 A pause; 6 A limit; import/export-positive meters';
+      } finally {
+        world.gridExportPositive = false; world.houseW = 850;
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
+        await ok('POST', 'api/solar', previousSolar);
+        await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+    await test('X5c', 'The first start/stop-only charger pauses when 10 A cannot fit its 16 A request', async () => {
+      try {
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: 'none', min_soc_enabled: false }));
+        await ok('POST', `api/boost?charger=${ch1}`, { mode: 'on' });
+        world.houseW = 14 * 3 * 230;
+        await planOf(ch1); await planOf(ch2); await sleep(150);
+        const o = await overview(), first = o.chargers.find((c) => c.id === ch1);
+        assert(o.share.order[0] === ch1 && near(o.share.available_a, 10, 0.11), JSON.stringify(o.share));
+        assert(first.want === 'pause' && first.code === 'shared_wait' && world.charging === false, JSON.stringify(first));
+      } finally {
+        world.houseW = 850;
+        await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
+        await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+
     await test('X6', 'Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car', async () => {
       world.car1Plug = false;
       world.ch2 = { plugged: false, charging: false, amps: 16 };

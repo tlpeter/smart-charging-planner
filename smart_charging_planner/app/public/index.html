@@ -65,7 +65,7 @@
       </form>
       <div class="card" id="places-card">
         <h2>My places</h2>
-        <p class="muted small">Names you use in the calendar, such as "Werk" or "Northwind Labs", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("Naar Werk") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
         <p class="muted small" id="places-zones"></p>
         <div id="places-list"></div>
         <div class="buttons">
@@ -100,7 +100,7 @@
           <div class="field"><label>Calendar</label><select name="cal_entity"></select></div>
           <div class="field"><label>Which events are trips?</label>
             <select name="cal_match">
-              <option value="target">Events with a target in the description, such as "doel: 80"</option>
+              <option value="target">Events with a target in the description, such as "target: 80"</option>
               <option value="keyword">Events that contain a keyword</option>
               <option value="all">Every event with a time</option>
             </select></div>
@@ -109,7 +109,14 @@
             <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
             <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>
           </div>
-          <p class="muted small">A target in the event ("doel: 80", "target: 90" or "85%") is used for that trip. "precondition: ja" (or "voorverwarmen: ja") is read and shown, but not used yet. With more than one car, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car.</p>
+          <div class="field"><label>Language for trips the app adds</label>
+            <select name="cal_language">
+              <option value="auto">Same as Home Assistant</option>
+              <option value="en">English ("To Work", "target: 80")</option>
+              <option value="nl">Nederlands ("Naar Werk", "doel: 80")</option>
+            </select></div>
+          <p class="muted small" id="cal-language-note"></p>
+          <p class="muted small">The app reads English and Dutch, also mixed in one calendar. A target in the event ("target: 80", "doel: 80" or "85%") is used for that trip. "precondition: yes" (or "precondition: ja") is read and shown, but not used yet. With more than one car, "car: EV6" (or "auto: EV6") says which car the trip is for; a trip without it is for every car. All words are in the Documentation tab.</p>
           <div class="buttons"><button class="primary" type="submit">Save departures</button></div>
           <div class="error form-error" hidden></div>
         </div>
@@ -260,6 +267,7 @@
     </section>
     <section id="tab-battery" hidden>
       <div id="battery-status"></div>
+      <p class="muted small">These are app-level limits, checked with current battery data. Native limits are used where supported; configure the inverter's own protections too. Unsupported stop controls or stale data can block app commands. Set the power values to the device's maximum expected power when the integration cannot set power.</p>
       <form id="battery-form">
         <div class="card">
           <h2 data-icon="battery" data-color="teal">Home battery</h2>
@@ -275,8 +283,8 @@
             <div class="field"><label>Round-trip efficiency (0.9 = 90 %)</label><input name="efficiency" type="number" min="0.5" max="1" step="0.01"></div>
             <div class="field"><label>Charging power, kW</label><input name="charge_kw" type="number" min="0.1" max="50" step="0.1"></div>
             <div class="field"><label>Discharging power, kW</label><input name="discharge_kw" type="number" min="0.1" max="50" step="0.1"></div>
-            <div class="field"><label>Never below, %</label><input name="min_pct" type="number" min="0" max="90" step="1"></div>
-            <div class="field"><label>Never above, %</label><input name="max_pct" type="number" min="50" max="100" step="1"></div>
+            <div class="field"><label>Minimum for app control, %</label><input name="min_pct" type="number" min="0" max="90" step="1"></div>
+            <div class="field"><label>Maximum for app control, %</label><input name="max_pct" type="number" min="50" max="100" step="1"></div>
             <div class="field"><label>Wear per kWh discharged</label><input name="wear" type="number" min="0" max="0.5" step="0.005"></div>
             <div class="field"><label>Battery power sensor: positive means</label>
               <select name="power_sign"><option value="charge_positive">Charging</option><option value="discharge_positive">Discharging</option></select></div>
@@ -335,12 +343,12 @@
       </div>
       <div class="card">
         <h2 data-icon="log" data-color="blue">Report a problem</h2>
-        <p class="muted small">Something not working? Download the diagnostics and attach the file to a bug report on GitHub. It contains your settings, what the app found, the last decisions and log lines, so the problem can be found without asking you much. Names, trip titles, places and your notify target are removed; no passwords or tokens are in it. You can open the file to check before you share it.</p>
+        <p class="muted small">Preview a public diagnostic report before attaching it to a GitHub issue. It contains selected technical settings and decisions with anonymous identifiers. Names, trip details, free text and raw logs are omitted. Values and timestamps can still reveal usage patterns, so review the report before sharing. A settings backup contains private information and is not a public diagnostic report.</p>
         <div class="buttons">
-          <button class="secondary" id="diag-download">Download diagnostics</button>
+          <button class="secondary" id="diag-download">Preview diagnostics</button>
           <a class="small" href="https://github.com/tlpeter/smart-charging-planner/issues/new/choose" target="_blank" rel="noopener">Open a bug report on GitHub ↗</a>
         </div>
-        <p class="small" id="diag-result"></p>
+        <div class="small" id="diag-result"></div>
       </div>
       <div class="card">
         <h2 data-icon="settings" data-color="blue">Back up or move your settings</h2>

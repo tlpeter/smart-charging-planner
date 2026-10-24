@@ -86,7 +86,7 @@ check('My places: "Werk" (location or title "Naar Werk") uses its address; a rea
   t.setSavedPlaces([{ name: 'Werk', address: 'Industrieweg 10, 3316 AA Rivertown' }, { name: 'Northwind Labs', address: 'Industrieweg 10, Rivertown' }]);
   try {
     assert.deepStrictEqual(t.placeFor('Werk', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
-    assert.deepStrictEqual(t.placeFor('Northwind Labs', 'Naar kantoor'), { location: 'Industrieweg 10, Rivertown', place: 'Northwind Labs', kind: 'saved' });
+    assert.deepStrictEqual(t.placeFor('northwind labs', 'Naar kantoor'), { location: 'Industrieweg 10, Rivertown', place: 'Northwind Labs', kind: 'saved' });
     assert.deepStrictEqual(t.placeFor(null, 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
     assert.deepStrictEqual(t.placeFor('Acme BV', 'Naar Werk'), { location: 'Industrieweg 10, 3316 AA Rivertown', place: 'Werk', kind: 'saved' });
     assert.deepStrictEqual(t.placeFor('Stationsplein 1, Utrecht', 'Naar Werk'), { location: 'Stationsplein 1, Utrecht', place: null });

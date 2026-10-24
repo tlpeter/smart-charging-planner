@@ -19,14 +19,20 @@ const ROOT = path.join(__dirname, '..');
 const PLAN = path.join(__dirname, 'TESTPLAN.md');
 
 const UNIT = [
+  ['batteryguard', 'Battery live bounds, original-setting snapshots, native reserves and site EV policies'],
+  ['batterysafety', 'Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection'],
+  ['diagnostics', 'Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior'],
+  ['releaseguard', 'Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates'],
+  ['recovery', 'Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release'],
   ['brands', 'Chargers per brand: detection, start/stop, current, phase switching, status texts'],
+  ['cars', 'Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names'],
   ['solar', 'Inverters, solar forecasts, the value of own solar power, charging on surplus'],
   ['battery', 'Home batteries: detection, commands, the guard, the battery plan'],
   ['forecast', 'Price forecast: reading it and planning with it'],
   ['reliability', 'Ready Guard: is the car ready in time, and what happens when it is not'],
   ['chargestate', 'The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange)'],
   ['notify', 'Notifications: a message that reached no phone is tried again'],
-  ['activecar', 'More than one car: which car is connected; car, target and precondition in the calendar'],
+  ['activecar', 'More than one car: connected car; calendar tags, trip language and duplicate prevention'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
@@ -35,6 +41,7 @@ const UNIT = [
 const NOT_COVERED = [
   'House load, learned charging power and Savings: they need long-term statistics, which the fake Home Assistant does not have.',
   'The real cars, chargers and inverters: response time of the car\'s cloud (Renault, MySkoda), the charger and the solar forecast. The fake reacts immediately.',
+  'Car integrations without a test car (for example BMW, which left Home Assistant in 2025 and now has several community integrations). And the cars that are tested: only with their entity names from the source code, not with a real car.',
   'Phase switching on a real charger: some chargers pause the session while switching.',
   'Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.',
   'Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.',
@@ -204,6 +211,7 @@ function matrixPart(all) {
   md += '`node tests/matrix.test.js` (several minutes; `SCP_CHARGERS=Easee,Zaptec` for a part). The real app against a fake Home Assistant with a Renault, one charger brand and, one after the other, every home battery brand from `tests/fixtures.js`. The fake charger reacts to exactly the start/stop command the app\'s control check chooses; `tests/brands.test.js` checks those commands per brand.\n\n';
   if (!all.length) return `${md}No results in this run.\n`;
   const chargerRows = all.filter((r) => /^\d+\.\d$/.test(r.id));
+  if (!chargerRows.length && !all.some((r) => /^C\d/.test(r.id))) return `${md}No results in this run.\n`;
   const nums = [...new Set(chargerRows.map((r) => Number(r.id.split('.')[0])))].sort((a, b) => a - b);
   md += '## Per charger\n\n| Charger | Method | Charge now | Solar 6 kW | Solar 2.5 kW | Back to full power | Only own commands | Batteries |\n|---|---|---|---|---|---|---|---|\n';
   for (const n of nums) {
@@ -225,6 +233,16 @@ function matrixPart(all) {
     const name = String((e(1) || {}).group || `Battery ${k}`).replace(/^.*? \+ /, '');
     const p = every.filter((r) => r.ok).length;
     md += `| ${esc(name)} | ${cell(e(1))} | ${cell(e(3))} | ${cell(e(4))} | ${cell(e(5))} | ${p} of ${every.length}${p === every.length ? ' ✓' : ' ✗'} |\n`;
+  }
+  const carRows = all.filter((r) => /^C\d+\.\d$/.test(r.id));
+  if (carRows.length) {
+    const cn = [...new Set(carRows.map((r) => Number(r.id.slice(1).split('.')[0])))].sort((a, b) => a - b);
+    md += '\n## Per car (with Easee)\n\nThe real entity names of each car integration (`tests/fixtures.js`, CARS; `SCP_CARS=Tesla` for a part). 1 found with the right sensors, 2 the plan uses its battery level, 3 the charge limit follows the target (or is only read), 4 the car charges, 5 only commands to the charger or the car\'s limit.\n\n';
+    md += '| Car | Found | Battery level | Charge limit | Charges | Only own commands |\n|---|---|---|---|---|---|\n';
+    for (const n of cn) {
+      const get = (k) => all.find((r) => r.id === `C${n}.${k}`);
+      md += `| ${esc((get(1) || {}).group || `Car ${n}`)} | ${[1, 2, 3, 4, 5].map((k) => cell(get(k), 140)).join(' | ')} |\n`;
+    }
   }
   md += '\nGoodWe and Marstek (Local API) cannot be told to stop discharging from Home Assistant: the app says so on Settings › Battery. The read-only brands are never sent anything.\n';
   const fails = all.filter((r) => !r.ok);
@@ -250,8 +268,17 @@ function write(dir) {
   }
   if (all.length) {
     const p = all.filter((r) => r.ok).length;
-    const nCh = new Set(all.map((r) => r.id.split('.')[0])).size;
-    md += `| Matrix (${nCh} chargers × all batteries) | ${p} of ${all.length}${p === all.length ? ' ✓' : ' ✗'} |\n`;
+    const chargers = all.filter((r) => !/^C\d/.test(r.id));
+    const cars = all.filter((r) => /^C\d/.test(r.id));
+    const nCh = new Set(chargers.map((r) => r.id.split('.')[0])).size;
+    const pc = chargers.filter((r) => r.ok).length;
+    if (chargers.length) md += `| Matrix (${nCh} chargers × all batteries) | ${pc} of ${chargers.length}${pc === chargers.length ? ' ✓' : ' ✗'} |\n`;
+    if (cars.length) {
+      const nCar = new Set(cars.map((r) => r.id.split('.')[0])).size;
+      const pk = cars.filter((r) => r.ok).length;
+      md += `| Cars (${nCar} car integrations × Easee) | ${pk} of ${cars.length}${pk === cars.length ? ' ✓' : ' ✗'} |\n`;
+    }
+    void p;
   }
   md += `\nVersion: ${ver}.\n`;
   md += settingsTables(sets);

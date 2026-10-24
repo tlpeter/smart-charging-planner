@@ -32,7 +32,11 @@ function step(prev, input) {
   let phases = st.phases || fixedPhases;
   if (!input.can_switch_phases) phases = fixedPhases;
   const avail = Number.isFinite(input.available_w) ? input.available_w - MARGIN_W : null;
-  const maxAmps = input.max_amps || 16;
+  const maxAmps = input.max_amps ?? 16;
+  if (maxAmps < MIN_AMPS) {
+    st.active = false; st.since = null; st.below_since = null;
+    return { charge: false, amps: null, phases, reason: 'The available current is below 6 A', state: st };
+  }
   // Without control over the current, the charger takes its maximum.
   const minA = Math.min(maxAmps, input.min_amps || MIN_AMPS);
   const need = (ph) => ph * VOLTAGE * minA;

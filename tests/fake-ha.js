@@ -2,7 +2,7 @@
 
 // Keep the fast simulator aligned with the pinned Core compatibility test.
 // Override this only when checking a future Home Assistant release locally.
-const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.2';
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.3';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
@@ -211,8 +211,9 @@ function entityList(w) {
     ...car,
     ...car2,
     ...charger,
+    ...(w.liveLimit === undefined ? [] : [['sensor.laadpaal_live_limit', String(w.liveLimit), { unit_of_measurement: 'A', friendly_name: 'Live charger limit' }, 'ch']]),
     ...ch2,
-    ['sensor.p1_power', String(gridW(w)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
+    ['sensor.p1_power', String(gridW(w) * (w.gridExportPositive ? -1 : 1)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
     ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
@@ -250,8 +251,8 @@ function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
   // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
   // for a while (a car whose cloud is down).
-  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : ago);
-  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
+  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : ago));
+  return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state: w.stateOverrides && w.stateOverrides[entity_id] !== undefined ? String(w.stateOverrides[entity_id]) : state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 
 function registry(w) {
@@ -344,6 +345,7 @@ function start(w, wsPort, restPort) {
         case 'call_service': {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
           if (m.domain === 'calendar' && m.service === 'get_events') {
+            if (w.calendarFail) return fail('Calendar temporarily unavailable');
             const cal = (m.target && [].concat(m.target.entity_id)[0]) || 'calendar.auto';
             return ok({ context: {}, response: { [cal]: { events: w.events } } });
           }
@@ -355,6 +357,8 @@ function start(w, wsPort, restPort) {
             if (typeof v !== 'string') return fail("value should be a string at 'device_id'");
           }
           const call = { domain: m.domain, service: m.service, data: m.service_data || {}, target: m.target };
+          if (w.attempts) w.attempts.push(call);
+          if (w.failCommand && w.failCommand(call)) return fail('simulated selected command failure');
           if (w.failNextControl > 0 && w.profile.charger.isControl(call)) {
             w.failNextControl--;
             return fail('simulated charger command failure');
@@ -372,7 +376,7 @@ function start(w, wsPort, restPort) {
             const d = call.data;
             w.events.push({ summary: d.summary, description: d.description, location: d.location, start: String(d.start_date_time).replace(' ', 'T'), end: String(d.end_date_time).replace(' ', 'T') });
           }
-          if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) {
+          if (m.domain === 'number' && m.service === 'set_value' && (/target_charge_level|charge_limit/.test(tid || '') || (tid && tid === w.profile.car.limit))) {
             w.limit = call.data.value;
             // Like a Renault that ended its session: a change of its limit while
             // the charger is on and ready wakes it (w.carAsleep, settings test J6c).

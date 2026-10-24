@@ -77,5 +77,41 @@ check('available current: main fuse minus the house (grid minus the chargers) mi
   assert.strictEqual(available({ mainFuse: 0 }), null);
 });
 
+for (const capacity of [0, 4, 5]) {
+  check('the first adjustable charger pauses below 6 A (' + capacity + ' A)', () => {
+    const r = share([car('first'), car('second', { order: 1 })], capacity);
+    assert.strictEqual(r.result.first.pause, true);
+    assert.strictEqual(r.result.second.pause, true);
+  });
+}
+check('the first adjustable charger can use exactly 6 A', () => {
+  const r = share([car('first'), car('second', { order: 1 })], 6);
+  assert.strictEqual(r.result.first.amps, 6);
+  assert.strictEqual(r.result.first.pause, false);
+  assert.strictEqual(r.result.second.pause, true);
+});
+check('a first start/stop-only charger waits when its full current does not fit', () => {
+  for (const capacity of [0, 4, 5, 6, 10]) {
+    const r = share([car('first', { can_set_current: false }), car('second', { order: 1 })], capacity);
+    assert.strictEqual(r.result.first.pause, true);
+    if (capacity >= 6) assert.strictEqual(r.result.second.amps, capacity);
+    else assert.strictEqual(r.result.second.pause, true);
+  }
+});
+check('a first start/stop-only charger receives its full current when it fits', () => {
+  assert.strictEqual(share([car('first', { can_set_current: false })], 16).result.first, undefined);
+});
+check('both grid sign conventions give the same allocation for import and export', () => {
+  const { gridNetW } = require('../smart_charging_planner/app/solar');
+  for (const netW of [13800, -3000, 0]) {
+    const capacity = (sign, value, unit = 'W') => available({ mainFuse: 25, gridW: gridNetW(
+      { net_entity: 'sensor.grid' },
+      [{ entity_id: 'sensor.grid', state: String(value), attributes: { unit_of_measurement: unit } }], sign) });
+    assert.strictEqual(capacity('import_positive', netW), capacity('export_positive', -netW));
+    assert.strictEqual(capacity('import_positive', netW), capacity('export_positive', -netW / 1000, 'kW'));
+  }
+  assert.strictEqual(gridNetW({ net_entity: 'sensor.absent' }, [], 'export_positive'), null);
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

@@ -1,5 +1,152 @@
 # Changelog
 
+## 0.33.0
+
+- Stable release of the fixes and improvements tested in 0.30.23 and 0.32.1 through 0.32.24.
+- **Safer control**: missing prices are never treated as free; clock-change hours are handled; zero or low current limits pause charging; current and phase are set before charging starts; changed device settings are remembered over a restart and restored (#5, #6, #7, #8, #14, #18).
+- **Home battery**: Never below / Never above are enforced live, original settings are restored exactly, failed commands are retried, and protection covers every charger (#9, #10, #11, #19).
+- **Prices and solar**: declared price units are honoured (no silent division by 1000), half-hour solar forecasts are no longer counted twice, and partial price warnings are shown separately from a failed source (#12, #15, #34).
+- **Cars and sharing**: better car sensor detection for 10 car integrations, no stale battery level after a trip, and connection sharing respects the grid sign and pauses the first charger when it does not fit (#13, #21, #22).
+- **Calendar and trips**: trips added in English or Dutch (Plan › Calendar › Language for trips the app adds) with a new Calendar words section in the documentation; no duplicate trips after changing the language; confirmed departures are kept for up to 24 hours when the calendar is temporarily unavailable; the raised trip target goes down again when a trip gets shorter and shows on Plan (#2, #3, #24, #38).
+- **Diagnostics**: a public report you can preview before downloading, without names, places or private identifiers (#20).
+- The battery bar runs from red at empty to green at full (#36). MIT license and contribution guide (#32). The stable app description no longer says TEST VERSION (#23).
+- Known limitations: per-phase site capacity (#29), routing privacy choice (#31), price breakdown preview (#26) and a compatibility matrix (#28) are not done yet. Keep your charger's own protections and any hardware load balancer in place.
+
+## 0.32.24
+
+- Duplicate detection accepts the app's millisecond start times as well as Home Assistant calendar timestamps, so both preview and writing use the same trip identity. (#38)
+
+## 0.32.23
+
+- Changing the calendar-writing language no longer creates the same trip again. Duplicate checks keep different destinations, car tags and actual start times separate, including the repeated winter-time hour. (#38)
+- Added contribution guidance under the existing MIT license, retaining third-party notices and matching package license metadata. (#32)
+- Updated the candidate version and release notes, and brought main's prioritized GitHub roadmap onto dev so the next release preserves it.
+
+## 0.32.22
+
+- Tests: the checks for "Add trip" now expect the new default (English when Home Assistant is not in Dutch).
+
+## 0.32.21
+
+- **Language for trips the app adds** (Plan › Departures › Calendar): English ("To Work", "target: 80 precondition: no") or Dutch ("Naar Werk", "doel: 80 precondition: nee"). The default follows the language of Home Assistant. Reading still understands both, also mixed in one calendar.
+- The Documentation tab has a new section **Calendar words** with every word the app reads and writes, in English and Dutch.
+- Examples in the app and the documentation are now in English.
+- Real addresses and company names in examples, tests and code comments were replaced with made-up ones.
+
+## 0.32.20
+
+- Public diagnostics retain an identifier's domain only when it is a known Home Assistant domain; a private/custom namespace is anonymised completely. (#20)
+
+## 0.32.19
+
+- Refreshing one charger now rebuilds every charger plan before the shared battery decision, including immediately after adding a second charger or changing settings. Regression checks reverse primary/secondary roles and require non-zero demand from both cars. (#11)
+
+## 0.32.18
+
+- The native-reserve regression check allows the stronger reserve used to stop discharging, while still requiring the original zero reserve to be restored. (#9, #19)
+
+## 0.32.17
+
+- The partial-price regression check now verifies loaded forecasts independently of the chart's departure horizon, so it also works later in the day.
+
+- Huawei forced-power requests now respect the user's original power cap instead of requesting more than the integration accepts. (#9, #19)
+- The new recovery integration test compares numeric simulator state as a number, matching how Home Assistant reports number entities as text. (#9)
+
+## 0.32.16
+
+- Battery control now checks fresh live levels and stops charging/discharging before app bounds, using available native targets without lowering an existing reserve or raising an existing ceiling. Unsupported stop capabilities block control with an explanation. Timed control leases are shorter. (#19)
+- Every battery setting the app writes is saved before the write and restored to its original value, including modes, zero reserves and non-default power limits. Failed or unconfirmed restoration remains pending across restart. Older records without originals require explicit manual recovery. (#9)
+- One site-level battery decision now includes all enabled chargers' measured/requested charging and all EV plans, including a secondary or externally started charger. Unknown energy origin is not counted as stored solar. (#11)
+- Public diagnostics now use an allowlist, consistent anonymous identifiers and structured decisions. Free text, private settings fields and raw logs are omitted. Preview the exact report before downloading; private settings backups remain separate. (#20)
+
+## 0.32.15
+
+- Solar sensor forecasts now integrate the actual period duration, split energy across hour boundaries and merge today/tomorrow lists. Overlapping representations prefer finer periods instead of counting them twice. (#12)
+- Explicit kWh prices keep their value, even above 5 or below -5. MWh and cents are converted only from their declared unit. Missing/unsupported units and an explicit currency mismatch now require correcting the source instead of guessing a conversion. (#15)
+
+## 0.32.14
+
+- The battery bar now uses the actual level for its color: empty red, middle yellow, full green. The target marker, fill width and readiness status keep their own meaning; unknown levels are not shown as empty. (#36)
+- On a temporary calendar failure, the app keeps locally confirmed events for up to 24 hours, including after restart. Home and Plan show when the source was last confirmed, and a problem notification can be sent through the existing notification settings. Successful changes or cancellations replace the old events immediately. (#24)
+
+## 0.32.13
+
+- The new connection-sharing integration tests now disable the first car's minimum rule before selecting Charge now, so the test reaches the intended first-priority allocation. Application behavior is unchanged. (#5, #22)
+
+## 0.32.12
+
+- Connection sharing pauses any charger that cannot fit, including the first charger and start/stop-only models. A capacity pause also takes precedence over the manual-start grace period. (#5)
+- Connection sharing uses the configured import/export sign, also with solar control off, through the same net-power reader as solar. (#22)
+- Home distinguishes skipped price data from a failed price source. A combined source gives each warning once, with the affected time and source; valid prices remain in use. This does not repair missing timestamps in the source itself. (#34)
+
+## 0.32.11
+
+- Made the stale-car integration test establish its plug-in session before taking the trusted reading, and allow enough charging time for the displayed energy precision. The new failure/restart suite, all hardware-fixture matrices and Core compatibility already pass. Application behaviour is unchanged. (#13)
+
+## 0.32.10
+
+- The new recovery harness now supplies the calendar defaults required by the departures API. The stale-car regression uses a recent in-session reading far enough back to show delivered energy at the displayed 0.01 kWh precision. Only test setup changed. (#7, #8, #13)
+
+## 0.32.9
+
+- Corrected the weekly-schedule setup in the new real-app recovery tests, so failure and restart scenarios reach the controller. (#7, #8)
+- The test-plan workflow now refuses to publish old results over a newer code revision.
+
+## 0.32.8
+
+- Price times: the repeated winter-time hour stays distinct when the source supplies UTC offsets. Ambiguous or nonexistent local clock times are skipped with a warning; day coverage uses 23, 24 or 25 real hours. (#18)
+- Missing, blank and boolean prices are no longer treated as free energy. Real zero and negative prices still work. (#14)
+- A followed current limit of 0–5 A now pauses charging, also for Charge now, preconditioning and Ready Guard. Live limits are checked between plan refreshes. (#6)
+- Required current limits are applied before charging is enabled. Phase changes pause the charger first, wait for the load to stop, and wait for the charger to settle. A failed required command keeps charging paused and is retried. (#7)
+- The app saves its current, phase and battery-control ownership before sending commands, so it can recover after a crash or update. A battery release that fails is kept for recovery. Original battery-limit restoration is still tracked separately in #9. (#8)
+- Failed battery transitions are retried at the next control step instead of being hidden for 15–30 minutes. (#10)
+- An estimated car level only uses energy from that car's observed session on that charger. A trip, car change or restart breaks that continuity. Ready Guard does not say Ready now from an estimate. (#13)
+- Documentation: custom forecast price bases and DST timestamps, known public-beta limitations, and a release checklist. Added regression and real-app restart/failure checks to GitHub Actions.
+
+
+## 0.32.7
+
+- Roadmap: looking ahead 7, 14 or 30 days. Only the README changed, not the app. (#4)
+
+## 0.32.6
+
+- Plan page: after a Yes to charging more for a trip, **Next departure** and **Trips from your calendar** now show the raised target (for example 100 %, "was 85 %"), the same as Home. Before, the Plan page still showed the calendar target. Only the display changed, not the planning. (#3)
+
+## 0.32.5
+
+- Test Y13: the last step only removes Sport from the calendar, without a new place, so no route has to be looked up in the middle of it. Only the test changed, not the app. (#2)
+
+## 0.32.4
+
+- Test Y13 (ask to charge more): with a car that has a range sensor, the use per km comes from that sensor, so a lower kWh/100 km did not make the trip cheaper. The test now moves the trips to nearer places instead. Only the test changed, not the app. (#2)
+
+## 0.32.3
+
+- Test Y13 (ask to charge more) now also works with a smaller battery, where the first question is already 100 %. Only the test changed, not the app. (#2)
+
+## 0.32.2
+
+- Volvo: "Charging connection status" is no longer taken as the charging sensor (it is the plug); "Charging status" is.
+- Hyundai / Kia: a car saved before the app knew the charge limit now also gets the AC limit, not the DC limit.
+- Test fix: the cars run counted the car's limit only after the first plan, when it had already been set.
+
+## 0.32.1
+
+- **Better recognition of cars** (Settings › Vehicle › Find): checked against the real entity names of 10 car integrations, read from their source code. Fixed:
+  - **Tesla** (Tesla Fleet, Teslemetry, Tessie): the "Charge cable" sensor is now found as the plug sensor.
+  - **Volkswagen ID**: the battery level is "State of Charge", no longer "Target State of Charge"; the charge limit ("Target State Of Charge") is found; the plug is "Plug Connection State", not "Auto Unlock Plug When Charged".
+  - **Hyundai / Kia**: the AC charge limit is used, not the DC limit.
+  - **Volvo** and **Polestar**: "Charging connection status" / "Charger Connection Status" is found as the plug, and Volvo's "Distance to empty battery" as the range.
+  - **Mercedes-Benz**: "Max State of Charge" is found as the (read-only) charge limit, and is no longer taken as the battery level.
+  - The electric range comes before a total range (hybrids), and an on/off charging sensor before a status text.
+- A car's plug sensor that says "connected" / "disconnected" or "plugged" / "unplugged" now counts, not only on/off.
+- Tests: a new unit test for every car integration (`tests/cars.test.js`), and a new run in GitHub Actions with each car and an Easee: found, battery level, charge limit, charging and only its own commands.
+- Tests now run against Home Assistant 2026.10.3.
+
+## 0.30.23
+
+- Fix, Ask to charge more when a trip needs it: after a Yes, the raised target now **goes down again when the trip gets shorter**. Before, it stayed, so the car could still be charged to 100 % after you removed a place from the calendar. Now the app keeps checking what the trip costs: costs less, the target goes down to what is needed (never below the target from the calendar or schedule); not needed any more, the Yes ends and the normal target counts again. An open question that is no longer needed is removed from Home. The trip grows again: you get the question again, and "No" there now keeps your own target (from the calendar or schedule), not the raised one. Test Y13. (#2)
+
 ## 0.32.0
 
 - Stable release of the improvements tested in 0.30.11 through 0.30.22.

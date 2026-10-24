@@ -1,14 +1,29 @@
 'use strict';
 
-// Building trip events for the calendar, in the same format as a typical
-// dashboard: title "Naar <destination>", the destination as location, and
-// "doel: 80 precondition: ja" as description. The app reads this format back
-// (Departures -> Calendar -> "Events with a target in the description").
+// Building trip events for the calendar: a title "To <destination>", the
+// destination as location, and "target: 80 precondition: no" as description.
+// In Dutch: "Naar <destination>" and "doel: 80 precondition: nee".
+// The app reads both languages back (Departures -> Calendar -> "Events with a
+// target in the description"), so a calendar may mix them.
 
 const { tzParts, localDateTime, parseLocal, isoLocal } = require('./prices');
+const { parseCar } = require('./departures');
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const MAX_EVENTS = 60;
+
+// The words the app writes, per language (Plan › Calendar › Language for new trips).
+const WORDS = {
+  en: { to: 'To', target: 'target', precondition: 'precondition', yes: 'yes', no: 'no', car: 'car' },
+  nl: { to: 'Naar', target: 'doel', precondition: 'precondition', yes: 'ja', no: 'nee', car: 'auto' },
+};
+
+// The language for new trips: the setting, or with "auto" the language of
+// Home Assistant (Dutch when Home Assistant is in Dutch, otherwise English).
+function tripLanguage(setting, haLanguage) {
+  if (setting === 'en' || setting === 'nl') return setting;
+  return /^nl\b/i.test(String(haLanguage || '')) ? 'nl' : 'en';
+}
 const DURATION_MIN = 15;
 
 function badRequest(message) {
@@ -28,7 +43,8 @@ function haDateTime(ms, tz) {
 }
 
 // input: { datetime: "YYYY-MM-DDTHH:MM", destination, back: "HH:MM" (optional), soc, precondition, weekdays: [], weeks }
-function buildTripEvents(input, tz, now = Date.now()) {
+function buildTripEvents(input, tz, now = Date.now(), lang = 'en') {
+  const w = WORDS[lang] || WORDS.en;
   const first = parseLocal(input.datetime, tz);
   if (!Number.isFinite(first) || first <= now) throw badRequest('Choose a departure in the future');
   const destination = String(input.destination || '').trim();
@@ -73,9 +89,9 @@ function buildTripEvents(input, tz, now = Date.now()) {
   };
 
   const car = String(input.car || '').replace(/[\n,;:]/g, ' ').trim().slice(0, 30);
-  const description = `doel: ${soc} precondition: ${input.precondition ? 'ja' : 'nee'}${car ? ` auto: ${car}` : ''}`;
+  const description = `${w.target}: ${soc} ${w.precondition}: ${input.precondition ? w.yes : w.no}${car ? ` ${w.car}: ${car}` : ''}`;
   return starts.map((start) => ({
-    summary: `Naar ${destination}`,
+    summary: `${w.to} ${destination}`,
     location: destination,
     description,
     start,
@@ -83,15 +99,29 @@ function buildTripEvents(input, tz, now = Date.now()) {
   }));
 }
 
-// Mark events that already exist in the calendar (same title, same start).
+// A writing-language change must not create the same trip a second time.
+// Only normalize the app's To/Naar prefix when its destination agrees with
+// the event location. Keep actual title/location changes and car tags apart.
+function tripKey(e, tz) {
+  const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const time = typeof e.start === 'number' ? e.start : parseLocal(e.start, tz);
+  if (!Number.isFinite(time)) return null;
+  const title = norm(e.summary);
+  const location = norm(e.location);
+  const trip = title.match(/^(?:to|naar)\s+(.+)$/);
+  const appTitle = !!(trip && location && trip[1] === location);
+  const destination = appTitle ? trip[1] : title;
+  const car = norm(parseCar(`${e.summary || ''}\n${e.description || ''}`));
+  return JSON.stringify([appTitle, destination, location, car, Math.round(time / 60000)]);
+}
+
+// Existing trips are skipped, not edited. A different target alone does not
+// replace an existing event; edit it in the calendar.
 function markDuplicates(planned, existing, tz) {
-  const keys = new Set((existing || []).map((e) => {
-    const t = parseLocal(e.start, tz);
-    return `${String(e.summary || '').trim().toLowerCase()}|${Math.round(t / 60000)}`;
-  }));
+  const keys = new Set((existing || []).map((e) => tripKey(e, tz)).filter(Boolean));
   return planned.map((e) => ({
     ...e,
-    duplicate: keys.has(`${e.summary.toLowerCase()}|${Math.round(e.start / 60000)}`),
+    duplicate: keys.has(tripKey(e, tz)),
   }));
 }
 
@@ -105,4 +135,4 @@ function toHaData(e, tz) {
   };
 }
 
-module.exports = { buildTripEvents, markDuplicates, toHaData, MAX_EVENTS };
+module.exports = { buildTripEvents, markDuplicates, toHaData, tripLanguage, WORDS, MAX_EVENTS };

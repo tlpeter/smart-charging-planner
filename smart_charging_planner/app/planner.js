@@ -8,7 +8,7 @@ const VOLTAGE = 230;
 
 // Charging power in kW from phases and current.
 function chargePowerKw(phases, maxCurrent) {
-  return ((phases === 1 ? 1 : 3) * VOLTAGE * (maxCurrent || DEFAULT_CURRENT)) / 1000;
+  return ((phases === 1 ? 1 : 3) * VOLTAGE * (maxCurrent == null ? DEFAULT_CURRENT : Math.max(0, maxCurrent))) / 1000;
 }
 
 // Energy to add in kWh, including a margin for charging losses.

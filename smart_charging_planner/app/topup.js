@@ -5,6 +5,8 @@
 // reserve to be back home with), the app asks on your phone whether to charge
 // more for that one trip. Only after "Yes" does the target go up, and only for
 // that trip. "No", or no answer, keeps the target. One question per trip.
+// When the trip gets shorter after a Yes, the raised target goes down with it,
+// and ends when it is not needed any more (#2).
 
 const path = require('path');
 const crypto = require('crypto');
@@ -54,7 +56,7 @@ function ask(vehicleId, { time, soc, from, pct, title }, now = Date.now()) {
   if (r && Math.abs(r.time - time) <= SAME_TRIP_MS) {
     if (r.state === 'no') return null;
     if (r.state === 'asked' && soc <= r.soc + 2) return null;
-    if (r.state === 'yes' && soc <= r.soc) return null;
+    if (r.state === 'yes' && soc <= r.soc + 2) return null;
   }
   const rec = { time, soc, from, pct, title: title || null, state: 'asked', token: crypto.randomBytes(4).toString('hex'), at: now };
   s[vehicleId] = rec;
@@ -74,6 +76,27 @@ function answer(token, yes, now = Date.now()) {
   return s[id];
 }
 
+// The trip got shorter after a Yes: the raised target goes down to soc.
+function lower(vehicleId, soc, now = Date.now()) {
+  const r = current(vehicleId, now);
+  if (!r || r.state !== 'yes' || !(soc < r.soc)) return null;
+  ha.log(`Trip top-up: the trip needs less now, charging to ${soc}% instead of ${r.soc}% for ${r.title || 'the next trip'}`);
+  r.soc = soc;
+  save();
+  return r;
+}
+
+// The trip no longer needs more than the target: a Yes or an open question
+// ends. A No stays, so the app does not ask again for this trip.
+function drop(vehicleId, now = Date.now()) {
+  const r = current(vehicleId, now);
+  if (!r || r.state === 'no') return false;
+  ha.log(`Trip top-up: ${r.title || 'the next trip'} no longer needs more charge, the target is ${r.from}% again`);
+  delete load()[vehicleId];
+  save();
+  return true;
+}
+
 // A button on the phone: "SCP_TOPUP_YES_<token>" or "SCP_TOPUP_NO_<token>".
 function fromAction(action) {
   const m = ACTION.exec(String(action || ''));
@@ -90,4 +113,4 @@ function reset() {
   state = {};
 }
 
-module.exports = { current, apply, ask, answer, fromAction, actions, reset };
+module.exports = { current, apply, ask, answer, lower, drop, fromAction, actions, reset };

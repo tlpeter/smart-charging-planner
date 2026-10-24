@@ -10,6 +10,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 - The app is in `smart_charging_planner/app`: Node, `server.js`, port 8099 (ingress), with settings in `/data/*.json`.
 - The documentation is in `README.md` (overview) and `smart_charging_planner/DOCS.md` (every option).
 - The changelog is in `smart_charging_planner/CHANGELOG.md`.
+- Release gates and the public-beta scope are in `RELEASE.md`. Follow that checklist for each release.
 
 ## Hard rules
 
@@ -21,12 +22,32 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 - **Easee:** start and stop with the "Charger enabled" switch (on/off), never pause/resume.
 - **New behaviour is an option** when not everyone has it (more cars, more chargers, home battery, …); off by default unless the owner says otherwise.
 - **Every version gets a changelog entry**, short and in plain words.
+- Preserve the prioritized, issue-linked roadmap and main-only documentation changes when merging branches. Keep README and RELEASE candidate versions aligned with config.yaml.
+
+## Control and release safeguards
+
+- Battery control must snapshot each writable setting before its first write, retain snapshots across failures/restarts, and clear recovery only after the original writable values are reported again. Never substitute factory maximums for unknown originals. All enabled chargers participate in the battery policy and forecast.
+- Live battery commands require fresh valid SoC and supported stop/bound capabilities. Native limits and app-level checks have different guarantees; explain unsupported controls rather than pretending to enforce them.
+- Public diagnostics use an allowlist and per-export pseudonyms. Never export raw logs, free text, calendar aliases, recovery snapshots or a reverse identifier map. Preview and download must use the same document; settings backups stay private.
+- Connection sharing must explicitly pause every charger that cannot fit, including the first and start/stop-only devices. Reuse the configured grid-sign normalization; never calculate sharing from the raw signed net sensor. Capacity pauses override the temporary manual-start grace period.
+- Calendar read failures are not successful empty event sets. Keep last-confirmed fallback bounded from its original confirmation time, scoped to the selected calendar/time zone, and visible to the user; successful cancellations replace cached events immediately.
+- Battery-level colors follow the absolute SoC; readiness/target status must remain independent.
+- Keep partial price warnings separate from fatal source errors, deduplicate warnings across combined-source reads and keep valid intervals usable.
+- Forecast power samples must be integrated over their delivery intervals; merge alternative lists without double counting overlap. Explicit price units take precedence over magnitude, and unsupported units must not trigger guessed conversions.
+- A numeric zero is valid data. Never replace a zero current limit with a default, or a missing price with zero.
+- Apply required phase/current constraints before enabling charging. Pause before switching phases and keep charging paused when a required command fails. An accepted Home Assistant action is not proof that physical hardware followed it.
+- Use `controlmemory.js` for write-ahead device ownership. Persist before a device command and clear only after a successful release. Keep charger scope and device identity; never transfer recovery state to another device.
+- Extend a stale SoC only within the same observed vehicle/charger session, from a reading after that session began. Do not infer that the car stayed connected while the app was stopped.
+- Price delivery intervals need UTC, epoch or explicit-offset timestamps at a clock change. Never guess which repeated hour a price belongs to.
+- Every repaired failure scenario gets a regression check. Re-read the current issue before claiming it is fixed; distinguish a static concern, an automated reproduction and a physical hardware test.
+- Keep actual household configuration and diagnostics out of public issue comments. Use synthetic examples. Back up and read back any explicitly requested live configuration change.
+- Do not describe the project as universally compatible or production-validated. State which capabilities are fixture-tested, Core-tested and physically verified.
 
 ## Branches and versions
 
 - `dev` is the test version and `main` is the stable version.
 - On `dev`:
-  - In `smart_charging_planner/config.yaml`, `name` is `Smart Charging Planner (dev)` and `panel_title` is `Smart Charging (dev)`.
+  - In `smart_charging_planner/config.yaml`, `name` is `Smart Charging Planner (dev)`, `panel_title` is `Smart Charging (dev)` and `description` starts with `TEST VERSION: `.
   - The version ends in `-dev`, for example `0.29.7-dev`.
   - Bump the version on every change, in three places:
     - `smart_charging_planner/config.yaml` (with `-dev`);
@@ -66,7 +87,7 @@ How a GitHub issue is handled, from report to release:
 - **Tests run in GitHub Actions by default.** First read the tests in `tests` and the workflows in `.github/workflows`. Add regression checks to the existing suite, then check the Actions results for the pushed commit. Do not report success until those runs have passed.
 - Every push runs `.github/workflows/tests.yml`:
   - syntax, persistence and coverage;
-  - unit tests;
+  - unit tests, including `releaseguard.test.js` and the real-app `recovery.test.js`;
   - the settings test for two set-ups;
   - the charger × battery matrix.
 - After that, GitHub writes `tests/TESTPLAN.md` from the results and **commits it to the branch** ("Test plan: results of …"). So:

@@ -14,12 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 169 of 169 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 160 of 160 ✓ |
-| Unit tests (11 files) | 580 of 580 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 177 of 177 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 166 of 166 ✓ |
+| Unit tests (17 files) | 720 of 720 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
+| Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.32.0.
+Version: 0.32.24-dev.
 
 # Settings
 
@@ -42,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 229 kB JS | ✓ 46 kB CSS, 229 kB JS |
+| A2 | Frontend assets are served separately | ✓ 46 kB CSS, 233 kB JS | ✓ 46 kB CSS, 233 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -94,8 +95,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.4 h back | ✓ 16 charged blocks, from 15.4 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.7 h back | ✓ 16 charged blocks, from 15.7 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks |
+| E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
+| E13 | A genuinely missing price source remains an error | ✓ | ✓ |
 
 ## F. Planning (departures)
 
@@ -109,7 +112,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | F6 | Refused: helper on without a helper chosen; calendar on without a calendar | ✓ | ✓ |
 | F7 | No departure source: plan uses the cheapest known hours, note "no departure" | ✓ | ✓ |
 | F8 | Calendar with a keyword: only events with "EV" count, without a target the calendar level is used | ✓ | ✓ |
+| F8b | A calendar outage keeps the last confirmed departure, including after app restart | ✓ confirmed deadline preserved with an explicit stale-source warning | ✓ confirmed deadline preserved with an explicit stale-source warning |
+| F8c | Successful rescheduling and cancellation replace cached events; expired cache is not reused | ✓ | ✓ |
 | F9 | Add trip with "Allow adding trips" off: test mode, nothing written | ✓ | ✓ |
+| F9b | Add trip language: "auto" follows Home Assistant (English here), Dutch on request, an unknown value falls back to auto | ✓ To Utrecht / Naar Utrecht | ✓ To Utrecht / Naar Utrecht |
 
 ## G. Rules
 
@@ -118,7 +124,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | G1 | Refused: default minimum 50 %, force window 700 min, hysteresis 2 | ✓ | ✓ |
 | G2 | Minimum battery level: below it → charge now | ✓ | ✓ |
 | G2b | Below the minimum: the plan charges that part right away, marked as minimum (purple in the chart); the rest as planned | ✓ 5.7 kWh right away to 50% | ✓ 8.5 kWh right away to 50% |
-| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: not_planned | ✓ then: not_planned |
+| G3 | Minimum with a price limit below the current price → not charged for the minimum | ✓ then: locked_block | ✓ then: locked_block |
 | G3b | Minimum taken from an entity (the car's own minimum, here 70 %) | ✓ | ✓ |
 | G4 | Preconditioning entity on → charge | ✓ | ✓ |
 | G5 | Force window: departure within the window → charge | ✓ ready_guard | ✓ ready_guard |
@@ -178,13 +184,13 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 13.2 kWh on solar, 21.1 kWh from the grid | ✓ 13.2 kWh on solar, 37.6 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.2 kWh on solar | ✓ 13.2 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.6 kWh at night, 13.2 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 13.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.2 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
-| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ 7 A, sent: switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 |
-| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume · number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 12.6 kWh on solar, 21.8 kWh from the grid | ✓ 12.6 kWh on solar, 38.3 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 12.6 kWh on solar | ✓ 12.6 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 38.3 kWh at night, 12.6 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 12.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 12.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
+| S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
+| S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S9 | Solar modes raise the car limit to "solar up to" (90 %) | ✓ | ✓ |
 | S10 | Grid meter sign "delivering is positive": the reading is turned around | ✓ | ✓ |
 | S12 | Easee Equalizer does solar: surplus charging on, charger on, no current or phase commands; Charge now: surplus off (full power) | ✓ switch.turn_on switch.laadpaal_charger_enabled · easee.set_surplus_charging true · Charge now: surplus false | ✓ |
@@ -197,10 +203,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.44 | ✓ charges in 3 block(s), saving €1.34 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.42 | ✓ charges in 3 block(s), saving €1.33 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
-| T6 | Car stops: the battery goes back to its plan | ✓ now: auto · turn_off | ✓ now: auto · turn_off |
+| T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
 | T7 | "Only stored solar into the car": no solar in the battery → no discharging into the car | ✓ | ✓ |
 | T7b | "Between two levels" (80 % → 40 %): refused when the levels do not fit; car charges: below 80 % no help, from 80 % the battery helps, at 40 % it stops | ✓ 60 %: hold · 85 %: auto · 39 %: hold | ✓ 60 %: hold · 85 %: auto · 39 %: hold |
 | T8 | Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits | ✓ car on solar at 8 A · battery: turn_on · select_option Standby | ✓ car on solar at 8 A · battery: turn_on · select_option Standby |
@@ -213,7 +219,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | V1 | Refused: car data old after 100 hours; 2 hours is saved | ✓ | ✓ |
-| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✓ plans with 48.2% (last level 45% + 1.84 kWh charged since), decision not_planned | ✓ plans with 47.2% (last level 45% + 1.84 kWh charged since), decision not_planned |
+| V2 | Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification | ✓ plans with 45% (last level 45% + 0.02 kWh charged since), decision not_planned | ✓ plans with 45% (last level 45% + 0.02 kWh charged since), decision not_planned |
 | V3 | Battery level not read for 3 hours (old after 2): estimate from the last level; back: the real level, at most one message an hour | ✓ stale: 50% · back: 50% | ✓ stale: 50% · back: 50% |
 | V4 | Nothing known yet (fresh start, level unavailable): plans as if at the minimum (20 %) and charges | ✓ assumed 20%, planned 40.0 kWh | ✓ assumed 20%, planned 59.3 kWh |
 | V5 | Just plugged in: the charger already says connected, the car's own sensor (through its cloud) still says not plugged in: the app sees the car as plugged in right away | ✓ charger: connected · car sensor: off → plugged in | ✓ charger: connected · car sensor: off → plugged in |
@@ -233,7 +239,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | L1 | Refused: a change sent as text/plain (not JSON) | ✓ | ✓ |
 | L2 | Refused: a change from another site | ✓ | ✓ |
 | L3 | Refused: invalid JSON | ✓ | ✓ |
-| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 63 kB, 10 entities, 14 log lines | ✓ 58 kB, 10 entities, 14 log lines |
+| L4 | Download diagnostics: settings, control check, entities, log; no notify target, trip titles or token | ✓ 35 kB, 10 entities, 15 summarized log lines | ✓ 32 kB, 10 entities, 15 summarized log lines |
 
 ## M. Settings export and import
 
@@ -262,7 +268,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | W5 | Both say plugged in (one at a public charger): the app asks once, does not change a car limit; your choice wins until the charger is unplugged | ✓ asked once; chosen: EV6; unplugged: last = EV6 | ✓ asked once; chosen: EV6; unplugged: last = EV6 |
 | W6 | A car without a plug sensor is the one when no other car says it is plugged in | ✓ EV6 (no_other) | ✓ EV6 (no_other) |
 | W7 | Own departures for the EV6 (60 %); the other car keeps the shared ones (80 %) | ✓ EV6 → 60% · JLZ03X → 80% | ✓ EV6 → 60% · Enyaq → 80% |
-| W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✓ EV6 → 70% (car: kia) · JLZ03X → 90% · new trip: "doel: 75 precondition: ja auto: EV6" | ✓ EV6 → 70% (car: kia) · Enyaq → 90% · new trip: "doel: 75 precondition: ja auto: EV6" |
+| W7b | One calendar for both cars: "auto:"/"car:" in an event is only for that car (name or brand), without it for every car, an unknown car counts for every car | ✓ EV6 → 70% (car: kia) · JLZ03X → 90% · new trip: "target: 75 precondition: yes car: EV6" | ✓ EV6 → 70% (car: kia) · Enyaq → 90% · new trip: "target: 75 precondition: yes car: EV6" |
 | W9 | Notifications per car: Alex gets both cars, Sam only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Alex | ✓ EV6 → mobile_app_iphone_sam, mobile_app_pixel_8 · JLZ03X → mobile_app_pixel_8 | ✓ EV6 → mobile_app_iphone_sam, mobile_app_pixel_8 · Enyaq → mobile_app_pixel_8 |
 | W8 | Turned off: the first car only, as before; the EV6 stays saved; removing it works | ✓ back to one car | ✓ back to one car |
 
@@ -282,7 +288,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
 | Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC |
 | Y12 | More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Sport → home: 180 km ≈ 68.5% · at Sport 34.3% · home 11.5% at 22:00 · with 40 kWh/100 km: home -72.3% | ✓ home → Werk → Sport → home: 180 km ≈ 46.3% · at Sport 49.1% · home 33.7% at 22:00 · with 40 kWh/100 km: home -22.9% |
-| Y13 | Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only | ✓ trip ≈ 114.2% → asked to charge to 100% · Yes on the phone → target 100% | ✓ trip ≈ 77.1% → asked to charge to 88% · Yes on the phone → target 88% |
+| Y13 | Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only | ✓ trip ≈ 114.2% → asked to charge to 100% · Yes on the phone → target 100% (Plan page too) · costs less → 87% · Sport removed → back to 80% | ✓ trip ≈ 77.1% → asked to charge to 88% · Yes on the phone → target 88% (Plan page too) · bigger trip → 100% · costs less → 88% · Sport removed → back to 80% |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
@@ -295,13 +301,14 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| U1 | One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at" | ✓ Naar Stationsplein 1, 3511 ED Utrecht · doel: 90 precondition: ja | ✓ Naar Stationsplein 1, 3511 ED Utrecht · doel: 90 precondition: ja |
-| U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop Naar Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop Naar Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
+| U1 | One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at" | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes |
+| U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
 | U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ |
+| U3b | Changing the trip language skips existing English and old Dutch events in preview and writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes |
 | U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ |
 | U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ |
 | U5b | Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent |
-| U6 | More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht | ✓ car1: Naar Utrecht · EV6: Naar Stationsplein 1, 3511 ED Utrecht, Naar Utrecht |
+| U6 | More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht |
 
 ## X. More than one charger
 
@@ -312,6 +319,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | X3 | Each charger has its own plan: Laadpaal for the first car, Garage for the EV6 (both plugged in) | ✓ JLZ03X: 22.9 kWh · EV6: 42.4 kWh | – (not for this set-up) |
 | X4 | Both must charge now (below the minimum), main fuse 25 A: the EV6 (least room to spare) gets 16 A, the other the rest (6 A) | ✓ available 22.8 A: Garage (EV6) 16 A, Laadpaal 6 A | – (not for this set-up) |
 | X5 | The house uses more (4.6 kW): too little left for the second car: it waits, the EV6 keeps charging | ✓ Laadpaal: Waiting: the connection is in use, EV6 goes first | – (not for this set-up) |
+| X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✓ 0/4/5 A pause; 6 A limit; import/export-positive meters | – (not for this set-up) |
+| X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✓ | – (not for this set-up) |
 | X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✓ Laadpaal → EV6 · Garage → JLZ03X | – (not for this set-up) |
 | X7 | Sensors and messages say which charger: sensor.smart_charging_garage_status; the first charger keeps its names | ✓ | – (not for this set-up) |
 | X8 | Turned off: the first charger only, as before; the Garage stays saved | ✓ back to one charger | – (not for this set-up) |
@@ -320,6 +329,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 - House load, learned charging power and Savings: they need long-term statistics, which the fake Home Assistant does not have.
 - The real cars, chargers and inverters: response time of the car's cloud (Renault, MySkoda), the charger and the solar forecast. The fake reacts immediately.
+- Car integrations without a test car (for example BMW, which left Home Assistant in 2025 and now has several community integrations). And the cars that are tested: only with their entity names from the source code, not with a real car.
 - Phase switching on a real charger: some chargers pause the session while switching.
 - Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.
 - Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.
@@ -333,17 +343,130 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 
 | File | What | Passed |
 |---|---|---|
+| [batteryguard.test.js](#batteryguard) | Battery live bounds, original-setting snapshots, native reserves and site EV policies | 10 of 10 ✓ |
+| [batterysafety.test.js](#batterysafety) | Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection | 9 of 9 ✓ |
+| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 5 of 5 ✓ |
+| [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 21 of 21 ✓ |
+| [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 7 of 7 ✓ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
-| [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 46 of 46 ✓ |
+| [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
+| [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 53 of 53 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 27 of 27 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 47 of 47 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
-| [activecar.test.js](#activecar) | More than one car: which car is connected; car, target and precondition in the calendar | 14 of 14 ✓ |
-| [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 11 of 11 ✓ |
+| [activecar.test.js](#activecar) | More than one car: connected car; calendar tags, trip language and duplicate prevention | 18 of 18 ✓ |
+| [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
+
+## batteryguard
+
+Battery live bounds, original-setting snapshots, native reserves and site EV policies.
+
+<details><summary>10 of 10 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| charging is stopped at/near the live maximum, including measured auto charging | ✓ |
+| discharging is stopped at the reserve, but charging can recover from below it | ✓ |
+| old, missing, invalid and out-of-range SoC never authorize charging | ✓ |
+| unsupported stop capabilities block control instead of pretending to enforce limits | ✓ |
+| huawei_solar restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| victron restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| teslemetry restores non-default limits/mode and zero reserve after a serialized restart | ✓ |
+| snapshot refuses unavailable settings and never invents a maximum for legacy recovery | ✓ |
+| native reserve is never lowered below the original; a stronger EV reserve wins | ✓ |
+| every charger participates in never/solar-only/range/always policies | ✓ |
+
+</details>
+
+## batterysafety
+
+Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection.
+
+<details><summary>9 of 9 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| huawei_solar restores exact non-default settings after restart | ✓ |
+| victron restores exact non-default settings after restart | ✓ |
+| teslemetry restores exact non-default settings after restart | ✓ |
+| a failed restore retains its snapshot and succeeds on the next control step | ✓ |
+| a native reserve is kept while enabled and restored to its original zero on release | ✓ |
+| live upper/lower bounds stop unsafe manual and ongoing charge actions | ✓ |
+| stale SoC blocks charging and holds instead; recovery waits for actual reported settings | ✓ |
+| legacy ownership without originals needs explicit manual recovery, with no guessed writes | ✓ |
+| site battery protection sees secondary and externally started charging, with both EV plans | ✓ |
+
+</details>
+
+## diagnostics
+
+Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior.
+
+<details><summary>5 of 5 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| public diagnostics omit personal text across every exported branch | ✓ |
+| unknown schema keys and identity maps fail closed | ✓ |
+| identifier prefixes cannot retain a personal namespace | ✓ |
+| the diagnostic UI previews the same document before a separate download action | ✓ |
+| preview and reviewed download use identical data | ✓ |
+
+</details>
+
+## releaseguard
+
+Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates.
+
+<details><summary>21 of 21 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| release metadata matches both package version fields and the branch identity | ✓ |
+| partial price warnings render once without claiming a total load failure | ✓ |
+| SoC color follows the absolute level: empty red, middle yellow, full green | ✓ |
+| confirmed calendar events survive restart but remain scoped and expire | ✓ |
+| successful reschedules and cancellations replace the confirmed calendar immediately | ✓ |
+| an offset-free repeated DST hour is rejected with an actionable warning | ✓ |
+| both offset-tagged repeated hours remain distinct delivery intervals | ✓ |
+| a nonexistent spring clock hour is rejected, an ordinary local time is retained | ✓ |
+| price coverage uses 23 actual hours on 2026-03-29 | ✓ |
+| price coverage uses 25 actual hours on 2026-10-25 | ✓ |
+| missing price values do not become free slots; zero and negative prices remain valid | ✓ |
+| zero current remains zero planning power | ✓ |
+| a 0 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| a 4 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| a 5 A cap blocks boost, minimum, preheat and Ready Guard | ✓ |
+| an old locked charging period cannot exceed a lower live cap | ✓ |
+| device ownership survives a module reload and is isolated by charger and device | ✓ |
+| stale estimates only use energy from the same car, charger and observed session | ✓ |
+| a car change without a cable transition creates a new charging session | ✓ |
+| a restart cannot assume cable continuity for stale SoC | ✓ |
+| Ready Guard never confirms Ready now from an estimated battery level | ✓ |
+
+</details>
+
+## recovery
+
+Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release.
+
+<details><summary>7 of 7 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| a failed phase change never enables charging or sends a one-phase current | ✓ |
+| a failed current limit keeps the charger paused and is retried on the next step | ✓ |
+| a live zero or 4 A limit blocks Charge now as well as the plan | ✓ |
+| restart restores app-owned one-phase/current settings after solar is disabled | ✓ |
+| a pre-trip SoC is not reused after unplugging and reconnecting | ✓ |
+| a partial battery failure is retried without waiting for the normal refresh timeout | ✓ |
+| a held home battery is released after restart with planning disabled | ✓ |
+
+</details>
 
 ## brands
 
@@ -707,11 +830,72 @@ Chargers per brand: detection, start/stop, current, phase switching, status text
 
 </details>
 
+## cars
+
+Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names.
+
+<details><summary>50 of 50 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| Tesla (Tesla Fleet): found as a car, by its integration (tesla_fleet) | ✓ |
+| Tesla (Tesla Fleet): picks the battery level, range, plug, charging and charge limit (sensor.model_y_battery_level · binary_sensor.model_y_charge_cable · number.model_y_charge_limit) | ✓ |
+| Tesla (Tesla Fleet): entities that are off by default are not used | ✓ |
+| Tesla (Tesla Fleet): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Tesla Fleet): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Tesla (Teslemetry): found as a car, by its integration (teslemetry) | ✓ |
+| Tesla (Teslemetry): picks the battery level, range, plug, charging and charge limit (sensor.model_3_battery_level · binary_sensor.model_3_charge_cable · number.model_3_charge_limit) | ✓ |
+| Tesla (Teslemetry): entities that are off by default are not used | ✓ |
+| Tesla (Teslemetry): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Teslemetry): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Tesla (Tessie): found as a car, by its integration (tessie) | ✓ |
+| Tesla (Tessie): picks the battery level, range, plug, charging and charge limit (sensor.model_s_battery_level · binary_sensor.model_s_charge_cable · number.model_s_charge_limit) | ✓ |
+| Tesla (Tessie): entities that are off by default are not used | ✓ |
+| Tesla (Tessie): the charge limit is found again for a car saved without it | ✓ |
+| Tesla (Tessie): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Renault: found as a car, by its integration (renault) | ✓ |
+| Renault: picks the battery level, range, plug, charging and charge limit (sensor.megane_battery · binary_sensor.megane_plug · number.megane_target_charge_level) | ✓ |
+| Renault: entities that are off by default are not used | ✓ |
+| Renault: the charge limit is found again for a car saved without it | ✓ |
+| Renault: the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): found as a car, by its integration (kia_uvo) | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): picks the battery level, range, plug, charging and charge limit (sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug · number.ioniq_5_ac_charging_limit) | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): entities that are off by default are not used | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the charge limit is found again for a car saved without it | ✓ |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Skoda (MySkoda): found as a car, by its integration (myskoda) | ✓ |
+| Skoda (MySkoda): picks the battery level, range, plug, charging and charge limit (sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected · number.enyaq_charge_limit) | ✓ |
+| Skoda (MySkoda): entities that are off by default are not used | ✓ |
+| Skoda (MySkoda): the charge limit is found again for a car saved without it | ✓ |
+| Skoda (MySkoda): the plug sensor is read (plugged in and unplugged) ("on" / "off") | ✓ |
+| Volkswagen ID (WeConnect ID): found as a car, by its integration (volkswagen_we_connect_id) | ✓ |
+| Volkswagen ID (WeConnect ID): picks the battery level, range, plug, charging and charge limit (sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state · number.id_4_target_state_of_charge) | ✓ |
+| Volkswagen ID (WeConnect ID): entities that are off by default are not used | ✓ |
+| Volkswagen ID (WeConnect ID): the charge limit is found again for a car saved without it | ✓ |
+| Volkswagen ID (WeConnect ID): the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
+| Volvo: found as a car, by its integration (volvo) | ✓ |
+| Volvo: picks the battery level, range, plug, charging and charge limit (sensor.ex30_battery_charge_level · sensor.ex30_charging_connection_status · sensor.ex30_target_battery_charge_level) | ✓ |
+| Volvo: entities that are off by default are not used | ✓ |
+| Volvo: the charge limit is found again for a car saved without it | ✓ |
+| Volvo: the plug sensor is read (plugged in and unplugged) ("connected" / "disconnected") | ✓ |
+| Polestar: found as a car, by its integration (polestar_api) | ✓ |
+| Polestar: picks the battery level, range, plug, charging and charge limit (sensor.polestar_2_battery_charge_level · sensor.polestar_2_charger_connection_status · sensor.polestar_2_charging_target_level) | ✓ |
+| Polestar: entities that are off by default are not used | ✓ |
+| Polestar: the charge limit is found again for a car saved without it | ✓ |
+| Polestar: the plug sensor is read (plugged in and unplugged) ("Connected" / "Disconnected") | ✓ |
+| Mercedes-Benz (mbapi2020): found as a car, by its integration (mbapi2020) | ✓ |
+| Mercedes-Benz (mbapi2020): picks the battery level, range, plug, charging and charge limit (sensor.eqa_state_of_charge · no plug sensor · sensor.eqa_max_state_of_charge) | ✓ |
+| Mercedes-Benz (mbapi2020): entities that are off by default are not used | ✓ |
+| Mercedes-Benz (mbapi2020): the charge limit is found again for a car saved without it | ✓ |
+| every car integration in the app has a test car, or is listed as untested here (tested: tesla_fleet, teslemetry, tessie, renault, kia_uvo, myskoda, volkswagen_we_connect_id, volvo, polestar_api, mbapi2020 · not tested yet: tesla_custom, bmw_connected_drive, volkswagencarnet, audiconnect, skodaconnect, nissan_leaf, fordpass, toyota, mazda, subaru, volvooncall, smart_hashtag, stellantis_vehicles, psa_car_controller, hyundai_kia_connect) | ✓ |
+
+</details>
+
 ## solar
 
 Inverters, solar forecasts, the value of own solar power, charging on surplus.
 
-<details><summary>46 of 46 passed – show every check</summary>
+<details><summary>53 of 53 passed – show every check</summary>
 
 | Part | Check | Result |
 |---|---|---|
@@ -742,6 +926,13 @@ Inverters, solar forecasts, the value of own solar power, charging on surplus.
 | Forecast.Solar / Solcast / Open-Meteo through the Energy dashboard | two forecast integrations summed per hour | ✓ |
 | Solcast sensor (detailedHourly) | kW per hour read as Wh | ✓ |
 | Open-Meteo Solar Forecast sensor (watts) | watts per time read (highest in the hour) | ✓ |
+|  | 15-minute solar intervals give exactly 1 kWh per full hour | ✓ |
+|  | 30-minute solar intervals give exactly 1 kWh per full hour | ✓ |
+|  | 60-minute solar intervals give exactly 1 kWh per full hour | ✓ |
+|  | solar merges today and tomorrow without summing duplicate coarse/fine lists | ✓ |
+|  | explicit solar periods split energy across hour boundaries; gaps stay gaps | ✓ |
+|  | solar conserves energy over the 23-hour clock-change day | ✓ |
+|  | solar conserves energy over the 25-hour clock-change day | ✓ |
 | Value of a kWh of own solar power (no more salderen from 2027) | dynamic: market price excl. VAT minus feed-in costs | ✓ |
 |  | dynamic with 21 % VAT on the feed-in | ✓ |
 |  | negative market price: exporting costs money | ✓ |
@@ -863,7 +1054,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>27 of 27 passed – show every check</summary>
+<details><summary>47 of 47 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -894,6 +1085,26 @@ Price forecast: reading it and planning with it.
 | minimum stops at the next departure: says the minimum is not reached | ✓ |
 | plan table: one block is partly used | ✓ |
 | plan table: the partly used block touches the others (no stop in between) | ✓ |
+| EUR/kWh preserves explicit prices 6,7,8,9 | ✓ |
+| EUR/kWh preserves explicit prices -6,-7,-8,-9 | ✓ |
+| EUR/kWh preserves explicit prices 0,0,0,0 | ✓ |
+| SEK/kWh preserves explicit prices 6,7,8,9 | ✓ |
+| SEK/kWh preserves explicit prices -6,-7,-8,-9 | ✓ |
+| SEK/kWh preserves explicit prices 0,0,0,0 | ✓ |
+| NOK/kWh preserves explicit prices 6,7,8,9 | ✓ |
+| NOK/kWh preserves explicit prices -6,-7,-8,-9 | ✓ |
+| NOK/kWh preserves explicit prices 0,0,0,0 | ✓ |
+| JPY/kWh preserves explicit prices 6,7,8,9 | ✓ |
+| JPY/kWh preserves explicit prices -6,-7,-8,-9 | ✓ |
+| JPY/kWh preserves explicit prices 0,0,0,0 | ✓ |
+| explicit MWh converted once | ✓ |
+| explicit cents converted once | ✓ |
+| negative cents preserved | ✓ |
+| ambiguous unit requires correction: null | ✓ |
+| ambiguous unit requires correction: | ✓ |
+| ambiguous unit requires correction: electricity | ✓ |
+| ambiguous unit requires correction: currency | ✓ |
+| an explicit foreign currency is rejected instead of silently compared | ✓ |
 
 </details>
 
@@ -968,9 +1179,9 @@ Notifications: a message that reached no phone is tried again.
 
 ## activecar
 
-More than one car: which car is connected; car, target and precondition in the calendar.
+More than one car: connected car; calendar tags, trip language and duplicate prevention.
 
-<details><summary>14 of 14 passed – show every check</summary>
+<details><summary>18 of 18 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -988,6 +1199,10 @@ More than one car: which car is connected; car, target and precondition in the c
 | calendar: "auto:" and "car:" (and "vehicle:", "voertuig:") say which car, in any place of the text | ✓ |
 | calendar: the car is found by its calendar name, its name, or its brand when only one car has it | ✓ |
 | calendar: precondition in Dutch and English | ✓ |
+| calendar: trips the app writes are read back, in English and Dutch | ✓ |
+| calendar: changing the writing language skips the same trip, including old Dutch events | ✓ |
+| calendar: duplicate detection keeps different cars, destinations, titles and start times separate | ✓ |
+| calendar: the two repeated DST hours are different trips | ✓ |
 
 </details>
 
@@ -995,7 +1210,7 @@ More than one car: which car is connected; car, target and precondition in the c
 
 More than one charger: who charges first and how the connection is shared.
 
-<details><summary>11 of 11 passed – show every check</summary>
+<details><summary>18 of 18 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1010,6 +1225,13 @@ More than one charger: who charges first and how the connection is shared.
 | solar: only the first car charges on the sun | ✓ |
 | unknown connection (no grid meter or a load balancer): nobody is limited | ✓ |
 | available current: main fuse minus the house (grid minus the chargers) minus 1 A | ✓ |
+| the first adjustable charger pauses below 6 A (0 A) | ✓ |
+| the first adjustable charger pauses below 6 A (4 A) | ✓ |
+| the first adjustable charger pauses below 6 A (5 A) | ✓ |
+| the first adjustable charger can use exactly 6 A | ✓ |
+| a first start/stop-only charger waits when its full current does not fit | ✓ |
+| a first start/stop-only charger receives its full current when it fits | ✓ |
+| both grid sign conventions give the same allocation for import and export | ✓ |
 
 </details>
 
@@ -1054,14 +1276,14 @@ Saving settings safely (a crash while saving loses nothing).
 
 | Charger | Method | Charge now | Solar 6 kW | Solar 2.5 kW | Back to full power | Only own commands | Batteries |
 |---|---|---|---|---|---|---|---|
-| Easee | ✓ switch, current: action_current, phases: action_phase | ✓ switch.turn_on switch.eh123456_charger_enabled {} → switch.turn_off switch.eh123456_charger_enabled {} | ✓ 7 A · switch.turn_on switch.eh123456_charger_enabled {} · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} | ✓ one phase, 6 A · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · easee.set_charger_dynamic_limit {"device_id":"ch",… | ✓ switch.turn_on switch.eh123456_charger_enabled {} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · easee.set_charg… | ✓ 14 commands | 90 of 90 ✓ |
-| Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":7} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ button.press button.zaptec_go_resume_charging {} · number.set_value number.zaptec_go_charger_max_current {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
-| Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ switch.turn_on switch.alfen_eve_charging {} · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
-| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"val… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16… | ✓ 12 commands | 90 of 90 ✓ |
-| go-e (marq24) | ✓ select, current: number, phases: select_phase | ✓ select.select_option select.goe_123456_frc {"option":"2"} → select.select_option select.goe_123456_frc {"option":"1"} | ✓ 7 A · select.select_option select.goe_123456_frc {"option":"2"} · number.set_value number.goe_123456_amp {"value":7} | ✓ one phase, 6 A · select.select_option select.goe_123456_psm {"option":"1"} · number.set_value number.goe_123456_amp {"value":6} | ✓ select.select_option select.goe_123456_frc {"option":"2"} · select.select_option select.goe_123456_psm {"option":"2"} · number.set_value num… | ✓ 14 commands | 90 of 90 ✓ |
+| Easee | ✓ switch, current: action_current, phases: action_phase | ✓ switch.turn_on switch.eh123456_charger_enabled {} → switch.turn_off switch.eh123456_charger_enabled {} | ✓ 7 A · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.eh123456_charger_enabled {} | ✓ one phase, 6 A · switch.turn_off switch.eh123456_charger_enabled {} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"}… | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.eh123456_charger_enabled {} · switch.turn_of… | ✓ 20 commands | 90 of 90 ✓ |
+| Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · number.set_value number.zaptec_go_charger_max_current {"value":7} · button.press button.zaptec_go_resume_charging {} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ number.set_value number.zaptec_go_charger_max_current {"value":16} · button.press button.zaptec_go_resume_charging {} | ✓ 12 commands | 90 of 90 ✓ |
+| Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} · switch.turn_on switch.alfen_eve_charging {} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} · switch.turn_on switch.alfen_eve_charging {} | ✓ 12 commands | 90 of 90 ✓ |
+| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":7} · switch.turn_on switch.wallbox_pulsar_plus_pause_res… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16} · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {… | ✓ 12 commands | 90 of 90 ✓ |
+| go-e (marq24) | ✓ select, current: number, phases: select_phase | ✓ select.select_option select.goe_123456_frc {"option":"2"} → select.select_option select.goe_123456_frc {"option":"1"} | ✓ 7 A · number.set_value number.goe_123456_amp {"value":7} · select.select_option select.goe_123456_frc {"option":"2"} | ✓ one phase, 6 A · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option select.goe_123456_psm {"option":"1"} · sel… | ✓ select.select_option select.goe_123456_psm {"option":"2"} · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option… | ✓ 20 commands | 90 of 90 ✓ |
 | go-e (cathiele) | ✓ switch, current: none, phases: none | ✓ switch.turn_on switch.goecharger_home_allow_charging {} → switch.turn_off switch.goecharger_home_allow_charging {} | ✓ no current control: waits for 11 kW | ✓ paused · was not charging | ✓ switch.turn_on switch.goecharger_home_allow_charging {} | ✓ 8 commands | 90 of 90 ✓ |
-| Peblar | ✓ switch, current: number, phases: switch_phase | ✓ switch.turn_on switch.peblar_ev_charger_charge {} → switch.turn_off switch.peblar_ev_charger_charge {} | ✓ 7 A · switch.turn_on switch.peblar_ev_charger_charge {} · number.set_value number.peblar_ev_charger_charge_limit {"value":7} | ✓ one phase, 6 A · switch.turn_on switch.peblar_ev_charger_force_single_phase {} · number.set_value number.peblar_ev_charger_charge_limit {"va… | ✓ switch.turn_on switch.peblar_ev_charger_charge {} · switch.turn_off switch.peblar_ev_charger_force_single_phase {} · number.set_value number… | ✓ 16 commands | 90 of 90 ✓ |
-| OCPP | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.charger_charge_control {} → switch.turn_off switch.charger_charge_control {} | ✓ 7 A · switch.turn_on switch.charger_charge_control {} · number.set_value number.charger_maximum_current {"value":7} | ✓ paused · switch.turn_off switch.charger_charge_control {} | ✓ switch.turn_on switch.charger_charge_control {} · number.set_value number.charger_maximum_current {"value":16} | ✓ 12 commands | 90 of 90 ✓ |
+| Peblar | ✓ switch, current: number, phases: switch_phase | ✓ switch.turn_on switch.peblar_ev_charger_charge {} → switch.turn_off switch.peblar_ev_charger_charge {} | ✓ 7 A · number.set_value number.peblar_ev_charger_charge_limit {"value":7} · switch.turn_on switch.peblar_ev_charger_charge {} | ✓ one phase, 6 A · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_on switch.peblar_ev_charger_force_single_phase {} · switch… | ✓ switch.turn_off switch.peblar_ev_charger_force_single_phase {} · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_off switch… | ✓ 22 commands | 90 of 90 ✓ |
+| OCPP | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.charger_charge_control {} → switch.turn_off switch.charger_charge_control {} | ✓ 7 A · number.set_value number.charger_maximum_current {"value":7} · switch.turn_on switch.charger_charge_control {} | ✓ paused · switch.turn_off switch.charger_charge_control {} | ✓ number.set_value number.charger_maximum_current {"value":16} · switch.turn_on switch.charger_charge_control {} | ✓ 12 commands | 90 of 90 ✓ |
 | Ohme | ✓ select, current: none, phases: none | ✓ select.select_option select.ohme_home_pro_charge_mode {"option":"max_charge"} → select.select_option select.ohme_home_pro_charge_mode {"opti… | ✓ no current control: waits for 11 kW | ✓ paused · was not charging | ✓ select.select_option select.ohme_home_pro_charge_mode {"option":"max_charge"} | ✓ 8 commands | 90 of 90 ✓ |
 | Tesla Wall Connector | ✓ read only: no start/stop | ✓ nothing sent (boost: 200) | ✓ nothing sent | ✓ nothing sent | ✓ nothing sent | ✓ 4 commands | 90 of 90 ✓ |
 
@@ -1071,20 +1293,37 @@ Per battery: 1 found, 2 switching from the previous battery puts that one back i
 
 | Battery | Can | Car charges | Car stops | Car charges by itself | All chargers |
 |---|---|---|---|---|---|
-| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ auto (Battery plan: auto): stop_forcible_charge · set_value 5000 · set_value 5000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 3600 · select_option Solar Power Only (Off) | ✓ auto (Battery plan: auto): select_option Maximize Self Consumption | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ auto (Battery plan: auto): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 8000 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| GoodWe (goodwe) | ✓ can: auto, charge, discharge · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ auto (Battery plan: auto): set_value 20 | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ auto (Battery plan: auto): select_option zero | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ auto (Battery plan: auto): turn_off | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
-| Marstek Venus (marstek_local_api) | ✓ can: charge, discharge, auto · cannot stop discharging into the car (warned) | ✓ cannot prevent it: no_discharge is not possible with this battery | ✓ nothing sent | ✓ cannot prevent it: no_discharge is not possible with this battery | 60 of 60 ✓ |
-| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ auto (Battery plan: auto): select_option roi | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Sigenergy (sigen) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option Standby | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Huawei LUNA2000 (huawei_solar) | ✓ can: auto, charge, discharge, no_discharge, hold | ✓ hold (Battery plan: hold): stop_forcible_charge · set_value 0 · set_value 0 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| SolarEdge (solaredge_modbus_multi) | ✓ can: auto, charge, discharge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option Remote Control · set_value 120 · select_option Solar Power Only (Off) | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Victron (victron) | ✓ can: auto, charge, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option SELF_CONSUMPTION_WITH_BATTERY_LIFE · set_value 0 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| GoodWe (goodwe) | ✓ can: auto, charge, discharge · cannot stop discharging into the car (warned) | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | ✓ nothing sent | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | 60 of 60 ✓ |
+| Tesla Powerwall (teslemetry) | ✓ can: auto, no_discharge | ✓ no_discharge (Battery plan: no discharge): select_option self_consumption · set_value 75 | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| HomeWizard Plug-In Battery (homewizard) | ✓ can: auto, charge, hold, no_discharge | ✓ hold (Battery plan: hold): select_option standby | ✓ original settings restored | ✓ no_discharge (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Marstek Venus (marstek_modbus) | ✓ can: auto, charge, discharge, hold | ✓ hold (Battery plan: hold): turn_on · select_option standby | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
+| Marstek Venus (marstek_local_api) | ✓ can: charge, discharge, auto · cannot stop discharging into the car (warned) | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | ✓ nothing sent | ✓ cannot prevent it: The minimum level cannot be protected by this integration; automatic control is not possible with these limits | 60 of 60 ✓ |
+| Sessy (sessy) | ✓ can: auto, hold | ✓ hold (Battery plan: hold): select_option idle | ✓ original settings restored | ✓ hold (The car is charging: the battery does not discharge into it) · car still charging | 60 of 60 ✓ |
 | Zonneplan Nexus (zonneplan_one) | ✓ read only | ✓ nothing sent (Zonneplan steers the Nexus itself (dynamic charging); the integration offers no charge or discharge command.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Growatt (growatt_server) | ✓ read only | ✓ nothing sent (Growatt cloud only offers time segments in %, not commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Anker Solix (anker_solix) | ✓ read only | ✓ nothing sent (Anker Solix is steered with schedules and presets, not with charge or discharge commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | EcoFlow (ecoflow_cloud) | ✓ read only | ✓ nothing sent (EcoFlow offers no charge or discharge command in Home Assistant.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Tesla Powerwall (powerwall) | ✓ read only | ✓ nothing sent (The local Powerwall integration can only read the battery; use Teslemetry or Tesla Fleet to steer it.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
+
+## Per car (with Easee)
+
+The real entity names of each car integration (`tests/fixtures.js`, CARS; `SCP_CARS=Tesla` for a part). 1 found with the right sensors, 2 the plan uses its battery level, 3 the charge limit follows the target (or is only read), 4 the car charges, 5 only commands to the charger or the car's limit.
+
+| Car | Found | Battery level | Charge limit | Charges | Only own commands |
+|---|---|---|---|---|---|
+| Tesla (Tesla Fleet) | ✓ sensor.model_y_battery_level · binary_sensor.model_y_charge_cable | ✓ 40% → 85% | ✓ number.model_y_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Tesla (Teslemetry) | ✓ sensor.model_3_battery_level · binary_sensor.model_3_charge_cable | ✓ 40% → 85% | ✓ number.model_3_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Tesla (Tessie) | ✓ sensor.model_s_battery_level · binary_sensor.model_s_charge_cable | ✓ 40% → 85% | ✓ number.model_s_charge_limit → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Renault | ✓ sensor.megane_battery · binary_sensor.megane_plug | ✓ 40% → 85% | ✓ number.megane_target_charge_level → 85% | ✓ charging true, status ? | ✓ 1 to the car |
+| Hyundai / Kia (Kia Uvo / Hyundai Bluelink) | ✓ sensor.ioniq_5_ev_battery_level · binary_sensor.ioniq_5_ev_battery_plug | ✓ 40% → 85% | ✓ number.ioniq_5_ac_charging_limit → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Skoda (MySkoda) | ✓ sensor.enyaq_battery_percentage · binary_sensor.enyaq_charger_connected | ✓ 40% → 85% | ✓ number.enyaq_charge_limit → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Volkswagen ID (WeConnect ID) | ✓ sensor.id_4_state_of_charge · sensor.id_4_plug_connection_state | ✓ 40% → 85% | ✓ number.id_4_target_state_of_charge → 90% | ✓ charging true, status ? | ✓ 1 to the car |
+| Volvo | ✓ sensor.ex30_battery_charge_level · sensor.ex30_charging_connection_status | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
+| Polestar | ✓ sensor.polestar_2_battery_charge_level · sensor.polestar_2_charger_connection_status | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
+| Mercedes-Benz (mbapi2020) | ✓ sensor.eqa_state_of_charge · no plug sensor | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
 
 GoodWe and Marstek (Local API) cannot be told to stop discharging from Home Assistant: the app says so on Settings › Battery. The read-only brands are never sent anything.

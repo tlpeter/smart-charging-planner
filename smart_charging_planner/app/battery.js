@@ -113,17 +113,28 @@ const ADAPTERS = {
     const dev = ctx.deviceId;
     const maxChg = f.find('number', (n) => /maximum.?charging.?power/.test(n));
     const maxDis = f.find('number', (n) => /maximum.?discharging.?power/.test(n));
-    const restore = (n) => (n ? [{ service: 'number.set_value', data: { value: Number(n.state && n.state.attributes && n.state.attributes.max) || 5000 }, target: { entity_id: n.entity_id } }] : []);
+    const restore = (n) => {
+      if (!n) return [];
+      const value = ctx.saved && ctx.saved.values && ctx.saved.values[n.entity_id] !== undefined
+        ? Number(ctx.saved.values[n.entity_id]) : Number(n.state && n.state.state);
+      if (!Number.isFinite(value)) throw new Error('The previous battery power limit is not readable');
+      return [{ service: 'number.set_value', data: { value }, target: { entity_id: n.entity_id } }];
+    };
+    const limitedPower = (n, kwPower) => {
+      const cap = n ? restore(n)[0].data.value : Math.round(kwPower * 1000);
+      if (!(cap > 0)) throw new Error('The original battery power limit does not allow this action');
+      return Math.min(Math.round(kwPower * 1000), cap);
+    };
     const zero = (n) => (n ? [{ service: 'number.set_value', data: { value: 0 }, target: { entity_id: n.entity_id } }] : []);
     const svc = (name, data = {}) => ({ service: `huawei_solar.${name}`, data: { device_id: dev, ...data }, target: null });
     const actions = {
       auto: () => [svc('stop_forcible_charge'), ...restore(maxChg), ...restore(maxDis)],
-      charge: (kwPower) => [...restore(maxChg), svc('forcible_charge', { power: Math.round(kwPower * 1000), duration: 60 })],
-      discharge: (kwPower) => [...restore(maxDis), svc('forcible_discharge', { power: Math.round(kwPower * 1000), duration: 60 })],
+      charge: (kwPower) => [...restore(maxChg), svc('forcible_charge', { power: limitedPower(maxChg, kwPower), duration: 2 })],
+      discharge: (kwPower) => [...restore(maxDis), svc('forcible_discharge', { power: limitedPower(maxDis, kwPower), duration: 2 })],
     };
     if (maxDis) actions.no_discharge = () => [svc('stop_forcible_charge'), ...restore(maxChg), ...zero(maxDis)];
     if (maxDis && maxChg) actions.hold = () => [svc('stop_forcible_charge'), ...zero(maxChg), ...zero(maxDis)];
-    return { entities: [maxChg, maxDis].filter(Boolean).map((x) => x.entity_id), services: ['huawei_solar.forcible_charge', 'huawei_solar.forcible_discharge', 'huawei_solar.stop_forcible_charge'], actions, power_unit: 'W', refresh_minutes: 30 };
+    return { entities: [maxChg, maxDis].filter(Boolean).map((x) => x.entity_id), services: ['huawei_solar.forcible_charge', 'huawei_solar.forcible_discharge', 'huawei_solar.stop_forcible_charge'], actions, power_unit: 'W', refresh_minutes: 1 };
   },
 
   // SolarEdge Modbus Multi: storage control mode "Remote Control" + command mode.
@@ -136,7 +147,7 @@ const ADAPTERS = {
     if (!ctl || !cmd) return { missing: 'Storage Control Mode and Storage Command Mode (turn on "advanced storage control" in the integration)' };
     const sel = (e, option) => ({ service: 'select.select_option', data: { option }, target: { entity_id: e.entity_id } });
     const num = (e, value) => (e ? [{ service: 'number.set_value', data: { value }, target: { entity_id: e.entity_id } }] : []);
-    const remote = [sel(ctl, 'Remote Control'), ...num(timeout, 3600)];
+    const remote = [sel(ctl, 'Remote Control'), ...num(timeout, 120)];
     return {
       entities: [ctl, cmd, chg, dis, timeout].filter(Boolean).map((x) => x.entity_id),
       actions: {
@@ -147,18 +158,18 @@ const ADAPTERS = {
         no_discharge: () => [...remote, sel(cmd, 'Charge from Solar Power')],
       },
       power_unit: 'W',
-      refresh_minutes: 30,
+      refresh_minutes: 1,
     };
   },
 
   // Victron (sfstar): ESS mode select; max discharge power (W) for no-discharge.
-  victron(f) {
+  victron(f, ctx) {
     const mode = f.find('select', (n, s) => optionsOf(s).includes('KEEP_CHARGED') && optionsOf(s).includes('SELF_CONSUMPTION_WITH_BATTERY_LIFE'));
     const maxDis = f.find('number', (n) => /ess.?maxdischargepower|max.?discharge.?power/.test(n));
     if (!mode) return { missing: 'ESS mode select (turn on the advanced options of the integration)' };
     const sel = (option) => ({ service: 'select.select_option', data: { option }, target: { entity_id: mode.entity_id } });
     const actions = {
-      auto: () => [sel('SELF_CONSUMPTION_WITH_BATTERY_LIFE'), ...(maxDis ? [{ service: 'number.set_value', data: { value: Number(maxDis.state && maxDis.state.attributes && maxDis.state.attributes.max) || 10000 }, target: { entity_id: maxDis.entity_id } }] : [])],
+      auto: () => [sel('SELF_CONSUMPTION_WITH_BATTERY_LIFE'), ...(maxDis ? [{ service: 'number.set_value', data: { value: Number(ctx.saved && ctx.saved.values && ctx.saved.values[maxDis.entity_id] !== undefined ? ctx.saved.values[maxDis.entity_id] : maxDis.state && maxDis.state.state) }, target: { entity_id: maxDis.entity_id } }] : [])],
       charge: () => [sel('KEEP_CHARGED')],
     };
     if (maxDis) actions.no_discharge = () => [sel('SELF_CONSUMPTION_WITH_BATTERY_LIFE'), { service: 'number.set_value', data: { value: 0 }, target: { entity_id: maxDis.entity_id } }];
@@ -181,7 +192,7 @@ const ADAPTERS = {
     const reserve = f.find('number', (n) => /backup.?reserve/.test(n));
     if (!mode || !reserve) return { missing: 'Operation mode and backup reserve' };
     const setReserve = (v) => ({ service: 'number.set_value', data: { value: v }, target: { entity_id: reserve.entity_id } });
-    const original = ctx.saved && Number.isFinite(ctx.saved.reserve) ? ctx.saved.reserve : Number(reserve.state && reserve.state.state) || 20;
+    const original = ctx.saved && ctx.saved.values && ctx.saved.values[reserve.entity_id] !== undefined ? Number(ctx.saved.values[reserve.entity_id]) : Number(reserve.state && reserve.state.state);
     return {
       entities: [mode.entity_id, reserve.entity_id],
       actions: {
@@ -231,14 +242,14 @@ const ADAPTERS = {
   // Marstek Venus (local API): passive mode with power (negative = charge).
   marstek_local_api(f, ctx) {
     const autoBtn = f.find('button', (n) => /auto.?mode|\bauto\b/.test(n));
-    const svc = (power) => ({ service: 'marstek_local_api.set_passive_mode', data: { device_id: ctx.deviceId, power, duration: 3600 }, target: null });
+    const svc = (power) => ({ service: 'marstek_local_api.set_passive_mode', data: { device_id: ctx.deviceId, power, duration: 120 }, target: null });
     const actions = {
       charge: (kwPower) => [svc(-Math.round(kwPower * 1000))],
       discharge: (kwPower) => [svc(Math.round(kwPower * 1000))],
     };
     if (autoBtn) actions.auto = () => [{ service: 'button.press', data: {}, target: { entity_id: autoBtn.entity_id } }];
     else return { missing: 'Auto mode button' };
-    return { entities: [autoBtn.entity_id], services: ['marstek_local_api.set_passive_mode'], actions, power_unit: 'W', refresh_minutes: 30 };
+    return { entities: [autoBtn.entity_id], services: ['marstek_local_api.set_passive_mode'], actions, power_unit: 'W', refresh_minutes: 1 };
   },
 
   // Sessy: power strategy select; idle for hold.
@@ -298,7 +309,14 @@ function controlFor(battery, entities, states, saved = null) {
   const ents = entities.filter((e) => e.platform === platform);
   const a = ADAPTERS[platform](finder(ents, states), { deviceId: battery.device_id, saved });
   if (a.missing) return { available: false, reason: 'missing', note: `Not found: ${a.missing}.` };
-  return { available: true, ...a, supported: Object.keys(a.actions) };
+  // Only controls on devices already identified as this battery's controls.
+  const f = finder(ents, states);
+  const devices = new Set([battery.device_id, ...ents.filter((e) => (a.entities || []).includes(e.entity_id)).map((e) => e.device_id)]);
+  const pct = (n, st, e) => devices.has(e.device_id) && st && st.attributes && st.attributes.unit_of_measurement === '%';
+  const min = f.find('number', (n, st, e) => pct(n, st, e) && /backup.?reserve|minimum.?(battery.)?(soc|state.?of.?charge)|min.?soc/.test(n));
+  const max = f.find('number', (n, st, e) => pct(n, st, e) && /maximum.?(battery.)?(soc|state.?of.?charge)|max.?soc|charge.?cut.?off.?soc/.test(n));
+  const soc_limits = { min: min ? min.entity_id : null, max: max ? max.entity_id : null };
+  return { available: true, ...a, entities: [...new Set([...(a.entities || []), soc_limits.min, soc_limits.max].filter(Boolean))], soc_limits, supported: Object.keys(a.actions) };
 }
 
 // The commands for an action; "no_discharge" falls back to "hold".
@@ -327,7 +345,8 @@ function allowedFor(control) {
 // Battery power in kW, positive = charging.
 function powerKw(battery, states) {
   const s = (states || []).find((x) => x.entity_id === battery.power_entity);
-  const n = Number(s && s.state);
+  if (!s || s.state == null || typeof s.state === 'boolean' || String(s.state).trim() === '') return null;
+  const n = Number(s.state);
   if (!Number.isFinite(n)) return null;
   const unit = (s.attributes && s.attributes.unit_of_measurement) || 'W';
   const kw = unit === 'kW' ? n : n / 1000;

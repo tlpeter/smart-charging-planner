@@ -25,7 +25,7 @@ function defaultDepartures() {
     helper: { enabled: false, datetime_entity: null, soc_entity: null },
     // match: 'target' = events with a target in the text (e.g. "doel: 80"),
     // 'keyword' = events containing the keyword, 'all' = every event with a time.
-    calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80 },
+    calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80, language: 'auto' },
     override: null, // { time: ms, soc }
   };
 }

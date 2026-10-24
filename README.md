@@ -2,7 +2,24 @@
 
 A Home Assistant app that plans EV and home battery charging around dynamic electricity prices.
 
-> Status: early development. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+> Status: public beta. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
+
+## Version 0.33.0 and compatibility
+
+Version **0.33.0** repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+
+A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
+
+| Capability | What to expect |
+| --- | --- |
+| Car and charger detection | Check the suggested sensors and control method. Some integrations can only read. The car-sensor fixes tracked in #21 are included. |
+| Solar phase switching | Requires supported hardware and current control. The app pauses, waits for the load to stop, applies the mode and allows settling before enabling again. Service-only phase methods acknowledge a requested mode; verify the real hardware during setup. |
+| Home battery | Control checks fresh SoC, available stop capabilities and all chargers. App-owned settings are restored from a persistent snapshot. Unsupported bounds can make control unavailable; native inverter protections remain necessary. Read-only models remain advice only. |
+| Multiple chargers | Live sharing is available, but site planning and physical phase allocation are not yet complete. Keep hardware load balancing in place. |
+| Week prices | A forecast is optional. A custom sensor must provide timed price rows with a stated unit and an explicit raw/all-in basis. See the recipe below. |
+| Public diagnostics | Preview the public report before downloading. Only selected technical fields and anonymous identifiers are included; raw logs and free text are omitted. Numeric values/timestamps can still reveal usage patterns. Keep settings backups private. |
+
+Known limitations and remaining work are tracked in the [issues](https://github.com/tlpeter/smart-charging-planner/issues). Do not use the app as a substitute for the charger's electrical protections or a hardware load balancer.
 
 ## Installation
 
@@ -10,7 +27,7 @@ Choose **one** version before adding the repository:
 
 | Version | Recommended for | Repository URL | Name in Home Assistant |
 | --- | --- | --- | --- |
-| **Stable (`main`)** | Most users | `https://github.com/tlpeter/smart-charging-planner` | **Smart Charging Planner** |
+| **Stable (`main`)** | Published beta; check the limitations above | `https://github.com/tlpeter/smart-charging-planner` | **Smart Charging Planner** |
 | **Test (`dev`)** | Testing the newest changes and reporting problems | `https://github.com/tlpeter/smart-charging-planner#dev` | **Smart Charging Planner (dev)** |
 
 The test version may contain unfinished or less-tested changes. Its version number ends in `-dev`.
@@ -50,18 +67,18 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
-**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a zone in Home Assistant, or a name from **My places** on Plan, such as "Werk") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). With the minimum rule on, charging right away to the minimum is **purple**. The chart reaches the last expected charging, up to 7 days ahead like the timeline, as far as prices are available. It is an expectation and never steers anything.
+**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a zone in Home Assistant, or a name from **My places** on Plan, such as "Work") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). With the minimum rule on, charging right away to the minimum is **purple**. The chart reaches the last expected charging, up to 7 days ahead like the timeline, as far as prices are available. It is an expectation and never steers anything.
 
 ### Plan: departures
 
 | Source | What it does |
 | --- | --- |
 | **Weekly schedule** | A time and battery level per weekday. |
-| **Calendar** | Trips from any Home Assistant calendar: Google, Local calendar, CalDAV, and Apple iCloud (Home Assistant 2026.10+, read only: add trips in the calendar app itself). Which events count: events with a target in the description ("doel: 80", "target: 90", "85%"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "auto: renault" or "car: EV6" says which car the trip is for; a trip without it is for every car. |
+| **Calendar** | Trips from any Home Assistant calendar: Google, Local calendar, CalDAV, and Apple iCloud (Home Assistant 2026.10+, read only: add trips in the calendar app itself). Which events count: events with a target in the description ("target: 90", "85%", or in Dutch "doel: 90"), events with a keyword, or every event with a time. Be ready a number of minutes before the event. With more cars, "car: EV6" (Dutch: "auto: EV6") says which car the trip is for; a trip without it is for every car. English and Dutch words both work; the full list is in [DOCS.md](smart_charging_planner/DOCS.md#calendar-words). |
 | **Helper** | An `input_datetime` (and optionally an `input_number` for the level), for example from a dashboard. |
 | **One-off departure** | A trip that differs from normal; removed after it has passed. |
-| **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Naar Thuis" (or a trip to "Thuis"/your home) is used as the way back. |
-| **Add trip** | Writes trips to the calendar the app reads, as "Naar &lt;destination&gt;" with the destination as location and "doel: … precondition: …"; optional **Back home at** (test mode until **Allow adding trips to calendar** is on). With one car there is nothing to choose: the trip is for that car. |
+| **What a trip costs** | For calendar trips with an address in the location: the distance (OpenStreetMap) and the battery % there and back. A later "Home" or "To home" (or a trip with your home as location) is used as the way back. |
+| **Add trip** | Writes trips to the calendar the app reads, as "To &lt;destination&gt;" with the destination as location and "target: … precondition: …" (or in Dutch, see **Language for trips the app adds** in the calendar settings); optional **Back home at** (test mode until **Allow adding trips to calendar** is on). With one car there is nothing to choose: the trip is for that car. |
 | **Own departures per car** (more cars) | A car can have its own schedule, calendar and one-off departure; otherwise all cars share them. |
 
 When several sources give a departure on one day: one-off, then calendar, then helper, then schedule.
@@ -79,7 +96,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | **Battery** | Home battery plan: charge from the grid when it pays, hold for expensive hours. Capacity, power, efficiency, wear per kWh, **Never below / Never above**. **May the home battery charge the car?** (never / only stored solar / always / between two levels). **Who gets the sun first?** (smart / car / battery). 10 brands steered (only with **Allow home battery control**). |
 | **Rules** | **Don't change the car's charge limit** (off: the limit follows every choice). **Default minimum for the quick choices** (30 %). **Always charge below a minimum** (off; optional entity and price limit). **Force charging before departure** (0 min). **Hysteresis** (0.03 per kWh). **Keep charging while the car preconditions**. **Ready Guard** (on, margin 30 min). **Battery care** (on: above 80 % only in the last 4 hours before departure). |
 | **Notifications** | Recipients (phones or groups): per recipient its notify action, which cars, and which messages (5 groups, each message on or off); a test per recipient. |
-| **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Download diagnostics** (for a bug report), **Export / Import settings** (backup, or move to the test version). |
+| **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Preview diagnostics** (public report for a bug report), **Export / Import settings** (backup, or move to the test version). |
 
 ### Configuration tab (in Home Assistant)
 
@@ -117,6 +134,16 @@ Settings → Apps → Smart Charging Planner → **Configuration**. Saving resta
 
 With more chargers and too little room on the main fuse: Charge now first, then a car below its minimum or preconditioning, then a car Ready Guard protects, then the car with the least room to spare (the earliest latest safe start). The rest is shared fairly (at least 6 A each); a charger that can only start and stop charges at full current or waits.
 
+## Custom combined price sensors
+
+For a sensor containing actual and forecast prices:
+
+- Use rows such as `{ "time": "2026-10-25T02:00:00+02:00", "price": 0.22, "source": "forecast" }`. Preserve UTC or the offset from the upstream data. The repeated hour `02:00+01:00` is a different delivery hour.
+- Select the actual and forecast price bases separately. If a template already adds tax, supplier fees or an adjustment calibrated against an all-in tariff, do not add those amounts again in the app. For an already adjusted consumer forecast, choose **All-in** as its forecast basis, then add only the desired forecast margin.
+- A raw market forecast should instead receive the configured taxes/fees once. A fixed learned adjustment against actual tariffs is an approximation, not an exact tax formula.
+- Missing prices are gaps. They are not zero. On clock-change days an offset-free ambiguous or nonexistent hour is skipped and reported; the app never guesses which repeated hour a price means.
+- The app does not install a scraping automation or depend on a particular public forecast endpoint. Keep the source's supported integration/API and freshness visible.
+
 ## Roadmap
 
 GitHub issues track the scope, acceptance checks and current status. P1 comes before broader public promotion; P2 improves reliability and usability; P3 is a later extension. Features listed as available may still have [open bugs](https://github.com/tlpeter/smart-charging-planner/issues?q=is%3Aissue%20is%3Aopen%20label%3Abug); a completed feature is not a claim that every physical device is verified.
@@ -138,6 +165,10 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] More than one car on one charger (an option): recognises the connected car, own departures per car
 - [x] More than one charger (an option): a plan and control per charger, the car with the least room to spare goes first when the connection is too small
 - [x] Battery care: above 80 % only in the last hours before departure
+- [x] Calendar: confirmed departures are kept during temporary read failures, for at most 24 hours with a visible warning [#24](https://github.com/tlpeter/smart-charging-planner/issues/24)
+- [x] Battery bar from red at empty to green at full [#36](https://github.com/tlpeter/smart-charging-planner/issues/36)
+- [x] Trips added in English or Dutch, calendar read in both
+- [x] MIT license and contribution guidance [#32](https://github.com/tlpeter/smart-charging-planner/issues/32)
 
 ### Before broader public promotion (P1)
 
@@ -145,7 +176,6 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 - [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
 - [ ] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
-- [ ] Choose and publish the project license and contribution expectations. [#32](https://github.com/tlpeter/smart-charging-planner/issues/32)
 
 ### Reliability and usability (P2)
 
@@ -158,13 +188,6 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 - [ ] Choose a 7-, 14- or 30-day look-ahead horizon, clearly marking estimates beyond known prices. [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
 - [ ] Suggest suitable charging stations along routes that exceed the usable battery range, with operator, connector and power preferences. Depends on the routing privacy choice. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
-
-### Implemented on dev, awaiting a stable release
-
-These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.32.0.
-
-- [x] Keep recently confirmed calendar departures during temporary read failures, with bounded expiry and a visible warning. [#24](https://github.com/tlpeter/smart-charging-planner/issues/24)
-- [x] Color the battery SoC bar from red at empty to green at full, independently of the charging target. [#36](https://github.com/tlpeter/smart-charging-planner/issues/36)
 
 ## Tests
 
@@ -182,6 +205,8 @@ These enhancements are implemented on the [dev branch](https://github.com/tlpete
 
 `node tests/activecar.test.js` checks which car is connected and the car in calendar events; `node tests/sharing.test.js` checks how more chargers share the connection; `node tests/reliability.test.js` checks Ready Guard.
 
+`node tests/cars.test.js` checks, per car integration (Tesla Fleet, Teslemetry, Tessie, Renault, Hyundai/Kia, MySkoda, Volkswagen ID, Volvo, Polestar, Mercedes-Benz), which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names. `SCP_CARS=all SCP_CHARGERS=none node tests/matrix.test.js` runs each of these cars in the real app with an Easee.
+
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
 
 ## Release process
@@ -194,7 +219,7 @@ These enhancements are implemented on the [dev branch](https://github.com/tlpete
 
 ## Reporting a problem
 
-1. In the app: Settings › Diagnostics › **Download diagnostics**. Names, trip titles, places and your notify target are removed from the file.
+1. In the app: Settings › Diagnostics › **Preview diagnostics**, review the public report, then **Download reviewed report**. Identifiers are anonymous and free text/raw logs are omitted; review values and timestamps before sharing. A settings backup is private and must not be attached publicly.
 2. Open a [bug report](https://github.com/tlpeter/smart-charging-planner/issues/new/choose) and attach the file.
 
 Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
@@ -202,6 +227,10 @@ Security problems: please report them privately, see [SECURITY.md](SECURITY.md).
 ## License
 
 Released under the [MIT License](LICENSE): free to use, change and share, also commercially, as long as the license text stays with it. No warranty.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports, proposed changes, validation and contribution licensing. Changes submitted for inclusion use the project's MIT License; preserve third-party notices.
 
 ## Credits
 

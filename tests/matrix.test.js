@@ -16,6 +16,8 @@
 // Run from the repository root (needs `npm install` in smart_charging_planner/app):
 //   node tests/matrix.test.js                       all chargers (several minutes)
 //   SCP_CHARGERS=Easee,Zaptec node tests/matrix.test.js
+//   SCP_CARS=all (or Tesla,Volvo) node tests/matrix.test.js   every car integration with Easee
+//   (SCP_CHARGERS only: no cars; SCP_CARS only: no chargers; neither: both)
 //   SCP_RESULTS=out.json ...                         results as JSON
 
 const fs = require('fs');
@@ -23,7 +25,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const fake = require('./fake-ha');
-const { CHARGERS, BATTERIES } = require('./fixtures');
+const { CHARGERS, BATTERIES, CARS } = require('./fixtures');
 
 const APP = path.join(__dirname, '..', 'smart_charging_planner', 'app');
 process.env.DATA_DIR = process.env.DATA_DIR || os.tmpdir();
@@ -110,6 +112,31 @@ function chargerProfile(fx) {
     describe: (c) => `${c.domain}.${c.service}${c.target && c.target.entity_id ? ' ' + c.target.entity_id : ''} ${JSON.stringify(c.data)}`,
     currentOf: (c) => (curTpl && `${c.domain}.${c.service}` === curTpl.service && (c.target || {}).entity_id === (curTpl.target || {}).entity_id ? c.data[curField] : null),
     phasesOf: (c) => (matches(c, ph1) ? 1 : matches(c, ph3) ? 3 : null),
+  };
+}
+
+// A car from the fixtures as the fake's car: its real entities, with the
+// battery level, plug, charging and limit following the fake world.
+function carProfile(cx) {
+  const at = (x) => [].concat(x || []);
+  const plug = new Map(at(cx.dynamic.plug).map((d) => [d.id, d]));
+  const charging = new Map(at(cx.dynamic.charging).map((d) => [d.id, d]));
+  const limits = new Set(at(cx.dynamic.limit));
+  const limitAttr = (cx.list.find(([id]) => id === cx.expect.limit) || [])[2] || {};
+  return {
+    device: 'car', name: cx.name, manufacturer: cx.brand, model: '', platform: cx.platform, capacity: cx.capacity,
+    soc: cx.expect.soc, range: cx.expect.range, plugged: cx.expect.plugged, limit: cx.expect.limit,
+    limit_min: limitAttr.min, limit_max: limitAttr.max, limit_step: limitAttr.step,
+    // Entities that are off by default in the integration have no state.
+    states: (w) => cx.list.filter((x) => !(x[3] && x[3].disabled)).map(([id, st, a]) => {
+      const pl = plug.get(id);
+      const ch = charging.get(id);
+      const v = id === cx.dynamic.soc ? w.soc
+        : pl ? ((w.car1Plug ?? w.plugged) ? pl.on : pl.off)
+          : ch ? (w.charging ? ch.on : ch.off)
+            : limits.has(id) ? w.limit : st;
+      return [id, v, a];
+    }),
   };
 }
 
@@ -372,6 +399,7 @@ async function runCharger(fx, n) {
     for (const bx of BATTERIES) {
       k++;
       const b = batteryOf(bx);
+      b.initial = Object.fromEntries(b.list.filter(([id]) => /^(number|select|switch)\./.test(id)).map(([id, state]) => [id, String(state)]));
       const id = `${tag}.B${k}`;
       group = `${fx.brand} + ${b.name} (${b.platform})`;
       console.log(`  ${group}`);
@@ -403,9 +431,8 @@ async function runCharger(fx, n) {
           assert(!sent.length, `sent ${sent.map(fmt)}`);
           return 'nothing to put back';
         }
-        const want = battery.commandsFor(prevCtl, 'auto', 3, null);
-        assert(same(sent.map(callKey), want.commands.map(cmdKey)), `sent ${sent.map(fmt)}, expected ${want.commands.map((c) => fmt({ ...c, service: c.service }))}`);
-        return `${prev.name}: ${sent.map(fmt).join(' · ')}`;
+        for (const [id, value] of Object.entries(prev.initial)) assert(String(world.store.get(id)) === value, `original ${id}: expected ${value}, got ${world.store.get(id)}`);
+        return `${prev.name}: original settings restored (${sent.length} commands)`;
       });
       // From here on only the new battery exists.
       setBatteries(world, [b]);
@@ -459,13 +486,17 @@ async function runCharger(fx, n) {
         const n0 = world.calls.length;
         const before = (await ok('GET', 'api/battery')).last;
         await api('DELETE', 'api/boost');
-        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && !bn.error && !(controllable && world.charging));
+        const r = await until((last, bn) => !!bn.action && !/car/i.test(bn.reason || '') && (!protects || !bn.error) && !(controllable && world.charging));
         const sent = batCalls(n0);
         if (controllable) assert(!world.charging, 'car still charging');
         if (ro || !protects) { assert(!sent.length, `sent ${sent.map(fmt)}`); return 'nothing sent'; }
         assert(!r.timeout, `battery ${JSON.stringify(r.bn)} last ${JSON.stringify(r.last)}`);
         // What the battery should get now: the plan's action ("auto" = own mode).
         const target = r.last ? r.last.action : 'auto';
+        if (target === 'auto') {
+          for (const [id, value] of Object.entries(b.initial)) assert(String(world.store.get(id)) === value, `original ${id}: expected ${value}, got ${world.store.get(id)}`);
+          return 'original settings restored';
+        }
         if ((before ? before.action : 'auto') === target) {
           assert(!sent.length, `sent ${sent.map(fmt)} while it already was ${target}`);
           return `${target} (${r.bn.reason}), already so: nothing sent`;
@@ -524,10 +555,111 @@ async function runCharger(fx, n) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// One car (with Easee)
+// ---------------------------------------------------------------------------
+
+async function runCar(cx, n) {
+  const world = fake.createWorld('renault_easee');
+  const CH = chargerProfile(CHARGERS.find((c) => c.brand === 'Easee'));
+  const CAR = carProfile(cx);
+  world.profile = { label: cx.brand, car: CAR, charger: CH };
+  world.store = new Map();
+  CH.initial(world);
+  const { localMidnight } = require(path.join(APP, 'prices.js'));
+  world.energyzero = () => Array.from({ length: 48 }, (_, i) => ({
+    timestamp: new Date(localMidnight(fake.TZ, 0) + i * 3600000).toISOString(),
+    price: i >= 26 && i < 29 ? 0.05 : 0.20,
+  }));
+  const ha = fake.start(world, WS_PORT, REST_PORT);
+  const tag = `C${n}`;
+  const carIds = new Set(cx.list.map(([id]) => id));
+  const allowedCharger = (c) => CH.allowed.some((a) => a.service === `${c.domain}.${c.service}` && (!a.entity_id || (c.target || {}).entity_id === a.entity_id));
+  const toCar = (c) => carIds.has((c.target || {}).entity_id);
+  try {
+    group = cx.brand;
+    console.log(`\n${cx.brand}`);
+    await startApp({ allow_control: true, notify_start_stop: false });
+    const today = tzParts(Date.now(), fake.TZ);
+    const dayKey = (offset) => days[(new Date(Date.UTC(today.y, today.m - 1, today.d + offset)).getUTCDay() + 6) % 7];
+    world.soc = 40;
+    world.limit = 80;
+    world.plugged = true;
+    world.charging = false;
+    let found = null;
+    // The car's limit can already change when the plan is made right after saving (test 2).
+    const n0 = world.calls.length;
+    await test(`${tag}.1`, 'Found, with the right battery level, range, plug, charging and charge limit', async () => {
+      const d = await ok('GET', 'api/vehicles/detect');
+      found = d.candidates.find((x) => x.device_id === 'car');
+      assert(found, `not found: ${JSON.stringify(d.candidates.map((x) => x.name))}`);
+      const s = found.suggested;
+      const got = [s.soc, s.range, s.plugged, s.charging, s.charge_limit];
+      const want = [cx.expect.soc, cx.expect.range, cx.expect.plugged, cx.expect.charging, cx.expect.limit];
+      assert(JSON.stringify(got) === JSON.stringify(want), `picked ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+      return `${s.soc}${s.plugged ? ` · ${s.plugged}` : ' · no plug sensor'}`;
+    });
+    await test(`${tag}.2`, 'Saved; the plan uses its battery level', async () => {
+      const s = found.suggested;
+      await ok('POST', 'api/vehicles', { name: cx.name, device_id: 'car', soc_entity: s.soc, plugged_entity: s.plugged || '', charging_entity: s.charging || '', range_entity: s.range || '', charge_limit_entity: s.charge_limit || '', capacity_kwh: cx.capacity });
+      await ok('POST', 'api/prices', { source: { type: 'action', domain: 'energyzero', config_entry: 'ce_ez', name: 'EnergyZero' }, price_type: 'all_in' });
+      await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: 'other' });
+      await ok('POST', 'api/chargers', { name: CH.name, device_id: 'ch', status_entity: CH.status, power_entity: CH.power, switch_entity: CH.switch, phases: 3, max_current: 16 });
+      await ok('POST', 'api/departures', {
+        schedule_enabled: true, default_soc: 80, helper: { enabled: false }, calendar: { enabled: false, match: 'target', buffer_minutes: 0, soc: 80 },
+        schedule: Object.fromEntries(days.map((d) => [d, { enabled: d === dayKey(1), time: '07:00', soc: 85 }])),
+      });
+      // Battery care off: then the car's limit follows the target right away.
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: false }));
+      const p = await plan();
+      assert(p.vehicle && p.vehicle.soc === 40 && p.departure && p.departure.soc === 85, JSON.stringify({ soc: p.vehicle && p.vehicle.soc, dep: p.departure }));
+      return `${p.vehicle.soc}% → ${p.departure.soc}%`;
+    });
+    await test(`${tag}.3`, cx.expect.writable ? 'The car\'s charge limit follows the target (rounded to the steps the car accepts)' : 'The charge limit can only be read: nothing is sent to the car', async () => {
+      for (let i = 0; i < 3; i++) { await plan(); await sleep(500); }
+      const p = await plan();
+      const sent = world.calls.slice(n0).filter(toCar);
+      if (!cx.expect.writable) {
+        assert(!sent.length && p.car_limit && p.car_limit.entity_id === cx.expect.limit && p.car_limit.writable === false, JSON.stringify({ sent: sent.map(fmt), lim: p.car_limit }));
+        return `read only: ${p.car_limit.value}%`;
+      }
+      const lim = sent.filter((c) => c.domain === 'number' && c.service === 'set_value' && (c.target || {}).entity_id === cx.expect.limit);
+      assert(lim.length && lim[lim.length - 1].data.value === cx.expect.limit85 && world.limit === cx.expect.limit85, `sent ${sent.map((c) => `${(c.target || {}).entity_id} ${fmt(c)}`).join(', ') || 'nothing'}, limit now ${world.limit}`);
+      return `${cx.expect.limit} → ${cx.expect.limit85}%`;
+    });
+    await test(`${tag}.4`, 'Charge now: the charger starts, and the plan sees the car charging', async () => {
+      await api('POST', 'api/boost', { mode: 'soc', value: 70 });
+      await plan();
+      await sleep(700);
+      const p = await plan();
+      const started = world.charging;
+      await ok('DELETE', 'api/boost');
+      await plan();
+      await sleep(700);
+      assert(started === true, `charging: ${started}`);
+      return `charging ${started}, status ${p.actual ? p.actual.status : '?'}`;
+    });
+    await test(`${tag}.5`, 'Every command went to the charger or the car\'s charge limit', async () => {
+      const bad = world.calls.filter((c) => c.domain !== 'notify' && !(c.domain === 'energyzero' || (c.domain === 'calendar' && c.service === 'get_events'))
+        && !allowedCharger(c) && !(toCar(c) && (c.target || {}).entity_id === cx.expect.limit && cx.expect.writable));
+      assert(!bad.length, bad.map((c) => `${c.domain}.${c.service} ${(c.target || {}).entity_id || ''}`).join(', '));
+      return `${world.calls.filter(toCar).length} to the car`;
+    });
+  } finally {
+    await stopApp();
+    ha.close();
+    await sleep(200);
+  }
+}
+
 async function main() {
-  const only = process.env.SCP_CHARGERS ? process.env.SCP_CHARGERS.split(',').map((s) => s.trim().toLowerCase()) : null;
-  const list = CHARGERS.map((c, i) => [c, i + 1]).filter(([c]) => !only || only.some((o) => c.brand.toLowerCase().startsWith(o)));
+  const pick = (v) => (v ? v.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : null);
+  const only = pick(process.env.SCP_CHARGERS);
+  const cars = pick(process.env.SCP_CARS);
+  const list = only && only[0] === 'none' ? [] : !only && cars ? [] : CHARGERS.map((c, i) => [c, i + 1]).filter(([c]) => !only || only.some((o) => c.brand.toLowerCase().startsWith(o)));
   for (const [fx, n] of list) await runCharger(fx, n);
+  const carList = only && !cars ? [] : CARS.map((c, i) => [c, i + 1]).filter(([c]) => !cars || cars.includes('all') || cars.some((o) => c.brand.toLowerCase().startsWith(o)));
+  for (const [cx, n] of carList) await runCar(cx, n);
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length} of ${results.length} passed`);
   if (process.env.SCP_RESULTS) fs.writeFileSync(process.env.SCP_RESULTS, JSON.stringify({ results }, null, 2));
