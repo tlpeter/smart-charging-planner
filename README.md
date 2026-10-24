@@ -153,6 +153,8 @@ With more chargers and too little room on the main fuse: Charge now first, then 
 
 `node tests/activecar.test.js` checks which car is connected and the car in calendar events; `node tests/sharing.test.js` checks how more chargers share the connection; `node tests/reliability.test.js` checks Ready Guard.
 
+`node tests/cars.test.js` checks, per car integration (Tesla Fleet, Teslemetry, Tessie, Renault, Hyundai/Kia, MySkoda, Volkswagen ID, Volvo, Polestar, Mercedes-Benz), which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names. `SCP_CARS=all SCP_CHARGERS=none node tests/matrix.test.js` runs each of these cars in the real app with an Easee.
+
 `node tests/brands.test.js` checks detection, the control check and the status texts against the real entity and action names of the common charger integrations (Easee, Zaptec, Alfen, Wallbox, go-e, Peblar, OCPP, Ohme, Tesla Wall Connector). Run `npm install` in `smart_charging_planner/app` first.
 
 ## Release process

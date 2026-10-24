@@ -48,7 +48,8 @@ function isDistance(entity, s) {
 }
 
 function isRange(entity, s) {
-  return isDistance(entity, s) && /range|autonomy|actieradius|bereik/.test(words(entity, s));
+  // "Distance to empty battery" (Volvo) is a range too.
+  return isDistance(entity, s) && /range|autonomy|actieradius|bereik|to.?empty/.test(words(entity, s));
 }
 
 function isCharging(entity, s) {
@@ -60,12 +61,20 @@ function isCharging(entity, s) {
     (entity.entity_id.startsWith('binary_sensor.') || entity.entity_id.startsWith('sensor.'));
 }
 
+// Is the charging cable in the car? A plug sensor, or (Tesla) a "Charge cable"
+// connectivity sensor, or (Volkswagen, Volvo, Polestar) a text sensor such as
+// "Plug connection state" or "Charger connection status" (connected /
+// disconnected). Not the plug lock or "unlock plug when charged".
 function isPlugged(entity, s) {
   if (!s) return false;
   const a = s.attributes || {};
-  if (entity.entity_id.startsWith('binary_sensor.') && a.device_class === 'plug') return true;
-  return /plug/.test(words(entity, s)) &&
-    (entity.entity_id.startsWith('binary_sensor.') || entity.entity_id.startsWith('sensor.'));
+  const id = entity.entity_id;
+  if (!id.startsWith('binary_sensor.') && !id.startsWith('sensor.')) return false;
+  if (id.startsWith('binary_sensor.') && a.device_class === 'plug') return true;
+  const w = words(entity, s);
+  if (/lock|unlock/.test(w)) return false;
+  if (id.startsWith('binary_sensor.') && a.device_class === 'connectivity') return /cable|plug|charge.?port|charger/.test(w);
+  return /plug|cable|charg(er|ing).?connect/.test(w);
 }
 
 // The car's own charge limit ("Target charge level", "Charge limit"): the
@@ -77,8 +86,8 @@ function isChargeLimit(entity, s) {
   const a = s.attributes || {};
   if (a.unit_of_measurement !== '%') return false;
   const w = words(entity, s);
-  return /target.?(charge|soc|battery|level)|charge.?(limit|target)|charging.?limit|max.?(charge|soc)|soc.?(limit|target)|laadlimiet|laaddoel/.test(w) &&
-    !/min(imum)?/.test(w);
+  return /target.?(charge|soc|battery|level|state.?of.?charge)|charge.?(limit|target)|charging.?limit|max(imum)?.?(charge|soc|state.?of.?charge)|soc.?(limit|target)|laadlimiet|laaddoel/.test(w) &&
+    !/min(imum)?|v2l|discharg/.test(w);
 }
 
 function option(entity, s) {
@@ -91,12 +100,18 @@ function option(entity, s) {
   };
 }
 
-// Pick the most likely entity: prefer the one with the strongest hint.
-function pickBest(list, preferPattern) {
+// Pick the most likely entity: the first pattern that one of them matches
+// wins (patterns in order of preference), else the first one.
+function pickBest(list, ...patterns) {
   if (!list.length) return null;
-  const preferred = list.find((o) => preferPattern.test(o.entity_id.toLowerCase()));
-  return (preferred || list[0]).entity_id;
+  for (const re of patterns) {
+    const hit = list.find((o) => re.test(o.entity_id.toLowerCase()));
+    if (hit) return hit.entity_id;
+  }
+  return list[0].entity_id;
 }
+// Not the battery level: a target, a maximum, a minimum or the battery's health.
+const NOT_SOC = /target|max|min|limit|health|soh/;
 
 // entities: entity registry, devices: device registry, states: current states.
 function detectVehicles(entities, devices, states) {
@@ -130,8 +145,8 @@ function detectVehicles(entities, devices, states) {
       if (isBatteryPercent(e, s)) battery.push(option(e, s));
       if (isRange(e, s)) range.push(option(e, s));
       if (isDistance(e, s)) distance.push(option(e, s));
-      if (isCharging(e, s)) charging.push(option(e, s));
-      if (isPlugged(e, s)) plugged.push(option(e, s));
+      if (isCharging(e, s)) charging.push({ ...option(e, s), binary: e.entity_id.startsWith('binary_sensor.') && !!s && (s.attributes || {}).device_class === 'battery_charging' });
+      if (isPlugged(e, s)) plugged.push({ ...option(e, s), binary: e.entity_id.startsWith('binary_sensor.') });
       if (isChargeLimit(e, s)) chargeLimit.push(option(e, s));
     }
 
@@ -160,11 +175,18 @@ function detectVehicles(entities, devices, states) {
         charge_limit: chargeLimit,
       },
       suggested: {
-        soc: pickBest(battery, /battery_level|state_of_charge|soc|battery/),
-        range: pickBest(range.length ? range : [], /range/),
-        charging: pickBest(charging, /charging/),
-        plugged: pickBest(plugged, /plug/),
-        charge_limit: pickBest(chargeLimit.filter((o) => o.entity_id.startsWith('number.')).concat(chargeLimit), /target|limit/),
+        // Not a target or a maximum that is also in % (Volkswagen "Target
+        // State of Charge", Mercedes "Max State of Charge", Kia "State of Health").
+        soc: pickBest(battery.filter((o) => !NOT_SOC.test(o.entity_id)).concat(battery), /battery_level|state_of_charge|soc|battery/),
+        // The electric range first (a hybrid also has a total range).
+        range: pickBest(range.length ? range : [], /ev_range|electric|battery_range|autonomy|to_empty/, /range/),
+        // An on/off "charging" sensor first, then a status text.
+        charging: pickBest(charging.filter((o) => o.binary).concat(charging.filter((o) => !/mode|setting|type/.test(o.entity_id))).concat(charging), /charg/),
+        // An on/off sensor first, then a status text ("connected").
+        plugged: pickBest(plugged.filter((o) => o.binary).concat(plugged), /plug|cable|connect/),
+        // A number the app can set first; for home charging the AC limit, not the DC one (Kia, Hyundai).
+        charge_limit: pickBest(chargeLimit.filter((o) => o.entity_id.startsWith('number.') && !/(^|_)dc_/.test(o.entity_id))
+          .concat(chargeLimit.filter((o) => o.entity_id.startsWith('number.')), chargeLimit), /target|limit|state_of_charge/),
       },
     });
   }

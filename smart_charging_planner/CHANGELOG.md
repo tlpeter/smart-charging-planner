@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.32.1-dev
+
+- **Better recognition of cars** (Settings › Vehicle › Find): checked against the real entity names of 10 car integrations, read from their source code. Fixed:
+  - **Tesla** (Tesla Fleet, Teslemetry, Tessie): the "Charge cable" sensor is now found as the plug sensor.
+  - **Volkswagen ID**: the battery level is "State of Charge", no longer "Target State of Charge"; the charge limit ("Target State Of Charge") is found; the plug is "Plug Connection State", not "Auto Unlock Plug When Charged".
+  - **Hyundai / Kia**: the AC charge limit is used, not the DC limit.
+  - **Volvo** and **Polestar**: "Charging connection status" / "Charger Connection Status" is found as the plug, and Volvo's "Distance to empty battery" as the range.
+  - **Mercedes-Benz**: "Max State of Charge" is found as the (read-only) charge limit, and is no longer taken as the battery level.
+  - The electric range comes before a total range (hybrids), and an on/off charging sensor before a status text.
+- A car's plug sensor that says "connected" / "disconnected" or "plugged" / "unplugged" now counts, not only on/off.
+- Tests: a new unit test for every car integration (`tests/cars.test.js`), and a new run in GitHub Actions with each car and an Easee: found, battery level, charge limit, charging and only its own commands.
+- Tests now run against Home Assistant 2026.10.3.
 ## 0.30.23-dev
 
 - Fix, Ask to charge more when a trip needs it: after a Yes, the raised target now **goes down again when the trip gets shorter**. Before, it stayed, so the car could still be charged to 100 % after you removed a place from the calendar. Now the app keeps checking what the trip costs: costs less, the target goes down to what is needed (never below the target from the calendar or schedule); not needed any more, the Yes ends and the normal target counts again. An open question that is no longer needed is removed from Home. The trip grows again: you get the question again, and "No" there now keeps your own target (from the calendar or schedule), not the raised one. Test Y13. (#2)

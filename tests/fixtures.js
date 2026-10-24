@@ -281,4 +281,238 @@ const BATTERIES = [
 ];
 
 
-module.exports = { CHARGERS, BATTERIES, device };
+// ---------------------------------------------------------------------------
+// Cars: the real entity names of the car integrations, read from their source
+// code (entity descriptions and English translations, October 2026). An
+// entity's id is the car's name plus the entity's name, as Home Assistant
+// makes it. Entities that are off by default in the integration are marked
+// { disabled: true }: Home Assistant lists them, but the app must not use them.
+//   cars.test.js and matrix.test.js
+// Each car: brand, platform (the integration), name (the car's device name),
+// capacity (kWh), list ([entity_id, state, attributes, { disabled }]),
+// dynamic (which entity shows the battery level, the plug, charging and the
+// limit in the fake, and how), expect (what the app should pick).
+const PCT = { unit_of_measurement: '%' };
+const BAT = { unit_of_measurement: '%', device_class: 'battery' };
+const KM = { unit_of_measurement: 'km', device_class: 'distance' };
+const PLUG = { device_class: 'plug' };
+const CHG = { device_class: 'battery_charging' };
+const CONN = { device_class: 'connectivity' };
+const ENUM = { device_class: 'enum' };
+const lim = (min, max, step, dc = 'battery') => ({ unit_of_measurement: '%', min, max, step, mode: 'slider', ...(dc ? { device_class: dc } : {}) });
+const off = { disabled: true };
+const named = (name, list) => list.map(([id, st, a, extra]) => [id, st, { friendly_name: `${name} ${a.name}`, ...a, name: undefined }, extra]);
+
+// Tesla Fleet, Teslemetry and Tessie share the names (home-assistant/core).
+const tesla = (platform, name, slug, o = {}) => ({
+  brand: { tesla_fleet: 'Tesla (Tesla Fleet)', teslemetry: 'Tesla (Teslemetry)', tessie: 'Tesla (Tessie)' }[platform],
+  platform, name, capacity: o.capacity || 75,
+  source: `home-assistant/core: homeassistant/components/${platform}`,
+  list: named(name, [
+    [`sensor.${slug}_battery_level`, '55', { name: 'Battery level', ...BAT }],
+    ...(platform === 'teslemetry'
+      ? [[`sensor.${slug}_battery_range`, '310', { name: 'Battery range', ...KM }, off], [`sensor.${slug}_estimate_battery_range`, '290', { name: 'Estimate battery range', ...KM }]]
+      : [[`sensor.${slug}_battery_range`, '310', { name: 'Battery range', ...KM }], [`sensor.${slug}_estimate_battery_range`, '290', { name: 'Estimate battery range', ...KM }, off]]),
+    [`sensor.${slug}_usable_battery_level`, '54', { name: 'Usable battery level', ...BAT }, off],
+    [`sensor.${slug}_charging`, 'stopped', { name: 'Charging', ...ENUM, options: ['starting', 'charging', 'stopped', 'complete', 'disconnected', 'no_power'] }],
+    ...(platform === 'tessie' ? [[`binary_sensor.${slug}_charging`, 'off', { name: 'Charging', ...CHG }]] : []),
+    [`sensor.${slug}_charger_power`, '0', { name: 'Charger power', unit_of_measurement: 'kW', device_class: 'power' }],
+    [`sensor.${slug}_charge_cable`, 'unknown', { name: 'Charge cable', ...ENUM }, off],
+    [`binary_sensor.${slug}_charge_cable`, 'on', { name: 'Charge cable', ...CONN }],
+    [`binary_sensor.${slug}_preconditioning_enabled`, 'off', { name: 'Preconditioning enabled' }],
+    [`number.${slug}_charge_limit`, '80', { name: 'Charge limit', ...lim(50, 100, 1) }],
+    [`number.${slug}_charge_current`, '16', { name: 'Charge current', unit_of_measurement: 'A', min: 0, max: 32, step: 1 }],
+    [`switch.${slug}_charge`, 'off', { name: 'Charge' }],
+  ]),
+  dynamic: {
+    soc: `sensor.${slug}_battery_level`,
+    plug: { id: `binary_sensor.${slug}_charge_cable`, on: 'on', off: 'off' },
+    charging: platform === 'tessie'
+      ? [{ id: `binary_sensor.${slug}_charging`, on: 'on', off: 'off' }, { id: `sensor.${slug}_charging`, on: 'charging', off: 'stopped' }]
+      : [{ id: `sensor.${slug}_charging`, on: 'charging', off: 'stopped' }],
+    limit: `number.${slug}_charge_limit`,
+  },
+  expect: {
+    soc: `sensor.${slug}_battery_level`,
+    range: platform === 'teslemetry' ? `sensor.${slug}_estimate_battery_range` : `sensor.${slug}_battery_range`,
+    plugged: `binary_sensor.${slug}_charge_cable`,
+    charging: platform === 'tessie' ? `binary_sensor.${slug}_charging` : `sensor.${slug}_charging`,
+    limit: `number.${slug}_charge_limit`, writable: true, limit85: 85,
+  },
+});
+
+const CARS = [
+  tesla('tesla_fleet', 'Model Y', 'model_y', { capacity: 75 }),
+  tesla('teslemetry', 'Model 3', 'model_3', { capacity: 60 }),
+  tesla('tessie', 'Model S', 'model_s', { capacity: 100 }),
+  {
+    // home-assistant/core: homeassistant/components/renault (battery and plug
+    // without a translation key: named after their device class).
+    brand: 'Renault', platform: 'renault', name: 'Megane', capacity: 60,
+    source: 'home-assistant/core: homeassistant/components/renault',
+    list: named('Megane', [
+      ['sensor.megane_battery', '55', { name: 'Battery', ...BAT }],
+      ['sensor.megane_battery_autonomy', '240', { name: 'Battery autonomy', ...KM }],
+      ['sensor.megane_battery_available_energy', '31', { name: 'Battery available energy', unit_of_measurement: 'kWh', device_class: 'energy' }],
+      ['sensor.megane_charge_state', 'not_in_charge', { name: 'Charge state', ...ENUM }],
+      ['sensor.megane_plug_state', 'plugged', { name: 'Plug state', ...ENUM, options: ['unplugged', 'plugged', 'plug_error', 'plug_unknown'] }],
+      ['sensor.megane_charging_power', '0', { name: 'Charging power', unit_of_measurement: 'kW', device_class: 'power' }],
+      ['binary_sensor.megane_plug', 'on', { name: 'Plug', ...PLUG }],
+      ['binary_sensor.megane_charging', 'off', { name: 'Charging', ...CHG }],
+      ['number.megane_minimum_charge_level', '15', { name: 'Minimum charge level', ...lim(15, 45, 5) }],
+      ['number.megane_target_charge_level', '80', { name: 'Target charge level', ...lim(55, 100, 5) }],
+    ]),
+    dynamic: {
+      soc: 'sensor.megane_battery',
+      plug: [{ id: 'binary_sensor.megane_plug', on: 'on', off: 'off' }, { id: 'sensor.megane_plug_state', on: 'plugged', off: 'unplugged' }],
+      charging: [{ id: 'binary_sensor.megane_charging', on: 'on', off: 'off' }, { id: 'sensor.megane_charge_state', on: 'charge_in_progress', off: 'not_in_charge' }],
+      limit: 'number.megane_target_charge_level',
+    },
+    expect: { soc: 'sensor.megane_battery', range: 'sensor.megane_battery_autonomy', plugged: 'binary_sensor.megane_plug', charging: 'binary_sensor.megane_charging', limit: 'number.megane_target_charge_level', writable: true, limit85: 85 },
+  },
+  {
+    // Hyundai-Kia-Connect/kia_uvo (HACS): sensor.py, binary_sensor.py,
+    // number.py and translations/en.json. The DC limit is listed before the AC
+    // limit here on purpose: the order in the registry can differ, and for
+    // charging at home the app must take the AC limit.
+    brand: 'Hyundai / Kia (Kia Uvo / Hyundai Bluelink)', platform: 'kia_uvo', name: 'Ioniq 5', capacity: 77,
+    source: 'github.com/Hyundai-Kia-Connect/kia_uvo',
+    list: named('Ioniq 5', [
+      ['sensor.ioniq_5_total_driving_range', '330', { name: 'Total Driving Range', ...KM }],
+      ['sensor.ioniq_5_ev_battery_level', '55', { name: 'EV Battery Level', ...BAT }],
+      ['sensor.ioniq_5_ev_state_of_health_battery', '97', { name: 'EV State of Health Battery', ...BAT }],
+      ['sensor.ioniq_5_ev_range', '330', { name: 'EV Range', ...KM }],
+      ['binary_sensor.ioniq_5_ev_battery_charge', 'off', { name: 'EV Battery Charge', ...CHG }],
+      ['binary_sensor.ioniq_5_ev_battery_plug', 'on', { name: 'EV Battery Plug', ...PLUG }],
+      ['number.ioniq_5_dc_charging_limit', '80', { name: 'DC Charging Limit', ...lim(50, 100, 10, null) }],
+      ['number.ioniq_5_ac_charging_limit', '80', { name: 'AC Charging Limit', ...lim(50, 100, 10, null) }],
+      ['number.ioniq_5_v2l_limit', '20', { name: 'V2L Limit', ...lim(20, 80, 5, null) }],
+    ]),
+    dynamic: {
+      soc: 'sensor.ioniq_5_ev_battery_level',
+      plug: { id: 'binary_sensor.ioniq_5_ev_battery_plug', on: 'on', off: 'off' },
+      charging: { id: 'binary_sensor.ioniq_5_ev_battery_charge', on: 'on', off: 'off' },
+      limit: 'number.ioniq_5_ac_charging_limit',
+    },
+    expect: { soc: 'sensor.ioniq_5_ev_battery_level', range: 'sensor.ioniq_5_ev_range', plugged: 'binary_sensor.ioniq_5_ev_battery_plug', charging: 'binary_sensor.ioniq_5_ev_battery_charge', limit: 'number.ioniq_5_ac_charging_limit', writable: true, limit85: 90 },
+  },
+  {
+    // skodaconnect/homeassistant-myskoda (HACS).
+    brand: 'Skoda (MySkoda)', platform: 'myskoda', name: 'Enyaq', capacity: 77,
+    source: 'github.com/skodaconnect/homeassistant-myskoda',
+    list: named('Enyaq', [
+      ['sensor.enyaq_battery_percentage', '55', { name: 'Battery Percentage', ...BAT }],
+      ['sensor.enyaq_range', '300', { name: 'Range', ...KM }],
+      ['sensor.enyaq_electric_range', '300', { name: 'Electric Range', ...KM }],
+      ['sensor.enyaq_charging_state', 'ready_for_charging', { name: 'Charging State', ...ENUM }],
+      ['sensor.enyaq_charging_power', '0', { name: 'Charging Power', unit_of_measurement: 'kW', device_class: 'power' }],
+      ['sensor.enyaq_target_battery_percentage', '80', { name: 'Target Battery Percentage', ...PCT }],
+      ['binary_sensor.enyaq_charger_connected', 'on', { name: 'Charger Connected', ...PLUG }],
+      ['binary_sensor.enyaq_charge_lock', 'on', { name: 'Charge Lock', device_class: 'lock' }],
+      ['number.enyaq_charge_limit', '80', { name: 'Charge Limit', ...lim(50, 100, 10) }],
+      ['switch.enyaq_charging', 'off', { name: 'Charging' }],
+      ['switch.enyaq_battery_care', 'off', { name: 'Battery Care' }],
+    ]),
+    dynamic: {
+      soc: 'sensor.enyaq_battery_percentage',
+      plug: { id: 'binary_sensor.enyaq_charger_connected', on: 'on', off: 'off' },
+      charging: { id: 'sensor.enyaq_charging_state', on: 'charging', off: 'ready_for_charging' },
+      limit: 'number.enyaq_charge_limit',
+    },
+    expect: { soc: 'sensor.enyaq_battery_percentage', range: 'sensor.enyaq_electric_range', plugged: 'binary_sensor.enyaq_charger_connected', charging: 'sensor.enyaq_charging_state', limit: 'number.enyaq_charge_limit', writable: true, limit85: 90 },
+  },
+  {
+    // mitch-dc/volkswagen_we_connect_id (HACS): names are "<nickname> <name>".
+    // The target SoC is listed before the battery level, as in its sensor.py.
+    brand: 'Volkswagen ID (WeConnect ID)', platform: 'volkswagen_we_connect_id', name: 'ID.4', capacity: 77,
+    source: 'github.com/mitch-dc/volkswagen_we_connect_id',
+    list: named('ID.4', [
+      ['sensor.id_4_charging_state', 'readyForCharging', { name: 'Charging State' }],
+      ['sensor.id_4_charging_mode', 'manual', { name: 'Charging Mode' }],
+      ['sensor.id_4_charge_power', '0', { name: 'Charge Power', unit_of_measurement: 'kW', device_class: 'power' }],
+      ['sensor.id_4_target_state_of_charge', '80', { name: 'Target State of Charge', ...BAT }],
+      ['sensor.id_4_state_of_charge', '55', { name: 'State of Charge', ...BAT }],
+      ['sensor.id_4_range', '280', { name: 'Range', ...KM }],
+      ['sensor.id_4_auto_unlock_plug_when_charged', 'permanent', { name: 'Auto Unlock Plug When Charged' }],
+      ['sensor.id_4_plug_connection_state', 'connected', { name: 'Plug Connection State' }],
+      ['sensor.id_4_plug_lock_state', 'locked', { name: 'Plug Lock State' }],
+      ['binary_sensor.id_4_car_is_online', 'on', { name: 'Car Is Online', ...CONN }],
+      ['number.id_4_target_state_of_charge', '80', { name: 'Target State Of Charge', ...lim(10, 100, 10, null) }],
+    ]),
+    dynamic: {
+      soc: 'sensor.id_4_state_of_charge',
+      plug: { id: 'sensor.id_4_plug_connection_state', on: 'connected', off: 'disconnected' },
+      charging: { id: 'sensor.id_4_charging_state', on: 'charging', off: 'readyForCharging' },
+      limit: ['number.id_4_target_state_of_charge', 'sensor.id_4_target_state_of_charge'],
+    },
+    expect: { soc: 'sensor.id_4_state_of_charge', range: 'sensor.id_4_range', plugged: 'sensor.id_4_plug_connection_state', charging: 'sensor.id_4_charging_state', limit: 'number.id_4_target_state_of_charge', writable: true, limit85: 90 },
+  },
+  {
+    // home-assistant/core: homeassistant/components/volvo. No number for the
+    // target: it can only be read.
+    brand: 'Volvo', platform: 'volvo', name: 'EX30', capacity: 64,
+    source: 'home-assistant/core: homeassistant/components/volvo',
+    list: named('EX30', [
+      ['sensor.ex30_battery_charge_level', '55', { name: 'Battery charge level', ...BAT }],
+      ['sensor.ex30_distance_to_empty_battery', '250', { name: 'Distance to empty battery', ...KM }],
+      ['sensor.ex30_charging_connection_status', 'connected', { name: 'Charging connection status', ...ENUM, options: ['connected', 'disconnected', 'fault'] }],
+      ['sensor.ex30_charging_status', 'idle', { name: 'Charging status', ...ENUM, options: ['charging', 'discharging', 'done', 'error', 'idle', 'scheduled'] }],
+      ['sensor.ex30_charging_limit', '16', { name: 'Charging limit', unit_of_measurement: 'A', device_class: 'current' }],
+      ['sensor.ex30_charging_power', '0', { name: 'Charging power', unit_of_measurement: 'W', device_class: 'power' }],
+      ['sensor.ex30_target_battery_charge_level', '80', { name: 'Target battery charge level', ...PCT }],
+    ]),
+    dynamic: {
+      soc: 'sensor.ex30_battery_charge_level',
+      plug: { id: 'sensor.ex30_charging_connection_status', on: 'connected', off: 'disconnected' },
+      charging: { id: 'sensor.ex30_charging_status', on: 'charging', off: 'idle' },
+      limit: 'sensor.ex30_target_battery_charge_level',
+    },
+    expect: { soc: 'sensor.ex30_battery_charge_level', range: 'sensor.ex30_distance_to_empty_battery', plugged: 'sensor.ex30_charging_connection_status', charging: 'sensor.ex30_charging_status', limit: 'sensor.ex30_target_battery_charge_level', writable: false },
+  },
+  {
+    // pypolestar/polestar_api (HACS); state texts from pypolestar's models.py.
+    brand: 'Polestar', platform: 'polestar_api', name: 'Polestar 2', capacity: 78,
+    source: 'github.com/pypolestar/polestar_api',
+    list: named('Polestar 2', [
+      ['sensor.polestar_2_range', '320', { name: 'Range', ...KM }],
+      ['sensor.polestar_2_battery_charge_level', '55', { name: 'Battery Charge Level', ...BAT }],
+      ['sensor.polestar_2_estimate_full_charge_range', '480', { name: 'Estimate Full Charge Range', ...KM }],
+      ['sensor.polestar_2_charging_time', '0', { name: 'Charging Time', unit_of_measurement: 'min' }],
+      ['sensor.polestar_2_charging_status', 'Idle', { name: 'Charging Status' }],
+      ['sensor.polestar_2_charger_connection_status', 'Connected', { name: 'Charger Connection Status' }],
+      ['sensor.polestar_2_charging_power', '0', { name: 'Charging Power', unit_of_measurement: 'W', device_class: 'power' }],
+      ['sensor.polestar_2_charging_target_level', '80', { name: 'Charging Target Level', ...PCT }],
+      ['binary_sensor.polestar_2_api_connected', 'on', { name: 'API Connected', ...CONN }],
+    ]),
+    dynamic: {
+      soc: 'sensor.polestar_2_battery_charge_level',
+      plug: { id: 'sensor.polestar_2_charger_connection_status', on: 'Connected', off: 'Disconnected' },
+      charging: { id: 'sensor.polestar_2_charging_status', on: 'Charging', off: 'Idle' },
+      limit: 'sensor.polestar_2_charging_target_level',
+    },
+    expect: { soc: 'sensor.polestar_2_battery_charge_level', range: 'sensor.polestar_2_range', plugged: 'sensor.polestar_2_charger_connection_status', charging: 'sensor.polestar_2_charging_status', limit: 'sensor.polestar_2_charging_target_level', writable: false },
+  },
+  {
+    // ReneNulschDE/mbapi2020 (HACS): const.py. No plug sensor; the maximum
+    // is set with an action of the integration, so the app can only read it.
+    brand: 'Mercedes-Benz (mbapi2020)', platform: 'mbapi2020', name: 'EQA', capacity: 66,
+    source: 'github.com/ReneNulschDE/mbapi2020',
+    list: named('EQA', [
+      ['sensor.eqa_state_of_charge', '55', { name: 'State of Charge', ...BAT }],
+      ['sensor.eqa_max_state_of_charge', '80', { name: 'Max State of Charge', ...PCT }],
+      ['sensor.eqa_range_electric', '260', { name: 'Range Electric', ...KM }],
+      ['sensor.eqa_charging_status', '3', { name: 'Charging Status' }],
+      ['sensor.eqa_charging_power', '0', { name: 'Charging Power', unit_of_measurement: 'kW', device_class: 'power' }],
+      ['binary_sensor.eqa_charging_active', 'off', { name: 'Charging active', ...CHG }],
+    ]),
+    dynamic: {
+      soc: 'sensor.eqa_state_of_charge',
+      plug: null,
+      charging: { id: 'binary_sensor.eqa_charging_active', on: 'on', off: 'off' },
+      limit: 'sensor.eqa_max_state_of_charge',
+    },
+    expect: { soc: 'sensor.eqa_state_of_charge', range: 'sensor.eqa_range_electric', plugged: null, charging: 'binary_sensor.eqa_charging_active', limit: 'sensor.eqa_max_state_of_charge', writable: false },
+  },
+];
+
+module.exports = { CHARGERS, BATTERIES, CARS, device };

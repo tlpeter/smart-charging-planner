@@ -2,7 +2,7 @@
 
 // Keep the fast simulator aligned with the pinned Core compatibility test.
 // Override this only when checking a future Home Assistant release locally.
-const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.2';
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.3';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
@@ -372,7 +372,7 @@ function start(w, wsPort, restPort) {
             const d = call.data;
             w.events.push({ summary: d.summary, description: d.description, location: d.location, start: String(d.start_date_time).replace(' ', 'T'), end: String(d.end_date_time).replace(' ', 'T') });
           }
-          if (m.domain === 'number' && m.service === 'set_value' && /target_charge_level|charge_limit/.test(tid || '')) {
+          if (m.domain === 'number' && m.service === 'set_value' && (/target_charge_level|charge_limit/.test(tid || '') || (tid && tid === w.profile.car.limit))) {
             w.limit = call.data.value;
             // Like a Renault that ended its session: a change of its limit while
             // the charger is on and ready wakes it (w.carAsleep, settings test J6c).

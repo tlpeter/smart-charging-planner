@@ -118,6 +118,9 @@ function statusOnOff(entityId, obj) {
   return /charging|laden/.test(words) && !/plug|cable|connect|stekker|kabel/.test(words) ? 'charging' : 'plug';
 }
 
+const PLUG_ON = /^(on|true|plugged|plugged_in|connected)$/;
+const PLUG_OFF = /^(off|false|unplugged|not_plugged|disconnected|not_connected)$/;
+
 // Plugged in? Charging? Is the charger status valid?
 function readActual({ vehicle, charger, states, now = Date.now() }) {
   const plug = vehicle && vehicle.plugged_entity ? findState(states, vehicle.plugged_entity) : null;
@@ -134,7 +137,10 @@ function readActual({ vehicle, charger, states, now = Date.now() }) {
     || (!/^binary_sensor\./.test(charger.status_entity) && PROBLEM.test(status.toLowerCase())));
   const invalidFor = statusInvalid && statusObj && statusObj.last_changed ? now - Date.parse(statusObj.last_changed) : statusInvalid ? Infinity : 0;
 
-  const carSays = plug && (plug.state === 'on' || plug.state === 'off') ? plug.state === 'on' : null;
+  // The car's own plug sensor: on/off, or a text such as "connected" /
+  // "disconnected" (Volkswagen, Volvo, Polestar) or "plugged" (Renault).
+  const plugText = plug ? String(plug.state).toLowerCase().replace(/\s+/g, '_') : '';
+  const carSays = PLUG_ON.test(plugText) ? true : PLUG_OFF.test(plugText) ? false : null;
   let plugged = null;
   let charging = null;
   const onOff = statusOnOff(charger && charger.status_entity, statusObj);
