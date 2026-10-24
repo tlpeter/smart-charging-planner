@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.5-dev
+
+- Test Y13: the last step only removes Sport from the calendar, without a new place, so no route has to be looked up in the middle of it. Only the test changed, not the app. (#2)
+
 ## 0.32.4-dev
 
 - Test Y13 (ask to charge more): with a car that has a range sensor, the use per km comes from that sensor, so a lower kWh/100 km did not make the trip cheaper. The test now moves the trips to nearer places instead. Only the test changed, not the app. (#2)

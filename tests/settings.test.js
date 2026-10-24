@@ -1977,8 +1977,9 @@ async function run() {
         assert(less < big - 2, `the test needs a trip that costs clearly less: ${less} vs ${big}`);
         assert(p.departure.soc === less && p.departure.topup && p.departure.topup.from === 80 && p.trip_topup && p.trip_topup.state === 'yes' && p.trip_topup.soc === less, JSON.stringify({ dep: p.departure, t: p.trip_topup, less }));
         assert(asked(n0).length === questions, 'asked again when the trip got shorter');
-        // #2: a place removed (no Sport, shorter route): the trip fits in 80 % again, the Yes ends.
-        move({ work: 'Dorpsstraat 1, 2871 AA Schoonhoven', workAt: { lat: 51.95, lon: 4.85 } }, 20);
+        // #2: a place removed (no Sport): the trip fits in 80 % again, the Yes ends.
+        // (Same places as before, so no route has to be looked up again.)
+        world.events = world.events.filter((e) => e.summary !== 'Naar Sport');
         p = await settle();
         await settle();
         p = await settle();
