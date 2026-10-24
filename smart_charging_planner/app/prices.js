@@ -186,6 +186,9 @@ const ACTION_SOURCES = {
           const r = await ha.callAction('nordpool', 'get_prices_for_date', {
             config_entry: entry, date: localDate(day, tz),
           });
+          // An empty answer (tomorrow before publication): no prices that day,
+          // not a missing area.
+          if (!Object.keys(r || {}).length) continue;
           picked = pickEntry(r || {}, select, 'Area');
           for (const p of picked.list) {
             out.push({ start: parseTime(p.start), end: parseTime(p.end), price: validPrice(p.price) ? Number(p.price) : NaN });

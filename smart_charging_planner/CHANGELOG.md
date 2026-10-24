@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.4-dev
+
+- Nord Pool: an empty answer for tomorrow (before the prices are published) means no prices for that day, not a missing area. Test: Nord Pool answers per date. (#16)
+
 ## 0.33.3-dev
 
 - **Tibber with more homes, Nord Pool with more areas**: choose yours under Settings › Prices (after Test). Before, the app always used the first one in the answer, which could be another home's or area's prices. With only one, nothing changes. A chosen home or area that disappears gives a clear error instead of other prices. (#16)

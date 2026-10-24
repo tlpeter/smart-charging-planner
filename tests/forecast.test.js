@@ -144,7 +144,7 @@ check('an explicit foreign currency is rejected instead of silently compared', m
 // Tibber homes and Nord Pool areas: the chosen one, never silently the first (#16).
 (async () => {
   const ha = require(path.join(app, 'ha.js'));
-  const { fetchPrices, localMidnight, isoLocal } = require(path.join(app, 'prices.js'));
+  const { fetchPrices, localMidnight, isoLocal, localDate } = require(path.join(app, 'prices.js'));
   const t0 = localMidnight(tz, 0);
   const rows = (price, key) => Array.from({ length: 24 }, (_, h) => ({ [key]: isoLocal(t0 + h * 3600000, tz), ...(key === 'start' ? { end: isoLocal(t0 + (h + 1) * 3600000, tz) } : {}), price }));
   const original = ha.callAction;
@@ -152,7 +152,11 @@ check('an explicit foreign currency is rejected instead of silently compared', m
   ha.debug = () => {}; ha.warn = () => {};
   const fails = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(e.message) && !!e.choice; } };
   try {
-    ha.callAction = async (domain) => (domain === 'tibber' ? { prices: { 'Home A': rows(0.2, 'start_time'), 'Home B': rows(0.4, 'start_time') } } : { SE3: rows(500, 'start'), SE4: rows(900, 'start') });
+    // Nord Pool answers per date: today's prices, and an empty answer for
+    // tomorrow (not yet published).
+    ha.callAction = async (domain, service, data) => (domain === 'tibber'
+      ? { prices: { 'Home A': rows(0.2, 'start_time'), 'Home B': rows(0.4, 'start_time') } }
+      : data.date === localDate(t0, tz) ? { SE3: rows(500, 'start'), SE4: rows(900, 'start') } : {});
     const tibber = { id: 'action:tibber:ce', type: 'action', domain: 'tibber', config_entry: 'ce' };
     const np = { id: 'action:nordpool:ce', type: 'action', domain: 'nordpool', config_entry: 'ce' };
     check('Tibber, two homes, none chosen: a clear error listing both', await fails(() => fetchPrices(tibber, tz), /Home A, Home B/));
