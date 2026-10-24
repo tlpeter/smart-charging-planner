@@ -1860,25 +1860,25 @@ async function run() {
         world.events = [];
       }
     });
-    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Made 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Made → home (60 km each part), no charging at home in between, back at 22:00', async () => {
+    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
       world.events = [
         // (This calendar only counts events with a target, so each has one.)
         evm('Naar Werk', 'doel: 80', ADDR3, 1, 6, 0, 16, 30),
-        evm('Naar The Outdoor Pact Made', 'doel: 80 precondition: ja', ADDR2, 1, 16, 30, 20, 30),
+        evm('Naar Sport', 'doel: 80 precondition: ja', ADDR, 1, 16, 30, 20, 30),
         evm('Naar Thuis', 'doel: 80 precondition: ja', 'Thuis', 1, 20, 30, 22, 0),
         evm('Naar Werk', 'doel: 80', ADDR3, 3, 6, 0, 16, 0),
       ];
       try {
         await settle();
-        await sleep(600); // the route from Werk to Made is looked up once
+        await sleep(600); // the route from Werk to Sport is looked up once (Made stays unrouted for Y4)
         const n = (await settle()).next;
         const tl = n.timeline;
         const leaves = tl.filter((x) => x.type === 'leave');
         assert(leaves.length === 2 && leaves[0].title === 'Naar Werk' && leaves[0].time === at(1, 6), JSON.stringify(leaves.map((x) => [x.title, x.time])));
         const stops = tl.filter((x) => x.type === 'stop');
-        assert(stops.length === 1 && stops[0].title === 'Naar The Outdoor Pact Made' && stops[0].time === at(1, 16, 30) && stops[0].km === 60, JSON.stringify(stops));
+        assert(stops.length === 1 && stops[0].title === 'Naar Sport' && stops[0].time === at(1, 16, 30) && stops[0].km === 60, JSON.stringify(stops));
         assert(n.trip.status === 'ok' && n.trip.total_km === 180 && n.trip.via.length === 1 && leaves[0].trip.stops === 1, JSON.stringify(n.trip));
         assert(Math.abs(n.trip.pct - 180 * n.trip.pct_per_km * 1.1) < 0.2, `pct ${n.trip.pct}`);
         assert(n.trip.return_at === at(1, 22) && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
@@ -1887,7 +1887,7 @@ async function run() {
         assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
         const between = tl.filter((x) => x.type === 'charge' && x.expected && x.start < at(1, 22));
         assert(!between.length, `charging while the car is away: ${JSON.stringify(between)}`);
-        return `home → Werk → Made → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · at Made ${stops[0].soc}% · home ${backs[0].soc}% at 22:00`;
+        return `home → Werk → Sport → home: ${n.trip.total_km} km ≈ ${n.trip.pct}% · leaving Werk ${stops[0].soc}% · home ${backs[0].soc}% at 22:00`;
       } finally {
         world.soc = 100;
         world.events = [];
