@@ -372,4 +372,4 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 ## Planned
 
-Plans of more chargers that take each other into account. See the [project README](https://github.com/tlpeter/smart-charging-planner) for the roadmap and an overview of all options.
+The [project roadmap](https://github.com/tlpeter/smart-charging-planner/blob/main/README.md#roadmap) lists the planned improvements by priority, each linked to its GitHub issue. It covers public-release readiness, prices, privacy, physical site capacity, calendar clarity, shared charging plans, pause/recovery controls, longer look-ahead and en-route charging suggestions. Enhancements already implemented on dev are listed separately until they reach a stable release.
