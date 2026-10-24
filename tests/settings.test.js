@@ -1679,9 +1679,9 @@ async function run() {
     const tesla = d.calendar_trips.find((t) => t.title === 'Tesla trip');
     assert(tesla.car_unknown === true && tesla.car === 'tesla', JSON.stringify(tesla));
     const pv = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: true });
-    assert(pv.events[0].description === 'doel: 75 precondition: ja auto: EV6', pv.events[0].description);
+    assert(pv.events[0].description === 'target: 75 precondition: yes car: EV6', pv.events[0].description);
     const all = await ok('POST', 'api/trips/preview', { vehicle_id: ev6Id, for_all_cars: true, datetime: isoLocal(at(4, 8, 0), tz).slice(0, 16), destination: 'Gent', soc: 75, precondition: false });
-    assert(all.events[0].description === 'doel: 75 precondition: nee', all.events[0].description);
+    assert(all.events[0].description === 'target: 75 precondition: no', all.events[0].description);
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
     return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
@@ -2177,12 +2177,12 @@ async function run() {
       return p;
     };
     await ok('POST', 'api/departures', calOn());
-    await test('U1', 'One car: no car to choose (the trip is for that car), the event is "Naar <destination>" with the destination as location, "doel: 90 precondition: ja" and lasts until "Back home at"', async () => {
+    await test('U1', 'One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at"', async () => {
       const d = await ok('GET', 'api/departures');
       assert(d.cars === null && d.calendar_write_allowed === true && d.calendar_writable === true, JSON.stringify({ cars: d.cars, w: d.calendar_write_allowed }));
       const pv = await ok('POST', 'api/trips/preview', trip());
       const e = pv.events[0];
-      assert(pv.events.length === 1 && e.summary === `Naar ${ADDR}` && e.location === ADDR && e.description === 'doel: 90 precondition: ja', JSON.stringify(e));
+      assert(pv.events.length === 1 && e.summary === `To ${ADDR}` && e.location === ADDR && e.description === 'target: 90 precondition: yes', JSON.stringify(e));
       assert(e.start === at(1, 8) && e.end === at(1, 17, 30), `${new Date(e.start).toISOString()} – ${new Date(e.end).toISOString()}`);
       await refused('POST', 'api/trips/preview', trip({ back: '25:00' }), 'Back home');
       return `${e.summary} · ${e.description}`;
@@ -2235,7 +2235,7 @@ async function run() {
       world.events = [];
       return `update_entity ${upd[0].target.entity_id} → departure ${after.departure.title}`;
     });
-    await test('U6', 'More cars: a trip for the EV6 gets "auto: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
+    await test('U6', 'More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both', async () => {
       await ok('POST', 'api/vehicles/multi', { enabled: true });
       const ev6 = (await ok('POST', 'api/vehicles', { ...EV6, add: true })).vehicle.id;
       const car1 = (await carsNow())[0].id;
@@ -2245,10 +2245,10 @@ async function run() {
         assert(d.cars && d.cars.length === 2, 'no car to choose');
         await ok('POST', 'api/trips', trip({ vehicle_id: ev6 }));
         await ok('POST', 'api/trips', trip({ datetime: isoLocal(at(2, 9), tz).slice(0, 16), destination: 'Utrecht', for_all_cars: true }));
-        assert(world.events[0].description.includes('auto: EV6') && !world.events[1].description.includes('auto:'), JSON.stringify(world.events.map((e) => e.description)));
+        assert(world.events[0].description.includes('car: EV6') && !world.events[1].description.includes('car:'), JSON.stringify(world.events.map((e) => e.description)));
         const forCar1 = (await ok('GET', `api/departures?vehicle=${car1}`)).calendar_trips.map((x) => x.title);
         const forEv6 = (await ok('GET', `api/departures?vehicle=${ev6}`)).calendar_trips.map((x) => x.title);
-        assert(forCar1.length === 1 && forCar1[0] === 'Naar Utrecht' && forEv6.length === 2, JSON.stringify({ forCar1, forEv6 }));
+        assert(forCar1.length === 1 && forCar1[0] === 'To Utrecht' && forEv6.length === 2, JSON.stringify({ forCar1, forEv6 }));
         return `${car1}: ${forCar1.join(', ')} · EV6: ${forEv6.join(', ')}`;
       } finally {
         await ok('POST', 'api/vehicles/multi', { enabled: false });

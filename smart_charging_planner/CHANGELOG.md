@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.22-dev
+
+- Tests: the checks for "Add trip" now expect the new default (English when Home Assistant is not in Dutch).
+
 ## 0.32.21-dev
 
 - **Language for trips the app adds** (Plan › Departures › Calendar): English ("To Work", "target: 80 precondition: no") or Dutch ("Naar Werk", "doel: 80 precondition: nee"). The default follows the language of Home Assistant. Reading still understands both, also mixed in one calendar.
