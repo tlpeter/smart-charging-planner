@@ -1218,7 +1218,7 @@ async function run() {
     assert(v.stale_hours === 2, `stale_hours ${v.stale_hours}`);
   });
   await test('V2', 'Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification', async () => {
-    world.soc = 45; world.ages = {}; world.reportedAt = { [CAR.soc]: Date.now() }; world.limit = 80; world.charging = false;
+    world.soc = 45; world.ages = {}; world.reportedAt = { [CAR.soc]: Date.now() - 10000 }; world.limit = 80; world.charging = false;
     await plan();
     const n0 = world.calls.length;
     world.soc = 'unavailable';

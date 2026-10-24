@@ -74,7 +74,7 @@ async function run() {
       max_current_entities: ['sensor.laadpaal_live_limit'] });
     await api('POST', 'api/grid', { name: 'P1', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' });
     await api('POST', 'api/prices', { source: { type: 'fixed' }, fixed: { mode: 'single', normal: 0.2 } });
-    await api('POST', 'api/departures', { schedule_enabled: false, default_soc: 80, schedule: Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun'].map((day) => [day, { enabled: false, time: '07:00', soc: 80 }])), helper: { enabled: false }, calendar: { enabled: false } });
+    await api('POST', 'api/departures', { schedule_enabled: false, default_soc: 80, schedule: Object.fromEntries(['mon','tue','wed','thu','fri','sat','sun'].map((day) => [day, { enabled: false, time: '07:00', soc: 80 }])), helper: { enabled: false }, calendar: { enabled: false, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80 } });
     world.plugged = true; world.charging = false; world.pvW = 2500; world.soc = 40;
     await api('POST', 'api/solar', solar(true));
     await api('POST', 'api/chargemode', { mode: 'solar' });

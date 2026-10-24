@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.32.9-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.32.10-dev**. It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 

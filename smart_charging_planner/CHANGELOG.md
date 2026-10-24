@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.10-dev
+
+- The new recovery harness now supplies the calendar defaults required by the departures API. The stale-car regression uses a recent in-session reading far enough back to show delivered energy at the displayed 0.01 kWh precision. Only test setup changed. (#7, #8, #13)
+
 ## 0.32.9-dev
 
 - Corrected the weekly-schedule setup in the new real-app recovery tests, so failure and restart scenarios reach the controller. (#7, #8)
