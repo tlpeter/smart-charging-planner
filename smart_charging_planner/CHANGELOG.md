@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.2-dev
+
+- **Nord Pool from HACS works**: the app no longer offers Home Assistant's Nord Pool price action when only the HACS integration (same name) is installed, and its sensor with `raw_today`/`raw_tomorrow` is offered instead of hidden. The unit comes from the sensor's currency and unit, and VAT is assumed included, as that integration does by default. An action source is only offered when Home Assistant has that action. (#17)
+
 ## 0.33.1-dev
 
 - **Charge now keeps its priority** when sharing the connection between chargers, also while that car is below its minimum. Before, the minimum rule gave the charging reason and Charge now was not seen, so the car could stay second. (#35)

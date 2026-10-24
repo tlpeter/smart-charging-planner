@@ -1039,10 +1039,10 @@ const routes = {
 
   // Price sources.
   'GET /api/prices/detect': async () => {
-    const { entities, devices, states } = await loadRegistries();
+    const [{ entities, devices, states }, services] = await Promise.all([loadRegistries(), ha.call({ type: 'get_services' }).catch(() => null)]);
     // Always offered: a fixed or day/night tariff, for contracts without dynamic prices.
     const fixed = { id: 'fixed', type: 'fixed', name: 'Fixed or day/night tariff (no dynamic contract)', price_type: 'all_in' };
-    return { candidates: [...detectPriceSources(entities, devices, states, ha.state.timeZone), fixed] };
+    return { candidates: [...detectPriceSources(entities, devices, states, ha.state.timeZone, services), fixed] };
   },
 
   // Fetch prices with the given (unsaved) settings and summarise them.

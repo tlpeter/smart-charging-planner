@@ -2806,7 +2806,7 @@ function durationText(minutes) {
         ? 'For contracts without dynamic prices.'
         : src.type === 'action'
           ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
-          : `Sensor attributes · ${src.detail}`;
+          : `Sensor attributes · ${src.detail}${src.note ? ` · ${src.note}` : ''}`;
       $('prices-form').price_type.value = src.price_type;
       $('prices-form').forecast_price_type.value = src.price_type;
       syncFixed();

@@ -81,6 +81,13 @@ Optional:
 
 - **A grid meter**, such as a P1 meter, and your main fuse. Then the plan takes your house load into account. Without it, the plan assumes the charger can always charge at full power and your load balancer (if any) protects the main fuse.
 
+## Price sources
+
+Settings › Prices › **Detect** lists the price sources it finds:
+
+- **Integration actions**: EnergyZero, easyEnergy, Tibber and Home Assistant's own **Nord Pool** integration. The app asks them for today's and tomorrow's prices. An action is only offered when Home Assistant really has it.
+- **Price sensors**: any sensor with a list of timed prices in its attributes. The **Nord Pool integration from HACS** (custom-components/nordpool) has the same name as Home Assistant's own, but no price action: its sensor (with `raw_today` and `raw_tomorrow`) is offered as a price sensor. That sensor includes VAT by default, so the app suggests **Market price, incl. VAT**; if you turned VAT off in that integration, choose **Market price, excl. VAT**. The unit comes from its `currency`, `unit` and `price_in_cents` attributes.
+
 ## Prices without a dynamic contract
 
 Choose **Fixed or day/night tariff** in Settings › Prices and enter your prices per kWh as on your energy bill (all-in):
