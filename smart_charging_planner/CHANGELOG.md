@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.11-dev
+
+- Made the stale-car integration test establish its plug-in session before taking the trusted reading, and allow enough charging time for the displayed energy precision. The new failure/restart suite, all hardware-fixture matrices and Core compatibility already pass. Application behaviour is unchanged. (#13)
+
 ## 0.32.10-dev
 
 - The new recovery harness now supplies the calendar defaults required by the departures API. The stale-car regression uses a recent in-session reading far enough back to show delivered energy at the displayed 0.01 kWh precision. Only test setup changed. (#7, #8, #13)

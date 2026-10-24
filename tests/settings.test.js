@@ -1218,12 +1218,14 @@ async function run() {
     assert(v.stale_hours === 2, `stale_hours ${v.stale_hours}`);
   });
   await test('V2', 'Battery level "unavailable": the plan goes on from the last level plus what the charger delivered, the car limit is not sent, one notification', async () => {
-    world.soc = 45; world.ages = {}; world.reportedAt = { [CAR.soc]: Date.now() - 10000 }; world.limit = 80; world.charging = false;
-    await plan();
+    world.soc = 45; world.ages = {}; world.limit = 80; world.charging = false;
+    await plan(); // establish the observed plug-in session first
+    world.reportedAt = { [CAR.soc]: Date.now() };
+    await plan(); // then a reading taken inside that session
     const n0 = world.calls.length;
     world.soc = 'unavailable';
     world.chargedKw = 11; // the charger delivers 11 kW meanwhile
-    await sleep(1500);
+    await sleep(5000);
     const p = await plan();
     await sleep(600);
     await plan();
