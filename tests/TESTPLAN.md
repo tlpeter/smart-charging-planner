@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 183 of 183 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 171 of 171 ✓ |
-| Unit tests (21 files) | 772 of 772 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 185 of 185 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 173 of 173 ✓ |
+| Unit tests (21 files) | 789 of 789 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.35.4-dev.
+Version: 0.35.5-dev.
 
 # Settings
 
@@ -95,8 +95,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 18 charged blocks, from 17.3 h back | ✓ 18 charged blocks, from 17.3 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 19 charged blocks, from 18.4 h back | ✓ 19 charged blocks, from 18.4 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
@@ -177,6 +177,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | J9b | Manual test (Diagnostics): start and stop really sent | ✓ switch.turn_on switch.laadpaal_charger_enabled → switch.turn_off switch.laadpaal_charger_enabled | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | J12 | Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 % | ✓ limit 85 %, at 85 %: at_target | ✓ limit 90 %, at 85 %: at_target |
 | J13 | Battery care (on by default): target 100 % tomorrow 23:00 — up to 80 % in the cheap night, the last part only in the 4 hours before departure; the car limit stays at 80 % until then | ✓ up to 80 %: 17.2 kWh in the night · last 11.4 kWh from 19:00 · car limit 80 % | ✓ up to 80 %: 25.4 kWh in the night · last 16.9 kWh from 19:00 · car limit 80 % |
+| J13b | Battery Care refill (#43): 79% and the 75% boundary wait for one priced session; below it gets an 80% session and a later 90% session; a hard minimum still charges | ✓ 75–79% waits; 74% shows 80% then 90%; explicit minimum remains immediate | ✓ 75–79% waits; 74% shows 80% then 90%; explicit minimum remains immediate |
 | J10 | Car unplugged: Charge now is refused | ✓ | ✓ |
 | J11 | A recipient with "Charging started" and "Charging paused" off: start is not notified; other messages still are | ✓ only: Car charge limit changed | ✓ only: Car charge limit changed |
 
@@ -205,7 +206,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.39 | ✓ charges in 3 block(s), saving €1.30 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.34 | ✓ charges in 3 block(s), saving €1.25 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -294,6 +295,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC |
 | Y12 | More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Sport → home: 180 km ≈ 68.5% · at Sport 34.3% · home 11.5% at 22:00 · with 40 kWh/100 km: home -72.3% | ✓ home → Werk → Sport → home: 180 km ≈ 46.3% · at Sport 49.1% · home 33.7% at 22:00 · with 40 kWh/100 km: home -22.9% |
 | Y13 | Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only | ✓ trip ≈ 114.2% → asked to charge to 100% · Yes on the phone → target 100% (Plan page too) · costs less → 87% · Sport removed → back to 80% | ✓ trip ≈ 77.1% → asked to charge to 88% · Yes on the phone → target 88% (Plan page too) · bigger trip → 100% · costs less → 88% · Sport removed → back to 80% |
+| Y13b | Declined trip top-up (#43): the answer stays No while the banner follows the current trip cost and target, and hides an unavailable estimate | ✓ declined answer retained; current trip and banner agree; no repeated notification | ✓ declined answer retained; current trip and banner agree; no repeated notification |
 | Y4 | No route from OpenStreetMap: the straight line × 1.3, marked as an estimate; "Werk" is not an address: no cost, the next goal is still shown | ✓ estimate 57.5 km (straight line × 1.3) | ✓ estimate 57.5 km (straight line × 1.3) |
 
 ## Z. Apple iCloud calendar (read only)
@@ -359,9 +361,9 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [cars.test.js](#cars) | Cars per integration (Tesla ×3, Renault, Hyundai/Kia, Skoda, Volkswagen ID, Volvo, Polestar, Mercedes): which battery level, range, plug, charging and charge limit sensors the app picks, with their real entity names | 50 of 50 ✓ |
 | [solar.test.js](#solar) | Inverters, solar forecasts, the value of own solar power, charging on surplus | 53 of 53 ✓ |
 | [battery.test.js](#battery) | Home batteries: detection, commands, the guard, the battery plan | 84 of 84 ✓ |
-| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 64 of 64 ✓ |
-| [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 18 of 18 ✓ |
-| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 14 of 14 ✓ |
+| [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 74 of 74 ✓ |
+| [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 23 of 23 ✓ |
+| [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 16 of 16 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
 | [activecar.test.js](#activecar) | More than one car: connected car; calendar tags, trip language and duplicate prevention | 18 of 18 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
@@ -1065,7 +1067,7 @@ Home batteries: detection, commands, the guard, the battery plan.
 
 Price forecast: reading it and planning with it.
 
-<details><summary>64 of 64 passed – show every check</summary>
+<details><summary>74 of 74 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1092,6 +1094,16 @@ Price forecast: reading it and planning with it.
 | minimum + care: all energy planned | ✓ |
 | minimum + care: the part above the care level only in the window | ✓ |
 | minimum + care: care info kept for Home | ✓ |
+| Battery Care small dip 79%: one final session, no early top-up | ✓ |
+| Battery Care small dip 79%: all energy, using the cheapest window slot | ✓ |
+| Battery Care small dip 75% boundary: one final session, no early top-up | ✓ |
+| Battery Care small dip 75% boundary: all energy, using the cheapest window slot | ✓ |
+| Battery Care below 75%: the normal cheaper base charge remains | ✓ |
+| Battery Care already-started early session: no mid-session deferral | ✓ |
+| Battery Care insufficient final capacity: never defer the base charge | ✓ |
+| Battery Care missing window prices: no deferred refill claim | ✓ |
+| Battery Care final window already open: normal price planning | ✓ |
+| Battery Care does not defer an explicit minimum | ✓ |
 | minimum stops at the next departure | ✓ |
 | minimum stops at the next departure: says the minimum is not reached | ✓ |
 | plan table: one block is partly used | ✓ |
@@ -1140,7 +1152,7 @@ Price forecast: reading it and planning with it.
 
 Ready Guard: is the car ready in time, and what happens when it is not.
 
-<details><summary>18 of 18 passed – show every check</summary>
+<details><summary>23 of 23 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1162,6 +1174,11 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 | price above the maximum: a minimum-only block does not charge or lock | ✓ |
 | above the minimum: a minimum-only block that is still in the plan does not charge | ✓ |
 | a block that is partly for the minimum is still a planned block | ✓ |
+| Battery Care deferred refill ignores a previous lock and price hysteresis (#43) | ✓ |
+| Battery Care at the holding level stops instead of continuing to 90% | ✓ |
+| Battery Care refill still respects a separately configured hard minimum | ✓ |
+| Battery Care refill never delays explicit Charge now or Ready Guard | ✓ |
+| Battery Care charges normally in the selected final-window price slot | ✓ |
 
 </details>
 
@@ -1169,7 +1186,7 @@ Ready Guard: is the car ready in time, and what happens when it is not.
 
 The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange).
 
-<details><summary>14 of 14 passed – show every check</summary>
+<details><summary>16 of 16 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1187,6 +1204,8 @@ The charging status on Home: which state and colour (ready green, charging red, 
 | the charger reports a problem (an error, a fault): orange, with its own words | ✓ |
 | starting, the sun and the other charger are yellow | ✓ |
 | not connected and nothing to do are grey; advice only is marked | ✓ |
+| Battery Care early session shows 80% and its own end, rather than the final 90% overnight (#43) | ✓ |
+| Battery Care deferred 79%: waiting is explicit; power still flowing is reported as pausing | ✓ |
 
 </details>
 
@@ -1367,9 +1386,9 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.35.4-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.35.4-dev) | ✓ |
-| README: every issue since 0.34.0 is under "Implemented on dev" (#42, #41, #37, #31, #26) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.35.5-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.35.5-dev) | ✓ |
+| README: every issue since 0.34.0 is under "Implemented on dev" (#43, #42, #41, #37, #31, #26) | ✓ |
 | RELEASE: every issue since 0.34.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
 
