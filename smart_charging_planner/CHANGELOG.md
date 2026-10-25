@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.2-dev
+
+- A new check keeps the documentation up to date: the README and the release checklist must name the current version, and every issue fixed on dev since the last stable release must be listed in both. The steps for each change and each release are in AGENTS.md › Documentation.
+
 ## 0.35.1-dev
 
 - Documentation only: the README (development candidate, roadmap, what is on dev) and the release checklist are up to date for 0.35.x-dev.

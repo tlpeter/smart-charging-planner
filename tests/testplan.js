@@ -39,6 +39,7 @@ const UNIT = [
   ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31)'],
   ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
+  ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 
 const NOT_COVERED = [

@@ -60,6 +60,28 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
   4. Remove `-dev` from the changelog headings on `main`.
   5. Push `main` (only after the owner said so).
   6. Merge `main` into the history of `dev` while keeping the current files of `dev` (the equivalent of `git merge -s ours main`), then push `dev`, so `dev` keeps its own names. Codex does this through the connector.
+  7. Update the documentation on both branches (see "Documentation" below): `dev` keeps its own files in step 6, so its README and RELEASE are updated there too.
+
+## Documentation
+
+The Markdown files are part of every change. `tests/docs.test.js` checks the parts marked *(checked)* on every push; a red test means a file was forgotten.
+
+On every change on `dev` (in the same commit):
+
+- `smart_charging_planner/CHANGELOG.md`: a short entry under the new version heading, ending in `(#<number>)` when it belongs to an issue.
+- `smart_charging_planner/DOCS.md`: every new or changed option or behaviour.
+- `README.md`:
+  - the line "The current development candidate is **X.Y.Z-dev** (stable is A.B.C)": the same X.Y as `config.yaml` *(checked)*;
+  - every issue in the changelog since the stable version is listed under "Implemented on dev, awaiting a stable release" *(checked)*, and taken out of the open roadmap lists;
+  - new open work (a new issue) goes in the roadmap under its priority (P1, P2, P3).
+- `RELEASE.md`: the heading "## Current candidate: X.Y.Z-dev" with the same X.Y as `config.yaml` *(checked)*; under it the scope with every issue since the stable version *(checked)*, what is still open, and what Peter should check at home.
+
+On a release ("uitbrengen X.Y.Z"), on `main` and on `dev`:
+
+- `README.md`: move the items under "Implemented on dev" to "Available features" (short, plain words) and empty that list; set "stable is X.Y.Z"; on `main`, keep main's own wording.
+- `RELEASE.md`: the released scope becomes one line ("released in X.Y.Z"); start the next candidate section on `dev` when the next change comes.
+- `CHANGELOG.md`: on `main`, remove `-dev` from the headings (step 4 above) and add a short "Stable release of …" entry.
+- Remove the label `fixed in dev` from the released issues.
 
 ## Issues (bugs and wishes on GitHub)
 
