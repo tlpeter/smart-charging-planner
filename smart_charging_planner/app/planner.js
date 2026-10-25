@@ -164,7 +164,7 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
   });
   const restKwh = Math.max(0, neededKwh - first.planned_kwh);
   const second = care
-    ? planCare({ prices: rest, now, deadline, windowStart: care.windowStart, careKwh: Math.max(0, (care.careKwh || 0) - first.planned_kwh), neededKwh: restKwh, ...opts })
+    ? planCare({ prices: rest, now, deadline, windowStart: care.windowStart, careKwh: Math.max(0, (care.careKwh || 0) - first.planned_kwh), refillKwh: care.refillKwh, neededKwh: restKwh, ...opts })
     : planCharging({ prices: rest, now, deadline, neededKwh: restKwh, ...opts });
   // Merge both stages per block.
   const byStart = new Map();
@@ -207,7 +207,7 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
 // the part above it only in the hours before the departure (windowStart ..
 // deadline), so the battery does not stand full for days. careKwh: the energy
 // up to that level; neededKwh: up to the target.
-function planCare({ prices, now, deadline, windowStart, careKwh, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
+function planCare({ prices, now, deadline, windowStart, careKwh, refillKwh = 0, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
   const opts = { powerKw, continuous, minSplitSaving, solarOnly };
   const topKwh = Math.max(0, (neededKwh || 0) - Math.max(0, careKwh || 0));
   if (!(topKwh > 0.01) || !(windowStart < deadline) || !(deadline > now)) {
@@ -217,6 +217,19 @@ function planCare({ prices, now, deadline, windowStart, careKwh, neededKwh, powe
   const at = prices.find((p) => p.start <= windowStart && windowStart < p.end);
   if (at) windowStart = at.start;
   const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
+  // A small drop below the holding level can join the final session (#43).
+  // Only defer when that window can still deliver every required kWh.
+  if (now < windowStart && careKwh > 0.01 && Number.isFinite(refillKwh) && careKwh <= refillKwh + 1e-6) {
+    const joined = planCharging({ prices, now: windowStart, deadline, neededKwh, ...opts });
+    if (joined.planned_kwh >= neededKwh - 0.01) {
+      return {
+        ...whole, blocks: joined.blocks, planned_kwh: joined.planned_kwh, cost: joined.cost,
+        savings: whole.reference_cost - joined.cost, notes: [...joined.notes, 'care_refill_deferred'], continuous: undefined,
+        care: { window_start: windowStart, care_kwh: careKwh, top_kwh: topKwh, top_planned_kwh: topKwh,
+          refill_deferred: true, refill_kwh: careKwh, refill_margin: 5 },
+      };
+    }
+  }
   // The top part first, only in the window.
   const top = planCharging({ prices, now: Math.max(now, windowStart), deadline, neededKwh: topKwh, ...opts });
   const used = new Map(top.blocks.map((b) => [b.block_start, b]));

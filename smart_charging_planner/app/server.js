@@ -365,7 +365,12 @@ function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
   const view = (r) => (r ? { state: r.state, time: r.time, soc: r.soc, from: r.from, pct: r.pct, title: r.title, token: r.state === 'asked' ? r.token : null } : null);
   const shown = () => {
     const r = topup.current(vehicle.id, now);
-    return r && departure && Math.abs(r.time - departure.time) <= 60000 ? view(r) : null;
+    // Keep the answer, but use the same current estimate as the timeline (#43).
+    // No reliable current estimate means no stale cost banner.
+    const trip = next && next.trip;
+    if (!r || !departure || Math.abs(r.time - departure.time) > 60000 || !trip || trip.status !== 'ok' || !Number.isFinite(trip.pct)) return null;
+    return { ...view(r), pct: trip.pct, from: departure.topup ? departure.topup.from : departure.soc,
+      title: departure.title || (next.current && next.current.title) || null };
   };
   if (!departure || departure.source === 'choice' || !next || !next.trip || next.trip.status !== 'ok' || next.trip.pct == null) return shown();
   const reserve = Number.isFinite(Number(rules.trip_topup_reserve)) ? Number(rules.trip_topup_reserve) : 10;
@@ -467,7 +472,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   const timeline = [];
   // Charging in the timeline: the part for a minimum (purple) and the rest.
   // A block can be partly for the minimum: each part counts its own kWh.
-  const chargeItems = (blocks, base, minimum) => {
+  const chargeItems = (blocks, base, minimum, splitSessions = false) => {
     const out = [];
     const minPart = (b) => Math.min(b.kwh, b.min_kwh || 0);
     const parts = minimum
@@ -475,11 +480,25 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       : [[blocks, false, (b) => b.kwh]];
     for (const [list, forMin, part] of parts) {
       if (!list.length) continue;
-      const ps = periods(list);
-      const kwh = list.reduce((a, b) => a + part(b), 0);
-      const cost = list.reduce((a, b) => a + (Number.isFinite(b.price) ? b.price * part(b) : 0), 0);
-      out.push({ ...base, start: ps[0].start, end: ps[ps.length - 1].end, periods: ps, kwh: Math.round(kwh * 10) / 10, cost: Math.round(cost * 100) / 100,
-        ...(forMin ? { minimum: true, soc_to: minimum.soc } : {}) });
+      const groups = splitSessions ? periods(list).map((p) => list.filter((b) => b.start < p.end && b.end > p.start)) : [list];
+      for (const group of groups) {
+        const ps = periods(group);
+        const kwh = group.reduce((a, b) => a + part(b), 0);
+        const cost = group.reduce((a, b) => a + (Number.isFinite(b.price) ? b.price * part(b) : 0), 0);
+        out.push({ ...base, start: ps[0].start, end: ps[ps.length - 1].end, periods: ps, kwh: Math.round(kwh * 10) / 10, cost: Math.round(cost * 100) / 100,
+          ...(splitSessions ? { session_kwh: kwh } : {}),
+          ...(forMin ? { minimum: true, soc_to: minimum.soc } : {}) });
+      }
+    }
+    if (splitSessions && Number.isFinite(soc) && vehicle.capacity_kwh > 0) {
+      let added = 0;
+      const fullKwh = energyNeededKwh(0, 100, vehicle.capacity_kwh, planning.loss_percent);
+      out.sort((a, b) => a.start - b.start);
+      for (const item of out) {
+        added += item.session_kwh;
+        item.soc_to = Math.round(Math.min(base.soc_to, soc + added / fullKwh * 100) * 10) / 10;
+        delete item.session_kwh;
+      }
     }
     return out;
   };
@@ -502,7 +521,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
-    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
+    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null, !!plan.care));
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
@@ -1354,7 +1373,7 @@ const routes = {
         const careKwh = soc < careSoc ? energyNeededKwh(soc, careSoc, vehicle.capacity_kwh, planning.loss_percent) : 0;
         const topKwh = Math.max(0, neededKwh - careKwh);
         const hours = Math.max(Number(careRules.battery_care_hours) || 4, powerKw > 0 ? topKwh / powerKw + 0.5 : 0);
-        care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
+        care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, refill_kwh: actualNow.charging === true ? 0 : energyNeededKwh(0, 5, vehicle.capacity_kwh, planning.loss_percent), window_start: departure.time - hours * 3600000 };
       }
     }
     // The car is away and a trip home is in the calendar (for example "Naar
@@ -1369,14 +1388,14 @@ const routes = {
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
         prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
-        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh } : null,
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : care
       ? planCare({
-        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
+        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,

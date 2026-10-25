@@ -1205,7 +1205,7 @@ function durationText(minutes) {
       const notes = p.notes.map((n) => n === 'car_limit'
         ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
         : n === 'battery_care' && p.care
-          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long. <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
           : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `

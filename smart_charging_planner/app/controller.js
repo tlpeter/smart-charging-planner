@@ -267,6 +267,16 @@ function decide(ctx) {
     return charge(`Less than ${force} minutes to departure`, 'force_window');
   }
 
+  // A previous small top-up must not keep a price lock or hysteresis alive
+  // before Battery Care's final session. Explicit minimums and overrides above win.
+  const care = p.care;
+  if (rules.battery_care_enabled !== false && care && Number.isFinite(care.window_start) && now < care.window_start
+    && (care.refill_deferred === true || (Number.isFinite(soc) && Number.isFinite(care.soc) && soc >= care.soc))) {
+    const next = p.blocks.find((b) => b.start > now && !b.forecast);
+    return pause(care.refill_deferred ? 'Small Battery Care top-up joins the planned session' : 'Battery Care holding level reached; waiting for the planned session',
+      'battery_care_wait', { clear_lock: true, next_start: next ? next.start : care.window_start });
+  }
+
   // 7. Locked block: once a planned period has started, finish it even if a
   // new calculation would move it.
   if (lock) return charge('Finishing the planned period that already started', 'locked_block', { amps: lock.amps || maxAmps, block_end: lock.end });

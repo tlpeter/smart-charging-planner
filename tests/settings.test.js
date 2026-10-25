@@ -1015,6 +1015,49 @@ async function run() {
     await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     return `up to 80 %: ${before.toFixed(1)} kWh in the night · last ${inWindow.toFixed(1)} kWh from 19:00 · car limit 80 %`;
   });
+  await test('J13b', 'Battery Care refill (#43): 79% and the 75% boundary wait for one priced session; below it gets an 80% session and a later 90% session; a hard minimum still charges', async () => {
+    try {
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4 }));
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 90 } }) }));
+      for (const soc of [79, 75]) {
+        world.soc = soc;
+        world.charging = false;
+        const result = await plan();
+        const c = result.plan.care;
+        assert(c && c.refill_deferred && c.refill_margin === 5, JSON.stringify(c));
+        assert(result.plan.blocks.length && result.plan.blocks.every((b) => b.start >= c.window_start), 'small top-up still planned before the final window');
+        const next = (await ok('GET', 'api/control')).now;
+        assert(next.want === 'pause' && next.code === 'battery_care_wait', JSON.stringify(next));
+        const charges = result.next.timeline.filter((x) => x.type === 'charge' && x.expected === false);
+        assert(charges.length === 1 && charges[0].soc_to === 90 && charges[0].start >= c.window_start, JSON.stringify(charges));
+        assert(Math.abs(result.plan.planned_kwh - result.plan.needed_kwh) < 0.1, 'target energy lost');
+        await sleep(800);
+        assert(world.limit === lim(80), 'car limit raised before the final window');
+      }
+      world.soc = 76;
+      world.charging = true;
+      const active = await plan();
+      assert(!active.plan.care.refill_deferred, 'already-started early session interrupted in the refill band');
+      world.charging = false;
+      world.soc = 74;
+      const lower = await plan();
+      assert(!lower.plan.care.refill_deferred, 'larger deficit was deferred');
+      const sessions = lower.next.timeline.filter((x) => x.type === 'charge' && x.expected === false);
+      assert(sessions.length >= 2 && sessions[0].start < lower.plan.care.window_start, JSON.stringify(sessions));
+      assert(Math.abs(sessions[0].soc_to - 80) < 0.2 && sessions[sessions.length - 1].soc_to === 90, JSON.stringify(sessions));
+      world.soc = 79;
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, min_soc_enabled: true, min_soc: 80 }));
+      const minimum = await plan();
+      const decision = (await ok('GET', 'api/control')).now;
+      assert(minimum.plan.minimum && minimum.plan.minimum.soc === 80 && decision.code === 'below_minimum', JSON.stringify({ minimum: minimum.plan.minimum, decision }));
+      return '75–79% waits; 74% shows 80% then 90%; explicit minimum remains immediate';
+    } finally {
+      await ok('POST', 'api/control/settings', rules());
+      world.soc = 20;
+      world.charging = false;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    }
+  });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
     await plan();
@@ -2295,6 +2338,43 @@ async function run() {
         await ok('POST', 'api/control/settings', rules());
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
         world.routeKm = 60;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y13b', 'Declined trip top-up (#43): the answer stays No while the banner follows the current trip cost and target, and hides an unavailable estimate', async () => {
+      const places = (await ok('GET', 'api/places')).places;
+      const questionCount = () => world.calls.filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge').length;
+      try {
+        world.soc = 90;
+        world.events = [ev('Naar Example', 'doel: 90', 'Example', 1, 8, 20)];
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        await ok('POST', 'api/places', { places: [{ name: 'Example', address: '', km: 400 }] });
+        await ok('POST', 'api/control/settings', rules({ trip_topup_enabled: true, trip_topup_reserve: 10 }));
+        let result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'asked', JSON.stringify(result.trip_topup));
+        const oldCost = result.trip_topup.pct;
+        await ok('POST', 'api/topup', { token: result.trip_topup.token, answer: 'no' });
+        const questions = questionCount();
+        await ok('POST', 'api/places', { places: [{ name: 'Example', address: '', km: 20 }] });
+        result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'no' && result.trip_topup.pct < oldCost, JSON.stringify(result.trip_topup));
+        assert(Math.abs(result.trip_topup.pct - result.next.trip.pct) < 0.01, 'banner and timeline use different costs');
+        assert(result.trip_topup.from === result.departure.soc && result.departure.soc === 90, 'retained No changed the target');
+        assert(Math.abs(result.next.trip.soc_end - (90 - result.trip_topup.pct)) < 0.2, 'arrival level contradicts the banner');
+        assert(questionCount() === questions, 'asked again after No');
+        const knownEvent = { ...world.events[0] };
+        world.events = [{ ...knownEvent, summary: 'Naar Unknown', location: 'Unknown' }];
+        const unknown = await settle();
+        assert(unknown.next.trip.status !== 'ok' && unknown.trip_topup === null, 'stale cost shown without a current estimate');
+        world.events = [knownEvent];
+        result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'no' && questionCount() === questions, 'No was lost while the estimate was unavailable');
+        return 'declined answer retained; current trip and banner agree; no repeated notification';
+      } finally {
+        await ok('POST', 'api/places', { places });
+        await ok('POST', 'api/control/settings', rules());
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
         world.soc = 100;
         world.events = [];
       }

@@ -42,16 +42,20 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations.
 
-## Current candidate: 0.35.4-dev
+## Current candidate: 0.35.5-dev
 
 Stable main is 0.34.0. The 0.32.24-dev recovery scope (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32) and #4, #16, #17, #35 are released.
 
 Scope on dev since 0.34.0: #31 (trip-distance privacy choice and offline distances), #26 (explicit forecast price basis, no VAT twice) #37 (charging stops on the way, Netherlands and Belgium, from Open Charge Map), #41 (charging stops on the right side of the road: real detour by road, stops on the way back) and #42 (clear saved API-key state, replacement and removal without exposing the secret).
+
+Candidate addition: #43 (Battery Care refill margin of 5 percentage points, separate session goals and current declined-trip estimates).
 
 Not resolved: physical site/phase capacity allocation (#29), compatibility validation (#28) and charging stops outside the Netherlands and Belgium (#40). Native inverter limits and physical hardware verification remain necessary.
 
 Home check for #37: with your own Open Charge Map key, a long trip in the calendar shows plausible stations along the real route; offline trip distances send nothing to Open Charge Map; the key never appears on the page, in diagnostics or in logs. For #41: on a motorway trip the suggested service areas are on your side of the road; a trip with enough to get there suggests a stop on the way back. Station data and operator names from Open Charge Map are not verified against the operators' own apps. For #26 with a combined forecast, check the raw/consumer basis and VAT exactly once.
 
 Home check for #42: save an Open Charge Map key and reload Plan; the badge and field must still say Key saved. Save with the field empty to keep it. Remove key then Discard must keep it; Remove key then Save must remove it and turn charging stops off. A saved key is never displayed.
+
+Home check for #43: with Battery Care at 80%, target 90% and enough known capacity before departure, reconnect at 79% (also check the 75% boundary): the small refill should wait for the final price-planned session. Below 75%, check the separate early session says 80%, then the later session 90%. An explicitly configured hard minimum remains immediate. Check that a previously declined trip-top-up banner follows the current trip estimate and agrees with the timeline. Fixture and Core checks do not establish the car's physical response.
 
 The MIT license and third-party icon notice are retained. Contribution expectations are in CONTRIBUTING.md.

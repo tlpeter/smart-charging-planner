@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.35.5-dev
+
+- **Battery Care after a short trip:** a drop of up to 5 percentage points below the holding level (75–80% for an 80% hold) joins the planned final charging window, if that window can still deliver the full target. A separate hard minimum, Charge now and departure protection still take priority. Old period locks and price hysteresis cannot keep the car charging past its holding level. (#43)
+- **Home matches the current session:** an early Battery Care session shows its holding-level target and its own finish time. Looking ahead lists separate sessions with their own battery levels. A declined trip-top-up message uses the current trip estimate instead of its old saved estimate; it hides when that estimate is unavailable. (#43)
+
 ## 0.35.4-dev
 
 - **Open Charge Map key:** a clear Key saved badge and placeholder stay visible after saving and reloading. A replacement is marked as unsaved until Save succeeds. Remove key takes effect on Save and turns charging stops off; Discard keeps the saved key. The stored key is never sent to the page. (#42)
