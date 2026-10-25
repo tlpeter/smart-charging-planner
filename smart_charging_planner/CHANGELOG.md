@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.34.0
+
+- Stable release of 0.33.1 through 0.33.7.
+- **Looking ahead: 7, 14 or 30 days**, with days after the last known price marked as an estimate (#4).
+- **Tibber with more homes, Nord Pool with more areas**: choose yours under Settings › Prices (#16).
+- **Nord Pool from HACS** works next to Home Assistant's own Nord Pool integration (#17).
+- **Charge now keeps its priority** when chargers share the connection (#35).
+- Tested against Home Assistant 2026.10.4.
+
 ## 0.33.7
 
 - Tests now run against Home Assistant 2026.10.4. No app changes were needed.
