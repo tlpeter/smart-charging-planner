@@ -13,7 +13,7 @@ Smart Charging Planner is a public beta. A published version is not a claim that
 
 ## Automated validation
 
-- GitHub Actions Tests must pass: syntax/persistence/coverage, every unit suite, both settings profiles, each charger × battery matrix and the car matrix.
+- GitHub Actions Tests must pass: syntax/persistence/coverage, every unit suite, all three settings profiles, each charger × battery matrix and the car matrix.
 - Home Assistant Core compatibility must pass for the same candidate code.
 - Check failed jobs and their logs. Do not mark an issue fixed based on a queued run or a different commit.
 - Report exactly which checks ran. Fixture/fake-HA and Core contract checks are not physical device tests.

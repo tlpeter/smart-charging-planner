@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.6-dev
+
+- Tests: a third complete set-up, a Kia Niro EV (Kia Uvo) with a Zaptec Go (start and stop with its buttons, current with its number), runs every setting on each push next to Renault + Easee and Skoda + Wallbox. No app changes.
+
 ## 0.35.5-dev
 
 - **Battery Care after a short trip:** a drop of up to 5 percentage points below the holding level (75–80% for an 80% hold) joins the planned final charging window, if that window can still deliver the full target. A separate hard minimum, Charge now and departure protection still take priority. Old period locks and price hysteresis cannot keep the car charging past its holding level. (#43)

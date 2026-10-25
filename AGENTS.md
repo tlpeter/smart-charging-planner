@@ -110,13 +110,13 @@ How a GitHub issue is handled, from report to release:
 - Every push runs `.github/workflows/tests.yml`:
   - syntax, persistence and coverage;
   - unit tests, including `releaseguard.test.js` and the real-app `recovery.test.js`;
-  - the settings test for two set-ups;
+  - the settings test for three set-ups (Renault + Easee, Skoda + Wallbox, Kia + Zaptec);
   - the charger × battery matrix.
 - After that, GitHub writes `tests/TESTPLAN.md` from the results and **commits it to the branch** ("Test plan: results of …"). So:
   - read the latest branch through the connector before preparing the next commit;
   - never edit `tests/TESTPLAN.md` by hand.
 - **Run local tests only when Peter explicitly asks.** Do not install test dependencies or start a local test server by default. If local tests are requested (after `npm install` in `smart_charging_planner/app`):
-  - `node tests/settings.test.js`, and the same with `SCP_PROFILE=skoda_wallbox` in front: every setting, against a fake Home Assistant (`tests/fake-ha.js`).
+  - `node tests/settings.test.js`, and the same with `SCP_PROFILE=skoda_wallbox` or `SCP_PROFILE=kia_zaptec` in front: every setting, against a fake Home Assistant (`tests/fake-ha.js`).
   - `node tests/<name>.test.js`: brands, solar, battery, forecast, reliability, activecar, sharing, tripcost, persistence.
   - `node tests/matrix.test.js` (several minutes), or `SCP_CHARGERS=Easee` in front of it for one charger.
   - `node tests/testplan.js all`: everything, and writes the test plan (about 15 minutes).

@@ -30,6 +30,13 @@ let dataDir = null;
 const world = fake.createWorld(process.env.SCP_PROFILE || 'renault_easee');
 const CAR = world.profile.car;
 const CH = world.profile.charger;
+// The word for the second car (an EV6, a Kia) in a calendar event: its brand,
+// or its name when the first car is a Kia too (then the brand fits both).
+const EV6_WORD = CAR.manufacturer === 'Kia' ? 'EV6' : 'kia';
+// Y13 needs a trip that costs a given % of the battery. Its numbers were
+// tuned for the Renault (52 kWh) and work for the Skoda too; for the Kia
+// (64 kWh) the use per 100 km is scaled to the bigger battery.
+const CAP_K = CAR.platform === 'kia_uvo' ? CAR.capacity / 52 : 1;
 // The value the car accepts for a wanted limit (rounded up to its step).
 const lim = (v) => Math.max(CAR.limit_min, 50, Math.min(CAR.limit_max, Math.ceil((v - CAR.limit_min) / CAR.limit_step - 1e-9) * CAR.limit_step + CAR.limit_min));
 let ha = fake.start(world, WS_PORT, REST_PORT);
@@ -1756,7 +1763,7 @@ async function run() {
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
     world.events = [
       { summary: 'Naar werk', description: `doel: 90 precondition: ja auto: ${CAR.name}`, start: isoLocal(at(1, 7, 0), tz), end: isoLocal(at(1, 8, 0), tz) },
-      { summary: 'To Ghent', description: 'target: 70\ncar: kia', start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
+      { summary: 'To Ghent', description: `target: 70\ncar: ${EV6_WORD}`, start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
       { summary: 'Weekend', description: 'doel: 85', start: isoLocal(at(2, 9, 0), tz), end: isoLocal(at(2, 10, 0), tz) },
       { summary: 'Tesla trip', description: 'doel: 60, car: tesla', start: isoLocal(at(3, 9, 0), tz), end: isoLocal(at(3, 10, 0), tz) },
     ];
@@ -1779,7 +1786,7 @@ async function run() {
     assert(all.events[0].description === 'target: 75 precondition: no', all.events[0].description);
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
-    return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+    return `EV6 → ${e.departure.soc}% (car: ${EV6_WORD}) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
   });
   await test('W9', 'Notifications per car: Alex gets both cars, Sam only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Alex', async () => {
     await ok('POST', 'api/notify', { recipients: [
@@ -2038,7 +2045,7 @@ async function run() {
         poi(6, 'Fastned', along(0.5, 0.12), 'NL', [ccs(300)]), // ~8 km off: too far
       ];
       world.ocmCalls = [];
-      world.routeKm = 250;
+      world.routeKm = 400; // too far for every test car, also with a bigger battery
       world.soc = 100;
       world.events = [ev('Naar Lakeside', 'doel: 100', FAR, 1, 8, 18)];
       // Wait until the trip's cost is known and (when on) the stations are looked up.
@@ -2253,7 +2260,7 @@ async function run() {
       const asked = (n) => callsSince(n).filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge');
       try {
         // Off (the default): no question.
-        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
         const n0 = world.calls.length;
         let p = await settle();
         assert(p.trip_topup === null && !asked(n0).length && p.departure.soc === 80, JSON.stringify(p.trip_topup));
@@ -2290,7 +2297,7 @@ async function run() {
         // the first Yes was already (almost) 100 % (a smaller battery).
         let big = want;
         if (want < 98) {
-          await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 40 }));
+          await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(40 * CAP_K)) }));
           p = await settle();
           big = Math.min(100, Math.ceil(p.next.trip.pct + 10));
           assert(p.trip_topup && p.trip_topup.state === 'asked' && p.trip_topup.soc === big && big > want + 2 && asked(n0).length === 2, JSON.stringify({ t: p.trip_topup, big, want }));
@@ -2312,7 +2319,7 @@ async function run() {
             .filter((e) => place.sport || e.summary !== 'Naar Sport')
             .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
         };
-        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
         else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
         await settle();
         p = await settle();
@@ -2336,7 +2343,7 @@ async function run() {
         return `${first} · ${big > want ? `bigger trip → ${big}% · ` : ''}costs less → ${less}% · Sport removed → back to 80%`;
       } finally {
         await ok('POST', 'api/control/settings', rules());
-        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(18 * CAP_K)) }));
         world.routeKm = 60;
         world.soc = 100;
         world.events = [];

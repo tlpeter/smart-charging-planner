@@ -79,7 +79,7 @@ function runUnit(dir) {
 function runAll() {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'scp-testplan-'));
   let failed = runUnit(dir);
-  for (const profile of ['renault_easee', 'skoda_wallbox']) {
+  for (const profile of ['renault_easee', 'skoda_wallbox', 'kia_zaptec']) {
     const r = spawnSync(process.execPath, [path.join(__dirname, 'settings.test.js')], {
       cwd: ROOT, stdio: 'inherit', env: { ...process.env, SCP_PROFILE: profile, SCP_RESULTS: path.join(dir, `settings-${profile}.json`) },
     });
@@ -161,7 +161,7 @@ function settingsTables(sets) {
   let md = '\n# Settings\n\n';
   md += `Set-ups, with entity names taken from the integrations' own source code:\n\n${sets.map((s, i) => `- **${letters[i] || i + 1}**: ${s.profile}`).join('\n')}\n\n`;
   md += 'Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a second car and charger, calendars (also a read-only iCloud calendar), helpers and notify actions.\n\n';
-  md += 'Run one yourself (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:\n\n```\nnode tests/settings.test.js\nSCP_PROFILE=skoda_wallbox node tests/settings.test.js\n```\n';
+  md += 'Run one yourself (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:\n\n```\nnode tests/settings.test.js\nSCP_PROFILE=skoda_wallbox node tests/settings.test.js\nSCP_PROFILE=kia_zaptec node tests/settings.test.js\n```\n';
   const order = [];
   const ids = {};
   for (const s of sets) {
