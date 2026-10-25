@@ -16,11 +16,11 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 |---|---|
 | Settings A: Renault Megane E-Tech + Easee Charge | 182 of 182 ✓ |
 | Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 170 of 170 ✓ |
-| Unit tests (20 files) | 763 of 763 ✓ |
+| Unit tests (21 files) | 769 of 769 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.35.0-dev.
+Version: 0.35.2-dev.
 
 # Settings
 
@@ -95,7 +95,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 17 charged blocks, from 16.5 h back | ✓ 17 charged blocks, from 16.5 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 17 charged blocks, from 16.6 h back | ✓ 17 charged blocks, from 16.6 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
@@ -205,7 +205,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.43 | ✓ charges in 3 block(s), saving €1.34 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.43 | ✓ charges in 3 block(s), saving €1.33 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -369,6 +369,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [routing.test.js](#routing) | Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31) | 11 of 11 ✓ |
 | [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37) | 11 of 11 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
+| [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 6 of 6 ✓ |
 
 ## batteryguard
 
@@ -1350,6 +1351,23 @@ Saving settings safely (a crash while saving loses nothing).
 | Check | Result |
 |---|---|
 | all checks | ✓ |
+
+</details>
+
+## docs
+
+Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev.
+
+<details><summary>6 of 6 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| config.yaml has a version | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.35.2-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.35.2-dev) | ✓ |
+| README: every issue since 0.34.0 is under "Implemented on dev" (#37, #31, #26) | ✓ |
+| RELEASE: every issue since 0.34.0 is in the candidate scope | ✓ |
+| changelog: the newest heading is the version in config.yaml | ✓ |
 
 </details>
 
