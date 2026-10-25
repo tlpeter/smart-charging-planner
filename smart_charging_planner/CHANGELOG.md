@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.1-dev
+
+- Documentation only: the README (development candidate, roadmap, what is on dev) and the release checklist are up to date for 0.35.x-dev.
+
 ## 0.35.0-dev
 
 - **Charging stops on the way** (Plan, off by default): when a trip needs more than the battery holds, the day's details under Looking ahead suggest up to three public charging stations along the route, with how much to charge there. Choose the countries (Netherlands, Belgium), preferred operators, connector, minimum power, maximum detour and the level below which a stop is suggested. Station data comes from Open Charge Map with your own free API key; the route line goes to OSRM and Open Charge Map, nothing else. Only when Trip distances may go online. The data is not live. (#37)
