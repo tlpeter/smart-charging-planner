@@ -2,7 +2,7 @@
 
 // Keep the fast simulator aligned with the pinned Core compatibility test.
 // Override this only when checking a future Home Assistant release locally.
-const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.3';
+const HA_VERSION = process.env.SCP_HA_VERSION || '2026.10.4';
 
 // A small fake Home Assistant for the settings test: the WebSocket API and the
 // REST API the app uses. A profile chooses the car and the charger:
@@ -168,11 +168,16 @@ function createWorld(profileName = 'renault_easee') {
     calls: [], // call_service sent by the app
     rest: [], // REST requests (sensors)
     // EnergyZero: today and tomorrow, cheap 02:00-05:00 tomorrow.
-    energyzero: () => Array.from({ length: 48 }, (_, i) => ({
-      timestamp: new Date(d0 + i * H).toISOString(),
-      // No cheap hours today: the result must not depend on the time of day the test runs.
-      price: i >= 26 && i < 29 ? 0.05 : 0.20,
-    })),
+    // Hour count follows the real day lengths, so DST days give 23 or 25 hours.
+    energyzero: () => {
+      const d1 = localMidnight(TZ, 1);
+      const n = Math.round((localMidnight(TZ, 2) - d0) / H);
+      return Array.from({ length: n }, (_, i) => {
+        const t = d0 + i * H;
+        // No cheap hours today: the result must not depend on the time of day the test runs.
+        return { timestamp: new Date(t).toISOString(), price: t >= d1 + 2 * H && t < d1 + 5 * H ? 0.05 : 0.20 };
+      });
+    },
   };
   // Combined sensor: real prices today/tomorrow, then 5 days of forecast;
   // the day after tomorrow 11:00-15:00 very cheap.

@@ -4,9 +4,9 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 > Status: public beta. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
 
-## Version 0.33.0 and compatibility
+## Version 0.33.7 and compatibility
 
-Version **0.33.0** repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+Version **0.33.7** adds a 7-, 14- or 30-day look-ahead with estimates marked (#4), choosing the Tibber home or Nord Pool area (#16), support for the HACS Nord Pool integration next to the Home Assistant one (#17) and keeps Charge now first when chargers share the connection (#35). Version 0.33.0 repaired clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -67,7 +67,7 @@ The full explanation of every feature is in [DOCS.md](smart_charging_planner/DOC
 
 Home also shows the **Ready Guard** card (will the car be ready in time, and the latest safe start), the price chart with the plan, the plan details and the home battery plan.
 
-**Looking ahead** (always on): Home shows the coming days as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a zone in Home Assistant, or a name from **My places** on Plan, such as "Work") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). With the minimum rule on, charging right away to the minimum is **purple**. The chart reaches the last expected charging, up to 7 days ahead like the timeline, as far as prices are available. It is an expectation and never steers anything.
+**Looking ahead** (always on): Home shows the coming 7, 14 or 30 days (your choice) as one timeline: charging, leaving, back home, expected charging, leaving again, … with the battery level at each step. For a trip with an address in the calendar event (or a zone in Home Assistant, or a name from **My places** on Plan, such as "Work") the app calculates what it costs there and back (the distance by road from OpenStreetMap, the car's use per km, +10 %). The expected charging after each trip is **orange**, in the timeline and in the chart (which also shades when the car is away). With the minimum rule on, charging right away to the minimum is **purple**. Days after the last known price are marked as an estimate. The chart reaches the last expected charging, up to 7 days ahead, as far as prices are available. It is an expectation and never steers anything.
 
 ### Plan: departures
 
@@ -169,6 +169,7 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] Battery bar from red at empty to green at full [#36](https://github.com/tlpeter/smart-charging-planner/issues/36)
 - [x] Trips added in English or Dutch, calendar read in both
 - [x] MIT license and contribution guidance [#32](https://github.com/tlpeter/smart-charging-planner/issues/32)
+- [x] Look ahead 7, 14 or 30 days, with estimates marked beyond known prices [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
 
 ### Before broader public promotion (P1)
 
@@ -186,7 +187,6 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 ### Later extensions (P3)
 
-- [ ] Choose a 7-, 14- or 30-day look-ahead horizon, clearly marking estimates beyond known prices. [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
 - [ ] Suggest suitable charging stations along routes that exceed the usable battery range, with operator, connector and power preferences. Depends on the routing privacy choice. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
 
 ## Tests

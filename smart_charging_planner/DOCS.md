@@ -81,6 +81,14 @@ Optional:
 
 - **A grid meter**, such as a P1 meter, and your main fuse. Then the plan takes your house load into account. Without it, the plan assumes the charger can always charge at full power and your load balancer (if any) protects the main fuse.
 
+## Price sources
+
+Settings › Prices › **Detect** lists the price sources it finds:
+
+- **Integration actions**: EnergyZero, easyEnergy, Tibber and Home Assistant's own **Nord Pool** integration. The app asks them for today's and tomorrow's prices. An action is only offered when Home Assistant really has it.
+- **Price sensors**: any sensor with a list of timed prices in its attributes. The **Nord Pool integration from HACS** (custom-components/nordpool) has the same name as Home Assistant's own, but no price action: its sensor (with `raw_today` and `raw_tomorrow`) is offered as a price sensor. That sensor includes VAT by default, so the app suggests **Market price, incl. VAT**; if you turned VAT off in that integration, choose **Market price, excl. VAT**. The unit comes from its `currency`, `unit` and `price_in_cents` attributes.
+- **More than one home or area**: a Tibber account with more homes, or a Nord Pool entry with more market areas, gives prices for each. After **Test**, choose yours under **Home** or **Area**; the test result shows which one, with the currency and time zone. The app never takes the first one silently: without a choice it says which ones there are. When the chosen home or area disappears, Home shows an error instead of switching to another one.
+
 ## Prices without a dynamic contract
 
 Choose **Fixed or day/night tariff** in Settings › Prices and enter your prices per kWh as on your energy bill (all-in):
@@ -257,7 +265,9 @@ Add trip needs a calendar Home Assistant can add events to. Apple iCloud calenda
 
 ## Looking ahead: the coming days and what a trip costs
 
-Always on. Home shows the coming days (up to 7 days, 6 departures) with **one line per day**, for example "Tue 20 · ⚡ 02:00 to 100% · **Main Street** 11:00–16:00 · 100% → 32% · ⚡ 16:00 to 80%": charging (blue planned, orange expected, purple minimum), each trip with its times and the battery level when leaving and when back. A day where the battery falls short is orange. Tap a day to see its full timeline, in the order things happen, with the battery level on the right:
+Always on. Home shows the coming **7, 14 or 30 days** (choose it above the list; this browser remembers it) with **one line per day**, for example "Tue 20 · ⚡ 02:00 to 100% · **Main Street** 11:00–16:00 · 100% → 32% · ⚡ 16:00 to 80%": charging (blue planned, orange expected, purple minimum), each trip with its times and the battery level when leaving and when back. A day where the battery falls short is orange. Tap a day to see its full timeline, in the order things happen, with the battery level on the right:
+
+Prices are known for a day or two (longer with a price forecast). Days after the last known price are marked **estimate**: the levels count on your trips and targets, but when and at what price the car charges is not known yet; the note under the list says until when prices are known. Days without a trip or charging are left out. **Plan** follows the same choice: **Next 7/14/30 days**, and **Trips from your calendar** shows at least 14 days. The calendar is read 31 days ahead.
 
 - **Charging** (blue): the real plan up to the first departure.
 - **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Home", "To home", "Back home" or in Dutch "Naar huis" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.
@@ -277,7 +287,7 @@ When another trip is added to the calendar, it takes its place in the timeline r
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
 
-**The chart** goes on to the last expected charging (up to 7 days ahead, like the timeline), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
+**The chart** goes on to the last expected charging (up to 7 days ahead), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 
 This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
 

@@ -117,5 +117,61 @@ let mismatch = false;
 try { toPerKwh([{ price: 7 }], 'SEK/kWh', [], 'EUR'); } catch (e) { mismatch = /currency/.test(e.message); }
 check('an explicit foreign currency is rejected instead of silently compared', mismatch);
 
-console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
-process.exit(failed ? 1 : 0);
+// Nord Pool: Home Assistant's own integration has an action, the HACS
+// integration (same platform name) only sensors with raw_today/raw_tomorrow (#17).
+{
+  const { detectPriceSources, unitHint } = require(path.join(app, 'prices.js'));
+  const day = (d, h) => `2026-10-${d}T${String(h).padStart(2, '0')}:00:00+02:00`;
+  const raw = (d) => Array.from({ length: 24 }, (_, h) => ({ start: day(d, h), end: day(d, h + 1 > 23 ? 23 : h + 1), value: 0.1 + h / 100 }));
+  const entities = [{ entity_id: 'sensor.nordpool_kwh_se3_eur', platform: 'nordpool', config_entry_id: 'ce_np', device_id: null }];
+  const states = [{ entity_id: 'sensor.nordpool_kwh_se3_eur', state: '0.12', attributes: { friendly_name: 'Nord Pool SE3', unit: 'kWh', currency: 'EUR', price_in_cents: false, unit_of_measurement: 'EUR/kWh', raw_today: raw(24), raw_tomorrow: raw(25) } }];
+  const core = detectPriceSources(entities, [], states, tz, { nordpool: { get_prices_for_date: {} } });
+  check('Core Nord Pool: the action is offered', core.some((c) => c.type === 'action' && c.domain === 'nordpool'));
+  check('Core Nord Pool: its sensor is not offered twice', !core.some((c) => c.type === 'attribute'));
+  const hacs = detectPriceSources(entities, [], states, tz, { nordpool: { yearly: {} } });
+  const attr = hacs.find((c) => c.type === 'attribute');
+  check('HACS Nord Pool: no action without get_prices_for_date', !hacs.some((c) => c.type === 'action'));
+  check('HACS Nord Pool: the raw_today/raw_tomorrow sensor is offered', !!attr && attr.entity_id === 'sensor.nordpool_kwh_se3_eur' && /raw_today/.test(attr.detail));
+  check('HACS Nord Pool: VAT included by default, with a note', attr && attr.price_type === 'market_incl_vat' && /VAT/.test(attr.note || ''));
+  check('Unknown services: the action is offered as before', detectPriceSources(entities, [], states, tz, null).some((c) => c.type === 'action'));
+  check('HACS unit from currency and unit', unitHint(states[0].attributes) === 'EUR/kWh');
+  check('HACS unit in cents', unitHint({ currency: 'EUR', unit: 'kWh', price_in_cents: true, unit_of_measurement: 'c/kWh' }) === 'EURct/kWh');
+  check('HACS cents converted once', toPerKwh([{ price: 25 }], unitHint({ currency: 'EUR', unit: 'kWh', price_in_cents: true }), [], 'EUR')[0].price === 0.25);
+  check('HACS MWh converted once', toPerKwh([{ price: 80 }], unitHint({ currency: 'SEK', unit: 'MWh' }), [], 'SEK')[0].price === 0.08);
+  check('Other sensors keep their unit_of_measurement', unitHint({ unit_of_measurement: '€/kWh' }) === '€/kWh');
+}
+
+// Tibber homes and Nord Pool areas: the chosen one, never silently the first (#16).
+(async () => {
+  const ha = require(path.join(app, 'ha.js'));
+  const { fetchPrices, localMidnight, isoLocal, localDate } = require(path.join(app, 'prices.js'));
+  const t0 = localMidnight(tz, 0);
+  const rows = (price, key) => Array.from({ length: 24 }, (_, h) => ({ [key]: isoLocal(t0 + h * 3600000, tz), ...(key === 'start' ? { end: isoLocal(t0 + (h + 1) * 3600000, tz) } : {}), price }));
+  const original = ha.callAction;
+  const quiet = [ha.debug, ha.warn];
+  ha.debug = () => {}; ha.warn = () => {};
+  const fails = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(e.message) && !!e.choice; } };
+  try {
+    // Nord Pool answers per date: today's prices, and an empty answer for
+    // tomorrow (not yet published).
+    ha.callAction = async (domain, service, data) => (domain === 'tibber'
+      ? { prices: { 'Home A': rows(0.2, 'start_time'), 'Home B': rows(0.4, 'start_time') } }
+      : data.date === localDate(t0, tz) ? { SE3: rows(500, 'start'), SE4: rows(900, 'start') } : {});
+    const tibber = { id: 'action:tibber:ce', type: 'action', domain: 'tibber', config_entry: 'ce' };
+    const np = { id: 'action:nordpool:ce', type: 'action', domain: 'nordpool', config_entry: 'ce' };
+    check('Tibber, two homes, none chosen: a clear error listing both', await fails(() => fetchPrices(tibber, tz), /Home A, Home B/));
+    const b = await fetchPrices({ ...tibber, select: 'Home B' }, tz);
+    check('Tibber, Home B chosen: its prices, not those of Home A', b.prices.length === 24 && b.prices.every((p) => p.price === 0.4) && b.choice.key === 'Home B' && b.choice.keys.length === 2);
+    check('Tibber, the chosen home is gone: a clear error, no other home', await fails(() => fetchPrices({ ...tibber, select: 'Old home' }, tz), /Old home.*not in the answer/));
+    const se4 = await fetchPrices({ ...np, select: 'SE4' }, tz);
+    check('Nord Pool, area SE4 chosen: its prices (per MWh → per kWh)', se4.prices.length === 24 && se4.prices.every((p) => Math.abs(p.price - 0.9) < 1e-9) && se4.choice.label === 'Area');
+    check('Nord Pool, two areas, none chosen: a clear error', await fails(() => fetchPrices(np, tz), /more than one area \(SE3, SE4\)/));
+    ha.callAction = async () => ({ prices: { 'Only home': rows(0.3, 'start_time') } });
+    const one = await fetchPrices(tibber, tz);
+    check('Tibber, one home: used without choosing, as before', one.prices.length === 24 && one.choice.key === 'Only home');
+  } finally {
+    ha.callAction = original; [ha.debug, ha.warn] = quiet;
+  }
+  console.log(failed ? `${failed} check(s) failed` : 'All checks passed');
+  process.exit(failed ? 1 : 0);
+})();

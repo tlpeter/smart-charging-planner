@@ -25,7 +25,7 @@ function check(name, fn) {
 
 check('addresses and place names are looked up; "Werk", "Thuis" and empty are not', () => {
   assert.ok(t.looksLikePlace('Hoofdweg 1 2661 AA Bergschenhoek'));
-  assert.ok(t.looksLikePlace('Molenstraat 5, 4921 AA Made'));
+  assert.ok(t.looksLikePlace('Molenstraat 5, 4921 AA Hilltown'));
   assert.ok(t.looksLikePlace('Nijmegen'));
   for (const x of ['Werk', 'werk', 'Thuis', 'Home', 'Gym', '', '  ']) assert.ok(!t.looksLikePlace(x), x);
   assert.ok(t.isHome('Thuis') && t.isHome('naar huis') && !t.isHome('Werk'));
@@ -104,14 +104,14 @@ check('Zones in Home Assistant: "Werk" (by name or by the title) is a point with
   t.setZones([
     { entity_id: 'zone.home', attributes: { friendly_name: 'Thuis', latitude: 51.37, longitude: 5.19 } },
     { entity_id: 'zone.werk', attributes: { friendly_name: 'Werk', latitude: 51.80, longitude: 4.70 } },
-    { entity_id: 'zone.sportschool_springfield', attributes: { friendly_name: 'Basic-Fit', latitude: 51.36, longitude: 5.17 } },
+    { entity_id: 'zone.sportschool_springfield', attributes: { friendly_name: 'Gym Club', latitude: 51.36, longitude: 5.17 } },
   ]);
   try {
     const w = t.placeFor('Werk', 'Naar Werk');
     assert.strictEqual(w.kind, 'zone');
     assert.deepStrictEqual(w.point, { lat: 51.8, lon: 4.7 });
     assert.strictEqual(t.placeFor('Northwind Labs', 'Naar Werk').kind, 'zone');
-    assert.strictEqual(t.placeFor('sportschool springfield', '').place, 'Basic-Fit');
+    assert.strictEqual(t.placeFor('sportschool springfield', '').place, 'Gym Club');
     assert.strictEqual(t.zoneList().length, 2);
     const d = t.pointDistance({ lat: 51.80, lon: 4.70 }, { lat: 51.37, lon: 5.19 });
     assert.ok(d.status === 'ok' && d.how === 'estimate' && d.km > 70 && d.km < 100, JSON.stringify(d));

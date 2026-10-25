@@ -90,9 +90,33 @@ function parseTime(v, tz) {
 // Action sources
 // ---------------------------------------------------------------------------
 
+// More than one home (Tibber) or market area (Nord Pool) in one answer: use
+// the one the user chose, never silently the first (#16). With one, use it.
+// The result (an array) carries .choice = { label, key, keys } for the page.
+function choiceError(message, label, keys) {
+  const err = new Error(message);
+  err.status = 400;
+  err.choice = { label, key: null, keys };
+  return err;
+}
+function pickEntry(map, wanted, label) {
+  const keys = Object.keys(map || {});
+  if (wanted) {
+    if (Object.prototype.hasOwnProperty.call(map || {}, wanted)) return { key: wanted, list: map[wanted] || [], keys };
+    throw choiceError(`${label} "${wanted}" is not in the answer of this price source any more (found: ${keys.join(', ') || 'none'}). Choose the ${label.toLowerCase()} again in Settings › Prices.`, label, keys);
+  }
+  if (keys.length > 1) throw choiceError(`This price source has more than one ${label.toLowerCase()} (${keys.join(', ')}). Choose one in Settings › Prices.`, label, keys);
+  return { key: keys[0] || null, list: keys.length ? map[keys[0]] || [] : [], keys };
+}
+function withChoice(list, label, picked) {
+  list.choice = { label, key: picked.key, keys: picked.keys };
+  return list;
+}
+
 const ACTION_SOURCES = {
   energyzero: {
     name: 'EnergyZero',
+    service: 'get_energy_prices',
     price_type: 'market_excl_vat',
     unit: 'kWh',
     async fetch(entry, win, tz) {
@@ -111,6 +135,7 @@ const ACTION_SOURCES = {
   },
   easyenergy: {
     name: 'easyEnergy',
+    service: 'get_energy_usage_prices',
     price_type: 'market_excl_vat',
     unit: 'kWh',
     async fetch(entry, win, tz) {
@@ -129,9 +154,10 @@ const ACTION_SOURCES = {
   },
   tibber: {
     name: 'Tibber',
+    service: 'get_prices',
     price_type: 'all_in',
     unit: 'kWh',
-    async fetch(entry, win, tz) {
+    async fetch(entry, win, tz, select = null) {
       const data = { start: isoLocal(win.start, tz), end: isoLocal(win.end, tz) };
       let r;
       try {
@@ -140,33 +166,41 @@ const ACTION_SOURCES = {
         ha.debug('Tibber: retrying with config_entry:', err.message);
         r = await ha.callAction('tibber', 'get_prices', { ...data, config_entry: entry });
       }
-      const homes = Object.values((r && r.prices) || {});
-      const list = homes[0] || [];
-      return list.map((p) => ({ start: parseTime(p.start_time), price: validPrice(p.price) ? Number(p.price) : NaN }));
+      const picked = pickEntry((r && r.prices) || {}, select, 'Home');
+      return withChoice(picked.list.map((p) => ({ start: parseTime(p.start_time), price: validPrice(p.price) ? Number(p.price) : NaN })), 'Home', picked);
     },
   },
   nordpool: {
     name: 'Nord Pool',
+    // Home Assistant's own Nord Pool integration. The HACS integration
+    // (custom-components/nordpool) uses the same platform name but has no
+    // such action: its sensors are offered as attribute sources instead (#17).
+    service: 'get_prices_for_date',
     price_type: 'market_excl_vat',
     unit: 'MWh',
-    async fetch(entry, win, tz) {
+    async fetch(entry, win, tz, select = null) {
       const out = [];
+      let picked = null;
       for (const day of [win.start, win.tomorrow]) {
         try {
           const r = await ha.callAction('nordpool', 'get_prices_for_date', {
             config_entry: entry, date: localDate(day, tz),
           });
-          const areas = Object.values(r || {});
-          for (const p of areas[0] || []) {
+          // An empty answer (tomorrow before publication): no prices that day,
+          // not a missing area.
+          if (!Object.keys(r || {}).length) continue;
+          picked = pickEntry(r || {}, select, 'Area');
+          for (const p of picked.list) {
             out.push({ start: parseTime(p.start), end: parseTime(p.end), price: validPrice(p.price) ? Number(p.price) : NaN });
           }
         } catch (err) {
           // Tomorrow's prices are published around 13:00; before that this fails.
+          if (err.choice) throw err;
           ha.debug('Nord Pool: no prices for', localDate(day, tz), '-', err.message);
           if (day === win.start) throw err;
         }
       }
-      return out;
+      return picked ? withChoice(out, 'Area', picked) : out;
     },
   },
 };
@@ -261,15 +295,25 @@ function pricesFromAttributes(attributes, tz) {
 // Detection
 // ---------------------------------------------------------------------------
 
-function detectPriceSources(entities, devices, states, tz) {
+// services: Home Assistant's get_services result. An action source is only
+// offered when its action really exists (null: not known, offer it as before).
+function hasAction(services, domain) {
+  if (!services) return true;
+  const def = ACTION_SOURCES[domain];
+  return !!(def && services[domain] && services[domain][def.service]);
+}
+
+function detectPriceSources(entities, devices, states, tz, services = null) {
   const candidates = [];
   const deviceById = new Map(devices.map((d) => [d.id, d]));
 
   // Action sources: one per config entry of a known integration.
   const seen = new Set();
+  const offered = new Set();
   for (const e of entities) {
     const def = ACTION_SOURCES[e.platform];
-    if (!def || !e.config_entry_id || seen.has(e.config_entry_id)) continue;
+    if (!def || !e.config_entry_id || seen.has(e.config_entry_id) || !hasAction(services, e.platform)) continue;
+    offered.add(e.platform);
     seen.add(e.config_entry_id);
     const device = e.device_id && deviceById.get(e.device_id);
     candidates.push({
@@ -294,7 +338,8 @@ function detectPriceSources(entities, devices, states, tz) {
     const lastStart = prices.reduce((m, p) => Math.max(m, p.start), 0);
     const reg = regById.get(s.entity_id);
     const domain = reg ? reg.platform : null;
-    if (domain && ACTION_SOURCES[domain]) continue; // already offered as action
+    if (domain && offered.has(domain)) continue; // already offered as action
+    const hacsNordPool = domain === 'nordpool' && s.attributes && s.attributes.currency && s.attributes.raw_today;
     candidates.push({
       id: `attr:${s.entity_id}`,
       type: 'attribute',
@@ -302,7 +347,9 @@ function detectPriceSources(entities, devices, states, tz) {
       entity_id: s.entity_id,
       name: (s.attributes && s.attributes.friendly_name) || s.entity_id,
       detail: `${s.entity_id} · ${keys.join(', ')} · ${prices.length} prices${forecastCount ? ` (${forecastCount} marked as forecast)` : ''}`,
-      price_type: domain && ALL_IN_DOMAINS.has(domain) ? 'all_in' : 'market_excl_vat',
+      // The HACS Nord Pool sensor includes VAT unless it was turned off there.
+      price_type: domain && ALL_IN_DOMAINS.has(domain) ? 'all_in' : hacsNordPool ? 'market_incl_vat' : 'market_excl_vat',
+      ...(hacsNordPool ? { note: 'Nord Pool (HACS) includes VAT by default. If you turned VAT off in that integration, choose "Market price, excl. VAT".' } : {}),
       // Prices for more than today and tomorrow: usable as a forecast.
       forecast_capable: lastStart >= localMidnight(tz, 2),
       forecast_marked: forecastCount,
@@ -314,6 +361,15 @@ function detectPriceSources(entities, devices, states, tz) {
 // ---------------------------------------------------------------------------
 // Fetching and normalising
 // ---------------------------------------------------------------------------
+
+// The unit of a price sensor. The HACS Nord Pool sensor says it in separate
+// attributes (currency "EUR", unit "kWh", price_in_cents), which are clearer
+// than its display unit; other sensors use their unit_of_measurement.
+function unitHint(attributes) {
+  const a = attributes || {};
+  if (a.currency && /^(kWh|MWh)$/i.test(String(a.unit || ''))) return `${a.currency}${a.price_in_cents === true ? 'ct' : ''}/${a.unit}`;
+  return a.unit_of_measurement;
+}
 
 // Convert only declared energy units. Never guess a unit from the price size.
 function toPerKwh(prices, unitHint, warnings, currency = ha.state.currency) {
@@ -398,7 +454,7 @@ async function fetchPrices(source, tz) {
   if (source.type === 'action') {
     const def = ACTION_SOURCES[source.domain];
     if (!def) throw new Error(`Unknown price integration: ${source.domain}`);
-    raw = await def.fetch(source.config_entry, win, tz);
+    raw = await def.fetch(source.config_entry, win, tz, source.select || null);
     unit = def.unit;
   } else if (source.type === 'attribute') {
     const states = await ha.call({ type: 'get_states' });
@@ -411,7 +467,7 @@ async function fetchPrices(source, tz) {
     // setting decides whether they are used.
     raw = all.filter((p) => !p.forecast);
     if (raw.length < all.length) ha.debug('Price source', source.id, 'skipped', all.length - raw.length, 'forecast entries');
-    unit = s.attributes && s.attributes.unit_of_measurement;
+    unit = unitHint(s.attributes);
   } else {
     throw new Error('Unknown source type');
   }
@@ -424,7 +480,7 @@ async function fetchPrices(source, tz) {
   } catch (err) {
     ha.warn('Could not store price history:', err.message);
   }
-  return { prices, interval_minutes, window: win, warnings };
+  return { prices, interval_minutes, window: win, warnings, choice: (raw && raw.choice) || null };
 }
 
 // Forecast: a sensor with expected prices for the coming days. Only the part
@@ -437,7 +493,7 @@ async function fetchForecast(forecast, tz, fromMs) {
   const parsed = pricesFromAttributes(s.attributes, tz);
   const warnings = [...parsed.warnings];
   const raw = parsed.prices;
-  const unit = s.attributes && s.attributes.unit_of_measurement;
+  const unit = unitHint(s.attributes);
   const win = { start: fromMs, end: localMidnight(tz, 8) };
   const { prices } = finalise(toPerKwh(raw, unit, warnings), win);
   return { prices, warnings };
@@ -452,7 +508,7 @@ async function backfill(source, dayRanges, tz) {
   let filled = 0;
   for (const [start, end] of history.missingDays(source.id, dayRanges)) {
     try {
-      const raw = await def.fetch(source.config_entry, { start, tomorrow: end, end }, tz);
+      const raw = await def.fetch(source.config_entry, { start, tomorrow: end, end }, tz, source.select || null);
       const { prices } = finalise(toPerKwh(raw, def.unit, []), { start, end });
       history.record(source.id, prices);
       filled += prices.length ? 1 : 0;
@@ -513,7 +569,7 @@ function summarise(result, cfg, now = Date.now()) {
 
 module.exports = {
   fixedTariff, fetchForecast,
-  detectPriceSources, fetchPrices, backfill, summarise, totalPrice,
+  detectPriceSources, hasAction, unitHint, pickEntry, fetchPrices, backfill, summarise, totalPrice,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES, priceTime, toPerKwh,
 };

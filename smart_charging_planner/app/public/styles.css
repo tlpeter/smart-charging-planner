@@ -937,6 +937,8 @@
     .tl-days { margin: 8px 0 6px; }
     .tl-day { border-bottom: 1px solid var(--border); }
     .tl-day:last-child { border-bottom: 0; }
+    .tl-day.est .tl-daytext { color: var(--muted); }
+    .tl-est { margin-left: 6px; font-size: 11px; }
     .tl-day > summary { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; cursor: pointer; list-style: none; }
     .tl-day > summary::-webkit-details-marker { display: none; }
     .tl-day > summary::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform .15s; }

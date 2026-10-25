@@ -821,6 +821,29 @@ function durationText(minutes) {
     } catch { /* private window */ }
     let pastData = null; // { hours, before, at, prices, charged }
 
+    // How far Looking ahead (Home) and the departures (Plan) look: 7, 14 or
+    // 30 days. Kept in this browser, like the chart range (#4).
+    const AHEAD_RANGES = [[7, '7 days'], [14, '14 days'], [30, '30 days']];
+    let aheadDays = 7;
+    try {
+      const saved = Number(localStorage.getItem('scp-ahead-days'));
+      if (AHEAD_RANGES.some(([d]) => d === saved)) aheadDays = saved;
+    } catch { /* private window */ }
+    function aheadButtonsHtml() {
+      return `<div class="range ahead-range" role="group" aria-label="How far ahead">${AHEAD_RANGES.map(([d, label]) =>
+        `<button type="button" data-ahead="${d}" aria-pressed="${d === aheadDays}">${label}</button>`).join('')}</div>`;
+    }
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('.ahead-range button[data-ahead]');
+      if (!b || Number(b.dataset.ahead) === aheadDays) return;
+      aheadDays = Number(b.dataset.ahead);
+      try { localStorage.setItem('scp-ahead-days', String(aheadDays)); } catch { /* private window */ }
+      document.querySelectorAll('.ahead-range button').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.ahead) === aheadDays)));
+      const card = document.getElementById('next-goal-card');
+      if (card && lastPlan) card.outerHTML = nextGoalHtml(lastPlan);
+      if (!$('tab-departures') || !$('tab-departures').hidden) loadDepartures();
+    });
+
     function pastButtonsHtml() {
       return `<div class="range" id="chart-range" role="group" aria-label="How far back">${PAST_RANGES.map(([h, label]) =>
         `<button type="button" data-hours="${h}" aria-pressed="${h === pastHours}">${label}</button>`).join('')}</div>`;
@@ -1285,8 +1308,15 @@ function durationText(minutes) {
     // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
       const n = d.next;
-      const items = n && n.timeline ? n.timeline : [];
-      if (!items.some((x) => x.type === 'leave') || (items.filter((x) => x.type === 'leave').length < 2 && n.trip.pct == null)) return '';
+      const all = n && n.timeline ? n.timeline : [];
+      if (!all.some((x) => x.type === 'leave') || (all.filter((x) => x.type === 'leave').length < 2 && n.trip.pct == null)) return '';
+      // The chosen range (7, 14 or 30 days): up to the first departure after
+      // it; a trip that starts inside keeps its way back home.
+      const until = Date.now() + aheadDays * 86400000;
+      const cut = all.findIndex((x) => x.type === 'leave' && x.time >= until);
+      const items = (cut < 0 ? all : all.slice(0, cut)).filter((x) => !(x.type === 'charge' && x.start >= until));
+      // After the last known price, charging and levels are an estimate.
+      const known = n.prices_until || 0;
       const pct = (v) => (v == null ? '' : `${esc(tidy(v))}%`);
       const level = (v, cls = '') => (v == null ? '<span class="tl-level muted">?</span>' : `<span class="tl-level ${cls}">${pct(v)}</span>`);
       const span = (x) => (x.periods.length > 2
@@ -1360,7 +1390,7 @@ function durationText(minutes) {
       items.forEach((x, i) => {
         const key = dayKey(when(x));
         let day = days[days.length - 1];
-        if (!day || day.key !== key) { day = { key, at: when(x), parts: [], rows: [], warn: false }; days.push(day); }
+        if (!day || day.key !== key) { day = { key, at: when(x), parts: [], rows: [], warn: false, est: known > 0 && when(x) >= known }; days.push(day); }
         day.rows.push(rowHtml(x, i));
         if (x.type === 'charge') {
           const cls = x.minimum ? 'min' : x.expected ? 'exp' : 'plan';
@@ -1385,14 +1415,20 @@ function durationText(minutes) {
         if (x.type === 'stop') return; // shown with the trip it belongs to
         day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
       });
-      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}"${k === 0 ? '' : ''}>
-          <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}</span></summary>
+      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${k === 0 ? '' : ''}>
+          <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}${day.est ? ' <span class="chip tl-est">estimate</span>' : ''}</span></summary>
           <ul class="timeline">${day.rows.join('')}</ul>
         </details>`).join('');
-      return `<div class="card next-goal${lowSeen ? ' low' : ''}">
+      const real = n.real_prices_until || 0;
+      const priceNote = known
+        ? `Prices are known until ${esc(dayHm(real || known))}${real && known > real + 3600000 ? `, with the price forecast until ${esc(dayHm(known))}` : ''}. Later days are marked <em>estimate</em>: the expected levels count on your trips and targets, but when and at what price the car charges is not known yet.`
+        : '';
+      return `<div class="card next-goal${lowSeen ? ' low' : ''}" id="next-goal-card">
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
-        <div class="tl-days">${rows}</div>
+        ${aheadButtonsHtml()}
+        <div class="tl-days">${rows || '<p class="muted small">No departures in this period.</p>'}</div>
         <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
+        ${priceNote && days.some((x) => x.est) ? `<p class="muted small">${priceNote}</p>` : ''}
       </div>`;
     }
 
@@ -2063,7 +2099,7 @@ function durationText(minutes) {
 
     async function loadDepartures() {
       try {
-        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}` : 'api/departures');
+        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}&ahead=${aheadDays}` : `api/departures?ahead=${aheadDays}`);
         depTz = d.time_zone;
         const dep = d.departures;
         if (d.cars) depCar = d.vehicle_id;
@@ -2077,7 +2113,8 @@ function durationText(minutes) {
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${calendarMessagesHtml(d)}
           ${d.upcoming.length > 1 ? `
-          <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next 7 days</summary>
+          <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
+            ${aheadButtonsHtml()}
             <table class="periods">
               ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
             </table>
@@ -2109,7 +2146,7 @@ function durationText(minutes) {
         const nextKey = d.next ? `${d.next.source}:${d.next.time}` : '';
         $('dep-trips').innerHTML = `
           <h2>Trips from your calendar</h2>
-          <p class="muted small">Next 14 days${dep.calendar.buffer_minutes ? ` · ready ${esc(dep.calendar.buffer_minutes)} minutes before each trip` : ''}</p>
+          <p class="muted small">Next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.buffer_minutes ? ` · ready ${esc(dep.calendar.buffer_minutes)} minutes before each trip` : ''}</p>
           ${trips.length ? `<table class="periods">
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
@@ -2117,7 +2154,7 @@ function durationText(minutes) {
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
-          </table>` : `<p class="muted">No trips found in this calendar for the next 14 days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
+          </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
 
         renderTripForm(d);
 
@@ -2759,7 +2796,22 @@ function durationText(minutes) {
           },
         };
       }
-      return { ...data, source: src };
+      delete data.select;
+      // More homes (Tibber) or areas (Nord Pool): the chosen one (#16).
+      const sel = !$('prices-select-field').hidden && $('prices-select').value;
+      return { ...data, source: src && src.type === 'action' && sel ? { ...src, select: sel } : src };
+    }
+
+    // Show the homes or areas of the source to choose from (#16).
+    function showChoice(choice, selected) {
+      const field = $('prices-select-field');
+      if (!choice || !choice.keys || (choice.keys.length < 2 && !selected)) { field.hidden = true; return; }
+      $('prices-select-label').textContent = choice.label || 'Home';
+      const keys = choice.keys.length ? choice.keys : [selected];
+      const pick = selected || choice.key || '';
+      $('prices-select').innerHTML = (pick ? '' : '<option value="">— choose —</option>')
+        + keys.map((k) => `<option value="${esc(k)}" ${k === pick ? 'selected' : ''}>${esc(k)}</option>`).join('');
+      field.hidden = false;
     }
 
     // Show the tariff form for a fixed tariff, the cost fields otherwise.
@@ -2806,9 +2858,10 @@ function durationText(minutes) {
         ? 'For contracts without dynamic prices.'
         : src.type === 'action'
           ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
-          : `Sensor attributes · ${src.detail}`;
+          : `Sensor attributes · ${src.detail}${src.note ? ` · ${src.note}` : ''}`;
       $('prices-form').price_type.value = src.price_type;
       $('prices-form').forecast_price_type.value = src.price_type;
+      showChoice(null);
       syncFixed();
     }
 
@@ -2833,6 +2886,12 @@ function durationText(minutes) {
           $('prices-form').forecast_margin.value = preselect.forecast.margin;
         }
         if (preselect) {
+          // A saved home or area: the source itself is found without it (#16).
+          const savedSelect = preselect.source.select || null;
+          const baseId = savedSelect ? preselect.source.id.slice(0, -(savedSelect.length + 1)) : preselect.source.id;
+          const base = savedSelect && candidates.find((c) => c.id === baseId);
+          if (base) preselect = { ...preselect, source: { ...preselect.source, id: base.id } };
+          showChoice(savedSelect ? { label: preselect.source.domain === 'nordpool' ? 'Area' : 'Home', keys: [savedSelect], key: savedSelect } : null, savedSelect);
           if (!candidates.some((c) => c.id === preselect.source.id)) {
             // Not found now (renamed, offline): keep it as an option, so it is not lost.
             priceSources.push(preselect.source);
@@ -2879,7 +2938,12 @@ function durationText(minutes) {
       try {
         const r = await api('POST', 'api/prices/test', priceFormData());
         priceTz = r.time_zone;
-        box.innerHTML = `<div class="card"><h2>Test result</h2>${summaryHtml(r.summary)}${forecastHtml(r.forecast)}</div>`;
+        const current = !$('prices-select-field').hidden ? $('prices-select').value : '';
+        showChoice(r.choice, current || (r.choice && r.choice.key));
+        const which = r.choice && r.choice.key ? `<p class="muted small">${esc(r.choice.label)} ${esc(r.choice.key)} · ${esc(r.currency || '')} · ${esc(r.time_zone || '')}</p>` : '';
+        box.innerHTML = r.error
+          ? `<div class="card"><h2>Test result</h2><div class="error">${esc(r.error)}</div></div>`
+          : `<div class="card"><h2>Test result</h2>${which}${summaryHtml(r.summary)}${forecastHtml(r.forecast)}</div>`;
       } catch (err) {
         box.innerHTML = `<div class="card"><h2>Test result</h2><div class="error">${esc(err.message)}</div></div>`;
       } finally {
@@ -2932,7 +2996,7 @@ function durationText(minutes) {
           : `${esc(typeLabel)} · purchase fee ${esc(r.prices.purchase_fee)} · energy tax ${esc(r.prices.energy_tax)} · VAT ${esc(r.prices.vat_percent)}%${r.prices.forecast ? ` · forecast from ${esc(r.prices.forecast.entity_id)}` : ''}`;
         box.innerHTML = `
           <div class="card">
-            <h2>Prices now · ${esc(r.prices.source.name)}</h2>
+            <h2>Prices now · ${esc(r.prices.source.name)}${r.prices.source.select ? ` · ${esc(r.prices.source.select)}` : ''}</h2>
             <p class="muted small">${detailLine}</p>
             ${r.error ? `<div class="error">${esc(r.error)}</div>` : summaryHtml(r.summary) + forecastHtml(r.forecast)}
             <div class="buttons">
