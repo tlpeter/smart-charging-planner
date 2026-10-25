@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 179 of 179 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 167 of 167 ✓ |
-| Unit tests (17 files) | 737 of 737 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 181 of 181 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 169 of 169 ✓ |
+| Unit tests (19 files) | 752 of 752 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.33.7-dev.
+Version: 0.34.1-dev.
 
 # Settings
 
@@ -43,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 238 kB JS | ✓ 47 kB CSS, 238 kB JS |
+| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 242 kB JS | ✓ 47 kB CSS, 242 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -95,9 +95,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 15 charged blocks, from 14.5 h back | ✓ 15 charged blocks, from 14.5 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 16 charged blocks, from 15.2 h back | ✓ 16 charged blocks, from 15.2 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks | ✓ 24 h: 9 blocks, 72 h: 57 blocks, 168 h: 153 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
+| E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
 
 ## F. Planning (departures)
@@ -185,10 +186,10 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 15.0 kWh on solar, 19.3 kWh from the grid | ✓ 15.0 kWh on solar, 35.9 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 15.0 kWh on solar | ✓ 15.0 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 35.9 kWh at night, 15.0 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 15.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 15.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 13.6 kWh on solar, 20.8 kWh from the grid | ✓ 13.6 kWh on solar, 37.3 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 13.6 kWh on solar | ✓ 13.6 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 37.3 kWh at night, 13.6 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 13.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 13.6 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -204,7 +205,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.51 | ✓ charges in 3 block(s), saving €1.42 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.49 | ✓ charges in 3 block(s), saving €1.40 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -246,7 +247,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
-| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 13 parts, 4 kB | ✓ 13 parts, 4 kB |
+| M1 | Export: all settings in one file, without the Configuration options (Allow control) | ✓ 14 parts, 4 kB | ✓ 14 parts, 4 kB |
 | M2 | Refused: not a settings file, a file with unknown parts, a newer format | ✓ | ✓ |
 | M3 | Import in a fresh install (like the dev version): preview, then the same settings; Allow control stays as configured | ✓ car JLZ03X, charger Laadpaal, prices EnergyZero | ✓ car Enyaq, charger Wallbox Pulsar Plus, prices EnergyZero |
 | M4 | Import with things this Home Assistant does not have: battery and notify action left out, entities listed | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here | ✓ Not found in this Home Assistant: sensor.other_house_battery_soc / The home battery was left out: it was not found here / Left out 1 notification recipient(s): that notify action does not exist here |
@@ -284,6 +285,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y5 | The coming days as one timeline: charging, leaving, back home, expected charging (orange), leaving again, …; the chart goes on to the expected charging | ✓ charge leave back expected leave back expected leave back | ✓ charge leave back expected leave back expected leave back |
 | Y6 | My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 30.9% there and back |
 | Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "Northwind Labs"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
+| Y7b | Trip distances (#31): the choice is checked; offline sends nothing and uses a distance from My places; off shows no distance; back to OpenStreetMap | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off |
 | Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 31.4% both times |
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
@@ -361,6 +363,8 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [activecar.test.js](#activecar) | More than one car: connected car; calendar tags, trip language and duplicate prevention | 18 of 18 ✓ |
 | [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
+| [pricebasis.test.js](#pricebasis) | Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26) | 4 of 4 ✓ |
+| [routing.test.js](#routing) | Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31) | 11 of 11 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 
 ## batteryguard
@@ -1272,6 +1276,43 @@ Look ahead: which calendar locations are addresses, the use per km, learning fro
 | straight line: Springfield to Bergschenhoek is about 100 km | ✓ |
 | My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested | ✓ |
 | Zones in Home Assistant: "Werk" (by name or by the title) is a point with GPS; the home zone is not a place; My places go first | ✓ |
+
+</details>
+
+## pricebasis
+
+Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26).
+
+<details><summary>4 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| an all-in forecast of 0.2207 with a 0.02 margin is compared as 0.2407 (not 0.287047) | ✓ |
+| market excl. VAT: (price + fee + tax) × 1.21 | ✓ |
+| market incl. VAT: price + (fee + tax) × 1.21 | ✓ |
+| the breakdown total is always the price the plan uses | ✓ |
+
+</details>
+
+## routing
+
+Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31).
+
+<details><summary>11 of 11 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| not chosen yet: nothing is sent, the trip says to choose | ✓ |
+| off: nothing is sent and no distance, not even for a zone | ✓ |
+| offline: a zone gives the straight line × 1.3, nothing is sent | ✓ |
+| offline: an address is not looked up; a distance in My places is used | ✓ |
+| OpenStreetMap: the address goes to the address search, the coordinates to the router | ✓ |
+| own servers: everything goes to your servers, nothing to the public ones | ✓ |
+| a place looked up before keeps its distance offline, without asking again | ✓ |
+| a lookup that was waiting is dropped when you switch to offline | ✓ |
+| settings from before the choice keep OpenStreetMap, but unconfirmed | ✓ |
+| a new install has not chosen: nothing is looked up | ✓ |
+| an imported settings file can only hold a known choice and http(s) addresses | ✓ |
 
 </details>
 
