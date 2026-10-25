@@ -310,13 +310,13 @@ When a trip needs more than the battery holds, the app can suggest public chargi
 
 - **When**: the level after the trip would drop below **Suggest a stop when the level drops below** (default 10 %). The app shows how much to charge on the way (in % and kWh) to stay above it.
 - **Needs**: Trip distances set to OpenStreetMap or your own servers (the route is needed), a destination with a position (an address or a zone, not only a distance you entered), and your own free **Open Charge Map API key** (sign in on openchargemap.org › My profile › My apps).
-- **What is sent**: the route line from your home to the destination goes to OSRM (the same server as for trip distances); that line and your key go to api.openchargemap.io (the key in a header, not in the address). No names, times or car data. Routes are remembered for 30 days, stations for a day.
+- **What is sent**: the route from your home to the destination, and via each of the closest stations, goes to OSRM (the same server as for trip distances); that line and your key go to api.openchargemap.io (the key in a header, not in the address). No names, times or car data. Routes are remembered for 30 days, stations for a day.
 - **Countries**: the Netherlands and Belgium for now; stations in other countries are left out. Other European countries are planned (#40).
 - **Preferred operators** (optional): only stations of these operators are shown when one of them is on the way; otherwise the others, with a note. The list: Fastned, Tesla Supercharger, IONITY, Allego, Shell Recharge, bp pulse, TotalEnergies, Electra (BE), LEAP24, AVIA Volt, Tango (NL), Powerdale, DATS 24 (BE), and for normal charging Engie Vianeo, Lidl, Vattenfall InCharge, Equans, Eneco, PitPoint, Blue Corner, Wattif. The operator is recognised by its name in the station data.
 - **Connector** (CCS, CHAdeMO, Type 2) and **Minimum power** (default 50 kW): a station needs at least one of the chosen connectors with at least this power.
-- **Maximum detour** (default 5 km, there and back): how far off the route a station may be.
-- **Reach**: only stations the car reaches before it drops below the level above, on the way out (with the same 10 % margin as the trip cost).
-- **Order**: the smallest detour first, then the most power; at most three. Each links to the station on Open Charge Map.
+- **Maximum detour** (default 5 km): the extra distance by road to visit the station, looked up with OSRM for the closest stations. A service area on the other side of a motorway gets its real detour (to the next exit and back), so it is not suggested as a stop on the way. When no station is within the maximum detour, stations up to a longer detour (25 km, or three times the maximum) are shown, marked as such.
+- **Reach**: only stations the car reaches before it drops below the level above (with the same 10 % margin as the trip cost). When the car gets to the destination with enough left, the stop is on the way back: the detour and the reach are counted from the destination, so the station is on the side of the road going home.
+- **Order**: the smallest detour by road first, then the most power; at most three. Each links to the station on Open Charge Map.
 
 The station data is **not live**: a station can be busy, out of order or gone. Check it in your charging app before you go. Nothing is steered by it. A trip with more places in a row searches along the route from home to the first place. The API key is in the settings export (a backup stays private), never in the public diagnostics.
 

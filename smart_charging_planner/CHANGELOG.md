@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.3-dev
+
+- **Charging stops: the right side of the road.** The detour of a suggested station is now the real detour by road (OSRM), not the straight distance to the route. A service area on the other side of a motorway, which needs a drive to the next exit and back, no longer looks like a stop on the way; it is only shown when nothing else fits, marked as a longer detour. When the car gets to the destination with enough left, the stop is suggested on the way back, so on the side of the road going home. (#41)
+
 ## 0.35.2-dev
 
 - A new check keeps the documentation up to date: the README and the release checklist must name the current version, and every issue fixed on dev since the last stable release must be listed in both. The steps for each change and each release are in AGENTS.md › Documentation.

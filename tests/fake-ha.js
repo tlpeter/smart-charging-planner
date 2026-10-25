@@ -444,7 +444,18 @@ function start(w, wsPort, restPort) {
         ? encodeLine(u.pathname.split('/').pop().split(';').map((x) => { const [lon, lat] = x.split(',').map(Number); return { lat, lon }; }))
         : undefined;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000, ...(line ? { geometry: line } : {}) }] }));
+      // Via a point (start;station;end, charging stops #41): leaving the road
+      // to that point and back, so twice its distance off the straight line.
+      const pts = u.pathname.split('/').pop().split(';').map((x) => { const [lon, lat] = x.split(',').map(Number); return { lat, lon }; });
+      const off = (a, b, p) => {
+        const kx = 111.32 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
+        const bx = (b.lon - a.lon) * kx; const by = (b.lat - a.lat) * 110.57;
+        const px = (p.lon - a.lon) * kx; const py = (p.lat - a.lat) * 110.57;
+        const t = Math.max(0, Math.min(1, (px * bx + py * by) / (bx * bx + by * by || 1)));
+        return Math.hypot(px - t * bx, py - t * by);
+      };
+      const via = pts.length === 3 ? 2 * off(pts[0], pts[2], pts[1]) : 0;
+      res.end(JSON.stringify({ routes: [{ distance: ((w.routeKm ?? 50) + via) * 1000, ...(line ? { geometry: line } : {}) }] }));
       return;
     }
     // Open Charge Map (charging stops, #37). w.stations: the answer;

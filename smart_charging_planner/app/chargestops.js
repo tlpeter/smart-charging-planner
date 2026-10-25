@@ -33,6 +33,8 @@ const STATION_TTL = 24 * 3600000; // stations along a route: once a day
 const ERROR_RETRY = 3600000; // after a failed lookup: try again after an hour
 const MAX_POINTS = 250; // the route line sent to Open Charge Map
 const SHOW = 3; // suggestions per trip
+const CHECK = 8; // stations whose real detour by road is looked up (#41)
+const FAR_DETOUR_KM = 25; // a longer detour is only shown when nothing else fits
 
 const COUNTRIES = { NL: 'Netherlands', BE: 'Belgium' };
 
@@ -318,6 +320,7 @@ function load() {
   if (!cache) cache = readJson(FILE, null) || {};
   cache.routes = cache.routes || {};
   cache.stations = cache.stations || {};
+  cache.detours = cache.detours || {};
   return cache;
 }
 function save() {
@@ -427,6 +430,31 @@ function stationsOf(key, line, detourKm, now) {
   return s || null;
 }
 
+// The real detour by road (#41): the drive start → station → end, from OSRM.
+// OSRM knows one-way roads, so a service area on the other side of a motorway
+// gets its real detour (to the next exit and back), not a few hundred metres.
+function viaKm(rkey, from, s, to, back, now) {
+  const key = `${rkey}|${s.id}|${back ? 'back' : 'out'}`;
+  const d = load().detours[key];
+  const stale = !d || (d.km == null ? now - d.at > ERROR_RETRY : now - d.at > ROUTE_TTL);
+  if (stale) {
+    enqueue(`detour:${key}`, async () => {
+      let km = null;
+      try {
+        const res = await getJson(`${tripcost.routing().route_url}/${from.lon},${from.lat};${s.lon},${s.lat};${to.lon},${to.lat}?overview=false`);
+        const m = res && res.routes && res.routes[0] && res.routes[0].distance;
+        km = Number.isFinite(m) ? m / 1000 : null;
+      } catch (err) {
+        ha.debug('Charging stops: detour lookup failed -', err.message);
+      }
+      load().detours[key] = { km, at: Date.now() };
+      save();
+      changed();
+    });
+  }
+  return d && d.km != null ? d.km : d ? NaN : null; // null: not known yet; NaN: failed
+}
+
 // ---------------------------------------------------------------------------
 // Suggestions for one trip.
 //
@@ -458,49 +486,74 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
   if (st.error) return { ...base, status: st.error === 'bad_key' ? 'bad_key' : 'failed', route_km: Math.round(route.km) };
 
   // How far the car gets before it drops to the reserve (with the same 10 %
-  // margin as the trip cost).
+  // margin as the trip cost). When the car reaches the destination with
+  // enough left, the stop is on the way back (#41): from the destination.
   const use = pctPerKm > 0 ? pctPerKm * tripcost.MARGIN : null;
-  const reach = use && socLeave != null ? Math.max(0, (socLeave - c.reserve_pct) / use) : null;
+  const arrive = use && socLeave != null ? socLeave - route.km * use : null;
+  const back = arrive != null && arrive >= c.reserve_pct;
+  const reach = use && socLeave != null ? Math.max(0, ((back ? arrive : socLeave) - c.reserve_pct) / use) : null;
   const points = decodePolyline(route.line);
   const prefer = new Set(c.operators);
-  const fits = [];
+  const near = [];
   for (const s of st.list) {
     if (s.country && !c.countries.includes(s.country)) continue;
     const plugs = c.connectors.filter((k) => s.connectors[k] && s.connectors[k].kw >= c.min_power_kw);
     if (!plugs.length) continue;
     const pos = onRoute(points, s);
-    const detour = pos.off * 2;
-    if (detour > c.max_detour_km) continue;
+    if (pos.off * 2 > c.max_detour_km) continue;
     // Reach the station (along the route, then off it) before the reserve.
-    if (reach != null && pos.along + pos.off > reach) continue;
-    const kw = Math.max(...plugs.map((k) => s.connectors[k].kw));
-    fits.push({
-      id: s.id,
-      name: s.name,
-      town: s.town,
-      country: s.country,
-      operator: s.operator,
-      preferred: !!s.operator_id && prefer.has(s.operator_id),
-      power_kw: Math.round(kw),
-      connectors: plugs.map((k) => CONNECTORS[k].name),
-      points: plugs.reduce((a, k) => a + s.connectors[k].count, 0),
-      km_from_home: Math.round(pos.along),
-      detour_km: Math.round(detour * 10) / 10,
-      url: `https://map.openchargemap.io/?id=${encodeURIComponent(s.id)}`,
-    });
+    const from = back ? pos.total - pos.along : pos.along;
+    if (reach != null && from + pos.off > reach) continue;
+    near.push({ s, plugs, pos, preferred: !!s.operator_id && prefer.has(s.operator_id) });
   }
-  // Your operators first: other operators only when none of yours is on the
-  // way. Then the smallest detour, then the most power.
+  // The real detour by road for the closest stations (your operators first).
+  near.sort((a, b) => (b.preferred - a.preferred) || (a.pos.off - b.pos.off));
+  const check = near.slice(0, CHECK);
+  const rkey = routeKey(home, dest);
+  let waiting = false;
+  for (const x of check) {
+    const km = back ? viaKm(rkey, dest, x.s, home, true, now) : viaKm(rkey, home, x.s, dest, false, now);
+    if (km === null) waiting = true;
+    // When the lookup failed: the straight estimate.
+    x.detour = Number.isFinite(km) ? Math.max(0, km - route.km) : x.pos.off * 2;
+  }
+  const common = { route_km: Math.round(route.km), reach_km: reach == null ? null : Math.round(reach), on_way_back: back };
+  if (waiting) return { ...base, ...common, status: 'pending' };
+  const item = (x, far) => {
+    const kw = Math.max(...x.plugs.map((k) => x.s.connectors[k].kw));
+    return {
+      id: x.s.id,
+      name: x.s.name,
+      town: x.s.town,
+      country: x.s.country,
+      operator: x.s.operator,
+      preferred: x.preferred,
+      power_kw: Math.round(kw),
+      connectors: x.plugs.map((k) => CONNECTORS[k].name),
+      points: x.plugs.reduce((a, k) => a + x.s.connectors[k].count, 0),
+      km_from_home: Math.round(x.pos.along),
+      detour_km: Math.round(x.detour * 10) / 10,
+      ...(far ? { longer_detour: true } : {}),
+      url: `https://map.openchargemap.io/?id=${encodeURIComponent(x.s.id)}`,
+    };
+  };
+  // Within the maximum detour by road. When none is: the others up to a
+  // longer detour (for example the other side of a motorway), marked as such.
+  let fits = check.filter((x) => x.detour <= c.max_detour_km);
+  const longer = !fits.length;
+  if (longer) fits = check.filter((x) => x.detour <= Math.max(FAR_DETOUR_KM, c.max_detour_km * 3));
+  // Your operators first: other operators only when none of yours fits. Then
+  // the smallest detour, then the most power.
   const mine = fits.filter((x) => x.preferred);
-  const pick = mine.length ? mine : fits;
+  const pick = (mine.length ? mine : fits).map((x) => item(x, longer));
   pick.sort((a, b) => (a.detour_km - b.detour_km) || (b.power_kw - a.power_kw));
   return {
     ...base,
+    ...common,
     status: pick.length ? 'ok' : 'none',
-    route_km: Math.round(route.km),
-    reach_km: reach == null ? null : Math.round(reach),
     stops: pick.slice(0, SHOW),
     found: pick.length,
+    longer_only: longer && pick.length > 0,
     // You chose operators, but none of them is on the way: these are others.
     others_only: prefer.size > 0 && !mine.length && fits.length > 0,
   };
@@ -518,7 +571,7 @@ function changed() {
 
 // Tests only.
 function reset() {
-  cache = { routes: {}, stations: {} };
+  cache = { routes: {}, stations: {}, detours: {} };
   queue.length = 0;
   queued.clear();
 }

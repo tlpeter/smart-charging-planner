@@ -192,6 +192,7 @@ These enhancements are implemented on the [dev branch](https://github.com/tlpete
 - [x] Make combined real/forecast price bases explicit and prevent duplicate VAT. [#26](https://github.com/tlpeter/smart-charging-planner/issues/26)
 - [x] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
 - [x] Suggest charging stations along routes that exceed the usable battery range (Netherlands and Belgium), with country, operator, connector, power and detour preferences, from Open Charge Map. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
+- [x] Charging stops are on the side of the road you drive on: real detour by road, a stop on the way back when that fits. [#41](https://github.com/tlpeter/smart-charging-planner/issues/41)
 
 ## Tests
 

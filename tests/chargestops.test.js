@@ -33,11 +33,19 @@ async function main() {
   let ocmStatus = 0;
   let stations = [];
   let line = '';
+  let extra = {};
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     hits.push({ path: u.pathname, params: Object.fromEntries(u.searchParams), key: req.headers['x-api-key'] || null });
     res.setHeader('Content-Type', 'application/json');
-    if (u.pathname.startsWith('/route/')) return res.end(JSON.stringify({ routes: [{ distance: 100000, geometry: line }] }));
+    if (u.pathname.startsWith('/route/')) {
+      // Via a station (start;station;end): 100 km plus that station's detour
+      // by road (extra, by its latitude; default 0.2 km).
+      const pts = u.pathname.split('/').pop().split(';');
+      const mid = pts.length === 3 ? Number(pts[1].split(',')[1]).toFixed(4) : null;
+      const km = 100 + (mid ? extra[mid] ?? 0.2 : 0);
+      return res.end(JSON.stringify({ routes: [{ distance: km * 1000, ...(mid ? {} : { geometry: line }) }] }));
+    }
     if (ocmStatus) { res.statusCode = ocmStatus; return res.end('{}'); }
     return res.end(JSON.stringify(stations));
   });
@@ -179,6 +187,8 @@ async function main() {
     await settle();
     assert.equal(cs.suggest(input).status, 'pending'); // the route is known, the stations are being looked up
     await settle();
+    assert.equal(cs.suggest(input).status, 'pending'); // the real detours by road are being looked up
+    await settle();
     const r = cs.suggest(input);
     assert.equal(r.status, 'ok', JSON.stringify(r));
     // 50 % - 10 % reserve = 40 %, at 0.4 × 1.1 %/km: ~91 km reach.
@@ -198,6 +208,45 @@ async function main() {
     cs.suggest(input);
     await settle();
     assert.equal(hits.length, n);
+  });
+
+  await check('the other side of the motorway (#41): its real detour by road counts; shown only when nothing else fits, marked as a longer detour', async () => {
+    cs.reset();
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    // Both right next to the route line; station 10 is for the other direction.
+    extra = { '51.4000': 15, '51.4500': 0.3 };
+    stations = [poi(10, 'Fastned', 51.4, 5.0005, [ccs(300)]), poi(11, 'Allego BV', 51.45, 5.0005, [ccs(150)])];
+    const run = async () => { for (let i = 0; i < 4; i++) { cs.suggest(input); await settle(); } return cs.suggest(input); };
+    let r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.deepEqual(r.stops.map((x) => [x.id, x.detour_km]), [[11, 0.3]]);
+    assert.ok(!r.longer_only && !r.stops[0].longer_detour);
+    // Only the other side: shown, with its real detour, marked.
+    cs.reset();
+    stations = [poi(10, 'Fastned', 51.4, 5.0005, [ccs(300)])];
+    r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.ok(r.longer_only && r.stops[0].longer_detour && r.stops[0].detour_km === 15, JSON.stringify(r.stops));
+    // Too far even for that: none.
+    cs.reset();
+    extra = { '51.4000': 40 };
+    r = await run();
+    assert.equal(r.status, 'none', JSON.stringify(r));
+    extra = {};
+  });
+
+  await check('enough to get there, short on the way back (#41): the stop is on the way back, its detour asked from the destination', async () => {
+    cs.reset();
+    hits.length = 0;
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    stations = [poi(12, 'Fastned', 51.2, 5.0005, [ccs(300)])];
+    const there = { ...input, socLeave: 95, socEnd: -0.5 }; // 95 % - 44 % = 51 % at the destination
+    for (let i = 0; i < 4; i++) { cs.suggest(there); await settle(); }
+    const r = cs.suggest(there);
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.ok(r.on_way_back, JSON.stringify(r));
+    const via = hits.find((h) => h.path.split(';').length === 3);
+    assert.ok(via && via.path.split('/').pop().startsWith('5,51.9;'), via && via.path);
   });
 
   await check('a key Open Charge Map does not accept: the trip says so', async () => {

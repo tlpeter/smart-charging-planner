@@ -1372,6 +1372,7 @@ function durationText(minutes) {
       };
 
       // Charging stops on the way (#37): the suggestions, or why there are none.
+      const cstopsDetour = () => (cstopsNow ? `${cstopsNow.max_detour_km} km` : 'see Plan');
       function chargeStopsHtml(c) {
         const where = 'Plan › Charging stops on the way';
         const why = {
@@ -1386,14 +1387,16 @@ function durationText(minutes) {
         };
         // More than a full battery (from the reserve) short: one stop is not enough.
         const more = c.need_pct > 100 - c.reserve_pct ? ' · more than one stop is needed' : '';
-        const need = `Charge on the way: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${more}`;
+        const need = `Charge on the way${c.on_way_back ? ' back' : ''}: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${more}`;
         if (c.status !== 'ok') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
         const items = c.stops.map((st) => `<li><a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}</span>` : ''}
           <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ~${esc(st.km_from_home)} km from home · +${esc(tidy(st.detour_km))} km detour</div></li>`).join('');
         return `<div class="cstops"><div class="cstops-head">${need}</div>
+          ${c.on_way_back ? '<div class="muted small">You get there with enough left: charge on the way back, so these stations are on the side of the road going home.</div>' : ''}
+          ${c.longer_only ? `<div class="muted small warn-text">No station within your maximum detour by road (${esc(cstopsDetour(c))}). These need a longer detour, for example on the other side of the motorway.</div>` : ''}
           ${c.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
           <ul>${items}</ul>
-          <div class="muted small">Stations from Open Charge Map, closest to the route first. Not live: check availability in your charging app.</div></div>`;
+          <div class="muted small">Stations from Open Charge Map, smallest detour by road first. Not live: check availability in your charging app.</div></div>`;
       }
 
       // One line per day; tap a day for all its details (the rows above).
