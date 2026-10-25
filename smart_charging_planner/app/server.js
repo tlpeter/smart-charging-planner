@@ -18,6 +18,7 @@ const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } 
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
+const chargestops = require('./chargestops');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -57,6 +58,7 @@ const STATIC_FILES = new Map([
 ]);
 const APP_VERSION = require('./package.json').version;
 require('./tripcost').setUserAgent(APP_VERSION);
+require('./chargestops').setUserAgent(APP_VERSION);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -518,7 +520,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       from = v.title;
     }
     const chain = tr && tr.via && tr.via.length ? { from_title: from, km: tr.back_km ?? null, soc_from: round(lv) } : {};
-    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null, ...chain });
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) {
+      const socBack = tr.pct == null ? null : tr.soc_end ?? tr.soc_after;
+      // Not enough for the whole trip: charging stops on the way (#37).
+      const stops = tr.pct != null && socLeave != null && socBack != null && chargestops.enabled()
+        ? chargestops.suggest({ home: ha.state.home, dest: tr.lat != null ? { lat: tr.lat, lon: tr.lon } : null, socLeave, socEnd: socBack, pctPerKm: tr.pct_per_km, capacityKwh: vehicle.capacity_kwh, now })
+        : null;
+      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: tr.return_trip ? tr.return_trip.title : null, ...chain, ...(stops ? { charge_stops: stops } : {}) });
+    }
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
@@ -620,13 +629,17 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // (The plan is kept until then: it is only marked as outdated.)
 tripcost.setSavedPlaces(() => settings.load().places || []);
 tripcost.setRouting(() => settings.load().routing || {});
-tripcost.onUpdate(() => {
+function tripLookupDone() {
   // Also count it, so a plan that was being calculated right now is not kept as fresh.
   for (const x of ST.all.values()) {
     if (x.planCache) x.planCache.at = 0;
     x.tripUpdates = (x.tripUpdates || 0) + 1;
   }
-});
+}
+tripcost.onUpdate(tripLookupDone);
+// Charging stops on the way (#37): a route or the stations along it were found.
+chargestops.setConfig(() => settings.load().charge_stops || {});
+chargestops.onUpdate(tripLookupDone);
 
 function tripLearning(vehicle, plugged, soc, carData, next, now) {
   if (!vehicle || !vehicle.id || plugged == null) return;
@@ -1666,6 +1679,20 @@ const routes = {
     ST().planCache = null;
     ha.log(`Trip distances: ${routingView(routing).label}`);
     return { ok: true, routing: routingView(routing) };
+  },
+
+  // Charging stops on the way (#37): the settings, without the API key itself.
+  'GET /api/charge-stops': async () => ({ charge_stops: chargestops.view() }),
+
+  'POST /api/charge-stops': async (req) => {
+    const body = (await readBody(req)) || {};
+    const s = settings.load();
+    s.charge_stops = chargestops.clean(body, s.charge_stops || {});
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.countries.join(', ')})` : 'off'}`);
+    return { ok: true, charge_stops: chargestops.view() };
   },
 
   'POST /api/places': async (req) => {
@@ -3917,7 +3944,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'routing', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'routing', 'charge_stops', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {

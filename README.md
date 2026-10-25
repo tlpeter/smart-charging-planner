@@ -172,6 +172,7 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 - [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
 - [ ] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
+- [ ] Suggest charging stations along routes that exceed the usable battery range (Netherlands and Belgium), with country, operator, connector, power and detour preferences, from Open Charge Map. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
 
 ### Reliability and usability (P2)
 
@@ -179,11 +180,11 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [ ] Provide a supported week-price forecast path with freshness, schema and price-basis checks. [#27](https://github.com/tlpeter/smart-charging-planner/issues/27)
 - [ ] Plan all chargers against shared capacity before charging time, including realistic readiness estimates. [#30](https://github.com/tlpeter/smart-charging-planner/issues/30)
 - [ ] Add Pause until and a guided release/recovery action for app-owned device settings. [#33](https://github.com/tlpeter/smart-charging-planner/issues/33)
+- [ ] Charging-stop suggestions for all European countries, not only the Netherlands and Belgium. [#40](https://github.com/tlpeter/smart-charging-planner/issues/40)
 
 ### Later extensions (P3)
 
 - [ ] Choose a 7-, 14- or 30-day look-ahead horizon, clearly marking estimates beyond known prices. [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
-- [ ] Suggest suitable charging stations along routes that exceed the usable battery range, with operator, connector and power preferences. Depends on the routing privacy choice. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
 
 ### Implemented on dev, awaiting a stable release
 

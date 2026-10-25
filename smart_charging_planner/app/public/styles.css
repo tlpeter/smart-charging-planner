@@ -978,3 +978,10 @@
     .rec-result:empty { display: none; }
 
     .diagnostics-preview { max-height: 420px; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface); border-radius: 10px; font-size: 12px; }
+
+    /* Charging stops on the way (#37) */
+    .cstops { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--expected); background: var(--surface); border-radius: 6px; }
+    .cstops-head { font-weight: 600; font-size: 13px; }
+    .cstops-group { margin: 8px 0 4px; }
+    .cstops ul { margin: 6px 0; padding-left: 18px; }
+    .cstops li { margin: 4px 0; font-size: 13px; }

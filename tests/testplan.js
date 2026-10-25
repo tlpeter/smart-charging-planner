@@ -37,6 +37,7 @@ const UNIT = [
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
   ['pricebasis', 'Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26)'],
   ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31)'],
+  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
 ];
 
@@ -47,6 +48,7 @@ const NOT_COVERED = [
   'Phase switching on a real charger: some chargers pause the session while switching.',
   'Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.',
   'Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.',
+  'Charging stops with the real Open Charge Map: the test uses fake stations; real station data can be incomplete, out of date or use other operator names.',
   'Two real chargers on one connection: the test checks the decisions, not how fast real chargers follow a lower current.',
   'Adding trips to a real calendar (Google, Local calendar, CalDAV): the fake calendar shows a new event right away; a real one can take a moment.',
   'The page itself (buttons, forms): checked with screenshots during development, not in this test.',

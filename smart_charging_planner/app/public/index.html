@@ -89,6 +89,29 @@
         <div class="error form-error" id="routing-error" hidden></div>
         <div id="routing-result"></div>
       </div>
+      <div class="card" id="cstops-card" data-guard="Charging stops">
+        <h2>Charging stops on the way</h2>
+        <p class="muted small">When a trip needs more than the battery holds, the app suggests public charging stations along the route, in the day's details under Looking ahead. Off by default.</p>
+        <div class="calendar-warning" id="cstops-routing" hidden>Charging stops need the route: choose OpenStreetMap or your own servers under <strong>Trip distances and privacy</strong> above.</div>
+        <ul class="muted small">
+          <li>The station list comes from <a href="https://openchargemap.org" target="_blank" rel="noopener">Open Charge Map</a>. It needs your own free API key (sign in on openchargemap.org › My profile › My apps).</li>
+          <li><strong>Sent to Open Charge Map:</strong> the route line from your home to the destination, and your key. Nothing else (no names, no times, no car data).</li>
+          <li>The station data is not live: a station can be busy or out of order. Check it in your charging app before you go.</li>
+        </ul>
+        <div class="field"><label class="check"><input type="checkbox" id="cstops-enabled"> Suggest charging stops when a trip needs more than the battery holds</label></div>
+        <div class="field"><label>Open Charge Map API key</label><input id="cstops-key" type="password" maxlength="80" autocomplete="off" placeholder="paste your key">
+          <p class="muted small" id="cstops-key-note"></p></div>
+        <div class="field"><label>Countries</label><div class="days" id="cstops-countries"></div></div>
+        <div class="field"><label>Preferred operators (optional)</label><div id="cstops-operators"></div>
+          <p class="muted small">Stations of these operators come first. Other operators are only shown when none of yours is on the way.</p></div>
+        <div class="field"><label>Connector</label><div class="days" id="cstops-connectors"></div></div>
+        <div class="field"><label>Minimum power (kW)</label><input id="cstops-power" type="number" min="3" max="400" step="1"></div>
+        <div class="field"><label>Maximum detour (km, there and back)</label><input id="cstops-detour" type="number" min="1" max="30" step="1"></div>
+        <div class="field"><label>Suggest a stop when the level drops below (%)</label><input id="cstops-reserve" type="number" min="0" max="50" step="1"></div>
+        <div class="buttons"><button class="primary" type="button" id="cstops-save" data-guard-save>Save</button></div>
+        <div class="error form-error" id="cstops-error" hidden></div>
+        <div id="cstops-result"></div>
+      </div>
       <div class="card" id="places-card">
         <h2>My places</h2>
         <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant. Enter the distance (one way, from home) yourself when you do not want the address looked up; a distance goes before the address.</p>

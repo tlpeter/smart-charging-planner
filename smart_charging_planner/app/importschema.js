@@ -69,6 +69,16 @@ function validateImportSettings(settings) {
     if (r.mode === 'custom' && (!r.geocode_url || !r.route_url)) bad('routing needs both server addresses for your own servers');
   }
 
+  // Charging stops on the way (#37): the same checks as saving them on Plan.
+  if (settings.charge_stops != null) {
+    objectAt(settings.charge_stops, 'charge_stops');
+    try {
+      require('./chargestops').clean(settings.charge_stops, {});
+    } catch (err) {
+      bad(`charge_stops: ${err.message}`);
+    }
+  }
+
   nestedObject(settings.prices, 'source', 'prices');
   nestedObject(settings.prices, 'fixed', 'prices');
   nestedObject(settings.prices, 'forecast', 'prices');

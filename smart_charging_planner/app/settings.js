@@ -25,6 +25,8 @@ const DEFAULTS = {
   // Trip distances (#31): which services may be asked. A new install has not
   // chosen yet (nothing is sent until you choose on Plan).
   routing: { mode: null, geocode_url: null, route_url: null, confirmed: false },
+  // Charging stops on the way (#37): off until you turn it on (Plan).
+  charge_stops: null,
 };
 
 // The planning settings come from the app's Configuration tab in Home

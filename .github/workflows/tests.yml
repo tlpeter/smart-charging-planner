@@ -35,7 +35,7 @@ jobs:
           --test-coverage-lines=40
           --test-coverage-functions=40
           --test-coverage-branches=30
-          tests/brands.test.js tests/cars.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/chargestate.test.js tests/notify.test.js tests/activecar.test.js tests/sharing.test.js tests/tripcost.test.js tests/routing.test.js tests/pricebasis.test.js tests/batteryguard.test.js tests/diagnostics.test.js
+          tests/brands.test.js tests/cars.test.js tests/solar.test.js tests/battery.test.js tests/reliability.test.js tests/chargestate.test.js tests/notify.test.js tests/activecar.test.js tests/sharing.test.js tests/tripcost.test.js tests/routing.test.js tests/chargestops.test.js tests/pricebasis.test.js tests/batteryguard.test.js tests/diagnostics.test.js
 
   unit:
     name: Unit tests

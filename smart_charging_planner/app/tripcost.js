@@ -354,7 +354,9 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
     return b.status === 'home' ? there.km : b.status === 'ok' ? b.km : there.km;
   })();
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(place ? { place, place_kind: kind } : {}) };
+  // lat/lon: where the destination is (for charging stops on the way, #37).
+  const at = Number.isFinite(there.lat) && Number.isFinite(there.lon) ? { lat: there.lat, lon: there.lon } : {};
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...at, ...(place ? { place, place_kind: kind } : {}) };
 }
 
 // A trip with more places in a row: home → first place → next place → … → home.

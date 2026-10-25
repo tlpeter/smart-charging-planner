@@ -1367,8 +1367,34 @@ function durationText(minutes) {
           ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
+          ${x.charge_stops ? chargeStopsHtml(x.charge_stops) : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
       };
+
+      // Charging stops on the way (#37): the suggestions, or why there are none.
+      function chargeStopsHtml(c) {
+        const where = 'Plan › Charging stops on the way';
+        const why = {
+          pending: 'Looking up charging stations along the route…',
+          needs_routing: 'Charging stops need the route: choose how under Plan › Trip distances and privacy.',
+          no_key: `Add your Open Charge Map API key under ${where}.`,
+          no_position: 'The destination has no position (only a distance you entered), so there is no route to search along.',
+          no_route: 'No route was found to the destination.',
+          bad_key: `Open Charge Map did not accept the API key (${where}).`,
+          failed: 'Charging stations could not be looked up. The app tries again later.',
+          none: `No charging station on the way fits your settings (power, connector, detour, country)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
+        };
+        // More than a full battery (from the reserve) short: one stop is not enough.
+        const more = c.need_pct > 100 - c.reserve_pct ? ' · more than one stop is needed' : '';
+        const need = `Charge on the way: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${more}`;
+        if (c.status !== 'ok') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
+        const items = c.stops.map((st) => `<li><a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}</span>` : ''}
+          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ~${esc(st.km_from_home)} km from home · +${esc(tidy(st.detour_km))} km detour</div></li>`).join('');
+        return `<div class="cstops"><div class="cstops-head">${need}</div>
+          ${c.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
+          <ul>${items}</ul>
+          <div class="muted small">Stations from Open Charge Map, closest to the route first. Not live: check availability in your charging app.</div></div>`;
+      }
 
       // One line per day; tap a day for all its details (the rows above).
       const when = (x) => (x.type === 'charge' ? x.start : x.time);
@@ -1409,9 +1435,10 @@ function durationText(minutes) {
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
+          const stopOnWay = b && b.x.charge_stops && b.x.charge_stops.status === 'ok' ? ' <span class="tl-p exp">charge on the way</span>' : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
-          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
           return;
         }
         if (used.has(i)) return;
@@ -2712,6 +2739,7 @@ function durationText(minutes) {
       try {
         const r = await api('POST', 'api/routing', { mode: $('routing-mode').value, geocode_url: $('routing-geocode').value.trim(), route_url: $('routing-route').value.trim() });
         showRouting(r.routing);
+        if (cstopsNow) $('cstops-routing').hidden = !!r.routing.online;
         $('routing-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved: ${esc(r.routing.label)}.</p>`;
         loadDepartures();
       } catch (e) {
@@ -2745,6 +2773,75 @@ function durationText(minutes) {
       try {
         const r = await api('POST', 'api/places', { places });
         $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost${routingNow && routingNow.online ? ' (an address is looked up in the background)' : ''}.</p>`;
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+    // ---------- Charging stops on the way (#37) ----------
+    let cstopsNow = null;
+    // Tick boxes: one per item, ticked when its id is in `on`.
+    const ticks = (box, items, on, name) => {
+      $(box).innerHTML = items.map((x) => `<label><input type="checkbox" name="${name}" value="${esc(x.id)}"${on.includes(x.id) ? ' checked' : ''}> ${esc(x.name)}</label>`).join('');
+    };
+    const ticked = (box) => [...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value);
+    // The operators of the countries that are ticked (a chosen operator stays visible).
+    function cstopsOperators(chosen) {
+      const c = cstopsNow;
+      if (!c) return;
+      const countries = ticked('cstops-countries');
+      const list = c.operator_list.filter((o) => o.countries.some((x) => countries.includes(x)) || chosen.includes(o.id));
+      // Two groups: mainly fast charging, and mainly normal charging.
+      const box = $('cstops-operators');
+      box.innerHTML = '';
+      for (const [fast, label] of [[true, 'Fast charging'], [false, 'Normal charging']]) {
+        const part = list.filter((o) => !!o.fast === fast);
+        if (!part.length) continue;
+        const group = document.createElement('div');
+        group.innerHTML = `<p class="muted small cstops-group">${label}</p><div class="days"></div>`;
+        group.lastChild.innerHTML = part.map((o) => `<label><input type="checkbox" name="cstops_operator" value="${esc(o.id)}"${chosen.includes(o.id) ? ' checked' : ''}> ${esc(o.name)}</label>`).join('');
+        box.appendChild(group);
+      }
+    }
+    function showCstops(c) {
+      cstopsNow = c;
+      $('cstops-enabled').checked = !!c.enabled;
+      $('cstops-key').value = '';
+      $('cstops-key-note').textContent = c.has_key ? 'A key is saved. Leave this empty to keep it.' : 'No key saved yet.';
+      $('cstops-routing').hidden = !!c.routing_online;
+      ticks('cstops-countries', c.country_list.map((x) => ({ id: x.code, name: x.name })), c.countries, 'cstops_country');
+      ticks('cstops-connectors', c.connector_list, c.connectors, 'cstops_connector');
+      cstopsOperators(c.operators);
+      $('cstops-power').value = c.min_power_kw;
+      $('cstops-detour').value = c.max_detour_km;
+      $('cstops-reserve').value = c.reserve_pct;
+    }
+    async function loadCstops() {
+      try {
+        showCstops((await api('GET', 'api/charge-stops')).charge_stops);
+      } catch (e) {
+        $('cstops-error').textContent = e.message;
+        $('cstops-error').hidden = false;
+      }
+    }
+    $('cstops-countries').addEventListener('change', () => cstopsOperators(ticked('cstops-operators')));
+    $('cstops-save').addEventListener('click', async () => {
+      const err = $('cstops-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/charge-stops', {
+          enabled: $('cstops-enabled').checked,
+          api_key: $('cstops-key').value.trim(),
+          countries: ticked('cstops-countries'),
+          operators: ticked('cstops-operators'),
+          connectors: ticked('cstops-connectors'),
+          min_power_kw: $('cstops-power').value,
+          max_detour_km: $('cstops-detour').value,
+          reserve_pct: $('cstops-reserve').value,
+        });
+        showCstops(r.charge_stops);
+        $('cstops-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Charging stops are ${r.charge_stops.enabled ? 'on' : 'off'}.</p>`;
         loadDepartures();
       } catch (e) {
         err.textContent = e.message;
@@ -3817,6 +3914,7 @@ function durationText(minutes) {
     loadStatus();
     loadPrices();
     loadPlaces();
+    loadCstops();
     loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.0-dev
+
+- **Charging stops on the way** (Plan, off by default): when a trip needs more than the battery holds, the day's details under Looking ahead suggest up to three public charging stations along the route, with how much to charge there. Choose the countries (Netherlands, Belgium), preferred operators, connector, minimum power, maximum detour and the level below which a stop is suggested. Station data comes from Open Charge Map with your own free API key; the route line goes to OSRM and Open Charge Map, nothing else. Only when Trip distances may go online. The data is not live. (#37)
+
 ## 0.34.1-dev
 
 - **Trip distances and privacy** (Plan): choose what may be sent to look up a trip's distance: the OpenStreetMap public services, your own Nominatim/OSRM servers, offline (zones, distances you enter, places looked up before), or off. The page says exactly what goes where. A new install sends nothing until you choose; an older install keeps OpenStreetMap and shows a notice until you confirm. My places can have a distance (km one way) instead of an address. (#31)

@@ -304,6 +304,22 @@ To know what a trip costs, the app needs its distance by road. Under **Plan › 
 
 No names, times or car data are sent. A **new install** sends nothing until you choose. An install from **before 0.34.1** keeps OpenStreetMap (as it did before) and shows a notice on Plan until you confirm or change it. Lookups that were waiting are dropped right away when you switch to Offline or Off. The choice is part of the settings export; the public diagnostics only show which choice it is, never the server addresses.
 
+### Charging stops on the way
+
+When a trip needs more than the battery holds, the app can suggest public charging stations along the route. Turn it on under **Plan › Charging stops on the way** (off by default). The suggestions are in the day's details under **Looking ahead**, below "Back home", and the day's line says **charge on the way**.
+
+- **When**: the level after the trip would drop below **Suggest a stop when the level drops below** (default 10 %). The app shows how much to charge on the way (in % and kWh) to stay above it.
+- **Needs**: Trip distances set to OpenStreetMap or your own servers (the route is needed), a destination with a position (an address or a zone, not only a distance you entered), and your own free **Open Charge Map API key** (sign in on openchargemap.org › My profile › My apps).
+- **What is sent**: the route line from your home to the destination goes to OSRM (the same server as for trip distances); that line and your key go to api.openchargemap.io (the key in a header, not in the address). No names, times or car data. Routes are remembered for 30 days, stations for a day.
+- **Countries**: the Netherlands and Belgium for now; stations in other countries are left out. Other European countries are planned (#40).
+- **Preferred operators** (optional): only stations of these operators are shown when one of them is on the way; otherwise the others, with a note. The list: Fastned, Tesla Supercharger, IONITY, Allego, Shell Recharge, bp pulse, TotalEnergies, Electra (BE), LEAP24, AVIA Volt, Tango (NL), Powerdale, DATS 24 (BE), and for normal charging Engie Vianeo, Lidl, Vattenfall InCharge, Equans, Eneco, PitPoint, Blue Corner, Wattif. The operator is recognised by its name in the station data.
+- **Connector** (CCS, CHAdeMO, Type 2) and **Minimum power** (default 50 kW): a station needs at least one of the chosen connectors with at least this power.
+- **Maximum detour** (default 5 km, there and back): how far off the route a station may be.
+- **Reach**: only stations the car reaches before it drops below the level above, on the way out (with the same 10 % margin as the trip cost).
+- **Order**: the smallest detour first, then the most power; at most three. Each links to the station on Open Charge Map.
+
+The station data is **not live**: a station can be busy, out of order or gone. Check it in your charging app before you go. Nothing is steered by it. A trip with more places in a row searches along the route from home to the first place. The API key is in the settings export (a backup stays private), never in the public diagnostics.
+
 **The chart** goes on to the last expected charging (up to 7 days ahead), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 
 This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.

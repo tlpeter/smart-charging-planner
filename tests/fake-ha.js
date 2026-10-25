@@ -438,8 +438,23 @@ function start(w, wsPort, restPort) {
     }
     if (req.url.startsWith('/route/')) {
       if (w.routeKm === null) { res.writeHead(503); res.end('{}'); return; }
+      // With a line (charging stops, #37): a straight line from start to end.
+      const u = new URL(req.url, 'http://x');
+      const line = u.searchParams.get('geometries') === 'polyline'
+        ? encodeLine(u.pathname.split('/').pop().split(';').map((x) => { const [lon, lat] = x.split(',').map(Number); return { lat, lon }; }))
+        : undefined;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000 }] }));
+      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000, ...(line ? { geometry: line } : {}) }] }));
+      return;
+    }
+    // Open Charge Map (charging stops, #37). w.stations: the answer;
+    // w.ocmStatus: an HTTP error instead; w.ocmCalls: what was asked.
+    if (req.url.startsWith('/ocm/')) {
+      const u = new URL(req.url, 'http://x');
+      (w.ocmCalls = w.ocmCalls || []).push({ key: req.headers['x-api-key'] || null, params: Object.fromEntries(u.searchParams) });
+      if (w.ocmStatus) { res.writeHead(w.ocmStatus); res.end('{}'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(w.stations || []));
       return;
     }
     let body = '';
@@ -461,4 +476,25 @@ function start(w, wsPort, restPort) {
   };
 }
 
-module.exports = { PROFILES, createWorld, start, TZ };
+// Google encoded polyline (precision 5), as OSRM sends it.
+function encodeLine(points) {
+  let out = '';
+  let pLat = 0;
+  let pLon = 0;
+  const enc = (v) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    let r = '';
+    while (n >= 0x20) { r += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+    return r + String.fromCharCode(n + 63);
+  };
+  for (const p of points) {
+    const lat = Math.round(p.lat * 1e5);
+    const lon = Math.round(p.lon * 1e5);
+    out += enc(lat - pLat) + enc(lon - pLon);
+    pLat = lat;
+    pLon = lon;
+  }
+  return out;
+}
+
+module.exports = { PROFILES, createWorld, start, TZ, encodeLine };

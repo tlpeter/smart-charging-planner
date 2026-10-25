@@ -114,6 +114,8 @@ async function startApp(options = {}) {
       SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
+      SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
+      SCP_OCM_GAP_MS: '50',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
     },
@@ -1963,6 +1965,87 @@ async function run() {
       world.events = [];
       world.soc = 100;
       return `Gym → 15.5 km (manual); unknown address offline: ${leaves[1].trip.reason}`;
+    });
+    await test('Y7c', 'Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing', async () => {
+      const r0 = await ok('GET', 'api/charge-stops');
+      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && r0.charge_stops.country_list.map((x) => x.code).join(',') === 'NL,BE', JSON.stringify(r0));
+      await refused('POST', 'api/charge-stops', { enabled: true, countries: ['NL'], connectors: ['ccs'] }, 'API key');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['DE'], connectors: ['ccs'] }, 'country');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], min_power_kw: 1000 }, 'between');
+      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
+      const on = await ok('POST', 'api/charge-stops', body);
+      assert(on.charge_stops.enabled && on.charge_stops.has_key && !JSON.stringify(on).includes('test-key-123'), JSON.stringify(on));
+      // Stations along the straight line from home (fake: 51.37, 5.19) to the destination.
+      const home = { lat: 51.37, lon: 5.19 };
+      const FAR = 'Verreweg 9, 1234 AB Farville';
+      world.places[FAR] = { lat: 52.37, lon: 4.9 };
+      const dest = world.places[FAR];
+      // dLon: east of the route (the route runs roughly north).
+      const along = (f, dLon = 0) => ({ lat: home.lat + (dest.lat - home.lat) * f, lon: home.lon + (dest.lon - home.lon) * f + dLon });
+      const poi = (id, op, p, country, conns, usage = 'Public') => ({ ID: id, OperatorInfo: { Title: op }, UsageType: { Title: usage }, StatusType: { IsOperational: true },
+        AddressInfo: { Title: `Station ${id}`, Town: 'Testdorp', Latitude: p.lat, Longitude: p.lon, Country: { ISOCode: country } }, Connections: conns });
+      const ccs = (kw) => ({ ConnectionTypeID: 33, ConnectionType: { Title: 'CCS (Type 2)' }, PowerKW: kw, Quantity: 2 });
+      const t2 = (kw) => ({ ConnectionTypeID: 25, ConnectionType: { Title: 'Type 2 (Socket Only)' }, PowerKW: kw, Quantity: 2 });
+      world.stations = [
+        poi(1, 'Fastned', along(0.5, 0.001), 'NL', [ccs(300)]),
+        poi(2, 'IONITY GmbH', along(0.4, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
+        poi(3, 'Shell Recharge', along(0.6), 'BE', [ccs(150)]), // another country
+        poi(4, 'Allego BV', along(0.3), 'NL', [t2(22)]), // too slow, wrong connector
+        poi(5, 'Fastned', along(0.7), 'NL', [ccs(300)], 'Private - Restricted Access'),
+        poi(6, 'Fastned', along(0.5, 0.12), 'NL', [ccs(300)]), // ~8 km off: too far
+      ];
+      world.ocmCalls = [];
+      world.routeKm = 250;
+      world.soc = 100;
+      world.events = [ev('Naar Lakeside', 'doel: 100', FAR, 1, 8, 18)];
+      // Wait until the trip's cost is known and (when on) the stations are looked up.
+      const stopsNow = async (want = true) => {
+        let back = null;
+        for (let i = 0; i < 15; i++) {
+          const p = await settle();
+          const tl = (p.next && p.next.timeline) || [];
+          const leave = tl.find((x) => x.type === 'leave');
+          back = tl.find((x) => x.type === 'back') || null;
+          if (leave && leave.trip && leave.trip.pct != null && back && (!want || (back.charge_stops && back.charge_stops.status !== 'pending'))) break;
+        }
+        return back;
+      };
+      let back = await stopsNow();
+      let c = back && back.charge_stops;
+      assert(back.soc < 10 && c && c.status === 'ok' && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
+      assert(c.stops.map((x) => x.id).join(',') === '1,2' && c.stops[0].operator === 'Fastned' && c.stops[0].power_kw === 300 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      const call = world.ocmCalls[0];
+      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5', JSON.stringify(world.ocmCalls));
+      // IONITY preferred: only IONITY, although Fastned is closer to the route.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.status === 'ok' && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
+      // A preferred operator that is not on the way: the others, marked as such.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.status === 'ok' && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      // Belgium too: the Shell station counts.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3', JSON.stringify(c.stops));
+      // Offline: nothing is sent, the trip says why.
+      const calls = world.ocmCalls.length;
+      await ok('POST', 'api/routing', { mode: 'offline' });
+      await ok('POST', 'api/places', { places: [{ name: 'Lakeside', address: '', km: 250 }] });
+      world.events = [ev('Naar Lakeside', 'doel: 100', 'Lakeside', 1, 8, 18)];
+      c = (await stopsNow()).charge_stops;
+      assert(c && c.status === 'needs_routing' && world.ocmCalls.length === calls, JSON.stringify(c));
+      // Off: no suggestions at all.
+      await ok('POST', 'api/routing', { mode: 'osm' });
+      await ok('POST', 'api/places', { places: [] });
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', enabled: false });
+      world.events = [ev('Naar Lakeside', 'doel: 100', FAR, 1, 8, 18)];
+      back = await stopsNow(false);
+      assert(back && back.soc < 10 && !back.charge_stops, JSON.stringify(back));
+      world.routeKm = 60;
+      world.events = [];
+      world.stations = [];
+      return 'Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent';
     });
     await test('Y8', 'Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery', async () => {
       await ok('POST', 'api/vehicles', vehicleBody({ range_entity: CAR.range }));
