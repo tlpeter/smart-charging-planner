@@ -14,13 +14,13 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 182 of 182 ✓ |
-| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 170 of 170 ✓ |
-| Unit tests (21 files) | 771 of 771 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 183 of 183 ✓ |
+| Settings B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 171 of 171 ✓ |
+| Unit tests (21 files) | 772 of 772 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.35.3-dev.
+Version: 0.35.4-dev.
 
 # Settings
 
@@ -43,7 +43,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 249 kB JS | ✓ 47 kB CSS, 249 kB JS |
+| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 250 kB JS | ✓ 47 kB CSS, 250 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ |
 
 ## B. Vehicle
@@ -95,8 +95,8 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 17 charged blocks, from 17.0 h back | ✓ 17 charged blocks, from 17.0 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks | ✓ 24 h: 8 blocks, 72 h: 56 blocks, 168 h: 152 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 18 charged blocks, from 17.3 h back | ✓ 18 charged blocks, from 17.3 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks | ✓ 24 h: 7 blocks, 72 h: 55 blocks, 168 h: 151 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ |
@@ -205,7 +205,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.41 | ✓ charges in 3 block(s), saving €1.32 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.39 | ✓ charges in 3 block(s), saving €1.30 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -287,6 +287,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "Northwind Labs"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
 | Y7b | Trip distances (#31): the choice is checked; offline sends nothing and uses a distance from My places; off shows no distance; back to OpenStreetMap | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off |
 | Y7c | Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent |
+| Y7c1 | Open Charge Map key (#42): saved state survives reload and empty saves; replacement and explicit removal persist without returning the secret | ✓ save → reload → keep → replace → remove; responses never include the key | ✓ save → reload → keep → replace → remove; responses never include the key |
 | Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 31.4% both times |
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
@@ -367,7 +368,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [pricebasis.test.js](#pricebasis) | Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26) | 4 of 4 ✓ |
 | [routing.test.js](#routing) | Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31) | 11 of 11 ✓ |
-| [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37) | 13 of 13 ✓ |
+| [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37) | 14 of 14 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 | [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 6 of 6 ✓ |
 
@@ -1324,7 +1325,7 @@ Trip distances and privacy: what is sent where for each choice, offline distance
 
 Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37).
 
-<details><summary>13 of 13 passed – show every check</summary>
+<details><summary>14 of 14 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1335,6 +1336,7 @@ Charging stops on the way: the route line, which stations count (country, power,
 | connectors: CCS is not counted as Type 2, CHAdeMO by id | ✓ |
 | stations that are not used: out of order, private, no known connector, no position | ✓ |
 | settings check: a key is needed when on, is kept when the page sends none, and has a safe form | ✓ |
+| saved-key display (#42): reload, replacement, failed save, removal and discard never expose the key | ✓ |
 | off, or the trip has enough: no suggestion and nothing sent | ✓ |
 | offline trip distances or no key: nothing is sent, the trip says why | ✓ |
 | the route and then the stations: the key goes in a header, the route as a line; only reachable stations | ✓ |
@@ -1365,9 +1367,9 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.35.3-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.35.3-dev) | ✓ |
-| README: every issue since 0.34.0 is under "Implemented on dev" (#41, #37, #31, #26) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.35.4-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.35.4-dev) | ✓ |
+| README: every issue since 0.34.0 is under "Implemented on dev" (#42, #41, #37, #31, #26) | ✓ |
 | RELEASE: every issue since 0.34.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
 
