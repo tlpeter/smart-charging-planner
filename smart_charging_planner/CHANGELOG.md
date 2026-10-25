@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.34.1-dev
+
+- **Trip distances and privacy** (Plan): choose what may be sent to look up a trip's distance: the OpenStreetMap public services, your own Nominatim/OSRM servers, offline (zones, distances you enter, places looked up before), or off. The page says exactly what goes where. A new install sends nothing until you choose; an older install keeps OpenStreetMap and shows a notice until you confirm. My places can have a distance (km one way) instead of an address. (#31)
+- **Forecast price basis** (Settings › Prices): what the forecast price is (excl. VAT, incl. VAT, all-in) must be chosen and is no longer copied from the real prices, so an all-in forecast does not get VAT a second time. Test shows how one forecast price is built and compares an hour that has both a real and a forecast price, with a warning when VAT looks applied twice or not at all. (#26)
+
 ## 0.33.7-dev
 
 - Tests now run against Home Assistant 2026.10.4. No app changes were needed.

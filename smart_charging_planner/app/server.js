@@ -13,7 +13,7 @@ const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
@@ -619,6 +619,7 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // so Plan and Home show what the trip costs without waiting for the refresh.
 // (The plan is kept until then: it is only marked as outdated.)
 tripcost.setSavedPlaces(() => settings.load().places || []);
+tripcost.setRouting(() => settings.load().routing || {});
 tripcost.onUpdate(() => {
   // Also count it, so a plan that was being calculated right now is not kept as fresh.
   for (const x of ST.all.values()) {
@@ -1054,7 +1055,8 @@ const routes = {
 
   // Fetch prices with the given (unsaved) settings and summarise them.
   'POST /api/prices/test': async (req) => {
-    const cfg = priceConfigFrom(await readBody(req));
+    // A test may run before the forecast basis is chosen; saving needs it (#26).
+    const cfg = priceConfigFrom(await readBody(req), { test: true });
     let result;
     try {
       result = await fetchPrices(cfg.source, ha.state.timeZone);
@@ -1634,7 +1636,36 @@ const routes = {
   // Zones in Home Assistant are used too (automatically), shown as a list.
   'GET /api/places': async () => {
     try { tripcost.setZones(await ha.call({ type: 'get_states' })); } catch { /* the list shows the last known zones */ }
-    return { places: settings.load().places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })) };
+    const s = settings.load();
+    return { places: s.places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })), routing: routingView(s.routing) };
+  },
+
+  // Trip distances (#31): which services may be asked to look up a trip.
+  'GET /api/routing': async () => ({ routing: routingView(settings.load().routing) }),
+
+  'POST /api/routing': async (req) => {
+    const body = (await readBody(req)) || {};
+    const mode = String(body.mode || '');
+    if (!tripcost.ROUTING_MODES.includes(mode)) throw badRequest('Choose how trip distances are looked up');
+    const url = (v, name) => {
+      const t = String(v || '').trim();
+      if (!t) throw badRequest(`${name}: enter the address of your server`);
+      let u;
+      try { u = new URL(t); } catch { throw badRequest(`${name}: not a valid web address`); }
+      if (!['http:', 'https:'].includes(u.protocol) || t.length > 200) throw badRequest(`${name}: use an http:// or https:// address (at most 200 characters)`);
+      if (u.username || u.password) throw badRequest(`${name}: no user name or password in the address`);
+      return t.replace(/\/+$/, '');
+    };
+    const routing = mode === 'custom'
+      ? { mode, geocode_url: url(body.geocode_url, 'Address search (Nominatim)'), route_url: url(body.route_url, 'Road distance (OSRM)'), confirmed: true }
+      : { mode, geocode_url: null, route_url: null, confirmed: true };
+    const s = settings.load();
+    s.routing = routing;
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    ha.log(`Trip distances: ${routingView(routing).label}`);
+    return { ok: true, routing: routingView(routing) };
   },
 
   'POST /api/places': async (req) => {
@@ -1646,13 +1677,16 @@ const routes = {
     const places = list.map((p) => {
       const name = String((p && p.name) || '').trim().replace(/\s+/g, ' ');
       const address = String((p && p.address) || '').trim().replace(/\s+/g, ' ');
+      const kmRaw = p && p.km !== undefined && p.km !== null && String(p.km).trim() !== '' ? Number(String(p.km).replace(',', '.')) : null;
       if (!name || name.length > 40) throw badRequest('Name: 1 to 40 characters');
-      if (address.length < 3 || address.length > 120) throw badRequest(`Address of ${name}: 3 to 120 characters`);
+      if (kmRaw !== null && !(kmRaw > 0 && kmRaw <= 2000)) throw badRequest(`Distance of ${name}: between 0 and 2000 km`);
+      if (!address && kmRaw === null) throw badRequest(`${name}: enter an address or a distance`);
+      if (address && (address.length < 3 || address.length > 120)) throw badRequest(`Address of ${name}: 3 to 120 characters`);
       if (tripcost.isHome(name)) throw badRequest(`"${name}" is your home: the app uses the home location of Home Assistant`);
       const key = name.toLowerCase();
       if (seen.has(key)) throw badRequest(`"${name}" is in the list twice`);
       seen.add(key);
-      return { name, address };
+      return { name, address, ...(kmRaw !== null ? { km: Math.round(kmRaw * 10) / 10 } : {}) };
     });
     const s = settings.load();
     s.places = places;
@@ -3883,7 +3917,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'routing', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {
@@ -4352,7 +4386,35 @@ async function forecastSummary(cfg, result) {
     const list = fc.prices;
     const avg = list.length ? list.reduce((a, p) => a + p.expected, 0) / list.length : null;
     const low = list.length ? list.reduce((a, p) => (p.expected < a.expected ? p : a)) : null;
+    const fcCosts = { ...cfg, price_type: cfg.forecast.price_type || cfg.price_type };
+    const warnings = [...fc.warnings];
+    if (cfg.forecast.basis_explicit === false) warnings.push('Choose what the forecast price is (excl. VAT, incl. VAT or all-in) before saving. It is not taken over from the real prices.');
+    else if (cfg.forecast.basis_explicit !== true) warnings.push('What the forecast price is was taken over from the real prices by an older version. Check "The forecast price is" against the sensor and save once.');
+    // The same hour in both: when the forecast sensor also has the real hours,
+    // compare them, so VAT applied twice (or not at all) shows (#26).
+    let overlap = null;
+    try {
+      const all = await fetchForecast(cfg.forecast, tz, result.window.start);
+      for (const f of all.prices) {
+        const real = result.prices.find((p) => p.start === f.start);
+        if (!real) continue;
+        const realTotal = totalPrice(real.price, cfg);
+        const fcTotal = totalPrice(f.price, fcCosts);
+        overlap = { start: f.start, real: priceBreakdown(real.price, cfg), forecast: priceBreakdown(f.price, fcCosts, fc.margin), ratio: realTotal > 0 ? fcTotal / realTotal : null };
+        break;
+      }
+    } catch { /* the comparison is extra: the summary stays */ }
+    const vat = 1 + (Number(cfg.vat_percent ?? 21) || 0) / 100;
+    if (overlap && overlap.ratio != null && vat > 1.05) {
+      const near = (x, y) => Math.abs(x / y - 1) < 0.04;
+      if (near(overlap.ratio, vat)) warnings.push(`At the same hour the forecast comes out ${Math.round((overlap.ratio - 1) * 100)}% above the real price: it probably already includes VAT. Check "The forecast price is".`);
+      else if (near(overlap.ratio, 1 / vat)) warnings.push(`At the same hour the forecast comes out ${Math.round((1 - overlap.ratio) * 100)}% below the real price: it is probably without VAT. Check "The forecast price is".`);
+    }
     return {
+      basis: cfg.forecast.price_type || cfg.price_type,
+      basis_explicit: cfg.forecast.basis_explicit === true,
+      example: list.length ? priceBreakdown(list[0].price, fcCosts, fc.margin, list[0].start) : null,
+      overlap,
       entity_id: cfg.forecast.entity_id,
       margin: fc.margin,
       count: list.length,
@@ -4360,11 +4422,25 @@ async function forecastSummary(cfg, result) {
       until: list.length ? list[list.length - 1].end : null,
       average: avg,
       lowest: low ? { start: low.start, end: low.end, total: low.expected } : null,
-      warnings: fc.warnings,
+      warnings,
     };
   } catch (err) {
     return { entity_id: cfg.forecast.entity_id, error: err.message };
   }
+}
+
+// The routing choice for the page: what is sent where, in plain words.
+function routingView(r) {
+  const rt = r || {};
+  const mode = tripcost.ROUTING_MODES.includes(rt.mode) ? rt.mode : null;
+  const host = (u) => { try { return new URL(u).host; } catch { return null; } };
+  const label = {
+    osm: 'OpenStreetMap public services (nominatim.openstreetmap.org, router.project-osrm.org)',
+    custom: `Your own servers (${host(rt.geocode_url) || '?'}, ${host(rt.route_url) || '?'})`,
+    offline: 'Offline: zones, distances you entered and places looked up before',
+    off: 'Off: no trip distances',
+  }[mode] || 'Not chosen yet: nothing is looked up';
+  return { mode, geocode_url: mode === 'custom' ? rt.geocode_url || null : null, route_url: mode === 'custom' ? rt.route_url || null : null, confirmed: !!rt.confirmed && !!mode, online: mode === 'osm' || mode === 'custom', label };
 }
 
 function badRequest(message) {
@@ -4374,7 +4450,7 @@ function badRequest(message) {
 }
 
 // Validate price settings sent by the page.
-function priceConfigFrom(body) {
+function priceConfigFrom(body, opts = {}) {
   const src = body.source || {};
   let source;
   if (src.type === 'action') {
@@ -4424,10 +4500,16 @@ function priceConfigFrom(body) {
   const fcEntity = String(body.forecast_entity || '');
   if (fcEntity) {
     if (!/^sensor\.[a-z0-9_]+$/.test(fcEntity)) throw badRequest('Invalid forecast sensor');
+    const margin = num(body.forecast_margin ?? 0.02, 'Forecast margin', 0, 0.5);
+    // The forecast's basis is never copied from the real prices (#26): a
+    // forecast that is already all-in would otherwise get VAT a second time.
+    const explicit = types.includes(body.forecast_price_type);
+    if (!explicit && !(opts && opts.test)) throw badRequest('Forecast: choose what the forecast price is (market price excl. VAT, incl. VAT, or all-in)');
     forecast = {
       entity_id: fcEntity,
-      price_type: types.includes(body.forecast_price_type) ? body.forecast_price_type : priceType,
-      margin: num(body.forecast_margin ?? 0.02, 'Forecast margin', 0, 0.5),
+      price_type: explicit ? body.forecast_price_type : priceType,
+      margin,
+      basis_explicit: explicit,
     };
   }
   return {

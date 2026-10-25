@@ -1284,7 +1284,7 @@ function durationText(minutes) {
 
     function tripText(t) {
       if (!t) return '';
-      const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
+      const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : t.how === 'manual' ? ' (distance you entered)' : '';
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
@@ -1299,6 +1299,9 @@ function durationText(minutes) {
           if (t.reason === 'not_an_address') return `Not an address, so the distance is not known${add}`;
           if (t.reason === 'not_found') return `${t.place ? `The address of ${esc(t.place)}` : 'The address'} was not found on OpenStreetMap${add}`;
           if (t.reason === 'no_location') return t.ask ? `No location in the event${add}` : '';
+          if (t.reason === 'routing_not_chosen') return `Distance not looked up: choose how under Plan › Trip distances${add}`;
+          if (t.reason === 'offline') return `Distance not known (offline): add a distance in My places${add}`;
+          if (t.reason === 'routing_off') return 'Trip distances are off (Plan › Trip distances)';
           return '';
         }
       }
@@ -2670,14 +2673,57 @@ function durationText(minutes) {
       const row = document.createElement('div');
       row.className = 'two place-row';
       row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Work" value="${esc(p.name || '')}"></div>
-        <div class="field"><label>Address</label><div class="place-addr"><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
+        <div class="field"><label>Address</label><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"></div>
+        <div class="field"><label>Distance (km, one way, optional)</label><div class="place-addr"><input name="place_km" type="number" min="0.1" max="2000" step="0.1" placeholder="looked up" value="${esc(p.km ?? '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
       row.querySelector('button').onclick = () => row.remove();
       $('places-list').appendChild(row);
       return row;
     }
+    // ---------- Trip distances (#31) ----------
+    let routingNow = null;
+    const ROUTING_HELP = {
+      '': 'Until you choose, nothing is looked up and trips show no distance.',
+      osm: 'Free public services run by volunteers, with fair-use limits. The app asks at most once per second and remembers every answer.',
+      custom: 'For a Nominatim and an OSRM server you run yourself, for example on your own network.',
+      offline: 'Nothing is sent. Zones in Home Assistant give the straight line × 1.3; places in My places need a distance; places looked up before keep their distance.',
+      off: 'Trips show no distance and no cost. Charging plans for departures still work.',
+    };
+    function syncRouting() {
+      const mode = $('routing-mode').value;
+      document.querySelectorAll('.routing-custom').forEach((el) => { el.hidden = mode !== 'custom'; });
+      $('routing-help').textContent = ROUTING_HELP[mode] || '';
+    }
+    function showRouting(r) {
+      routingNow = r;
+      $('routing-mode').value = r.mode || '';
+      $('routing-geocode').value = r.geocode_url || '';
+      $('routing-route').value = r.route_url || '';
+      const n = $('routing-notice');
+      n.hidden = !!r.confirmed;
+      n.textContent = !r.mode
+        ? 'Choose how trip distances are looked up. Until then nothing is sent and trips show no distance.'
+        : 'This app uses the OpenStreetMap public services to look up trip distances. Check below what is sent, and confirm or change it.';
+      syncRouting();
+    }
+    $('routing-mode').addEventListener('change', syncRouting);
+    $('routing-save').addEventListener('click', async () => {
+      const err = $('routing-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/routing', { mode: $('routing-mode').value, geocode_url: $('routing-geocode').value.trim(), route_url: $('routing-route').value.trim() });
+        showRouting(r.routing);
+        $('routing-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved: ${esc(r.routing.label)}.</p>`;
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+
     async function loadPlaces() {
       try {
         const r = await api('GET', 'api/places');
+        if (r.routing) showRouting(r.routing);
         $('places-list').innerHTML = '';
         r.places.forEach((p) => placeRow(p));
         if (!r.places.length) placeRow();
@@ -2694,11 +2740,11 @@ function durationText(minutes) {
       const err = $('places-error');
       err.hidden = true;
       const places = [...document.querySelectorAll('#places-list .place-row')]
-        .map((row) => ({ name: row.querySelector('[name=place_name]').value.trim(), address: row.querySelector('[name=place_address]').value.trim() }))
-        .filter((p) => p.name || p.address);
+        .map((row) => ({ name: row.querySelector('[name=place_name]').value.trim(), address: row.querySelector('[name=place_address]').value.trim(), km: row.querySelector('[name=place_km]').value.trim() }))
+        .filter((p) => p.name || p.address || p.km);
       try {
         const r = await api('POST', 'api/places', { places });
-        $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost (the address is looked up in the background).</p>`;
+        $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost${routingNow && routingNow.online ? ' (an address is looked up in the background)' : ''}.</p>`;
         loadDepartures();
       } catch (e) {
         err.textContent = e.message;
@@ -2756,6 +2802,18 @@ function durationText(minutes) {
       timeZone: priceTz, weekday: 'short', hour: '2-digit', minute: '2-digit',
     }).format(new Date(ms));
 
+    // How one price is built (#26): input → + fee and tax → × VAT → + margin.
+    function breakdownText(b) {
+      const n = (x) => Number(x).toFixed(4);
+      const basis = { market_excl_vat: 'excl. VAT', market_incl_vat: 'incl. VAT', all_in: 'all-in' }[b.basis] || b.basis;
+      let t = `${n(b.input)} <span class="muted small">(${esc(basis)})</span>`;
+      if (b.basis === 'market_excl_vat') t += ` + ${n(b.fee + b.tax)} fee and tax, × ${esc(1 + b.vat_percent / 100)} VAT`;
+      else if (b.basis === 'market_incl_vat') t += ` + ${n(b.fee + b.tax)} × ${esc(1 + b.vat_percent / 100)} (fee and tax with VAT)`;
+      t += ` = <strong>${n(b.total)}</strong>`;
+      if (b.margin) t += ` + margin ${n(b.margin)} = ${n(b.compared)}`;
+      return t;
+    }
+
     function forecastHtml(f) {
       if (!f) return '';
       const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
@@ -2765,6 +2823,8 @@ function durationText(minutes) {
         ${row('Forecast', `<span class="ok">${f.count}</span> prices, ${esc(fmtTime(f.from))} – ${esc(fmtTime(f.until))}`)}
         ${row('Forecast average (all-in)', `${fmtPrice(f.average)} <span class="muted small">+ margin ${Number(f.margin).toFixed(3)}</span>`)}
         ${row('Forecast lowest', f.lowest ? `${fmtPrice(f.lowest.total)} <span class="muted small">at ${esc(fmtTime(f.lowest.start))}</span>` : '–')}
+        ${f.example ? row('One forecast price', breakdownText(f.example)) : ''}
+        ${f.overlap ? row(`Same hour, ${esc(fmtTime(f.overlap.start))}`, `real ${breakdownText(f.overlap.real)}<br>forecast ${breakdownText(f.overlap.forecast)}`) : ''}
         ${(f.warnings || []).map((w) => `<div class="note">${esc(w)}</div>`).join('')}`;
     }
 
@@ -2845,6 +2905,7 @@ function durationText(minutes) {
       const f = $('prices-form');
       const id = f.forecast_entity.value;
       f.querySelectorAll('.fc-on').forEach((el) => { el.hidden = !id; });
+      f.forecast_price_type.required = !!id;
       const c = priceSources.find((x) => x.entity_id === id);
       $('forecast-detail').textContent = c
         ? `${c.detail}${c.forecast_capable ? '' : ' · this sensor does not seem to have prices after tomorrow'}${c.forecast_marked ? ' · only the hours after the last real price are used' : ''}`
@@ -2860,7 +2921,7 @@ function durationText(minutes) {
           ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
           : `Sensor attributes · ${src.detail}${src.note ? ` · ${src.note}` : ''}`;
       $('prices-form').price_type.value = src.price_type;
-      $('prices-form').forecast_price_type.value = src.price_type;
+      // The forecast's basis is chosen on its own, never copied (#26).
       showChoice(null);
       syncFixed();
     }

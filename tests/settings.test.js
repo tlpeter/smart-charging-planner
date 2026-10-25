@@ -89,6 +89,12 @@ async function startApp(options = {}) {
   await stopApp();
   if (!dataDir) dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-test-'));
   fs.writeFileSync(path.join(dataDir, 'options.json'), JSON.stringify({ log_level: 'info', ...options }));
+  // Trip distances (#31): a new install has not chosen yet. These tests use the
+  // fake OpenStreetMap server, as if the owner chose OpenStreetMap.
+  const settingsFile = path.join(dataDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
+    fs.writeFileSync(settingsFile, JSON.stringify({ routing: { mode: 'osm', geocode_url: null, route_url: null, confirmed: true } }));
+  }
   app = spawn(process.execPath, ['server.js'], {
     cwd: APP,
     env: {
@@ -394,6 +400,32 @@ async function run() {
       assert(p.price_warnings.length === 1, JSON.stringify(p.price_warnings));
       assert(p.price_warnings[0].includes('2026-10-25 02:00:00') && p.price_warnings[0].includes('sensor.stroom_prijzen_gecombineerd'), p.price_warnings[0]);
       return 'one source/date warning; valid prices still used';
+    } finally {
+      world.combined = combined;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+  await test('E12b', 'Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice', async () => {
+    const combined = world.combined;
+    const fcBody = (basis) => ({ source: ez, price_type: 'market_excl_vat', purchase_fee: 0, energy_tax: 0, vat_percent: 21, forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_margin: 0.02, ...(basis ? { forecast_price_type: basis } : {}) });
+    // The forecast sensor has consumer prices (already all-in) for the same hours as EnergyZero.
+    world.combined = () => world.energyzero().map((p) => ({ time: Date.parse(p.timestamp), price: Math.round(p.price * 1.21 * 10000) / 10000, source: 'forecast' }))
+      .concat(Array.from({ length: 72 }, (_, i) => ({ time: require(path.join(APP, 'prices.js')).localMidnight(fake.TZ, 2) + i * H, price: 0.2207, source: 'forecast' })));
+    try {
+      await refused('POST', 'api/prices', fcBody(null), 'choose what the forecast price is');
+      const loose = await ok('POST', 'api/prices/test', fcBody(null));
+      assert(loose.forecast && loose.forecast.basis_explicit === false && loose.forecast.warnings.some((w) => /choose what the forecast price is/i.test(w)), JSON.stringify(loose.forecast));
+      const wrong = await ok('POST', 'api/prices/test', fcBody('market_excl_vat'));
+      assert(wrong.forecast.overlap && Math.abs(wrong.forecast.overlap.ratio - 1.21) < 0.01, JSON.stringify(wrong.forecast.overlap));
+      assert(wrong.forecast.warnings.some((w) => /already includes VAT/.test(w)), JSON.stringify(wrong.forecast.warnings));
+      const right = await ok('POST', 'api/prices/test', fcBody('all_in'));
+      assert(Math.abs(right.forecast.overlap.ratio - 1) < 0.01 && !right.forecast.warnings.some((w) => /VAT/.test(w)), JSON.stringify(right.forecast));
+      const ex = right.forecast.example;
+      assert(ex && ex.basis === 'all_in' && Math.abs(ex.input - 0.2207) < 1e-9 && Math.abs(ex.compared - 0.2407) < 1e-9, JSON.stringify(ex));
+      await ok('POST', 'api/prices', fcBody('all_in'));
+      const saved = await ok('GET', 'api/prices');
+      assert(saved.prices.forecast.basis_explicit === true && saved.prices.forecast.price_type === 'all_in', JSON.stringify(saved.prices.forecast));
+      return `wrong basis: ratio ${wrong.forecast.overlap.ratio.toFixed(3)} with a warning; all-in: 0.2207 + 0.02 = ${ex.compared.toFixed(4)}`;
     } finally {
       world.combined = combined;
       await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
@@ -1900,6 +1932,37 @@ async function run() {
       world.zones = [];
       world.soc = 100;
       return `zone Werk → ${leaves[0].trip.km} km (${leaves[0].trip.how})`;
+    });
+    await test('Y7b', 'Trip distances (#31): the choice is checked; offline sends nothing and uses a distance from My places; off shows no distance; back to OpenStreetMap', async () => {
+      const r0 = await ok('GET', 'api/routing');
+      assert(r0.routing.mode === 'osm' && r0.routing.confirmed, JSON.stringify(r0));
+      await refused('POST', 'api/routing', { mode: 'everything' }, 'choose');
+      await refused('POST', 'api/routing', { mode: 'custom', geocode_url: '', route_url: '' }, 'server');
+      await refused('POST', 'api/routing', { mode: 'custom', geocode_url: 'ftp://geo.lan/search', route_url: 'https://osrm.lan/route/v1/driving' }, 'http');
+      await refused('POST', 'api/places', { places: [{ name: 'Gym', address: '' }] }, 'address or a distance');
+      await refused('POST', 'api/places', { places: [{ name: 'Gym', km: 5000 }] }, 'between');
+      const off = await ok('POST', 'api/routing', { mode: 'offline' });
+      assert(off.routing.mode === 'offline' && !off.routing.online && off.routing.confirmed, JSON.stringify(off));
+      await ok('POST', 'api/places', { places: [{ name: 'Gym', address: '', km: '15,5' }] });
+      world.soc = 80;
+      world.events = [
+        ev('Naar Gym', 'doel: 80', 'Gym', 1, 18, 20),
+        ev('Naar Ergens', 'doel: 80', 'Nieuwe Weg 7, 9999 ZZ Nergens', 2, 8, 18),
+      ];
+      let p = await settle();
+      let leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      assert(leaves[0].trip.status === 'ok' && leaves[0].trip.km === 15.5 && leaves[0].trip.how === 'manual' && leaves[0].trip.pct > 0, JSON.stringify(leaves[0].trip));
+      assert(leaves[1].trip.status === 'unknown' && leaves[1].trip.reason === 'offline', JSON.stringify(leaves[1].trip));
+      await ok('POST', 'api/routing', { mode: 'off' });
+      p = await settle();
+      leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      assert(leaves[1].trip.reason === 'routing_off', JSON.stringify(leaves[1].trip));
+      const back = await ok('POST', 'api/routing', { mode: 'osm' });
+      assert(back.routing.online && /openstreetmap/i.test(back.routing.label), JSON.stringify(back));
+      await ok('POST', 'api/places', { places: [] });
+      world.events = [];
+      world.soc = 100;
+      return `Gym → 15.5 km (manual); unknown address offline: ${leaves[1].trip.reason}`;
     });
     await test('Y8', 'Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery', async () => {
       await ok('POST', 'api/vehicles', vehicleBody({ range_entity: CAR.range }));

@@ -63,9 +63,35 @@
         <div class="error form-error" hidden></div>
         <div id="trip-result"></div>
       </form>
+      <div class="card" id="routing-card">
+        <h2>Trip distances and privacy</h2>
+        <div class="calendar-warning" id="routing-notice" hidden></div>
+        <p class="muted small">To show what a trip costs, the app needs the distance by road. Choose what may be sent to look it up:</p>
+        <ul class="muted small">
+          <li><strong>Address search</strong> receives the location text of your calendar trips and the addresses in My places.</li>
+          <li><strong>Road distance</strong> receives the coordinates of your home and of the destination.</li>
+        </ul>
+        <p class="muted small">Every place and route is looked up once and remembered in the app. Nothing else (no names, no times, no car data) is sent.</p>
+        <div class="field"><label>Look up trip distances with</label>
+          <select id="routing-mode">
+            <option value="">— choose —</option>
+            <option value="osm">OpenStreetMap public services (nominatim.openstreetmap.org, router.project-osrm.org)</option>
+            <option value="custom">My own servers (Nominatim and OSRM compatible)</option>
+            <option value="offline">Offline: zones and distances I enter, nothing is sent</option>
+            <option value="off">Off: no trip distances</option>
+          </select></div>
+        <div class="routing-custom" hidden>
+          <div class="field"><label>Address search (Nominatim) address</label><input id="routing-geocode" maxlength="200" placeholder="https://nominatim.example.lan/search"></div>
+          <div class="field"><label>Road distance (OSRM) address</label><input id="routing-route" maxlength="200" placeholder="https://osrm.example.lan/route/v1/driving"></div>
+        </div>
+        <p class="muted small" id="routing-help"></p>
+        <div class="buttons"><button class="primary" type="button" id="routing-save">Save</button></div>
+        <div class="error form-error" id="routing-error" hidden></div>
+        <div id="routing-result"></div>
+      </div>
       <div class="card" id="places-card">
         <h2>My places</h2>
-        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant. Enter the distance (one way, from home) yourself when you do not want the address looked up; a distance goes before the address.</p>
         <p class="muted small" id="places-zones"></p>
         <div id="places-list"></div>
         <div class="buttons">
@@ -453,10 +479,12 @@
           <div class="fc-on">
             <div class="field"><label>The forecast price is</label>
               <select name="forecast_price_type">
+                <option value="">— choose —</option>
                 <option value="market_excl_vat">Market price, excluding VAT</option>
                 <option value="market_incl_vat">Market price, including VAT</option>
                 <option value="all_in">All-in price (taxes and fees included)</option>
               </select></div>
+            <p class="muted small">Look at the sensor, not at the real prices: a forecast is often already all-in (for example a combined sensor with consumer prices). Test shows how one forecast price is built, and compares an hour that has both a real and a forecast price.</p>
             <div class="field"><label>Safety margin per kWh</label>
               <input name="forecast_margin" type="number" step="0.005" min="0" max="0.5" value="0.02"></div>
             <p class="muted small">Added to every forecast price, so the app only waits when the forecast is clearly cheaper. 0 = trust the forecast fully.</p>

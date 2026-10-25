@@ -960,9 +960,9 @@
 
     /* My places (Plan) */
     .place-addr { display: flex; gap: 8px; align-items: center; }
-    .place-addr input { flex: 1 1 auto; min-width: 0; }
+    .place-addr input { flex: 1 1 auto; min-width: 5.5em; }
     .place-addr .small-btn { flex: 0 0 auto; padding: 8px 12px; }
-    .two.place-row { grid-template-columns: 1fr 2fr; }
+    .two.place-row { grid-template-columns: 1fr 1.6fr 1.6fr; }
     @media (max-width: 520px) { .two.place-row { grid-template-columns: 1fr; } }
 
     /* Notifications: recipients */

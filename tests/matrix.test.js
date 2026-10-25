@@ -205,6 +205,12 @@ async function startApp(options) {
   await stopApp();
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-matrix-'));
   fs.writeFileSync(path.join(dataDir, 'options.json'), JSON.stringify({ log_level: 'info', ...options }));
+  // Trip distances (#31): a new install has not chosen yet. These tests use the
+  // fake OpenStreetMap server, as if the owner chose OpenStreetMap.
+  const settingsFile = path.join(dataDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
+    fs.writeFileSync(settingsFile, JSON.stringify({ routing: { mode: 'osm', geocode_url: null, route_url: null, confirmed: true } }));
+  }
   app = spawn(process.execPath, ['server.js'], {
     cwd: APP,
     env: {

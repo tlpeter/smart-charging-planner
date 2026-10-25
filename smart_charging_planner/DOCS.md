@@ -103,7 +103,11 @@ Real day-ahead prices are only known for today and, from about 13:00, tomorrow. 
 - Only the hours after the last real price are used, up to the departure. Without a departure the forecast is not used.
 - If a later day is expected to be cheaper, the plan waits. The app never charges on a forecast price; when the real prices come out the plan is recalculated, so a wrong forecast only costs the difference, never a late car.
 - The **safety margin** is added to every forecast price, so the app only waits when the forecast is clearly cheaper.
-- Choose whether the forecast is a market price or all-in. The fees, tax and VAT of the main source are used.
+- **Choose what the forecast price is** (market price excl. VAT, incl. VAT, or all-in). This is required and is never copied from the real prices: a forecast is often already a consumer price, and treating it as a market price would add VAT a second time. The fees, tax and VAT of the main source are used for a market-price forecast.
+- **Test** shows how one forecast price is built (input → + fee and tax → × VAT → + margin). When the sensor also has prices for hours that have a real price, Test compares one such hour. A forecast that comes out about 21 % above the real price probably already includes VAT; one about 17 % below is probably without VAT. Both give a warning.
+- Example: a combined sensor whose forecast is already all-in, 0.2207 per kWh, with a margin of 0.02: choose **All-in** and the app compares 0.2407. With "Market price, excl. VAT" it would wrongly compare 0.2207 × 1.21 + 0.02 = 0.2870.
+- **Combined sensor recipe**: one sensor with real prices and a forecast (entries marked `source: forecast`). Choose it as the price source with the basis of its real prices, and as the forecast sensor with the basis of its forecast prices. Run Test and check the "Same hour" line: real and forecast should be close.
+- Settings from before 0.34.1 took the basis over from the real prices. The Prices page asks to check it and save once.
 - A sensor that combines real prices and a forecast can be used for both: entries marked as a forecast (for example `source: forecast`) are skipped as real prices.
 
 ## Solar
@@ -278,14 +282,27 @@ Prices are known for a day or two (longer with a price forecast). Days after the
 When another trip is added to the calendar, it takes its place in the timeline right away.
 
 - **Zones in Home Assistant** (Settings › Areas, labels & zones › Zones), such as "Work": used automatically, with their GPS position, so no address is needed. A trip whose location is the zone's name ("Work"), or whose title is "To Work", goes to that zone. The Home zone is your home.
-- **My places** (Plan): names you use in the calendar, such as "Work" or "Gym", with their address. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
+- **My places** (Plan): names you use in the calendar, such as "Work" or "Gym", with their address, or a **distance** (km one way from home) you enter yourself. A distance goes before the address and is never looked up. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
 - Which place a trip goes to, first match wins: the event's location is a name from My places or a zone → that place; the location is a real address (with a house number) → that address; the title ("To Work") is a name from My places or a zone → that place; otherwise the location as it is (looked up on OpenStreetMap). When the distance of a trip is not known, Home says why and offers to add its name to My places. My places are part of the settings export.
 - **What a trip costs**: when the calendar event has an address in its location (for example "Main Street 12, 1234 AB Springfield"). Words like "Work" or "Home" are not addresses (see [Calendar words](#calendar-words)); put the full address in the location to see the cost.
-  - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
+  - **Distance**: depends on **Plan › Trip distances and privacy** (see below). With OpenStreetMap, the address is looked up with Nominatim and the distance by road with OSRM. When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
   - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
   - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "To Work" 06:00–16:30, then "To Gym" 16:30–20:30, then "Home"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
+
+### Trip distances and privacy
+
+To know what a trip costs, the app needs its distance by road. Under **Plan › Trip distances and privacy** you choose what may be sent:
+
+| Choice | What is sent, and where | Distances |
+| --- | --- | --- |
+| **OpenStreetMap public services** | The location text of calendar trips and the addresses in My places to nominatim.openstreetmap.org; the coordinates of your home and the destination to router.project-osrm.org. | By road |
+| **My own servers** | The same, but to a Nominatim- and an OSRM-compatible server you run yourself (http or https). | By road |
+| **Offline** | Nothing. | Zones: straight line × 1.3. My places: the distance you entered. Places looked up before keep their distance. |
+| **Off** | Nothing. | None; trips show no cost. Charging for departures works as before. |
+
+No names, times or car data are sent. A **new install** sends nothing until you choose. An install from **before 0.34.1** keeps OpenStreetMap (as it did before) and shows a notice on Plan until you confirm or change it. Lookups that were waiting are dropped right away when you switch to Offline or Off. The choice is part of the settings export; the public diagnostics only show which choice it is, never the server addresses.
 
 **The chart** goes on to the last expected charging (up to 7 days ahead), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 

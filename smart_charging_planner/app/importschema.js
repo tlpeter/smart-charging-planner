@@ -55,6 +55,20 @@ function validateImportSettings(settings) {
     if (settings[key] != null) objectAt(settings[key], key);
   }
 
+  // Trip distances (#31): only a known choice, and only web addresses for your own servers.
+  if (settings.routing != null) {
+    objectAt(settings.routing, 'routing');
+    const r = settings.routing;
+    if (r.mode != null && !['osm', 'custom', 'offline', 'off'].includes(r.mode)) bad('routing.mode is not a known choice');
+    for (const key of ['geocode_url', 'route_url']) {
+      if (r[key] == null) continue;
+      let u = null;
+      try { u = new URL(String(r[key])); } catch { /* checked below */ }
+      if (!u || !['http:', 'https:'].includes(u.protocol) || u.username || u.password || String(r[key]).length > 200) bad(`routing.${key} must be an http(s) address`);
+    }
+    if (r.mode === 'custom' && (!r.geocode_url || !r.route_url)) bad('routing needs both server addresses for your own servers');
+  }
+
   nestedObject(settings.prices, 'source', 'prices');
   nestedObject(settings.prices, 'fixed', 'prices');
   nestedObject(settings.prices, 'forecast', 'prices');
