@@ -14,7 +14,7 @@ const WebSocket = require(path.join(__dirname, '..', 'smart_charging_planner', '
 
 const HA_URL = process.env.HA_URL || 'http://127.0.0.1:8123';
 const HA_WS_URL = HA_URL.replace(/^http/, 'ws') + '/api/websocket';
-const EXPECTED_VERSION = process.env.HA_CORE_VERSION || '2026.10.3';
+const EXPECTED_VERSION = process.env.HA_CORE_VERSION || '2026.10.4';
 const APP = path.join(__dirname, '..', 'smart_charging_planner', 'app');
 const APP_PORT = Number(process.env.SCP_PORT) || 18099;
 

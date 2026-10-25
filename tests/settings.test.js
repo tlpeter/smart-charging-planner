@@ -280,9 +280,11 @@ async function run() {
     assert(comb && comb.forecast_capable && comb.forecast_marked > 0, 'combined sensor not recognised as forecast');
     assert(ids.includes('fixed'), 'no fixed tariff');
   });
-  await test('E2', 'Test shows 24 prices today and 24 tomorrow', async () => {
+  await test('E2', 'Test shows all prices today and tomorrow (23/24/25 hours on DST days)', async () => {
+    const { localMidnight } = require(path.join(APP, 'prices.js'));
+    const hours = (a, b) => Math.round((localMidnight(fake.TZ, b) - localMidnight(fake.TZ, a)) / 3600000);
     const r = await ok('POST', 'api/prices/test', { source: ez, price_type: 'all_in' });
-    assert(r.summary.count_today === 24 && r.summary.count_tomorrow === 24, `${r.summary.count_today}/${r.summary.count_tomorrow}`);
+    assert(r.summary.count_today === hours(0, 1) && r.summary.count_tomorrow === hours(1, 2), `${r.summary.count_today}/${r.summary.count_tomorrow}`);
   });
   await test('E3', 'Market price excl. VAT + fee + tax: all-in = (price + fee + tax) × 1.21', async () => {
     await ok('POST', 'api/prices', { source: ez, price_type: 'market_excl_vat', purchase_fee: 0.02, energy_tax: 0.10, vat_percent: 21 });
