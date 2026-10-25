@@ -20,7 +20,7 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.35.5-dev.
+Version: 0.35.6-dev.
 
 # Settings
 
@@ -36,6 +36,7 @@ Run one yourself (from the repository root, after `npm install` in `smart_chargi
 ```
 node tests/settings.test.js
 SCP_PROFILE=skoda_wallbox node tests/settings.test.js
+SCP_PROFILE=kia_zaptec node tests/settings.test.js
 ```
 
 ## A. Fresh install and checklist
@@ -95,7 +96,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 19 charged blocks, from 18.4 h back | ✓ 19 charged blocks, from 18.4 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 19 charged blocks, from 18.8 h back | ✓ 19 charged blocks, from 18.8 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
@@ -206,7 +207,7 @@ SCP_PROFILE=skoda_wallbox node tests/settings.test.js
 |---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.34 | ✓ charges in 3 block(s), saving €1.25 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.32 | ✓ charges in 3 block(s), saving €1.23 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -1386,8 +1387,8 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.35.5-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.35.5-dev) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.35.6-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.35.6-dev) | ✓ |
 | README: every issue since 0.34.0 is under "Implemented on dev" (#43, #42, #41, #37, #31, #26) | ✓ |
 | RELEASE: every issue since 0.34.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
