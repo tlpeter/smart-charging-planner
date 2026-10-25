@@ -9,6 +9,7 @@ const os = require('os');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const vm = require('vm');
 
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-chargestops-'));
 process.env.DATA_DIR = DATA;
@@ -145,6 +146,107 @@ async function main() {
     cfg = { enabled: true, api_key: 'abc-12345' };
     assert.ok(!JSON.stringify(cs.view()).includes('abc-12345'));
     assert.equal(cs.view().has_key, true);
+  });
+
+
+  await check('saved-key display (#42): reload, replacement, failed save, removal and discard never expose the key', async () => {
+    const source = fs.readFileSync(path.join(APP, 'public', 'app.js'), 'utf8');
+    const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+    const start = source.indexOf('    // ---------- Charging stops on the way (#37) ----------');
+    const end = source.indexOf('    // "Charge more for this trip?"', start);
+    assert.ok(start >= 0 && end > start, 'charging-stops UI section not found');
+    const elements = new Map();
+    const el = (id) => {
+      assert.ok(html.includes('id="' + id + '"'), 'missing UI element: ' + id);
+      if (!elements.has(id)) elements.set(id, { value: '', textContent: '', innerHTML: '', hidden: false, disabled: false, listeners: {},
+        addEventListener(type, fn) { this.listeners[type] = fn; }, appendChild() {} });
+      return elements.get(id);
+    };
+    let saved = cs.clean({ enabled: true, api_key: 'stored-secret-12345', countries: ['NL'], connectors: ['ccs'] }, {});
+    let fail = false;
+    let writes = 0;
+    let dirty = false;
+    const context = vm.createContext({
+      $: el, esc: String, loadDepartures() {},
+      unsavedGuard: { markDirty() { dirty = true; } },
+      document: {
+        querySelectorAll(selector) { return selector.includes('countries') ? [{ value: 'NL' }] : selector.includes('connectors') ? [{ value: 'ccs' }] : []; },
+        createElement() { return { innerHTML: '', lastChild: { innerHTML: '' } }; },
+      },
+      api: async (method, route, body) => {
+        assert.equal(method, 'POST');
+        assert.equal(route, 'api/charge-stops');
+        writes++;
+        if (fail) throw new Error('Save failed');
+        saved = cs.clean(body, saved);
+        return { charge_stops: cs.view(saved) };
+      },
+    });
+    vm.runInContext(source.slice(start, end), context);
+    const reload = () => context.showCstops(cs.view(saved));
+    const click = (id) => el(id).listeners.click();
+    const type = (value) => { el('cstops-key').value = value; el('cstops-key').listeners.input(); };
+    const noLeak = () => {
+      const display = [...elements.values()].map((x) => [x.value, x.placeholder, x.textContent, x.innerHTML].join(' ')).join(' ');
+      assert.ok(!display.includes(saved.api_key || 'impossible-empty-key'), 'saved key exposed by the UI');
+      assert.equal(el('cstops-key').value, '');
+    };
+    reload();
+    assert.match(el('cstops-key-state').textContent, /Key saved/);
+    assert.match(el('cstops-key').placeholder, /Key saved/);
+    assert.equal(el('cstops-key-remove').hidden, false);
+    noLeak();
+    // Empty means keep: saving unrelated settings must retain the real key.
+    await click('cstops-save');
+    assert.equal(saved.api_key, 'stored-secret-12345');
+    reload();
+    assert.match(el('cstops-key-state').textContent, /Key saved/);
+    // A replacement is only called saved after the server accepts it.
+    type('replacement-key-67890');
+    assert.match(el('cstops-key-state').textContent, /not saved/);
+    fail = true;
+    await click('cstops-save');
+    assert.equal(saved.api_key, 'stored-secret-12345');
+    assert.equal(el('cstops-error').hidden, false);
+    assert.match(el('cstops-key-state').textContent, /not saved/);
+    fail = false;
+    await click('cstops-save');
+    assert.equal(saved.api_key, 'replacement-key-67890');
+    noLeak();
+    // Remove is a draft: no request until Save; Discard restores the saved state.
+    const beforeRemove = writes;
+    click('cstops-key-remove');
+    assert.equal(writes, beforeRemove);
+    assert.equal(dirty, true);
+    assert.equal(el('cstops-enabled').checked, false);
+    assert.match(el('cstops-key-state').textContent, /Removal pending/);
+    assert.match(el('cstops-key-note').textContent, /Save to remove/);
+    const discard = source.match(/onDiscard: \(group\) => \{ if \(group.id === 'cstops-card' && cstopsNow\) showCstops\(cstopsNow\); \}/);
+    assert.ok(discard, 'discard must restore the saved charging-stop settings');
+    vm.runInContext('({' + discard[0] + "}).onDiscard({ id: 'cstops-card' })", context);
+    assert.match(el('cstops-key-state').textContent, /Key saved/);
+    assert.equal(el('cstops-enabled').checked, true);
+    assert.equal(saved.api_key, 'replacement-key-67890');
+    click('cstops-key-remove');
+    fail = true;
+    await click('cstops-save');
+    assert.equal(saved.api_key, 'replacement-key-67890');
+    assert.match(el('cstops-key-state').textContent, /Removal pending/);
+    fail = false;
+    await click('cstops-save');
+    assert.equal(saved.api_key, '');
+    assert.equal(saved.enabled, false);
+    reload();
+    assert.equal(el('cstops-key-state').textContent, 'No key saved');
+    assert.equal(el('cstops-key-remove').hidden, true);
+    // Entering a replacement after Remove cancels the pending clear.
+    saved = cs.clean({ enabled: false, api_key: 'restored-key-12345', countries: ['NL'], connectors: ['ccs'] }, {});
+    reload();
+    click('cstops-key-remove');
+    type('next-key-67890');
+    await click('cstops-save');
+    assert.equal(saved.api_key, 'next-key-67890');
+    noLeak();
   });
 
   await check('off, or the trip has enough: no suggestion and nothing sent', async () => {

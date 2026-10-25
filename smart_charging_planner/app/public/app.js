@@ -2784,6 +2784,18 @@ function durationText(minutes) {
     });
     // ---------- Charging stops on the way (#37) ----------
     let cstopsNow = null;
+    let cstopsClearKey = false;
+    function showCstopsKey() {
+      const pending = $('cstops-key').value.trim() !== '';
+      const saved = !!(cstopsNow && cstopsNow.has_key);
+      const state = $('cstops-key-state');
+      state.textContent = cstopsClearKey ? 'Removal pending' : pending ? 'New key — not saved' : saved ? '✓ Key saved' : 'No key saved';
+      state.className = 'cstops-key-state' + (saved && !pending && !cstopsClearKey ? ' saved' : '');
+      $('cstops-key').placeholder = saved ? 'Key saved — enter a new key to replace it' : 'Paste your key';
+      $('cstops-key-note').textContent = cstopsClearKey ? 'Save to remove the key and turn charging stops off. Discard keeps your saved key.' : pending ? 'Save to store this key. The saved key is never shown here.' : saved ? 'Leave this empty to keep your saved key, or enter a new one to replace it.' : 'Paste your Open Charge Map API key, then Save.';
+      $('cstops-key-remove').hidden = !saved;
+      $('cstops-key-remove').disabled = cstopsClearKey;
+    }
     // Tick boxes: one per item, ticked when its id is in `on`.
     const ticks = (box, items, on, name) => {
       $(box).innerHTML = items.map((x) => `<label><input type="checkbox" name="${name}" value="${esc(x.id)}"${on.includes(x.id) ? ' checked' : ''}> ${esc(x.name)}</label>`).join('');
@@ -2809,9 +2821,10 @@ function durationText(minutes) {
     }
     function showCstops(c) {
       cstopsNow = c;
+      cstopsClearKey = false;
       $('cstops-enabled').checked = !!c.enabled;
       $('cstops-key').value = '';
-      $('cstops-key-note').textContent = c.has_key ? 'A key is saved. Leave this empty to keep it.' : 'No key saved yet.';
+      showCstopsKey();
       $('cstops-routing').hidden = !!c.routing_online;
       ticks('cstops-countries', c.country_list.map((x) => ({ id: x.code, name: x.name })), c.countries, 'cstops_country');
       ticks('cstops-connectors', c.connector_list, c.connectors, 'cstops_connector');
@@ -2828,6 +2841,18 @@ function durationText(minutes) {
         $('cstops-error').hidden = false;
       }
     }
+    $('cstops-key').addEventListener('input', () => {
+      if ($('cstops-key').value.trim()) cstopsClearKey = false;
+      showCstopsKey();
+    });
+    $('cstops-key-remove').addEventListener('click', () => {
+      cstopsClearKey = true;
+      $('cstops-key').value = '';
+      $('cstops-enabled').checked = false;
+      $('cstops-result').textContent = '';
+      showCstopsKey();
+      unsavedGuard.markDirty($('cstops-card'));
+    });
     $('cstops-countries').addEventListener('change', () => cstopsOperators(ticked('cstops-operators')));
     $('cstops-save').addEventListener('click', async () => {
       const err = $('cstops-error');
@@ -2836,6 +2861,7 @@ function durationText(minutes) {
         const r = await api('POST', 'api/charge-stops', {
           enabled: $('cstops-enabled').checked,
           api_key: $('cstops-key').value.trim(),
+          clear_key: cstopsClearKey,
           countries: ticked('cstops-countries'),
           operators: ticked('cstops-operators'),
           connectors: ticked('cstops-connectors'),
@@ -3905,6 +3931,7 @@ function durationText(minutes) {
     unsavedGuard.init({
       nav: '#main-nav .tab, #settings-nav .subtab, #history-nav .subtab, #charger-bar [data-bar], [data-goto]',
       scope: (form) => { const s = form.closest('main > section'); return !!s && GUARDED.includes(s.id); },
+      onDiscard: (group) => { if (group.id === 'cstops-card' && cstopsNow) showCstops(cstopsNow); },
     });
     for (const kind of Object.keys(SECTIONS)) {
       sectionShell(kind);

@@ -112,6 +112,9 @@
       padding: 2px 10px; font-size: 12px; color: var(--muted); margin-right: 6px;
     }
     .field { margin: 12px 0; }
+    .cstops-key-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .cstops-key-state { display: inline-block; padding: 6px 10px; border-radius: 999px; background: var(--chip); color: var(--muted); font-size: 13px; font-weight: 600; }
+    .cstops-key-state.saved { background: rgba(var(--rgb-green), 0.14); color: var(--good); }
     .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
     select, input {
       width: 100%; padding: 8px 10px; font: inherit; color: var(--text);

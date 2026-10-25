@@ -2047,6 +2047,27 @@ async function run() {
       world.stations = [];
       return 'Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent';
     });
+    await test('Y7c1', 'Open Charge Map key (#42): saved state survives reload and empty saves; replacement and explicit removal persist without returning the secret', async () => {
+      const body = { enabled: false, api_key: 'saved-key-12345', countries: ['NL'], connectors: ['ccs'] };
+      const safe = (r, hasKey) => {
+        assert(r.charge_stops.has_key === hasKey, JSON.stringify(r));
+        assert(!Object.hasOwn(r.charge_stops, 'api_key'), 'API returned the key field');
+        assert(!JSON.stringify(r).includes('saved-key-12345') && !JSON.stringify(r).includes('replacement-key-67890'), 'API exposed a secret');
+      };
+      safe(await ok('POST', 'api/charge-stops', body), true);
+      safe(await ok('GET', 'api/charge-stops'), true);
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: '' }), true);
+      let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === body.api_key, 'empty save removed the key');
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: 'replacement-key-67890' }), true);
+      stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === 'replacement-key-67890', 'replacement not stored');
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: '', clear_key: true }), false);
+      safe(await ok('GET', 'api/charge-stops'), false);
+      stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === '' && stored.charge_stops.enabled === false, 'key removal not stored');
+      return 'save → reload → keep → replace → remove; responses never include the key';
+    });
     await test('Y8', 'Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery', async () => {
       await ok('POST', 'api/vehicles', vehicleBody({ range_entity: CAR.range }));
       world.soc = 50;

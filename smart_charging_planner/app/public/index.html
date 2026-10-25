@@ -99,7 +99,10 @@
           <li>The station data is not live: a station can be busy or out of order. Check it in your charging app before you go.</li>
         </ul>
         <div class="field"><label class="check"><input type="checkbox" id="cstops-enabled"> Suggest charging stops when a trip needs more than the battery holds</label></div>
-        <div class="field"><label>Open Charge Map API key</label><input id="cstops-key" type="password" maxlength="80" autocomplete="off" placeholder="paste your key">
+        <div class="field"><label for="cstops-key">Open Charge Map API key</label>
+          <div class="cstops-key-actions"><span id="cstops-key-state" class="cstops-key-state" role="status" aria-live="polite">Loading key status…</span>
+            <button class="secondary" type="button" id="cstops-key-remove" hidden>Remove key</button></div>
+          <input id="cstops-key" type="password" maxlength="80" autocomplete="off" placeholder="Paste your key" aria-describedby="cstops-key-state cstops-key-note">
           <p class="muted small" id="cstops-key-note"></p></div>
         <div class="field"><label>Countries</label><div class="days" id="cstops-countries"></div></div>
         <div class="field"><label>Preferred operators (optional)</label><div id="cstops-operators"></div>

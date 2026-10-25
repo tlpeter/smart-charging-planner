@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.4-dev
+
+- **Open Charge Map key:** a clear Key saved badge and placeholder stay visible after saving and reloading. A replacement is marked as unsaved until Save succeeds. Remove key takes effect on Save and turns charging stops off; Discard keeps the saved key. The stored key is never sent to the page. (#42)
+
 ## 0.35.3-dev
 
 - **Charging stops: the right side of the road.** The detour of a suggested station is now the real detour by road (OSRM), not the straight distance to the route. A service area on the other side of a motorway, which needs a drive to the next exit and back, no longer looks like a stop on the way; it is only shown when nothing else fits, marked as a longer detour. When the car gets to the destination with enough left, the stop is suggested on the way back, so on the side of the road going home. (#41)
