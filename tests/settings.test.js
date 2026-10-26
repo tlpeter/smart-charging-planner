@@ -2472,6 +2472,46 @@ async function run() {
       world.events = [];
       return 'way back: one press; a trip home without "precondition": none';
     });
+    await test('Y23', 'Preconditioning for the weekly schedule and a one-off departure (#45): the day\'s tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const soon = Date.now() + 10 * 60000;
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(soon)).map((x) => [x.type, x.value]));
+      const dayKey = parts.weekday.slice(0, 3).toLowerCase();
+      const hhmm = `${parts.hour}:${parts.minute}`;
+      const sched = (pre) => {
+        const b = depBody({ schedule_enabled: true, calendar: { enabled: false, entity: null, match: 'target', buffer_minutes: 0, soc: 80 } });
+        for (const k of Object.keys(b.schedule)) b.schedule[k] = { ...b.schedule[k], enabled: k === dayKey, time: k === dayKey ? hhmm : b.schedule[k].time, precondition: k === dayKey && pre };
+        return b;
+      };
+      world.events = [];
+      // Without the tick: nothing.
+      await ok('POST', 'api/departures', sched(false));
+      let n0 = world.calls.length;
+      let r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.length === 0, JSON.stringify(r.upcoming));
+      await sleep(1500);
+      assert(presses(n0).length === 0, `pressed: ${presses(n0).length}`);
+      // With the tick: one press.
+      await ok('POST', 'api/departures', sched(true));
+      const saved = await ok('GET', 'api/departures');
+      assert(saved.departures.schedule[dayKey].precondition === true, JSON.stringify(saved.departures.schedule[dayKey]));
+      n0 = world.calls.length;
+      r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.length >= 1 && r.upcoming.every((m) => m.source === 'schedule') && r.upcoming[0].until - Date.now() < 11 * 60000, JSON.stringify(r.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      // A one-off departure with its tick.
+      await ok('POST', 'api/departures', sched(false));
+      const ovAt = Date.now() + 12 * 60000;
+      const op = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ovAt)).map((x) => [x.type, x.value]));
+      await ok('POST', 'api/departures/override', { datetime: `${op.year}-${op.month}-${op.day}T${op.hour}:${op.minute}`, soc: 80, precondition: true });
+      n0 = world.calls.length;
+      r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.some((m) => m.source === 'override'), JSON.stringify(r.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await api('DELETE', 'api/departures/override');
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      return `schedule ${dayKey} ${hhmm}: one press with the tick, none without; one-off: one press`;
+    });
   }
 
   group = 'Z. Apple iCloud calendar (read only)';

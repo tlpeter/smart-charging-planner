@@ -173,7 +173,6 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 - [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 - [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
-- [ ] Preconditioning for every departure source: weekly schedule, helper and one-off, not only the calendar. [#45](https://github.com/tlpeter/smart-charging-planner/issues/45)
 
 ### Reliability and usability (P2)
 
@@ -195,6 +194,7 @@ These enhancements are implemented on the [dev branch](https://github.com/tlpete
 - [x] Suggest charging stations along routes that exceed the usable battery range (Netherlands and Belgium), with country, operator, connector, power and detour preferences, from Open Charge Map. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
 - [x] Charging stops are on the side of the road you drive on: real detour by road, a stop on the way back when that fits. [#41](https://github.com/tlpeter/smart-charging-planner/issues/41)
 - [x] Start preconditioning before a calendar departure with "precondition: yes", and on the way back (an event decides, else a setting). [#44](https://github.com/tlpeter/smart-charging-planner/issues/44)
+- [x] Preconditioning for every departure source: weekly schedule, helper and one-off, not only the calendar. [#45](https://github.com/tlpeter/smart-charging-planner/issues/45)
 
 - [x] Show whether the Open Charge Map key is saved, keep it private, and allow explicit removal on Save. [#42](https://github.com/tlpeter/smart-charging-planner/issues/42)
 

@@ -132,7 +132,7 @@
         <div class="card">
           <h2>Weekly schedule</h2>
           <label class="check"><input type="checkbox" name="schedule_enabled"> Use the weekly schedule</label>
-          <table class="periods sched"><tr><th>Day</th><th>On</th><th>Ready by</th><th class="n">Battery %</th></tr><tbody id="dep-days"></tbody></table>
+          <table class="periods sched"><tr><th>Day</th><th>On</th><th>Ready by</th><th class="n">Battery %</th><th title="Preconditioning before this departure (Settings › Rules)">Precondition</th></tr><tbody id="dep-days"></tbody></table>
           <div class="field"><label>Default battery level (%) – used when a source gives no level</label>
             <input name="default_soc" type="number" min="10" max="100" step="1"></div>
         </div>
@@ -144,6 +144,9 @@
             <div class="field"><label>Date/time helper</label><select name="helper_datetime"></select></div>
             <div class="field"><label>Battery level helper (optional)</label><select name="helper_soc"></select></div>
           </div>
+          <label class="check"><input type="checkbox" name="helper_precondition"> Precondition before a helper departure</label>
+          <div class="field"><label>Or let an on/off entity decide (optional, only read)</label><select name="helper_precondition_entity"></select>
+            <p class="muted small">When chosen, preconditioning happens when this entity is "on" at the departure. Preconditioning itself is set up under Settings › Rules.</p></div>
         </div>
         <div class="card">
           <h2>Calendar</h2>
@@ -248,7 +251,7 @@
         <h2 data-icon="clock" data-color="orange">Preconditioning before a departure</h2>
         <p class="muted small">The app asks the car to heat or cool a few minutes before it leaves. The car does not need to be plugged in; when it is, the charger stays on, so the energy comes from the grid. Off by default.</p>
         <ul class="muted small">
-          <li><strong>From home:</strong> only a calendar trip with <code>precondition: yes</code> (or <code>precondition: ja</code>).</li>
+          <li><strong>From home:</strong> a calendar trip with <code>precondition: yes</code> (or <code>precondition: ja</code>), and a departure from the weekly schedule, the helper or a one-off departure with its <em>Precondition</em> tick (Plan).</li>
           <li><strong>Next drive of a trip</strong> (on to the next place, or a trip home in the calendar): that event decides; without <code>precondition: yes</code> nothing happens.</li>
           <li><strong>No event for the drive home</strong>: the setting <em>Preconditioning on the way back</em> below decides, before the event ends.</li>
         </ul>

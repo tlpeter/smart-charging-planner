@@ -2209,16 +2209,17 @@ function durationText(minutes) {
         $('dep-override').innerHTML = `
           <h2>One-off departure</h2>
           <p class="muted small">For a trip that differs from normal. It has the highest priority and is removed automatically after it has passed.</p>
-          ${ov ? `<div class="row"><span>${esc(depWhen(ov.time))} · ${esc(ov.soc)}%</span><button class="secondary" id="ov-clear">Remove</button></div>` : ''}
+          ${ov ? `<div class="row"><span>${esc(depWhen(ov.time))} · ${esc(ov.soc)}%${ov.precondition ? ' · precondition' : ''}</span><button class="secondary" id="ov-clear">Remove</button></div>` : ''}
           <div class="two">
             <div class="field"><label>Leave at</label><input type="datetime-local" id="ov-time" value="${ov ? localInputValue(ov.time) : ''}"></div>
             <div class="field"><label>Battery level (%)</label><input type="number" id="ov-soc" min="10" max="100" step="1" value="${ov ? ov.soc : 100}"></div>
           </div>
+          <label class="check"><input type="checkbox" id="ov-pre" ${ov && ov.precondition ? 'checked' : ''}> Precondition before this departure</label>
           <div class="buttons"><button class="primary" id="ov-set">${ov ? 'Change' : 'Set one-off departure'}</button></div>
           <div class="error" id="ov-error" hidden></div>`;
         $('ov-set').onclick = async () => {
           try {
-            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, vehicle_id: depCar });
+            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, precondition: $('ov-pre').checked, vehicle_id: depCar });
             loadDepartures();
           } catch (err) {
             $('ov-error').textContent = err.message;
@@ -2236,10 +2237,13 @@ function durationText(minutes) {
           <tr><td>${DAY_NAMES[k]}</td>
             <td><input type="checkbox" name="${k}_on" ${dep.schedule[k].enabled ? 'checked' : ''}></td>
             <td><input type="time" name="${k}_time" value="${esc(dep.schedule[k].time)}"></td>
-            <td class="n"><input type="number" name="${k}_soc" min="10" max="100" step="1" value="${esc(dep.schedule[k].soc)}" style="width:80px"></td></tr>`).join('');
+            <td class="n"><input type="number" name="${k}_soc" min="10" max="100" step="1" value="${esc(dep.schedule[k].soc)}" style="width:80px"></td>
+            <td><input type="checkbox" name="${k}_pre" ${dep.schedule[k].precondition ? 'checked' : ''} title="Precondition before this departure"></td></tr>`).join('');
         f.helper_enabled.checked = dep.helper.enabled;
         f.helper_datetime.innerHTML = entityOptions(d.options.input_datetime, dep.helper.datetime_entity, '— choose —');
         f.helper_soc.innerHTML = entityOptions(d.options.input_number, dep.helper.soc_entity, '— none: use the default level —');
+        f.helper_precondition.checked = !!dep.helper.precondition;
+        f.helper_precondition_entity.innerHTML = entityOptions(d.options.on_off || [], dep.helper.precondition_entity, '— none: use the tick above —');
         f.cal_enabled.checked = dep.calendar.enabled;
         f.cal_entity.innerHTML = entityOptions(d.options.calendar.map((c) => ({ ...c, name: c.writable ? c.name : `${c.name} – read only` })), dep.calendar.entity, '— choose —');
         f.cal_match.value = dep.calendar.match || 'target';
@@ -2262,14 +2266,14 @@ function durationText(minutes) {
       errBox.hidden = true;
       const schedule = {};
       for (const k of DAY_KEYS) {
-        schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value };
+        schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value, precondition: f[`${k}_pre`].checked };
       }
       const body = {
         vehicle_id: depCar,
         schedule_enabled: f.schedule_enabled.checked,
         schedule,
         default_soc: f.default_soc.value,
-        helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
+        helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value, precondition: f.helper_precondition.checked, precondition_entity: f.helper_precondition_entity.value || null },
         calendar: {
           enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
           buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value, language: f.cal_language.value,

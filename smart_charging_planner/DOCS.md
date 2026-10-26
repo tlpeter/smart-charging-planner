@@ -336,14 +336,14 @@ Under **Settings › Rules › Preconditioning before a departure** (per car, of
 - **What the app turns on**: one switch (turned on) or button (pressed) of your car, for example Renault's "Start air conditioner". Helpers, scripts, automations and climate entities are never controlled by this app; use a switch or button of the car's own integration.
 - **When**: **Minutes before departure** (default 15, 5–60) before the drive.
 - **Which drives** (the calendar first):
-  1. From home: only a calendar trip with `precondition: yes` (or `ja`).
+  1. From home: a calendar trip with `precondition: yes` (or `ja`), and a departure from the **weekly schedule** (the **Precondition** tick of that day), the **helper** (its tick, or an on/off entity you choose that is only read: "on" means precondition) or a **one-off departure** (its tick). On a day where a calendar trip wins, the calendar rules count. A Ready-for choice follows the departure it is based on.
   2. The next drive of a trip (on to the next place, for example work and then sport) and a trip home in the calendar ("To home" / "Naar huis"): that event decides. With `precondition: yes` on, without it (or with `no`) off; the setting below does not count then.
   3. No event for the drive home (the car comes home at the end of the event): **Preconditioning on the way back** decides. When on, the app asks the set minutes before the event ends (for example "Work 06:30–16:30" → 16:15).
 - **Plugged in or not**: not needed. When the car is plugged in, the charger stays on during preconditioning, so the energy comes from the grid.
 - **Once**: one request per drive, tried once more when the command fails. The request is saved before it is sent, so after a restart it is not sent twice (a second button press could switch it off again).
 - **Switch off again**: a switch the app turned on for a drive from home is turned off 15 minutes after the departure time when the car is still plugged in (it did not leave). A button is never pressed again. On the way back nothing is turned off: the car is driving.
 - **Allow control off**: nothing is sent; Looking ahead shows the moment as advice.
-- **Visible**: Looking ahead shows "Preconditioning for …" with the time, and whether it was asked. The weekly schedule and the helper are not used for this yet; only calendar trips.
+- **Visible**: Looking ahead shows "Preconditioning for …" with the time, and whether it was asked. Only calendar events have an end time, so the way back only follows calendar trips.
 
 A command the car's cloud accepts is not proof that the car started: check it in the car's app the first times.
 

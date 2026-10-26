@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.8-dev
+
+- **Preconditioning for every departure source:** the weekly schedule has a **Precondition** tick per day, the helper a tick (or an on/off entity that is only read and decides per departure), and the one-off departure a tick. Such a departure asks for preconditioning the set minutes before, like a calendar trip with `precondition: yes`. A day where a calendar trip wins is left to the calendar. Ready-for choices follow the departure they are based on. (#45)
+
 ## 0.35.7-dev
 
 - **Preconditioning before a departure** (Settings › Rules, per car, off by default): the app presses a button or turns on a switch of your car (for example "Start air conditioner") a set number of minutes before it leaves, default 15. From home only for a calendar trip with `precondition: yes`. For the next drive of a trip and a trip home in the calendar, that event decides. With no event for the drive home, the new setting **Preconditioning on the way back** decides, before the event ends. The car does not need to be plugged in; when it is, the charger stays on. Shown in Looking ahead. With "Allow control" off it is only shown. (#44)

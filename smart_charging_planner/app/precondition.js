@@ -83,6 +83,17 @@ function schedule({ trips, cfg, isReturn }) {
   return out.sort((a, b) => a.at - b.at);
 }
 
+// The other departure sources (#45): the weekly schedule, the helper and the
+// one-off departure. Each departure says itself whether it wants
+// preconditioning. They have no end time, so no way back.
+const SOURCE = { schedule: 'weekly schedule', helper: 'helper', override: 'one-off departure' };
+function fromDepartures({ departures, cfg }) {
+  if (!cfg || !cfg.enabled) return [];
+  const minutes = cfg.minutes * 60000;
+  return (departures || []).filter((d) => d && d.precondition === true && d.source !== 'calendar' && Number.isFinite(d.time))
+    .map((d) => ({ key: `${d.source}|${d.time}`, at: d.time - minutes, until: d.time, kind: 'out', title: SOURCE[d.source] || d.source, source: d.source }));
+}
+
 // ---------------------------------------------------------------------------
 // What was asked (survives a restart).
 
@@ -205,4 +216,4 @@ function reset() {
   cache = { records: {}, schedule: {} };
 }
 
-module.exports = { DEFAULTS, DOMAINS, config, clean, schedule, setSchedule, upcoming, active, step, recover, commandFor, reset, RELEASE_AFTER_MS };
+module.exports = { DEFAULTS, DOMAINS, config, clean, schedule, fromDepartures, setSchedule, upcoming, active, step, recover, commandFor, reset, RELEASE_AFTER_MS };

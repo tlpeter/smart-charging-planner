@@ -1872,6 +1872,7 @@ const routes = {
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
+        on_off: [...list('input_boolean'), ...list('binary_sensor')],
         calendar: list('calendar').map((c) => ({ ...c, writable: calendarWritable(states, c.entity_id) })),
       },
     };
@@ -1894,7 +1895,7 @@ const routes = {
     const schedule = {};
     for (const day of DAYS) {
       const d = (body.schedule || {})[day] || {};
-      schedule[day] = { enabled: !!d.enabled, time: time(d.time, day), soc: soc(d.soc, day) };
+      schedule[day] = { enabled: !!d.enabled, time: time(d.time, day), soc: soc(d.soc, day), precondition: d.precondition === true };
     }
     const helper = body.helper || {};
     const cal = body.calendar || {};
@@ -1912,6 +1913,8 @@ const routes = {
         enabled: !!helper.enabled,
         datetime_entity: helper.datetime_entity || null,
         soc_entity: String(helper.soc_entity || '').startsWith('input_number.') ? helper.soc_entity : null,
+        precondition: helper.precondition === true,
+        precondition_entity: /^(input_boolean|binary_sensor)\.[a-z0-9_]+$/.test(String(helper.precondition_entity || '')) ? helper.precondition_entity : null,
       },
       calendar: {
         enabled: !!cal.enabled,
@@ -1960,7 +1963,7 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const n = Number(body.soc);
     if (!(n >= 10 && n <= 100)) throw badRequest('Battery level must be between 10 and 100 %');
-    setDeparturesFor(s, vehicle, { ...dep, override: { time, soc: n } });
+    setDeparturesFor(s, vehicle, { ...dep, override: { time, soc: n, precondition: body.precondition === true } });
     settings.save(s);
     ST().planCache = null;
     return { ok: true };
@@ -3858,7 +3861,12 @@ async function preconditionRefresh(now = Date.now()) {
     if (error && !events.length) continue; // keep the last known moments
     // From two days back, so the event going on now counts (its end: the way back).
     const trips = calendarTrips(dep, events, tz, now - 2 * 86400000, carCtx(s, v));
-    precondition.setSchedule(v.id, precondition.schedule({ trips, cfg, isReturn: isReturnTrip }));
+    // The other sources (#45): the departure that counts on each day (a day
+    // where a calendar trip wins is left to the calendar rules above).
+    let states = [];
+    try { states = await ha.call({ type: 'get_states' }); } catch { /* the helper is skipped */ }
+    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: 7, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
+    precondition.setSchedule(v.id, [...precondition.schedule({ trips, cfg, isReturn: isReturnTrip }), ...precondition.fromDepartures({ departures: others, cfg })].sort((a, b) => a.at - b.at));
   }
 }
 

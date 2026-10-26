@@ -70,6 +70,19 @@ async function main() {
     assert.deepEqual(kinds(p.schedule({ trips, cfg: on({ way_back: true }), isReturn })), ['back_auto@15:45', 'back_auto@15:45']);
   });
 
+  await check('weekly schedule, helper and one-off (#45): only a departure with its tick, 15 minutes before; no way back; nothing when off', () => {
+    const deps = [
+      { time: at(7), source: 'schedule', precondition: true },
+      { time: at(31), source: 'schedule', precondition: false },
+      { time: at(9), source: 'helper', precondition: true },
+      { time: at(12), source: 'override', precondition: true },
+      { time: at(8), source: 'calendar', precondition: true }, // the calendar rules handle these
+    ];
+    assert.deepEqual(p.fromDepartures({ departures: deps, cfg: on({ way_back: true }) }).map((m) => `${m.source}@${new Date(m.at).toISOString().slice(11, 16)}`), ['schedule@06:45', 'helper@08:45', 'override@11:45']);
+    assert.ok(p.fromDepartures({ departures: deps, cfg: on() }).every((m) => m.kind === 'out' && m.until - m.at === 15 * M));
+    assert.deepEqual(p.fromDepartures({ departures: deps, cfg: { ...on(), enabled: false } }), []);
+  });
+
   await check('settings check: 5–60 minutes, only a switch or button, an entity when on', () => {
     assert.deepEqual(p.clean({ enabled: true, entity_id: 'button.car_start_air_conditioner', minutes: '20', way_back: true }), { enabled: true, entity_id: 'button.car_start_air_conditioner', minutes: 20, way_back: true });
     assert.equal(p.clean({}).minutes, 15);
