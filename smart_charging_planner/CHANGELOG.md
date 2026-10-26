@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.2-dev
+
+- Release workflow: it uses the Home Assistant Core check of the newest commit that changed the app code, because that check does not run for a change to workflows or documentation only. No app changes.
+
 ## 0.36.1-dev
 
 - The GitHub release of a stable version is now made by GitHub itself after the tests on main pass (tag, notes, zip, milestone); nobody pushes a tag by hand. No app changes.
