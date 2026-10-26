@@ -218,7 +218,7 @@ The app reads English and Dutch, also mixed in one calendar. Upper and lower cas
 | What | English | Dutch | Good to know |
 | --- | --- | --- | --- |
 | **Target** (battery level for the trip) | `target: 80` | `doel: 80` | Also `soc: 80`, `charge: 80`, `laaddoel: 80`, `target=80`, or just `80%`. Between 10 and 100. |
-| **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Read and shown, not used yet. |
+| **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Starts preconditioning before that drive when **Preconditioning before a departure** is on (see below). |
 | **Which car** (more cars) | `car: EV6`, `vehicle: EV6` | `auto: EV6`, `voertuig: EV6` | The car's **Name in the calendar**, its name, or its brand. |
 | **Trip to a place** (title) | `To Work` | `Naar Werk` | The first word is left out to find the place. German `nach` and French `vers`/`à` also work. |
 | **Trip home** (title) | `Home`, `To home`, `Back home`, `Going home`, `Go home` | `Thuis`, `Huis`, `Naar huis`, `Naar thuis`, `Terug` | Or your home address or the Home zone as location. A trip home is never a departure: it is when the car is back. |
@@ -328,6 +328,24 @@ The station data is **not live**: a station can be busy, out of order or gone. C
 **The chart** goes on to the last expected charging (up to 7 days ahead), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 
 This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
+
+## Preconditioning before a departure
+
+Under **Settings › Rules › Preconditioning before a departure** (per car, off by default) the app asks the car to heat or cool before it leaves.
+
+- **What the app turns on**: one switch (turned on) or button (pressed) of your car, for example Renault's "Start air conditioner". Helpers, scripts, automations and climate entities are never controlled by this app; use a switch or button of the car's own integration.
+- **When**: **Minutes before departure** (default 15, 5–60) before the drive.
+- **Which drives** (the calendar first):
+  1. From home: only a calendar trip with `precondition: yes` (or `ja`).
+  2. The next drive of a trip (on to the next place, for example work and then sport) and a trip home in the calendar ("To home" / "Naar huis"): that event decides. With `precondition: yes` on, without it (or with `no`) off; the setting below does not count then.
+  3. No event for the drive home (the car comes home at the end of the event): **Preconditioning on the way back** decides. When on, the app asks the set minutes before the event ends (for example "Work 06:30–16:30" → 16:15).
+- **Plugged in or not**: not needed. When the car is plugged in, the charger stays on during preconditioning, so the energy comes from the grid.
+- **Once**: one request per drive, tried once more when the command fails. The request is saved before it is sent, so after a restart it is not sent twice (a second button press could switch it off again).
+- **Switch off again**: a switch the app turned on for a drive from home is turned off 15 minutes after the departure time when the car is still plugged in (it did not leave). A button is never pressed again. On the way back nothing is turned off: the car is driving.
+- **Allow control off**: nothing is sent; Looking ahead shows the moment as advice.
+- **Visible**: Looking ahead shows "Preconditioning for …" with the time, and whether it was asked. The weekly schedule and the helper are not used for this yet; only calendar trips.
+
+A command the car's cloud accepts is not proof that the car started: check it in the car's app the first times.
 
 ## Departure priority
 

@@ -251,6 +251,8 @@ function entityList(w) {
   const ch = p.charger;
   const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : w.enabledNoPower && ch.text.ready ? ch.text.ready : ch.text.paused;
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
+  // A button of the car that starts the air conditioning (preconditioning, #44).
+  car.push(['button.test_car_start_air_conditioner', 'unknown', { friendly_name: 'Car Start air conditioner' }, p.car.device]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
   const car2 = w.car2 ? [

@@ -88,6 +88,11 @@ function validateImportSettings(settings) {
 
   for (const [i, vehicle] of (settings.vehicles || []).entries()) {
     nestedObject(vehicle, 'departures', `vehicles[${i}]`);
+    // Preconditioning (#44): the same checks as saving it in the app.
+    if (vehicle && vehicle.precondition != null) {
+      objectAt(vehicle.precondition, `vehicles[${i}].precondition`);
+      try { require('./precondition').clean(vehicle.precondition); } catch (err) { bad(`vehicles[${i}].precondition: ${err.message}`); }
+    }
     for (const key of ['schedule', 'helper', 'calendar', 'override']) nestedObject(vehicle.departures, key, `vehicles[${i}].departures`);
     if (vehicle.id != null && (typeof vehicle.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(vehicle.id))) bad(`vehicles[${i}].id must be a short id`);
   }

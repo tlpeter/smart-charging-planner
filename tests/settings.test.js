@@ -123,6 +123,7 @@ async function startApp(options = {}) {
       SCP_GEOCODE_GAP_MS: '50',
       SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
       SCP_OCM_GAP_MS: '50',
+      SCP_PRECONDITION_MS: '500',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
     },
@@ -2409,6 +2410,70 @@ async function run() {
   }
 
   // ----- Z. Apple iCloud calendar (read only, Home Assistant 2026.10+) ------
+  // ----- Y2. Preconditioning before a departure (#44) ---------------------
+  group = 'Y2. Preconditioning before a departure';
+  {
+    const BTN = 'button.test_car_start_air_conditioner';
+    const evp = (title, desc, startMs, endMs) => ({ summary: title, description: desc, location: null, start: isoLocal(startMs, tz), end: isoLocal(endMs, tz) });
+    const presses = (n) => callsSince(n).filter((c) => c.domain === 'button' && c.service === 'press' && [].concat(c.target && c.target.entity_id)[0] === BTN);
+    const wait = async (cond, ms = 6000) => { for (let i = 0; i < ms / 100 && !cond(); i++) await sleep(100); return cond(); };
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    await test('Y20', 'Preconditioning (#44): off by default; the car\'s button is offered; only a switch or button can be chosen', async () => {
+      const r = await ok('GET', 'api/precondition');
+      const car = r.cars[0];
+      assert(car && car.precondition.enabled === false && car.precondition.minutes === 15 && car.precondition.way_back === false, JSON.stringify(car && car.precondition));
+      assert(car.options.some((o) => o.entity_id === BTN && o.group === 'car'), JSON.stringify(car.options));
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true }, 'Choose what');
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: 'input_boolean.voorverwarmen' }, 'switch or a button');
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 90 }, 'between 5 and 60');
+      return `offered: ${car.options.map((o) => o.entity_id).join(', ')}`;
+    });
+    await test('Y21', 'Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car\'s button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // not needed
+      world.events = [evp('Naar Werk', 'doel: 80 precondition: ja', now + 10 * 60000, now + 8 * 3600000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(saved.precondition.enabled && saved.upcoming.length === 1 && saved.upcoming[0].kind === 'out', JSON.stringify(saved));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await sleep(1500);
+      assert(presses(n0).length === 1, `pressed again: ${presses(n0).length}`);
+      world.plugged = true;
+      const p = await plan();
+      const shown = p.next && p.next.preconditioning;
+      assert(Array.isArray(shown) && shown.length === 1 && shown[0].state === 'asked', JSON.stringify(shown));
+      // Without "precondition: ja": nothing.
+      world.events = [evp('Naar Sport', 'doel: 80', Date.now() + 10 * 60000, Date.now() + 3 * 3600000)];
+      const n1 = world.calls.length;
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      await sleep(1500);
+      assert(presses(n1).length === 0, `pressed without precondition: ${presses(n1).length}`);
+      return 'one press for "precondition: ja", none without';
+    });
+    await test('Y22', 'Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // the car is away
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 10 * 60000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: true });
+      assert(saved.upcoming.length === 1 && saved.upcoming[0].kind === 'back_auto', JSON.stringify(saved.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      // A trip home in the calendar, without "precondition": off, also with the setting on.
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 20 * 60000), evp('Naar huis', 'doel: 80', now + 20 * 60000, now + 80 * 60000)];
+      const n1 = world.calls.length;
+      const s2 = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 30, way_back: true });
+      assert(s2.upcoming.length === 0, JSON.stringify(s2.upcoming));
+      await sleep(1500);
+      assert(presses(n1).length === 0, `pressed: ${presses(n1).length}`);
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      world.plugged = true;
+      world.events = [];
+      return 'way back: one press; a trip home without "precondition": none';
+    });
+  }
+
   group = 'Z. Apple iCloud calendar (read only)';
   await test('Z1', 'An iCloud calendar is read: "doel: 90" becomes the departure; it is marked read only and adding trips to it is refused with a clear reason', async () => {
     await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.icloud_alex', match: 'target', buffer_minutes: 0, soc: 80 } }));

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.7-dev
+
+- **Preconditioning before a departure** (Settings › Rules, per car, off by default): the app presses a button or turns on a switch of your car (for example "Start air conditioner") a set number of minutes before it leaves, default 15. From home only for a calendar trip with `precondition: yes`. For the next drive of a trip and a trip home in the calendar, that event decides. With no event for the drive home, the new setting **Preconditioning on the way back** decides, before the event ends. The car does not need to be plugged in; when it is, the charger stays on. Shown in Looking ahead. With "Allow control" off it is only shown. (#44)
+
 ## 0.35.6-dev
 
 - Tests: a third complete set-up, a Kia Niro EV (Kia Uvo) with a Zaptec Go (start and stop with its buttons, current with its number), runs every setting on each push next to Renault + Easee and Skoda + Wallbox. No app changes.

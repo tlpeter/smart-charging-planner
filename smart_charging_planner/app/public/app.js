@@ -1317,7 +1317,10 @@ function durationText(minutes) {
       // it; a trip that starts inside keeps its way back home.
       const until = Date.now() + aheadDays * 86400000;
       const cut = all.findIndex((x) => x.type === 'leave' && x.time >= until);
-      const items = (cut < 0 ? all : all.slice(0, cut)).filter((x) => !(x.type === 'charge' && x.start >= until));
+      // Preconditioning the app will ask for (#44), in time order with the rest.
+      const pre = (n.preconditioning || []).filter((m) => m.at < until).map((m) => ({ type: 'precondition', time: m.at, until: m.until, kind: m.kind, title: m.title, state: m.state || null }));
+      const items = [...(cut < 0 ? all : all.slice(0, cut)).filter((x) => !(x.type === 'charge' && x.start >= until)), ...pre]
+        .map((x, k) => ({ x, k })).sort((a, b) => ((a.x.type === 'charge' ? a.x.start : a.x.time) - (b.x.type === 'charge' ? b.x.start : b.x.time)) || (a.k - b.k)).map((o) => o.x);
       // After the last known price, charging and levels are an estimate.
       const known = n.prices_until || 0;
       const pct = (v) => (v == null ? '' : `${esc(tidy(v))}%`);
@@ -1346,6 +1349,13 @@ function durationText(minutes) {
           return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
             ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+        }
+        if (x.type === 'precondition') {
+          const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
+          const st = x.state === 'asked' ? ' · asked' : x.state === 'would' ? ' · advice only ("Allow control" is off)' : x.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '';
+          return `<li class="tl-row tl-leave">${shape('clock', 'orange', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Preconditioning ${what}</div>
+            <div class="tl-sub">Until ${esc(hm(x.until))}${st}</div></div></li>`;
         }
         if (x.type === 'stop') {
           // The level on the right: when the car arrives here.
@@ -1442,6 +1452,10 @@ function durationText(minutes) {
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
+          return;
+        }
+        if (x.type === 'precondition') {
+          day.parts.push(`<span class="tl-p">❄ ${esc(hm(x.time))}</span>`);
           return;
         }
         if (used.has(i)) return;
@@ -2528,8 +2542,59 @@ function durationText(minutes) {
       }
     }
 
+    // ---------- Preconditioning before a departure (#44) ----------
+    let precondNow = null;
+    function showPrecond(carId) {
+      const d = precondNow;
+      if (!d || !d.cars.length) { $('precond-card').hidden = true; return; }
+      $('precond-card').hidden = false;
+      const c = d.cars.find((x) => x.id === carId) || d.cars[0];
+      $('precond-car-field').hidden = d.cars.length < 2;
+      $('precond-car').innerHTML = d.cars.map((x) => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(x.name || x.id)}</option>`).join('');
+      const p = c.precondition;
+      $('precond-enabled').checked = !!p.enabled;
+      $('precond-entity').innerHTML = entityOptions(c.options, p.entity_id, '— choose —');
+      $('precond-minutes').value = p.minutes;
+      $('precond-wayback').checked = !!p.way_back;
+      const at = dayHm;
+      const next = (c.upcoming || []).filter((m) => m.until > Date.now()).slice(0, 3);
+      $('precond-next').innerHTML = !p.enabled ? '' : next.length
+        ? `Next: ${next.map((m) => `<strong>${esc(at(m.at))}</strong> ${esc(m.kind === 'back_auto' ? 'way back' : m.title || 'departure')}`).join(' · ')}${d.control_allowed ? '' : ' <span class="differ">(advice only: "Allow control" is off)</span>'}`
+        : 'No preconditioning planned in the calendar.';
+    }
+    async function loadPrecond() {
+      try {
+        precondNow = await api('GET', 'api/precondition');
+        showPrecond($('precond-car').value);
+      } catch (e) {
+        $('precond-error').textContent = e.message;
+        $('precond-error').hidden = false;
+      }
+    }
+    $('precond-car').addEventListener('change', (e) => showPrecond(e.target.value));
+    $('precond-save').addEventListener('click', async () => {
+      const err = $('precond-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/precondition', {
+          vehicle_id: $('precond-car').value,
+          enabled: $('precond-enabled').checked,
+          entity_id: $('precond-entity').value || null,
+          minutes: $('precond-minutes').value,
+          way_back: $('precond-wayback').checked,
+        });
+        $('precond-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Preconditioning is ${r.precondition.enabled ? 'on' : 'off'}.</p>`;
+        await loadPrecond();
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+
     async function loadControl() {
       loadConflicts();
+      loadPrecond();
       const box = $('control-body');
       try {
         const d = await api('GET', 'api/control');

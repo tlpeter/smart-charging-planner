@@ -48,13 +48,15 @@ Stable main is 0.34.0. The 0.32.24-dev recovery scope (#18, #14, #6, #7, #8, #10
 
 Scope on dev since 0.34.0: #31 (trip-distance privacy choice and offline distances), #26 (explicit forecast price basis, no VAT twice) #37 (charging stops on the way, Netherlands and Belgium, from Open Charge Map), #41 (charging stops on the right side of the road: real detour by road, stops on the way back) and #42 (clear saved API-key state, replacement and removal without exposing the secret).
 
-Candidate addition: #43 (Battery Care refill margin of 5 percentage points, separate session goals and current declined-trip estimates).
+Candidate additions: #43 (Battery Care refill margin of 5 percentage points, separate session goals and current declined-trip estimates) and #44 (preconditioning before a departure and on the way back).
 
-Not resolved: physical site/phase capacity allocation (#29), compatibility validation (#28) and charging stops outside the Netherlands and Belgium (#40). Native inverter limits and physical hardware verification remain necessary.
+Not resolved: physical site/phase capacity allocation (#29), compatibility validation (#28) charging stops outside the Netherlands and Belgium (#40) and preconditioning for the weekly schedule, helper and one-off departures (#45). Native inverter limits and physical hardware verification remain necessary.
 
 Home check for #37: with your own Open Charge Map key, a long trip in the calendar shows plausible stations along the real route; offline trip distances send nothing to Open Charge Map; the key never appears on the page, in diagnostics or in logs. For #41: on a motorway trip the suggested service areas are on your side of the road; a trip with enough to get there suggests a stop on the way back. Station data and operator names from Open Charge Map are not verified against the operators' own apps. For #26 with a combined forecast, check the raw/consumer basis and VAT exactly once.
 
 Home check for #42: save an Open Charge Map key and reload Plan; the badge and field must still say Key saved. Save with the field empty to keep it. Remove key then Discard must keep it; Remove key then Save must remove it and turn charging stops off. A saved key is never displayed.
+
+Home check for #44: choose your car's own button or switch (for example "Start air conditioner") under Settings › Rules › Preconditioning. A calendar trip with `precondition: ja` asks 15 minutes before; check in the car's app that it really started, plugged in and unplugged. A trip without it does nothing. Way back: with the setting on and no "Naar huis" event, 15 minutes before the event ends; with a "Naar huis" event, only when that event has `precondition: ja`.
 
 Home check for #43: with Battery Care at 80%, target 90% and enough known capacity before departure, reconnect at 79% (also check the 75% boundary): the small refill should wait for the final price-planned session. Below 75%, check the separate early session says 80%, then the later session 90%. An explicitly configured hard minimum remains immediate. Check that a previously declined trip-top-up banner follows the current trip estimate and agrees with the timeline. Fixture and Core checks do not establish the car's physical response.
 

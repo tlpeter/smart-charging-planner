@@ -19,6 +19,7 @@ const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, peri
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
 const chargestops = require('./chargestops');
+const precondition = require('./precondition');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -568,6 +569,8 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     // charging and levels are an estimate (#4).
     real_prices_until: prices.filter((p) => !p.forecast).reduce((m, p) => Math.max(m, p.end), 0) || null,
     prices_until: prices.length ? lastKnown : null,
+    // Preconditioning the app will ask for (#44).
+    preconditioning: precondition.upcoming(vehicle.id, now),
   };
 
   // The departures after this one, one after the other.
@@ -820,12 +823,12 @@ const routes = {
     if (idx >= 0) {
       // Keep what is not on this form: the car's own departures.
       const old = s.vehicles[idx];
-      s.vehicles[idx] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+      s.vehicles[idx] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures, ...(old.precondition ? { precondition: old.precondition } : {}) };
     } else if (body.add || !s.vehicles.length) {
       s.vehicles.push(vehicle);
     } else {
       const old = s.vehicles[0];
-      s.vehicles[0] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+      s.vehicles[0] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures, ...(old.precondition ? { precondition: old.precondition } : {}) };
     }
     settings.vehicleIds(s.vehicles);
     settings.save(s);
@@ -1712,6 +1715,48 @@ const routes = {
     ST().planCache = null;
     ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.countries.join(', ')})` : 'off'}`);
     return { ok: true, charge_stops: chargestops.view() };
+  },
+
+  // Preconditioning before a departure (#44), per car.
+  'GET /api/precondition': async () => {
+    const s = settings.load();
+    let states = [];
+    try { states = await ha.call({ type: 'get_states' }); } catch { /* list without states */ }
+    let byDevice = new Map();
+    try {
+      const { entities } = await loadRegistries();
+      byDevice = new Map(entities.map((e) => [e.entity_id, e.device_id]));
+    } catch { /* names only */ }
+    const words = /precondition|preheat|pre[ _-]?heat|hvac|climat|airco|air[ _-]?con|heat|cool|defrost|voorverwarm|voorkoel/;
+    return {
+      control_allowed: options.allow_control === true,
+      cars: cars(s).map((v) => ({
+        id: v.id,
+        name: v.name,
+        precondition: precondition.config(v),
+        upcoming: precondition.upcoming(v.id),
+        options: states.filter((x) => precondition.DOMAINS.test(x.entity_id)
+          && ((v.device_id && byDevice.get(x.entity_id) === v.device_id) || words.test(`${x.entity_id} ${(x.attributes && x.attributes.friendly_name) || ''}`.toLowerCase())
+            || x.entity_id === precondition.config(v).entity_id))
+          .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state, group: v.device_id && byDevice.get(x.entity_id) === v.device_id ? 'car' : 'other' })),
+      })),
+    };
+  },
+
+  'POST /api/precondition': async (req) => {
+    const body = (await readBody(req)) || {};
+    const s = settings.load();
+    const v = cars(s).find((x) => x.id === String(body.vehicle_id || '')) || (cars(s).length === 1 ? cars(s)[0] : null);
+    if (!v) throw badRequest('Choose the car');
+    const cfg = precondition.clean(body);
+    const saved = s.vehicles.find((x) => x.id === v.id);
+    saved.precondition = cfg;
+    settings.save(s);
+    ha.log(`Preconditioning (${v.name || v.id}): ${cfg.enabled ? `on, ${cfg.minutes} min before, ${cfg.entity_id}, way back ${cfg.way_back ? 'on' : 'off'}` : 'off'}`);
+    await preconditionRefresh().catch(() => {});
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    return { ok: true, precondition: cfg, upcoming: precondition.upcoming(v.id) };
   },
 
   'POST /api/places': async (req) => {
@@ -3605,6 +3650,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
     solar: solarCtx,
     share,
     record,
+    preconditioning: (() => { const v = currentVehicle(s); return !!v && precondition.active(v.id); })(),
   });
   const entry = ST().lastDryRun;
   if (solarCtx) entry.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason, equalizer: !!solarCtx.equalizer };
@@ -3787,6 +3833,7 @@ function shareConnection(s, steps) {
 
 // Plans of every charger (more chargers), or the one charger.
 async function refreshAll(reason, opts = {}) {
+  preconditionRefresh().catch((err) => ha.warn('Preconditioning schedule failed:', err.message));
   const s = settings.load();
   const list = chargersList(s);
   if (list.length <= 1) return refreshPlan(reason, opts);
@@ -3796,6 +3843,52 @@ async function refreshAll(reason, opts = {}) {
   }
   await controlSite().catch((err) => ha.warn('Control step failed:', err.message));
   return out[0];
+}
+
+// Preconditioning before a departure (#44): the moments, from the calendar,
+// per car. Recalculated with every refresh; acted on every minute.
+async function preconditionRefresh(now = Date.now()) {
+  const s = settings.load();
+  const tz = ha.state.timeZone;
+  for (const v of cars(s)) {
+    const cfg = precondition.config(v);
+    if (!cfg.enabled || !cfg.entity_id) { precondition.setSchedule(v.id, []); continue; }
+    const dep = departuresFor(s, v);
+    const { events, error } = await calendarEvents(dep, tz, now);
+    if (error && !events.length) continue; // keep the last known moments
+    // From two days back, so the event going on now counts (its end: the way back).
+    const trips = calendarTrips(dep, events, tz, now - 2 * 86400000, carCtx(s, v));
+    precondition.setSchedule(v.id, precondition.schedule({ trips, cfg, isReturn: isReturnTrip }));
+  }
+}
+
+let preconditionBusy = false;
+async function preconditionStep() {
+  if (preconditionBusy || !ha.state.connected) return;
+  preconditionBusy = true;
+  try {
+    const s = settings.load();
+    const list = cars(s).filter((v) => precondition.config(v).enabled);
+    if (!list.length) return;
+    const states = await ha.call({ type: 'get_states' });
+    const plugged = (v) => {
+      const st = v.plugged_entity ? states.find((x) => x.entity_id === v.plugged_entity) : null;
+      return st ? (st.state === 'on' ? true : st.state === 'off' ? false : null) : null;
+    };
+    const done = await precondition.step({
+      vehicles: list,
+      now: Date.now(),
+      live: options.allow_control === true,
+      send: (cmd) => ha.sendControl(cmd, [{ service: cmd.service, entity_id: cmd.target.entity_id }]),
+      plugged,
+      log: (m) => ha.log(m),
+    });
+    if (done.length) for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+  } catch (err) {
+    ha.warn('Preconditioning step failed:', err.message);
+  } finally {
+    preconditionBusy = false;
+  }
 }
 
 // Time as the user reads it, e.g. "Thu 03:10".
@@ -4377,6 +4470,9 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshAll('timer').catch(() => {});
   }, every);
+  // Preconditioning (#44): checked every minute, also when the car is away.
+  precondition.recover();
+  setInterval(() => { preconditionStep().catch(() => {}); }, Number(process.env.SCP_PRECONDITION_MS) || 60000);
   // With control on, check the charger every minute between plan refreshes,
   // so plugging in or the start of a planned period is followed quickly.
   if (options.allow_control === true && every > 60000) {
