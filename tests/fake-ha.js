@@ -253,6 +253,10 @@ function entityList(w) {
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   // A button of the car that starts the air conditioning (preconditioning, #44).
   car.push(['button.test_car_start_air_conditioner', 'unknown', { friendly_name: 'Car Start air conditioner' }, p.car.device]);
+  // Where the car is (#46): w.carLocation (the car's device tracker) and
+  // w.personLocation (a person), each 'home', 'not_home', a zone or 'unavailable'.
+  car.push(['device_tracker.test_car_location', w.carLocation ?? 'unknown', { friendly_name: 'Car Location', source_type: 'gps' }, p.car.device]);
+  car.push(['person.alex', w.personLocation ?? 'unknown', { friendly_name: 'Alex' }, null]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
   const car2 = w.car2 ? [

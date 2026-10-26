@@ -139,6 +139,7 @@ function detectVehicles(entities, devices, states) {
     const charging = [];
     const plugged = [];
     const chargeLimit = [];
+    const location = [];
 
     for (const e of ents) {
       const s = stateById.get(e.entity_id);
@@ -148,6 +149,7 @@ function detectVehicles(entities, devices, states) {
       if (isCharging(e, s)) charging.push({ ...option(e, s), binary: e.entity_id.startsWith('binary_sensor.') && !!s && (s.attributes || {}).device_class === 'battery_charging' });
       if (isPlugged(e, s)) plugged.push({ ...option(e, s), binary: e.entity_id.startsWith('binary_sensor.') });
       if (isChargeLimit(e, s)) chargeLimit.push(option(e, s));
+      if (e.entity_id.startsWith('device_tracker.')) location.push(option(e, s));
     }
 
     const known = [...domains].find((d) => KNOWN_VEHICLE_DOMAINS.has(d));
@@ -173,6 +175,8 @@ function detectVehicles(entities, devices, states) {
         charging,
         plugged,
         charge_limit: chargeLimit,
+        // Where the car is (#46): its own device tracker.
+        location,
       },
       suggested: {
         // Not a target or a maximum that is also in % (Volkswagen "Target
@@ -187,6 +191,7 @@ function detectVehicles(entities, devices, states) {
         // A number the app can set first; for home charging the AC limit, not the DC one (Kia, Hyundai).
         charge_limit: pickBest(chargeLimit.filter((o) => o.entity_id.startsWith('number.') && !/(^|_)dc_/.test(o.entity_id))
           .concat(chargeLimit.filter((o) => o.entity_id.startsWith('number.')), chargeLimit), /target|limit|state_of_charge/),
+        location: pickBest(location, /location|position|tracker/),
       },
     });
   }
@@ -222,4 +227,14 @@ function percentSensors(entities, states) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-module.exports = { detectVehicles, percentSensors, findChargeLimit, isChargeLimit, KNOWN_VEHICLE_DOMAINS };
+// Where the car can be (#46): every device tracker, and every person (for
+// the person who drives, when the car has no location of its own).
+function placeEntities(entities, states, domain) {
+  const regById = new Map(entities.map((e) => [e.entity_id, e]));
+  return states
+    .filter((s) => s.entity_id.startsWith(`${domain}.`))
+    .map((s) => option(regById.get(s.entity_id) || { entity_id: s.entity_id }, s))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+module.exports = { placeEntities, detectVehicles, percentSensors, findChargeLimit, isChargeLimit, KNOWN_VEHICLE_DOMAINS };

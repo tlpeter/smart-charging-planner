@@ -2204,6 +2204,94 @@ async function run() {
         world.events = [];
       }
     });
+    // Where is the car when it is not plugged in (#46): car location, then a
+    // person, then a trip home in the calendar; none of these: not known.
+    const placeEvents = () => [ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 18)];
+    const leaveOf = (p) => p.next && p.next.timeline.find((x) => x.type === 'leave');
+    await test('Y24', 'Car not plugged in, no car location, no person, no trip home (#46): the place is "unknown"; Looking ahead counts from the level now (50%), the planned charging is "if plugged in" and the level with it is shown next to it', async () => {
+      world.plugged = false;
+      world.soc = 50;
+      world.events = placeEvents();
+      try {
+        const p = await settle();
+        assert(p.plan.place && p.plan.place.at === 'unknown' && p.plan.place.conditional === true, JSON.stringify(p.plan.place));
+        assert(!p.plan.away, JSON.stringify(p.plan.away));
+        const lv = leaveOf(p);
+        assert(lv && lv.soc === 50, `leaves with ${lv && lv.soc}%, not the level now`);
+        assert(lv.soc_if_charged > 50, `with charging: ${lv.soc_if_charged}`);
+        const charges = p.next.timeline.filter((x) => x.type === 'charge' && !x.expected);
+        assert(charges.length && charges.every((x) => x.if_plugged === true), JSON.stringify(charges));
+        const back = p.next.timeline.find((x) => x.type === 'back');
+        assert(!back || back.soc == null || back.soc < 50, `back with ${back && back.soc}%`);
+        return `leaves with 50% (${lv.soc_if_charged}% if plugged in), charging shown as "if plugged in"`;
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y25', 'Car location first, then the person, then the calendar (#46): car "not_home" wins over person "home"; car "unavailable" is skipped and person "not_home" decides; both unknown and "Naar huis" in the calendar: away until the trip home; a wrong entity type is not saved', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'device_tracker.test_car_location', person_entity: 'person.alex' }));
+      world.plugged = false;
+      world.soc = 50;
+      world.events = placeEvents();
+      try {
+        const list = (await ok('GET', 'api/vehicles')).vehicles;
+        assert(list[0].location_entity === 'device_tracker.test_car_location' && list[0].person_entity === 'person.alex', JSON.stringify(list[0]));
+        world.carLocation = 'not_home';
+        world.personLocation = 'home';
+        let p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'car' && p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(leaveOf(p).soc === 50, `leaves with ${leaveOf(p).soc}%`);
+        world.carLocation = 'unavailable';
+        world.personLocation = 'not_home';
+        p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'person', JSON.stringify(p.plan.place));
+        world.carLocation = 'unknown';
+        world.personLocation = 'unknown';
+        world.events = [ev('Naar huis', 'doel: 80', '', 1, 16, 17), ...placeEvents()];
+        p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'calendar' && p.plan.place.until === at(1, 17) && !p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(p.plan.away && p.plan.away.until === at(1, 17), JSON.stringify(p.plan.away));
+        // Only a device tracker for the car, and a person or tracker for the person.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'sensor.test_car_location', person_entity: 'input_text.alex' }));
+        const after = (await ok('GET', 'api/vehicles')).vehicles[0];
+        assert(after.location_entity === null && after.person_entity === null, JSON.stringify(after));
+        return 'car → person → calendar; wrong entity types are not saved';
+      } finally {
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        delete world.carLocation;
+        delete world.personLocation;
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y26', 'Car location "home" while not plugged in (#46): at home, so the plan counts on the charging as before, also with "Naar huis" in the calendar; plugged in: no place check at all', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'device_tracker.test_car_location' }));
+      world.plugged = false;
+      world.soc = 50;
+      world.carLocation = 'home';
+      world.events = [ev('Naar huis', 'doel: 80', '', 1, 16, 17), ...placeEvents()];
+      try {
+        let p = await settle();
+        assert(p.plan.place.at === 'home' && p.plan.place.source === 'car' && !p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(!p.plan.away, `away while the car is at home: ${JSON.stringify(p.plan.away)}`);
+        const lv = leaveOf(p);
+        assert(lv && lv.soc > 50 && lv.soc_if_charged == null, JSON.stringify(lv));
+        world.plugged = true;
+        world.carLocation = 'not_home';
+        p = await settle();
+        assert(!p.plan.place, JSON.stringify(p.plan.place));
+        return `at home: leaves with ${lv.soc}%`;
+      } finally {
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        delete world.carLocation;
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
     await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });

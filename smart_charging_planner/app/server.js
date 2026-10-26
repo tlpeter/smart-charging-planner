@@ -7,7 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
-const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
+const { detectVehicles, placeEntities, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
 const activecar = require('./activecar');
 const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
@@ -19,6 +19,7 @@ const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, peri
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
 const chargestops = require('./chargestops');
+const carplace = require('./carplace');
 const precondition = require('./precondition');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
@@ -464,6 +465,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const share = neededKwh > 0 ? Math.min(1, (plan.planned_kwh || 0) / neededKwh) : 1;
     socAtDep = Math.round((socAtDep + (targetSoc - socAtDep) * share) * 10) / 10;
   }
+  // Not plugged in, and away without a time back or not known where (#46):
+  // the planned charging may not happen. The levels start from the level
+  // now; the level with that charging is shown next to it.
+  const ifPlugged = !!(plan.place && plan.place.conditional) && Number.isFinite(soc);
+  const socIfCharged = ifPlugged && socAtDep != null && socAtDep > soc + 0.05 ? socAtDep : null;
+  if (ifPlugged) socAtDep = Math.round(soc * 10) / 10;
   const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
   const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
   // (The first trip's level after it follows the level when leaving.)
@@ -522,7 +529,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
-    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null, !!plan.care));
+    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socIfCharged ?? socAtDep, ...(ifPlugged ? { if_plugged: true } : {}) }, plan.minimum || null, !!plan.care));
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
@@ -551,6 +558,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
+  if (socIfCharged != null) {
+    const first = timeline.find((x) => x.type === 'leave');
+    if (first) first.soc_if_charged = socIfCharged;
+  }
 
   const out = {
     current: {
@@ -737,9 +748,13 @@ const routes = {
   // Look for vehicles in Home Assistant.
   'GET /api/vehicles/detect': async () => {
     const { entities, devices, states } = await loadRegistries();
+    // A person (the driver's phone) for every car: the fallback when the car has no location (#46).
+    const persons = placeEntities(entities, states, 'person');
     return {
-      candidates: detectVehicles(entities, devices, states),
+      candidates: detectVehicles(entities, devices, states).map((c) => ({ ...c, options: { ...c.options, person: persons }, suggested: { ...c.suggested, person: null } })),
       percent_sensors: percentSensors(entities, states),
+      trackers: placeEntities(entities, states, 'device_tracker'),
+      persons,
     };
   },
 
@@ -760,6 +775,8 @@ const routes = {
           charging: valueOf(states, v.charging_entity),
           plugged: valueOf(states, v.plugged_entity),
           charge_limit: valueOf(states, v.charge_limit_entity),
+          location: valueOf(states, v.location_entity),
+          person: valueOf(states, v.person_entity),
         },
       })),
     };
@@ -801,6 +818,9 @@ const routes = {
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
+      // Where the car is when not plugged in (#46): the car's tracker, then a person.
+      location_entity: String(body.location_entity || '').startsWith('device_tracker.') ? String(body.location_entity).slice(0, 255) : null,
+      person_entity: /^(person|device_tracker)\./.test(String(body.person_entity || '')) ? String(body.person_entity).slice(0, 255) : null,
       stale_hours: body.stale_hours === undefined || body.stale_hours === '' ? cardata.DEFAULT_STALE_HOURS : Number(body.stale_hours),
     };
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
@@ -1379,13 +1399,22 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, refill_kwh: actualNow.charging === true ? 0 : energyNeededKwh(0, 5, vehicle.capacity_kwh, planning.loss_percent), window_start: departure.time - hours * 3600000 };
       }
     }
-    // The car is away and a trip home is in the calendar (for example "Naar
-    // huis" 16:30–17:30): charging can only start when it is back.
+    // Where is the car when it is not plugged in (#46)? The car's location,
+    // then a person, then a trip home in the calendar (for example "Naar
+    // huis" 16:30–17:30). Away with a time back: charging can only start
+    // then. Away without one, or not known: the charging is shown as "if
+    // plugged in in time", never as if it will happen (carplace.js).
     let away = null;
-    if (actualNow.plugged === false && dep.calendar.enabled && Array.isArray(events)) {
-      // Every event counts here (a trip home often has no target of its own).
-      const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
-      if (home) away = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+    let place = null;
+    if (vehicle && actualNow.plugged === false) {
+      let homeTrip = null;
+      if (dep.calendar.enabled && Array.isArray(events)) {
+        // Every event counts here (a trip home often has no target of its own).
+        const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
+        if (home) homeTrip = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+      }
+      place = carplace.where({ plugged: false, vehicle, states, homeTrip });
+      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
     }
     const planNow = away ? Math.max(now, away.until) : now;
     const plan = minNow && neededKwh > 0.01
@@ -1417,6 +1446,7 @@ const routes = {
         solarOnly,
       });
     if (away) plan.away = away;
+    if (place) plan.place = { ...place, conditional: carplace.conditional(place) };
     if (minNow && neededKwh > 0.01) {
       plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
       plan.notes.push('below_minimum');

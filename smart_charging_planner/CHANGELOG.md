@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.4-dev
+
+- **Where is the car?** When the car is not plugged in, the app no longer assumes it is at home. It checks, in this order: the car's own location (a device tracker, new in Settings › Vehicle), a person who drives (for example a phone with the Companion app, also new), a trip home in the calendar ("Naar huis"). When none of them knows, Home says so: Looking ahead counts from the battery level now and shows the planned charging as "if plugged in by then", with the level it would give next to it. A location that is unknown or unavailable is skipped, so a broken sensor never makes the plan worse. The status on Home shows "Car away (car location)" or "At home (person)". Both settings are empty by default. (#46)
+
 ## 0.36.3-dev
 
 - **Compatibility overview:** COMPATIBILITY.md lists per charger, car and home battery integration what the app can read and steer, marks read-only devices (Tesla Wall Connector, Zonneplan, Growatt, Anker, EcoFlow, Powerwall) and shows what was checked on real hardware. It is built from the tests, so it only claims what a test checks. A new issue form **Beta test report** collects anonymous real-hardware results. The tests now also build the app image for amd64 and aarch64 and run the real Home Assistant Core check on 2026.4.2 as well as 2026.10.4. No app changes. (#28)

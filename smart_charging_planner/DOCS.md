@@ -279,7 +279,7 @@ Prices are known for a day or two (longer with a price forecast). Days after the
 
 - **Charging** (blue): the real plan up to the first departure.
 - **Leaving**: each departure with its target and what the trip costs. A trip home, such as "Home", "To home", "Back home" or in Dutch "Naar huis" (by its title, or with your home as location), is never a departure, also not with a target in it: it is when the car is back.
-- **The car is away now**: when the car is not plugged in and a trip home is in the calendar, the timeline starts with **Back home** at the end of that event, and charging is planned only from then (not while the car is still away). The battery level used is the last one the car reported; what the drive home costs is not taken off yet.
+- **The car is away now**: when the car is not plugged in and the app knows it is away with a trip home in the calendar, the timeline starts with **Back home** at the end of that event, and charging is planned only from then (not while the car is still away). The battery level used is the last one the car reported; what the drive home costs is not taken off yet. How the app knows where the car is: see [Where is the car?](#where-is-the-car).
 - **Back home**: when, and with about how much battery.
 - **Expected charging** (orange): from the moment the car is back, in the cheapest known hours, up to the next departure's target. With **Always charge when the battery is below a minimum** on and the car back below it: first **right away to the minimum** (purple), then the rest in the cheapest hours. Without known prices for then: how much is needed. "Enough for the next trip" when no charging is needed.
 
@@ -294,6 +294,25 @@ When another trip is added to the calendar, it takes its place in the timeline r
   - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "To Work" 06:00–16:30, then "To Gym" 16:30–20:30, then "Home"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
+
+### Where is the car?
+
+When the car is plugged in, it is at home. When it is not, the app checks, in this order, and the first clear answer wins:
+
+1. **Car location** (Settings › Vehicle, optional): a device tracker of the car. Most car integrations have one (Tesla, Renault, Kia/Hyundai, Skoda, Volvo, Mercedes, …); in some cars you have to allow location sharing in the car or its app.
+2. **Person who drives** (Settings › Vehicle, optional): a person in Home Assistant, for example you with the Home Assistant Companion app on your phone. Works for every car, but it is wrong when someone else drives.
+3. **A trip home in the calendar**: "Naar huis", "Back home", or your home as location.
+4. **None of these**: the app does not know where the car is.
+
+`home` means at home; `not_home` or the name of another zone means away. A state that is `unknown` or `unavailable` (or an entity that is gone) is skipped, so a broken sensor never makes the plan worse than having no sensor.
+
+What Home shows:
+
+- **At home** (car location or person): as before; the plan counts on charging when you plug in.
+- **Away, with a trip home in the calendar**: charging is planned from when the car is back (see "The car is away now" above).
+- **Away without a time back, or not known**: Looking ahead starts from the battery level now. The planned charging is shown in orange as **If plugged in by then: charging to 80%**, and the departure shows both levels ("80% when the car is plugged in at home in time; 64% without charging"). A note above the list says why. The status on top says **Car away (car location)** or that the location is not known.
+
+The app only reads these entities; it never changes them.
 
 ### Trip distances and privacy
 

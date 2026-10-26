@@ -107,6 +107,8 @@ function durationText(minutes) {
           { key: 'charging_entity', opt: 'charging', label: 'Charging' },
           { key: 'plugged_entity', opt: 'plugged', label: 'Plugged in' },
           { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
+          { key: 'location_entity', opt: 'location', label: 'Car location (device tracker)' },
+          { key: 'person_entity', opt: 'person', label: 'Person who drives (when the car has no location)' },
         ],
         extraInputs: () => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
@@ -121,6 +123,7 @@ function durationText(minutes) {
           <div class="field"><label>Use per 100 km in kWh (optional, for trip estimates)</label>
             <input name="consumption_kwh_100km" type="number" min="8" max="40" step="0.5" placeholder="18">
             <div class="muted small">For how much battery a trip in your calendar costs. The app learns this from your own trips (battery level when you leave and when you are back); until then it uses the car's range sensor, or this value.</div></div>
+          <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
           ['Battery level from', { sensor: 'the car (sensor)', manual_soc: 'entered by you at plug-in', fixed_kwh: `fixed amount: ${esc(v.fixed_kwh)} kWh per session` }[v.mode || 'sensor']],
@@ -129,7 +132,7 @@ function durationText(minutes) {
         ],
         manual: (data) => ({
           intro: 'Pick any sensor that shows the battery level in %.',
-          options: { soc: data.percent_sensors },
+          options: { soc: data.percent_sensors, location: data.trackers || [], person: data.persons || [] },
         }),
       },
       charger: {
@@ -1307,6 +1310,16 @@ function durationText(minutes) {
       }
     }
 
+    // Not plugged in (#46): where the car is, and what that means for the levels.
+    function placeNote(d) {
+      const pl = d.plan && d.plan.place;
+      if (!pl || !pl.conditional) return '';
+      const soc = d.vehicle && d.vehicle.soc != null ? `${esc(tidy(d.vehicle.soc))}%` : 'the level now';
+      const by = { car: 'car location', person: 'person' }[pl.source];
+      const where = pl.at === 'away' ? `The car is away (${esc(by || 'calendar')}) and it is not known when it is back.` : 'The car is not plugged in and the app does not know if it is at home.';
+      return `<p class="note small">${where} The levels start from ${soc}; planned charging counts only when the car is plugged in in time.${pl.at === 'unknown' ? ' Tip: set the car location or a person under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : ''}</p>`;
+    }
+
     // The coming days as one timeline: charging, leaving, back home, charging
     // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
@@ -1334,6 +1347,12 @@ function durationText(minutes) {
           if (x.unknown_prices) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
           }
+          // Not plugged in and not known to be at home (#46): only if plugged in in time.
+          if (x.if_plugged) {
+            return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>If plugged in by then: charging to ${pct(x.soc_to)}</div>
+            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''} · not counted in the levels below</div></div>${level(x.soc_to, 'exp')}</li>`;
+          }
           const short = x.expected && x.kwh < x.needed_kwh - 0.1 ? ' · the rest when more prices are known' : '';
           const what = x.minimum
             ? `${x.expected ? 'Expected: right away' : 'Right away'} to ${pct(x.soc_to)} <span class="muted">(your minimum)</span>`
@@ -1348,7 +1367,7 @@ function durationText(minutes) {
           const trip = x.trip ? tripText(x.trip) : '';
           return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
-            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
         if (x.type === 'precondition') {
           const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
@@ -1436,7 +1455,7 @@ function durationText(minutes) {
         day.rows.push(rowHtml(x, i));
         if (x.type === 'charge') {
           const cls = x.minimum ? 'min' : x.expected ? 'exp' : 'plan';
-          day.parts.push(`<span class="tl-p ${cls}">⚡ ${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
+          day.parts.push(`<span class="tl-p ${x.if_plugged ? 'exp' : cls}">⚡ ${x.if_plugged ? 'if plugged in: ' : ''}${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
           return;
         }
         if (x.type === 'leave') {
@@ -1473,6 +1492,7 @@ function durationText(minutes) {
       return `<div class="card next-goal${lowSeen ? ' low' : ''}" id="next-goal-card">
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
         ${aheadButtonsHtml()}
+        ${placeNote(d)}
         <div class="tl-days">${rows || '<p class="muted small">No departures in this period.</p>'}</div>
         <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
         ${priceNote && days.some((x) => x.est) ? `<p class="muted small">${priceNote}</p>` : ''}

@@ -31,6 +31,7 @@ const UNIT = [
   ['forecast', 'Price forecast: reading it and planning with it'],
   ['reliability', 'Ready Guard: is the car ready in time, and what happens when it is not'],
   ['chargestate', 'The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange)'],
+  ['carplace', 'Where the car is when not plugged in: car location, then a person, then a trip home in the calendar, else not known (#46)'],
   ['notify', 'Notifications: a message that reached no phone is tried again'],
   ['activecar', 'More than one car: connected car; calendar tags, trip language and duplicate prevention'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
