@@ -98,6 +98,7 @@ On a release ("uitbrengen X.Y.Z"), on `main` and on `dev`:
 - `README.md`: move the items under "Implemented on dev" to "Available features" (short, plain words) and empty that list; set "stable is X.Y.Z"; on `main`, keep main's own wording.
 - `RELEASE.md`: the released scope becomes one line ("released in X.Y.Z"); start the next candidate section on `dev` when the next change comes.
 - `CHANGELOG.md`: on `main`, remove `-dev` from the headings (step 4 above) and add a short "Stable release of …" entry.
+- `CHANGELOG.md` on `dev`: add the heading `## X.Y.Z` with "Stable release of …" above the released `-dev` headings, then the next `-dev` version above it. `tests/docs.test.js` stops at that heading.
 - Remove the label `fixed in dev` from the released issues.
 
 ## Issues (bugs and wishes on GitHub)

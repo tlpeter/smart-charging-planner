@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.35.5-dev** (stable is 0.34.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.36.0-dev** (stable is 0.35.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -168,6 +168,11 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] Looking ahead 7, 14 or 30 days, with estimates marked beyond known prices
 - [x] Calendar departures kept during temporary read failures, with a visible warning
 - [x] Battery bar colored from red at empty to green at full
+- [x] Explicit forecast price basis, so VAT is never added twice (#26)
+- [x] Trip distances and privacy: choose what is sent, or work offline (#31)
+- [x] Charging stops on the way (Netherlands and Belgium), on your side of the road (#37, #41, #42)
+- [x] Battery Care: a small refill after a short trip joins the planned session (#43)
+- [x] Preconditioning before a departure and on the way back, for every departure source (#44, #45)
 
 ### Before broader public promotion (P1)
 
@@ -187,18 +192,9 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 ### Implemented on dev, awaiting a stable release
 
-These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.34.0.
+These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.35.0.
 
-- [x] Make combined real/forecast price bases explicit and prevent duplicate VAT. [#26](https://github.com/tlpeter/smart-charging-planner/issues/26)
-- [x] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
-- [x] Suggest charging stations along routes that exceed the usable battery range (Netherlands and Belgium), with country, operator, connector, power and detour preferences, from Open Charge Map. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
-- [x] Charging stops are on the side of the road you drive on: real detour by road, a stop on the way back when that fits. [#41](https://github.com/tlpeter/smart-charging-planner/issues/41)
-- [x] Start preconditioning before a calendar departure with "precondition: yes", and on the way back (an event decides, else a setting). [#44](https://github.com/tlpeter/smart-charging-planner/issues/44)
-- [x] Preconditioning for every departure source: weekly schedule, helper and one-off, not only the calendar. [#45](https://github.com/tlpeter/smart-charging-planner/issues/45)
-
-- [x] Show whether the Open Charge Map key is saved, keep it private, and allow explicit removal on Save. [#42](https://github.com/tlpeter/smart-charging-planner/issues/42)
-
-- [x] Let a Battery Care refill within 5 percentage points join the final planned session; show the current session goal and current trip cost consistently. [#43](https://github.com/tlpeter/smart-charging-planner/issues/43)
+None yet.
 
 ## Tests
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.36.0-dev
+
+- Released 0.35.0 on main. Dev continues as 0.36.0-dev; the documentation check stops at the stable release heading below.
+
+## 0.35.0
+
+- Stable release of 0.34.1-dev through 0.35.9-dev (see the GitHub release v0.35.0).
+
 ## 0.35.9-dev
 
 - Each stable version gets a GitHub release (tag, notes per issue, the release zip) and a milestone for the issues it brings. A new workflow makes the release when the tag `vX.Y.Z` is pushed on main, with the notes from `release-notes/vX.Y.Z.md`; the steps are in AGENTS.md › GitHub releases. No app changes.
