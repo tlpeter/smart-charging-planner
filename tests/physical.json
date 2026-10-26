@@ -1,0 +1,6 @@
+{
+  "_about": "Physical test status per integration, kept by hand (#28). Fill it from the owner's home checks and from beta reports (issue form 'Beta test report'). Status: 'verified' (works on real hardware), 'partly' (some capabilities, see note), 'problem' (a real-hardware problem is open), absent = not physically tested yet. Never put names, addresses or entity ids of a real installation here.",
+  "chargers": {},
+  "cars": {},
+  "batteries": {}
+}

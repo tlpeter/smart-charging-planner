@@ -174,3 +174,24 @@ jobs:
             sleep 5
           done
           exit 1
+
+  container:
+    name: Container build (amd64, aarch64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the app image for both architectures in config.yaml
+        uses: docker/build-push-action@v6
+        with:
+          context: smart_charging_planner
+          platforms: linux/amd64,linux/arm64
+          push: false
+      - name: The app starts in the image
+        shell: bash
+        run: |
+          docker build -t scp-check smart_charging_planner
+          docker run --rm --entrypoint sh scp-check -c "node --check server.js && node -e \"require('ws'); console.log('app and its packages are in the image, node', process.version)\""
+

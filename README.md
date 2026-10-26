@@ -8,7 +8,9 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 The current development candidate is **0.36.0-dev** (stable is 0.35.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
-These fixes are on dev until they have passed GitHub Actions and the owner's home check. Main 0.32.0 still has the affected behaviour. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
+Changes on dev reach main after GitHub Actions and the owner's home check. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
+
+**[COMPATIBILITY.md](COMPATIBILITY.md)** lists per charger, car and home battery integration what the app can read and steer, which devices are read only, and what was checked on real hardware. It is generated from the tests; report your own hardware with the issue form **Beta test report**.
 
 | Capability | What to expect |
 | --- | --- |
@@ -176,7 +178,6 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 ### Before broader public promotion (P1)
 
-- [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 - [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
 
 ### Reliability and usability (P2)
@@ -194,7 +195,7 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.35.0.
 
-None yet.
+- [x] A compatibility matrix per integration (generated from the tests, read-only devices marked), a beta test report form for real-hardware results, a container build for amd64 and aarch64 and a check against an older Home Assistant Core. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 
 ## Tests
 

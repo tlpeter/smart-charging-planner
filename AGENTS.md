@@ -139,6 +139,7 @@ How a GitHub issue is handled, from report to release:
   - `node tests/matrix.test.js` (several minutes), or `SCP_CHARGERS=Easee` in front of it for one charger.
   - `node tests/testplan.js all`: everything, and writes the test plan (about 15 minutes).
 - New behaviour gets a test, preferably in `tests/settings.test.js` against the real app.
+- `COMPATIBILITY.md` is generated: after changing `tests/fixtures.js` or `tests/physical.json`, run `node tests/compat.js write` (`tests/compat.test.js` checks it). Fill `tests/physical.json` only from Peter's home checks and anonymous beta reports (RELEASE.md › Physical beta validation).
 - `.github/workflows/ha-core-compat.yml` runs the app against a real Home Assistant Core.
 
 ## Style

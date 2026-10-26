@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.3-dev
+
+- **Compatibility overview:** COMPATIBILITY.md lists per charger, car and home battery integration what the app can read and steer, marks read-only devices (Tesla Wall Connector, Zonneplan, Growatt, Anker, EcoFlow, Powerwall) and shows what was checked on real hardware. It is built from the tests, so it only claims what a test checks. A new issue form **Beta test report** collects anonymous real-hardware results. The tests now also build the app image for amd64 and aarch64 and run the real Home Assistant Core check on 2026.4.2 as well as 2026.10.4. No app changes. (#28)
+
 ## 0.36.2-dev
 
 - Release workflow: it uses the Home Assistant Core check of the newest commit that changed the app code, because that check does not run for a change to workflows or documentation only. No app changes.

@@ -376,6 +376,8 @@ Many cars have their own charge limit (for example Renault "Target charge level"
 
 ## Supported chargers
 
+The full overview per charger, car and home battery integration (what is read, what is steered, what is read only and what was checked on real hardware) is in [COMPATIBILITY.md](../COMPATIBILITY.md).
+
 The app reads which actions and entities your charger's integration offers and picks the best way to start and stop. Checked against the integrations' source code:
 
 | Charger | Integration | Start / stop | Notes |

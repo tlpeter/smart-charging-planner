@@ -40,6 +40,7 @@ const UNIT = [
   ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
   ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
+  ['compat', 'Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28)'],
   ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 
@@ -147,7 +148,7 @@ function settingsPart(sets) {
   md += '1. **Settings**: every setting, against a fake Home Assistant (`tests/fake-ha.js`). The real app starts with an empty data folder and is used through the same API as the page: what is saved, what is refused, what the plan does and what is sent to Home Assistant.\n';
   md += '2. **Unit tests**: one part of the app at a time, without Home Assistant (brands, solar, batteries, price forecast, Ready Guard, more cars, more chargers, look ahead, saving).\n';
   md += '3. **Matrix**: every charger brand with every home battery brand.\n\n';
-  md += 'A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core.\n\n';
+  md += 'A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core: the current version and the oldest one checked (2026.4.2). The Tests workflow also builds the app image for amd64 and aarch64.\n\n';
   md += '## Summary\n\n| Test | Passed |\n|---|---|\n';
   for (const [i, s] of sets.entries()) {
     const p = s.results.filter((r) => r.ok).length;

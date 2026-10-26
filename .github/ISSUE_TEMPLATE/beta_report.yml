@@ -1,0 +1,67 @@
+name: Beta test report
+description: Tell which car, charger or home battery you used on real hardware, and what worked
+labels: ["beta report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing on real hardware! This fills the **Physical test** column in [COMPATIBILITY.md](https://github.com/tlpeter/smart-charging-planner/blob/main/COMPATIBILITY.md).
+        **Keep it anonymous:** no names, addresses, car or charger names, entity ids, serial numbers or screenshots with personal data. Brand, model and integration are enough.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Settings › Diagnostics › App version
+      placeholder: "0.35.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version and installation type
+      placeholder: "2026.10.4, Home Assistant OS on amd64"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What did you test?
+      options:
+        - Charger
+        - Car
+        - Home battery
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Brand, model, integration and its version
+      placeholder: "Zaptec Go, zaptec (HACS) 0.8.0"
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: What worked on the real device?
+      description: Only tick what you saw happen on the device itself (or in its own app), not only in Home Assistant.
+      options:
+        - label: Found during setup (the right sensors were suggested)
+        - label: Battery level / status read correctly
+        - label: Plugged in read correctly
+        - label: Start and stop charging (with "Allow control" on)
+        - label: Charging current changed
+        - label: One/three-phase switching
+        - label: The car's AC charge limit was changed
+        - label: Preconditioning started
+        - label: Home battery hold / no discharge
+        - label: Home battery grid charging
+        - label: The app restarted while it controlled the device, and recovered
+  - type: textarea
+    id: problems
+    attributes:
+      label: What did not work, or behaved differently?
+      description: For example a delay, the car not waking up, or a command that Home Assistant accepted but the device ignored.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
