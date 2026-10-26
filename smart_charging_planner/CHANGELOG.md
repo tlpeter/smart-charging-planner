@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.9-dev
+
+- Each stable version gets a GitHub release (tag, notes per issue, the release zip) and a milestone for the issues it brings. A new workflow makes the release when the tag `vX.Y.Z` is pushed on main, with the notes from `release-notes/vX.Y.Z.md`; the steps are in AGENTS.md › GitHub releases. No app changes.
+
 ## 0.35.8-dev
 
 - **Preconditioning for every departure source:** the weekly schedule has a **Precondition** tick per day, the helper a tick (or an on/off entity that is only read and decides per departure), and the one-off departure a tick. Such a departure asks for preconditioning the set minutes before, like a calendar trip with `precondition: yes`. A day where a calendar trip wins is left to the calendar. Ready-for choices follow the departure they are based on. (#45)
