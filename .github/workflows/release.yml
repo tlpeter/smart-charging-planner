@@ -1,88 +1,117 @@
 name: Release
 
 # Makes the GitHub release for a stable version (AGENTS.md › GitHub releases).
-# Starts when a tag like v0.35.0 is pushed. That happens only after
-# "uitbrengen", on the release commit of main, once the tests on main are green.
-#
-# Checks first, and stops without a release when something is wrong:
-#  - the tag is vX.Y.Z (no -dev) and is the version in config.yaml;
-#  - the tagged commit is on main;
-#  - release-notes/vX.Y.Z.md exists in that commit.
-# Then: the zip (the contents of smart_charging_planner, no top folder), the
-# release with those notes, and the milestone X.Y.Z is closed.
+# Runs by itself after the Tests workflow passed for a push to main. It only
+# makes a release when all of this is true for that commit:
+#  - the version in config.yaml is stable (X.Y.Z, no -dev);
+#  - there is no tag vX.Y.Z yet;
+#  - release-notes/vX.Y.Z.md exists;
+#  - the Home Assistant Core compatibility check for the same commit passed.
+# Otherwise it does nothing (for example a push to main that is not a new
+# version). Then: the tag vX.Y.Z on that commit, the release with those notes
+# and the release zip, and the milestone X.Y.Z is closed.
+# "Run workflow" (Actions tab) does the same for the newest commit on main.
 
 on:
-  push:
-    tags: ['v*.*.*']
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
   issues: write
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
-    name: Release ${{ github.ref_name }}
+    name: Release
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SHA }}
           fetch-depth: 0
 
-      - name: Check the tag, the version and the notes
+      - name: Is this a new stable version?
         id: check
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::$TAG is not a stable version tag (vX.Y.Z, no -dev)"; exit 1
+          VERSION=$(grep -m1 '^version:' smart_charging_planner/config.yaml | sed -E 's/^version:[[:space:]]*"?([^"]+)"?.*/\1/')
+          TAG="v$VERSION"
+          echo "Commit $SHA, version $VERSION"
+          go=true
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a stable version: no release"; go=false
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG exists already: no release"; go=false
+          elif [ ! -s "release-notes/$TAG.md" ]; then
+            echo "::error::release-notes/$TAG.md is missing: write it, then use Run workflow"; exit 1
+          elif ! git branch -r --contains "$SHA" | grep -qE '^[[:space:]]*origin/main$'; then
+            echo "::error::$SHA is not on main"; exit 1
           fi
-          VERSION="${TAG#v}"
-          CONFIG=$(grep -m1 '^version:' smart_charging_planner/config.yaml | sed -E 's/^version:[[:space:]]*"?([^"]+)"?.*/\1/')
-          if [ "$CONFIG" != "$VERSION" ]; then
-            echo "::error::config.yaml has version $CONFIG, the tag is $TAG"; exit 1
-          fi
-          if ! git branch -r --contains "$GITHUB_SHA" | grep -qE '^[[:space:]]*origin/main$'; then
-            echo "::error::$TAG is not on main"; exit 1
-          fi
-          NOTES="release-notes/$TAG.md"
-          if [ ! -s "$NOTES" ]; then
-            echo "::error::$NOTES is missing in this commit"; exit 1
-          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the Home Assistant Core check of this commit
+        if: steps.check.outputs.go == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 80); do
+            R=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=50" \
+              --jq '[.workflow_runs[] | select(.name == "Home Assistant Core compatibility")] | sort_by(.created_at) | last | "\(.status) \(.conclusion)"')
+            echo "Core check: $R"
+            case "$R" in
+              "completed success") exit 0 ;;
+              completed*) echo "::error::The Home Assistant Core check did not pass: no release"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::The Home Assistant Core check did not finish in time"; exit 1
 
       - name: Build the zip
+        if: steps.check.outputs.go == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          git archive --format=zip -o "smart-charging-planner-${GITHUB_REF_NAME}.zip" "${GITHUB_SHA}:smart_charging_planner"
-          unzip -l "smart-charging-planner-${GITHUB_REF_NAME}.zip" | tail -1
+          git archive --format=zip -o "smart-charging-planner-${{ steps.check.outputs.tag }}.zip" "${SHA}:smart_charging_planner"
+          unzip -l "smart-charging-planner-${{ steps.check.outputs.tag }}.zip" | tail -1
 
-      - name: Create the release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create the tag and the release
+        if: steps.check.outputs.go == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" "smart-charging-planner-${GITHUB_REF_NAME}.zip" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file "${{ steps.check.outputs.notes }}" \
-            --verify-tag \
+          TAG="${{ steps.check.outputs.tag }}"
+          gh release create "$TAG" "smart-charging-planner-$TAG.zip" \
+            --target "$SHA" \
+            --title "$TAG" \
+            --notes-file "release-notes/$TAG.md" \
             --latest
 
       - name: Close the milestone
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.check.outputs.go == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          N=$(gh api "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" \
-            --jq ".[] | select(.title == \"${{ steps.check.outputs.version }}\") | .number" | head -1)
+          V="${{ steps.check.outputs.version }}"
+          N=$(gh api "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" --jq ".[] | select(.title == \"$V\") | .number" | head -1)
           if [ -n "$N" ]; then
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/milestones/$N" -f state=closed --silent
-            echo "Milestone ${{ steps.check.outputs.version }} closed"
+            echo "Milestone $V closed"
           else
-            echo "No open milestone ${{ steps.check.outputs.version }}"
+            echo "No open milestone $V"
           fi

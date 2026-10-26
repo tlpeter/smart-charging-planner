@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.1-dev
+
+- The GitHub release of a stable version is now made by GitHub itself after the tests on main pass (tag, notes, zip, milestone); nobody pushes a tag by hand. No app changes.
+
 ## 0.36.0-dev
 
 - Released 0.35.0 on main. Dev continues as 0.36.0-dev; the documentation check stops at the stable release heading below.

@@ -40,7 +40,7 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Run the full main checks, including Core compatibility, and inspect the resulting test plan.
 - Close only issues whose complete acceptance criteria are met. Remove fixed in dev after those fixes are released; leave unrelated audit issues open.
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
-- Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; pushing the tag `vX.Y.Z` after green tests makes the GitHub release with the zip and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
+- Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
 ## Current candidate: 0.36.0-dev
 

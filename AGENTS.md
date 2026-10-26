@@ -61,14 +61,14 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
   5. Push `main` (only after the owner said so).
   6. Merge `main` into the history of `dev` while keeping the current files of `dev` (the equivalent of `git merge -s ours main`), then push `dev`, so `dev` keeps its own names. Codex does this through the connector.
   7. Update the documentation on both branches (see "Documentation" below): `dev` keeps its own files in step 6, so its README and RELEASE are updated there too.
-  8. Create the GitHub release (see "GitHub releases" below), only after the tests on `main` are green.
+  8. The GitHub release is made by the Release workflow after the tests on `main` are green (see "GitHub releases" below); check that it is green.
 
 ## GitHub releases
 
 A GitHub release is a fixed tag plus a page with notes. Home Assistant does not use it (it follows the branch and `config.yaml`); it is the overview for people: one page per stable version.
 
 - **Only for a stable version on `main`**, as the last step of "uitbrengen X.Y.Z". Never for `dev` or a `-dev` version, and never a pre-release.
-- **How**: the notes are written as `release-notes/vX.Y.Z.md` and committed with the release on `main`. When the tests on `main` are green, the tag `vX.Y.Z` is pushed on that release commit (the commit with version `X.Y.Z` in `config.yaml`, not the later "Test plan" commit). `.github/workflows/release.yml` then checks the tag, the version, that the commit is on `main` and that the notes file exists, builds the zip, creates the release (title `vX.Y.Z`) and closes the milestone. Check that the Release workflow is green. Claude sessions cannot create releases through the API; the tag push is how they make one. If the workflow cannot run, Peter creates the release by hand with the same notes and zip.
+- **How**: the notes are written as `release-notes/vX.Y.Z.md` and committed with the release on `main`. Nobody pushes a tag or creates the release by hand: after the Tests workflow passes for a push to `main`, `.github/workflows/release.yml` checks that `config.yaml` has a stable version without a tag yet, that the notes file exists and that the Home Assistant Core check of the same commit passed. Then it creates the tag `vX.Y.Z` on that commit, the release (title `vX.Y.Z`) with the zip, and closes the milestone. A push to `main` that is not a new version makes no release. Check that the Release workflow is green after "uitbrengen"; when the notes were missing, add them and use **Run workflow** on the Release workflow. (Claude sessions cannot push tags or create releases themselves; this workflow does it for them.)
 - **Notes**, in plain English, built from the changelog entries since the previous stable version (on `dev` these are the `-dev` headings after the previous release):
   - one line on what the release is about;
   - **New** and **Fixed**: one short line per issue, ending in `(#<number>)`, grouped by feature (not one line per `-dev` version); entries without an issue (tests, documentation) go under one line **Other**;
@@ -77,7 +77,7 @@ A GitHub release is a fixed tag plus a page with notes. Home Assistant does not 
   - a link to the full `CHANGELOG.md`.
 - **Asset**: the release zip `smart-charging-planner-vX.Y.Z.zip` (the contents of `smart_charging_planner`, no top folder); the workflow builds it.
 - **Milestone**: issues planned for the next stable version get the milestone `X.Y.Z`; it is closed when that version is released. A new milestone is made for the next version when the first issue needs it.
-- No release, tag or milestone change without the owner's "uitbrengen"; pushing the tag follows the same push rule. Never move or delete a pushed release tag.
+- No release, tag or milestone change without the owner's "uitbrengen"; the push to `main` that starts the release follows the push rule. Never move or delete a release tag.
 
 ## Documentation
 
