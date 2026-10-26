@@ -8,20 +8,20 @@ Three kinds of tests:
 2. **Unit tests**: one part of the app at a time, without Home Assistant (brands, solar, batteries, price forecast, Ready Guard, more cars, more chargers, look ahead, saving).
 3. **Matrix**: every charger brand with every home battery brand.
 
-A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core.
+A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core: the current version and the oldest one checked (2026.4.2). The Tests workflow also builds the app image for amd64 and aarch64.
 
 ## Summary
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 189 of 189 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 188 of 189 ✗ |
 | Settings B: Kia Niro EV (Kia Uvo) + Zaptec Go | 176 of 176 ✓ |
 | Settings 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 177 of 177 ✓ |
-| Unit tests (22 files) | 802 of 802 ✓ |
-| Matrix (10 chargers × all batteries) | 959 of 960 ✗ |
+| Unit tests (23 files) | 806 of 806 ✓ |
+| Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.36.2-dev.
+Version: 0.36.3-dev.
 
 # Settings
 
@@ -98,7 +98,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.1 h back | ✓ 13 charged blocks, from 12.1 h back | ✓ 13 charged blocks, from 12.1 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 13.0 h back | ✓ 13 charged blocks, from 13.0 h back | ✓ 13 charged blocks, from 13.0 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
@@ -190,10 +190,10 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Zaptec Go Charger max current | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 23.8 kWh on solar, 10.5 kWh from the grid | ✓ 23.8 kWh on solar, 18.4 kWh from the grid | ✓ 23.8 kWh on solar, 27.0 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 23.8 kWh on solar | ✓ 23.8 kWh on solar | ✓ 23.8 kWh on solar |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 22.0 kWh on solar, 12.3 kWh from the grid | ✓ 22.0 kWh on solar, 20.2 kWh from the grid | ✓ 22.0 kWh on solar, 28.8 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 22.0 kWh on solar | ✓ 22.0 kWh on solar | ✓ 22.0 kWh on solar |
 | S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 9.1 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S5 | Solar only: the plan uses only the sun | ✓ 22.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 22.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 22.0 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.zaptec_go_charger_max_current 7 · button.press button.zaptec_go_resume_charging | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · button.press button.zaptec_go_stop_charging | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.zaptec_go_charger_max_current 16 · button.press button.zaptec_go_resume_charging | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -209,13 +209,13 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.42 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.47 | ✓ charges in 3 block(s), saving €1.43 | ✓ charges in 3 block(s), saving €1.39 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
 | T7 | "Only stored solar into the car": no solar in the battery → no discharging into the car | ✓ | ✓ | ✓ |
 | T7b | "Between two levels" (80 % → 40 %): refused when the levels do not fit; car charges: below 80 % no help, from 80 % the battery helps, at 40 % it stops | ✓ 60 %: hold · 85 %: auto · 39 %: hold | ✓ 60 %: hold · 85 %: auto · 39 %: hold | ✓ 60 %: hold · 85 %: auto · 39 %: hold |
-| T8 | Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits | ✓ car on solar at 8 A · battery: turn_on · select_option Standby | ✓ car on solar at 8 A · battery: turn_on · select_option Standby | ✓ car on solar at 8 A · battery: turn_on · select_option Standby |
+| T8 | Smart sun: the battery takes 2 kW of sun, the car needs energy → the car gets the sun, the battery waits | ✗ FAIL car: solar, charging false, sent switch.turn_on {},select.select_option {"option":"Standby"},easee.set_charger_dynamic_limit {"device_id":"ch","current":8,"time_to_live":30}, now {"time":1793008801598,"plugged":true,"charging":false,"status":"awaiting_start","power_w":0,"switch_state":{"entity_id":"switch.laadpaal_charger_enabled","name":"Laadpaal Charger enabled","state":"off","on":false,"since":1793008201577},"want":"charge","code":"solar","amps":8,"phases":3,"solar":true,"shared":false,"reason":"Charging with solar surplus (5550 W)","next_start":null,"block_end":null,"locked_until":1793026800000,"commands":[{"what":"start charging","service":"switch.turn_on","data":{},"target":{"entity_id":"switch.laadpaal_charger_enabled"}}],"agrees":false,"sent":false,"live":true, | ✓ car on solar at 8 A · battery: turn_on · select_option Standby | ✓ car on solar at 8 A · battery: turn_on · select_option Standby |
 | T8b | Equalizer does solar, no sun (evening): the charger is on but the car waits, so the battery keeps covering the house | ✓ charger on, Equalizer waits; battery: auto (Battery plan: auto) | – (not for this set-up) | – (not for this set-up) |
 | T9 | Diagnostics: battery test "charge" sends the Sigenergy commands | ✓ turn_on · set_value 5 · select_option Command Charging (Grid First) | ✓ turn_on · set_value 5 · select_option Command Charging (Grid First) | ✓ turn_on · set_value 5 · select_option Command Charging (Grid First) |
 | T10 | Battery planning off: the battery goes back to normal (Remote EMS off) | ✓ | ✓ | ✓ |
@@ -308,7 +308,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y20 | Preconditioning (#44): off by default; the car's button is offered; only a switch or button can be chosen | ✓ offered: button.test_car_start_air_conditioner | ✓ offered: button.test_car_start_air_conditioner | ✓ offered: switch.enyaq_charging, switch.enyaq_battery_care_mode, button.test_car_start_air_conditioner |
 | Y21 | Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car's button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without |
 | Y22 | Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none |
-| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule mon 10:17: one press with the tick, none without; one-off: one press | ✓ schedule mon 10:17: one press with the tick, none without; one-off: one press | ✓ schedule mon 10:17: one press with the tick, none without; one-off: one press |
+| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule mon 11:11: one press with the tick, none without; one-off: one press | ✓ schedule mon 11:10: one press with the tick, none without; one-off: one press | ✓ schedule mon 11:10: one press with the tick, none without; one-off: one press |
 
 ## Z. Apple iCloud calendar (read only)
 
@@ -385,6 +385,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37) | 14 of 14 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 | [precondition.test.js](#precondition) | Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44) | 13 of 13 ✓ |
+| [compat.test.js](#compat) | Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28) | 4 of 4 ✓ |
 | [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 6 of 6 ✓ |
 
 ## batteryguard
@@ -1414,6 +1415,21 @@ Preconditioning before a departure: which drives (calendar first, then the way-b
 
 </details>
 
+## compat
+
+Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28).
+
+<details><summary>4 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| COMPATIBILITY.md is up to date (run: node tests/compat.js write) | ✓ |
+| every charger, car and home battery of the fixtures is listed | ✓ |
+| read-only devices are marked and never shown as steerable | ✓ |
+| physical test status only shows known states, and nothing personal | ✓ |
+
+</details>
+
 ## docs
 
 Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev.
@@ -1423,9 +1439,9 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.36.2-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.36.2-dev) | ✓ |
-| README: every issue since 0.35.0 is under "Implemented on dev" (none) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.36.3-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.36.3-dev) | ✓ |
+| README: every issue since 0.35.0 is under "Implemented on dev" (#28) | ✓ |
 | RELEASE: every issue since 0.35.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
 
@@ -1442,7 +1458,7 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Easee | ✓ switch, current: action_current, phases: action_phase | ✓ switch.turn_on switch.eh123456_charger_enabled {} → switch.turn_off switch.eh123456_charger_enabled {} | ✓ 7 A · easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.eh123456_charger_enabled {} | ✓ one phase, 6 A · switch.turn_off switch.eh123456_charger_enabled {} · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"}… | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.eh123456_charger_enabled {} · switch.turn_of… | ✓ 20 commands | 90 of 90 ✓ |
 | Zaptec | ✓ buttons, current: number, phases: none | ✓ button.press button.zaptec_go_resume_charging {} → button.press button.zaptec_go_stop_charging {} | ✓ 7 A · number.set_value number.zaptec_go_charger_max_current {"value":7} · button.press button.zaptec_go_resume_charging {} | ✓ paused · button.press button.zaptec_go_stop_charging {} | ✓ number.set_value number.zaptec_go_charger_max_current {"value":16} · button.press button.zaptec_go_resume_charging {} | ✓ 12 commands | 90 of 90 ✓ |
 | Alfen | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.alfen_eve_charging {} → switch.turn_off switch.alfen_eve_charging {} | ✓ 7 A · number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":7} · switch.turn_on switch.alfen_eve_charging {} | ✓ paused · switch.turn_off switch.alfen_eve_charging {} | ✓ number.set_value number.alfen_eve_power_connector_max_current_socket_1 {"value":16} · switch.turn_on switch.alfen_eve_charging {} | ✓ 12 commands | 90 of 90 ✓ |
-| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":7} · switch.turn_on switch.wallbox_pulsar_plus_pause_res… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16} · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {… | ✓ 12 commands | 89 of 90 ✗ |
+| Wallbox | ✓ switch, current: number, phases: none | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume {} → switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ 7 A · number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":7} · switch.turn_on switch.wallbox_pulsar_plus_pause_res… | ✓ paused · switch.turn_off switch.wallbox_pulsar_plus_pause_resume {} | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current {"value":16} · switch.turn_on switch.wallbox_pulsar_plus_pause_resume {… | ✓ 12 commands | 90 of 90 ✓ |
 | go-e (marq24) | ✓ select, current: number, phases: select_phase | ✓ select.select_option select.goe_123456_frc {"option":"2"} → select.select_option select.goe_123456_frc {"option":"1"} | ✓ 7 A · number.set_value number.goe_123456_amp {"value":7} · select.select_option select.goe_123456_frc {"option":"2"} | ✓ one phase, 6 A · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option select.goe_123456_psm {"option":"1"} · sel… | ✓ select.select_option select.goe_123456_psm {"option":"2"} · select.select_option select.goe_123456_frc {"option":"1"} · select.select_option… | ✓ 20 commands | 90 of 90 ✓ |
 | go-e (cathiele) | ✓ switch, current: none, phases: none | ✓ switch.turn_on switch.goecharger_home_allow_charging {} → switch.turn_off switch.goecharger_home_allow_charging {} | ✓ no current control: waits for 11 kW | ✓ paused · was not charging | ✓ switch.turn_on switch.goecharger_home_allow_charging {} | ✓ 8 commands | 90 of 90 ✓ |
 | Peblar | ✓ switch, current: number, phases: switch_phase | ✓ switch.turn_on switch.peblar_ev_charger_charge {} → switch.turn_off switch.peblar_ev_charger_charge {} | ✓ 7 A · number.set_value number.peblar_ev_charger_charge_limit {"value":7} · switch.turn_on switch.peblar_ev_charger_charge {} | ✓ one phase, 6 A · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_on switch.peblar_ev_charger_force_single_phase {} · switch… | ✓ switch.turn_off switch.peblar_ev_charger_force_single_phase {} · switch.turn_off switch.peblar_ev_charger_charge {} · switch.turn_off switch… | ✓ 22 commands | 90 of 90 ✓ |
@@ -1469,7 +1485,7 @@ Per battery: 1 found, 2 switching from the previous battery puts that one back i
 | Zonneplan Nexus (zonneplan_one) | ✓ read only | ✓ nothing sent (Zonneplan steers the Nexus itself (dynamic charging); the integration offers no charge or discharge command.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Growatt (growatt_server) | ✓ read only | ✓ nothing sent (Growatt cloud only offers time segments in %, not commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Anker Solix (anker_solix) | ✓ read only | ✓ nothing sent (Anker Solix is steered with schedules and presets, not with charge or discharge commands; not supported yet.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
-| EcoFlow (ecoflow_cloud) | ✓ read only | ✓ nothing sent (EcoFlow offers no charge or discharge command in Home Assistant.) | ✓ nothing sent | ✓ nothing sent | 59 of 60 ✗ |
+| EcoFlow (ecoflow_cloud) | ✓ read only | ✓ nothing sent (EcoFlow offers no charge or discharge command in Home Assistant.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 | Tesla Powerwall (powerwall) | ✓ read only | ✓ nothing sent (The local Powerwall integration can only read the battery; use Teslemetry or Tesla Fleet to steer it.) | ✓ nothing sent | ✓ nothing sent | 60 of 60 ✓ |
 
 ## Per car (with Easee)
@@ -1490,7 +1506,3 @@ The real entity names of each car integration (`tests/fixtures.js`, CARS; `SCP_C
 | Mercedes-Benz (mbapi2020) | ✓ sensor.eqa_state_of_charge · no plug sensor | ✓ 40% → 85% | ✓ read only: 80% | ✓ charging true, status ? | ✓ 0 to the car |
 
 GoodWe and Marstek (Local API) cannot be told to stop discharging from Home Assistant: the app says so on Settings › Battery. The read-only brands are never sent anything.
-
-## Failed
-
-- 4.B14.4 Wallbox + EcoFlow (ecoflow_cloud): Car stops: the battery follows its own plan again (not the car) – car still charging
