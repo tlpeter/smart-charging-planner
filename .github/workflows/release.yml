@@ -65,18 +65,23 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for the Home Assistant Core check of this commit
+      - name: Wait for the Home Assistant Core check of the app code
         if: steps.check.outputs.go == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          for i in $(seq 1 80); do
-            R=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=50" \
-              --jq '[.workflow_runs[] | select(.name == "Home Assistant Core compatibility")] | sort_by(.created_at) | last | "\(.status) \(.conclusion)"')
-            echo "Core check: $R"
+          # The Core check only runs when the app code changes. So the check
+          # that counts is the one of the newest commit that changed it.
+          CORE_SHA=$(git log -1 --format=%H "$SHA" -- smart_charging_planner/app tests/ha-core tests/ha-core-compat.test.js .github/workflows/ha-core-compat.yml)
+          echo "App code last changed in $CORE_SHA"
+          for i in $(seq 1 60); do
+            R=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${CORE_SHA}&per_page=50" \
+              --jq '[.workflow_runs[] | select(.name == "Home Assistant Core compatibility" and .head_branch == "main")] | sort_by(.created_at) | last | if . == null then "none" else "\(.status) \(.conclusion)" end')
+            echo "Core check on main: $R"
             case "$R" in
               "completed success") exit 0 ;;
               completed*) echo "::error::The Home Assistant Core check did not pass: no release"; exit 1 ;;
+              none) echo "::error::No Home Assistant Core check on main for $CORE_SHA: run it (Run workflow), then run Release again"; exit 1 ;;
             esac
             sleep 30
           done
