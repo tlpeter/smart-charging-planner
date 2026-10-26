@@ -35,7 +35,12 @@ const UNIT = [
   ['activecar', 'More than one car: connected car; calendar tags, trip language and duplicate prevention'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
+  ['pricebasis', 'Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26)'],
+  ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31)'],
+  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
+  ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
+  ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 
 const NOT_COVERED = [
@@ -45,6 +50,7 @@ const NOT_COVERED = [
   'Phase switching on a real charger: some chargers pause the session while switching.',
   'Real home batteries: how fast they follow a command, and the power sign of brands marked unverified.',
   'Look ahead with the real OpenStreetMap: the test uses a fake address search and route; real addresses can be found differently or not at all.',
+  'Charging stops with the real Open Charge Map: the test uses fake stations; real station data can be incomplete, out of date or use other operator names.',
   'Two real chargers on one connection: the test checks the decisions, not how fast real chargers follow a lower current.',
   'Adding trips to a real calendar (Google, Local calendar, CalDAV): the fake calendar shows a new event right away; a real one can take a moment.',
   'The page itself (buttons, forms): checked with screenshots during development, not in this test.',
@@ -74,7 +80,7 @@ function runUnit(dir) {
 function runAll() {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'scp-testplan-'));
   let failed = runUnit(dir);
-  for (const profile of ['renault_easee', 'skoda_wallbox']) {
+  for (const profile of ['renault_easee', 'skoda_wallbox', 'kia_zaptec']) {
     const r = spawnSync(process.execPath, [path.join(__dirname, 'settings.test.js')], {
       cwd: ROOT, stdio: 'inherit', env: { ...process.env, SCP_PROFILE: profile, SCP_RESULTS: path.join(dir, `settings-${profile}.json`) },
     });
@@ -156,7 +162,7 @@ function settingsTables(sets) {
   let md = '\n# Settings\n\n';
   md += `Set-ups, with entity names taken from the integrations' own source code:\n\n${sets.map((s, i) => `- **${letters[i] || i + 1}**: ${s.profile}`).join('\n')}\n\n`;
   md += 'Both also have a P1 meter, a Fronius inverter, EnergyZero prices, a price sensor with a 7-day forecast, a solar forecast in the Energy dashboard, a Sigenergy home battery, a second car and charger, calendars (also a read-only iCloud calendar), helpers and notify actions.\n\n';
-  md += 'Run one yourself (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:\n\n```\nnode tests/settings.test.js\nSCP_PROFILE=skoda_wallbox node tests/settings.test.js\n```\n';
+  md += 'Run one yourself (from the repository root, after `npm install` in `smart_charging_planner/app`), about a minute each:\n\n```\nnode tests/settings.test.js\nSCP_PROFILE=skoda_wallbox node tests/settings.test.js\nSCP_PROFILE=kia_zaptec node tests/settings.test.js\n```\n';
   const order = [];
   const ids = {};
   for (const s of sets) {

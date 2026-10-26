@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.35.0
+
+- Stable release of 0.34.1 through 0.35.9.
+- **Charging stops on the way** (Netherlands and Belgium, Open Charge Map, off by default): stations along the route when a trip needs more than the battery holds, on your side of the road, with the saved key shown clearly (#37, #41, #42).
+- **Preconditioning before a departure** (off by default): the car's button or switch is used a set number of minutes before a drive, from the calendar, the weekly schedule, the helper and one-off departures, and on the way back (#44, #45).
+- **Battery Care after a short trip:** a small refill joins the planned final session; Home and Looking ahead show each session's own goal (#43).
+- **Trip distances and privacy:** choose what may be sent to look up a trip's distance, or work offline (#31).
+- **Forecast price basis:** chosen explicitly, so VAT is never added twice (#26).
+- Tests: a third full set-up (Kia + Zaptec) and a documentation check; GitHub releases with notes per version.
+
+## 0.35.9
+
+- Each stable version gets a GitHub release (tag, notes per issue, the release zip) and a milestone for the issues it brings. A new workflow makes the release when the tag `vX.Y.Z` is pushed on main, with the notes from `release-notes/vX.Y.Z.md`; the steps are in AGENTS.md › GitHub releases. No app changes.
+
+## 0.35.8
+
+- **Preconditioning for every departure source:** the weekly schedule has a **Precondition** tick per day, the helper a tick (or an on/off entity that is only read and decides per departure), and the one-off departure a tick. Such a departure asks for preconditioning the set minutes before, like a calendar trip with `precondition: yes`. A day where a calendar trip wins is left to the calendar. Ready-for choices follow the departure they are based on. (#45)
+
+## 0.35.7
+
+- **Preconditioning before a departure** (Settings › Rules, per car, off by default): the app presses a button or turns on a switch of your car (for example "Start air conditioner") a set number of minutes before it leaves, default 15. From home only for a calendar trip with `precondition: yes`. For the next drive of a trip and a trip home in the calendar, that event decides. With no event for the drive home, the new setting **Preconditioning on the way back** decides, before the event ends. The car does not need to be plugged in; when it is, the charger stays on. Shown in Looking ahead. With "Allow control" off it is only shown. (#44)
+
+## 0.35.6
+
+- Tests: a third complete set-up, a Kia Niro EV (Kia Uvo) with a Zaptec Go (start and stop with its buttons, current with its number), runs every setting on each push next to Renault + Easee and Skoda + Wallbox. No app changes.
+
+## 0.35.5
+
+- **Battery Care after a short trip:** a drop of up to 5 percentage points below the holding level (75–80% for an 80% hold) joins the planned final charging window, if that window can still deliver the full target. A separate hard minimum, Charge now and departure protection still take priority. Old period locks and price hysteresis cannot keep the car charging past its holding level. (#43)
+- **Home matches the current session:** an early Battery Care session shows its holding-level target and its own finish time. Looking ahead lists separate sessions with their own battery levels. A declined trip-top-up message uses the current trip estimate instead of its old saved estimate; it hides when that estimate is unavailable. (#43)
+
+## 0.35.4
+
+- **Open Charge Map key:** a clear Key saved badge and placeholder stay visible after saving and reloading. A replacement is marked as unsaved until Save succeeds. Remove key takes effect on Save and turns charging stops off; Discard keeps the saved key. The stored key is never sent to the page. (#42)
+
+## 0.35.3
+
+- **Charging stops: the right side of the road.** The detour of a suggested station is now the real detour by road (OSRM), not the straight distance to the route. A service area on the other side of a motorway, which needs a drive to the next exit and back, no longer looks like a stop on the way; it is only shown when nothing else fits, marked as a longer detour. When the car gets to the destination with enough left, the stop is suggested on the way back, so on the side of the road going home. (#41)
+
+## 0.35.2
+
+- A new check keeps the documentation up to date: the README and the release checklist must name the current version, and every issue fixed on dev since the last stable release must be listed in both. The steps for each change and each release are in AGENTS.md › Documentation.
+
+## 0.35.1
+
+- Documentation only: the README (development candidate, roadmap, what is on dev) and the release checklist are up to date for 0.35.x-dev.
+
+## 0.35.0
+
+- **Charging stops on the way** (Plan, off by default): when a trip needs more than the battery holds, the day's details under Looking ahead suggest up to three public charging stations along the route, with how much to charge there. Choose the countries (Netherlands, Belgium), preferred operators, connector, minimum power, maximum detour and the level below which a stop is suggested. Station data comes from Open Charge Map with your own free API key; the route line goes to OSRM and Open Charge Map, nothing else. Only when Trip distances may go online. The data is not live. (#37)
+
+## 0.34.1
+
+- **Trip distances and privacy** (Plan): choose what may be sent to look up a trip's distance: the OpenStreetMap public services, your own Nominatim/OSRM servers, offline (zones, distances you enter, places looked up before), or off. The page says exactly what goes where. A new install sends nothing until you choose; an older install keeps OpenStreetMap and shows a notice until you confirm. My places can have a distance (km one way) instead of an address. (#31)
+- **Forecast price basis** (Settings › Prices): what the forecast price is (excl. VAT, incl. VAT, all-in) must be chosen and is no longer copied from the real prices, so an all-in forecast does not get VAT a second time. Test shows how one forecast price is built and compares an hour that has both a real and a forecast price, with a warning when VAT looks applied twice or not at all. (#26)
+
 ## 0.34.0
 
 - Stable release of 0.33.1 through 0.33.7.
@@ -36,18 +92,6 @@
 ## 0.33.1
 
 - **Charge now keeps its priority** when sharing the connection between chargers, also while that car is below its minimum. Before, the minimum rule gave the charging reason and Charge now was not seen, so the car could stay second. (#35)
-
-## 0.33.0
-
-- Stable release of the fixes and improvements tested in 0.30.23 and 0.32.1 through 0.32.24.
-- **Safer control**: missing prices are never treated as free; clock-change hours are handled; zero or low current limits pause charging; current and phase are set before charging starts; changed device settings are remembered over a restart and restored (#5, #6, #7, #8, #14, #18).
-- **Home battery**: Never below / Never above are enforced live, original settings are restored exactly, failed commands are retried, and protection covers every charger (#9, #10, #11, #19).
-- **Prices and solar**: declared price units are honoured (no silent division by 1000), half-hour solar forecasts are no longer counted twice, and partial price warnings are shown separately from a failed source (#12, #15, #34).
-- **Cars and sharing**: better car sensor detection for 10 car integrations, no stale battery level after a trip, and connection sharing respects the grid sign and pauses the first charger when it does not fit (#13, #21, #22).
-- **Calendar and trips**: trips added in English or Dutch (Plan › Calendar › Language for trips the app adds) with a new Calendar words section in the documentation; no duplicate trips after changing the language; confirmed departures are kept for up to 24 hours when the calendar is temporarily unavailable; the raised trip target goes down again when a trip gets shorter and shows on Plan (#2, #3, #24, #38).
-- **Diagnostics**: a public report you can preview before downloading, without names, places or private identifiers (#20).
-- The battery bar runs from red at empty to green at full (#36). MIT license and contribution guide (#32). The stable app description no longer says TEST VERSION (#23).
-- Known limitations: per-phase site capacity (#29), routing privacy choice (#31), price breakdown preview (#26) and a compatibility matrix (#28) are not done yet. Keep your charger's own protections and any hardware load balancer in place.
 
 ## 0.32.24
 
@@ -179,21 +223,9 @@
 - A car's plug sensor that says "connected" / "disconnected" or "plugged" / "unplugged" now counts, not only on/off.
 - Tests: a new unit test for every car integration (`tests/cars.test.js`), and a new run in GitHub Actions with each car and an Easee: found, battery level, charge limit, charging and only its own commands.
 - Tests now run against Home Assistant 2026.10.3.
-
 ## 0.30.23
 
 - Fix, Ask to charge more when a trip needs it: after a Yes, the raised target now **goes down again when the trip gets shorter**. Before, it stayed, so the car could still be charged to 100 % after you removed a place from the calendar. Now the app keeps checking what the trip costs: costs less, the target goes down to what is needed (never below the target from the calendar or schedule); not needed any more, the Yes ends and the normal target counts again. An open question that is no longer needed is removed from Home. The trip grows again: you get the question again, and "No" there now keeps your own target (from the calendar or schedule), not the raised one. Test Y13. (#2)
-
-## 0.32.0
-
-- Stable release of the improvements tested in 0.30.11 through 0.30.22.
-- **More places in a row**: a calendar trip that starts when the one before ends (work, then sport, then home) is one trip. Each part counts from the place before, no charging at home is expected while the car is away, and each place shows the level when the car arrives there (#1).
-- The level after a trip can show **below 0 %**, so you see how much the battery falls short.
-- New option **Ask to charge more when a trip needs it** (off by default): one question on your phone with Yes and No buttons, and on Home. Only Yes raises the target, for that trip only.
-- New option **Restart the car when it takes no power** (off by default), for cars that do not start again after their own limit.
-- The price chart can look back 12 h, 24 h, 3 days or 7 days, with the blocks the car really charged in.
-- **Why?** under the charging status, clearer statuses during Battery care and when the car takes no power, and Looking ahead as one line per day.
-- Settings warn before unsaved changes are lost. Tapping a notification opens the Smart Charging page (also on Android).
 
 ## 0.30.22
 
@@ -260,20 +292,11 @@
 
 ## 0.30.11
 
-- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 1:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
+- Looking ahead on Home is shorter: **one line per day** with the charging, the trips (with their times) and the battery level when leaving and when back, for example "Tue 20 · ⚡ 02:00 to 100% · Main Street 11:00–16:00 · 100% → 32%". Tap a day for all its details, as before. A day where the battery falls short is orange
 - Docs: Looking ahead per day
 
-## 0.31.0
-
-- Stable release of the improvements tested in 0.30.1 through 0.30.10.
-- **Just turn it on**: one tap on Home charges right away, with no goal and no car data, for example for a visitor's car. It stops when you press Stop or unplug.
-- Trips home ("Naar huis", "Home", …) are never a departure. When the car is away and a trip home is in the calendar, charging is planned only from when it is back.
-- The minimum: a maximum price is respected, Battery care still holds above the minimum, and a minimum above the target shows in the plan and the chart.
-- Charger status: on/off sensors, all status texts of the supported chargers, and a clear orange status when the charger reports a problem.
-- Home shows the plan per block, with why charging starts at a certain time, and the charging status shows the minimum or Charge now goal.
-- Notifications that reached no phone are tried again. Tested with Home Assistant 2026.10.2.
-
 ## 0.30.10
+
 - Fix: a trip home in the calendar ("Naar huis", "Naar Thuis", "Home", "Naar Home", "Going home", or your home as location) was taken as a departure when it was the next event, for example "Naar huis 16:30 · target 80%" while the car was at work. A trip home is never a departure now
 - Fix: with the car away and a trip home in the calendar, the plan charged while the car was still away (for example 13:00–15:00, back at 17:30). Charging is now planned only from when the car is back, and Looking ahead starts with "Back home"
 - Because of the first fix, Looking ahead again knows the battery level after each trip (it showed "?" everywhere)
@@ -281,20 +304,24 @@
 - Tests: settings test Y11
 
 ## 0.30.9
+
 - Tests: the app is now tested against Home Assistant Core 2026.10.2 (was 2026.10.1), and the fake Home Assistant reports 2026.10.2
 
 ## 0.30.8
+
 - New: **Just turn it on** on Home (under Charge now). One tap and the charger charges right away: no goal, no cheap hours, no car data. For a visitor's car or any car the app does not know. It keeps charging until you press Stop or the car is unplugged; a full car stops by itself
 - While it is on, the app does not change your own car's charge limit and does not learn a trip from the plugging in and out. The chart and Plan details show no plan meanwhile; the status on top says "Charge now: on until you press Stop or unplug"
 - Docs: Just turn it on
 - Tests: settings test J6b, charging status (chargestate)
 
 ## 0.30.7
+
 - Home › Show plan table now also lists **every planned block**: its price, the energy, and whether the whole block is used. A block that is only partly needed shows when it really charges (for example "partly: 11:22–11:30, 8 of 15 min"), with a short explanation why charging starts at that time
 - Plan tables on phones: the numbers no longer touch each other
 - Docs: the plan table per block
 
 ## 0.30.6
+
 - Fix: some charger status texts were read wrongly. Wallbox **Locked** and OCPP / Alfen **Reserved** (no car) counted as a car plugged in; now they do not. Alfen **Solar Charging** now counts as charging, **Charging Non Charging** and **Not Charging** as not charging
 - Fix: a charger that reports a problem (Peblar fault or invalid, OCPP Faulted, Alfen errors and Off, go-e Unknown/Error, Wallbox Updating, …) counted as a car plugged in. Now it counts as a charger problem: the status on Home turns orange ("Charger reports a problem", with the charger's own words), and the app pauses charging after 2 minutes, as with an unavailable charger
 - Fix: with more chargers, switching charger while Home was still loading could show the plan of the charger before. A manual Refresh is also no longer overtaken by the automatic reload
@@ -304,6 +331,7 @@
 - Tests: the full status lists of Easee, Zaptec, Alfen, Wallbox, go-e (marq24), Peblar, OCPP and Ohme, taken from their integrations, and their problem texts (brands); the status card for a charger problem (chargestate)
 
 ## 0.30.5
+
 - Fix: below your minimum, Battery care was off for the rest of the plan (for example to 100 % in the cheapest hours, days before the departure). Now the minimum comes first, and the part above the care level still waits for the last hours before the departure
 - Fix: a minimum above the departure's target (for example minimum 40 %, target 30 %): the charger charged to 40 %, but the plan, the chart and Looking ahead stopped at 30 %. They now show the minimum too (not above the car's own charge limit)
 - Fix: a notification that reached no phone still counted as sent, so it was held back for hours (Ready Guard 6 hours). Now it is tried again at the next check
@@ -312,60 +340,64 @@
 - Tests: new notify.test.js; minimum with Battery care and minimum until the departure (forecast)
 
 ## 0.30.4
+
 - Fix: with an on/off sensor as charger status, "off" counted as a car plugged in (since 0.30.1), and a plug sensor that was "on" counted as charging, so the app never sent "start". Now a plug sensor says plugged in or not; a charging sensor says charging or not, and the car's own sensor says whether it is plugged in
 - Fix: "Always charge below a minimum" with a maximum price kept charging when the price went above that maximum, sometimes for hours (the minimum part was taken as a normal planned block and locked). Now that part follows the minimum rule only: it stops when the price is too high or the minimum is reached. The minimum is also planned only in blocks at or below the maximum price
 - Docs: on/off sensor as charger status; the minimum with a maximum price
 - Tests: on/off status sensors (brands), minimum and maximum price (forecast, reliability)
 
 ## 0.30.3
+
 - Fix: the charging status on top of Home showed the plan's target (for example "21% → 80%") while the car was only charging to your minimum. Below your minimum it now says **Charging to your minimum**, "21% → 40%", ready when the minimum is reached, and "your minimum first, then the plan"
 - With Charge now or Quick minimum to a level, the status shows that level and when it is reached, and which of the two it is
 - Docs: the charging status card on Home, its colours and what it charges to
 - Tests: two checks in chargestate.test.js
 
 ## 0.30.2
+
 - Tests: "plugged in" is now checked for all 10 charger brands (Easee, Zaptec, Alfen, Wallbox, go-e ×2, Peblar, OCPP, Ohme, Tesla Wall Connector), every status text, each with the car's own sensor on and off. The charger saying "connected" wins; otherwise the car's sensor counts
 
 ## 0.30.1
+
 - Fix: just after plugging in, Home still said the car was not plugged in. The app trusted the car's own "Plugged in" sensor first, and that comes through the car's cloud (Renault, MySkoda), often minutes later. Now a charger that says a car is connected wins, so the app sees it right away. The car's sensor still counts when the charger cannot tell
 - Tests: settings test V5
 
-## 0.30.0
-
-- Stable release of the improvements tested in 0.29.11 through 0.29.20.
-- The price chart uses the full width and follows the timeline up to 7 days ahead, where prices are available. Charging right away to the minimum is purple; other expected charging after a trip is orange.
-- Home shows the charging status clearly. Refresh also fetches the departures calendar, and Ready Guard explains when the car's charge limit needs attention.
-- Notifications can go to several recipients, with a choice of cars and messages for each.
-
 ## 0.29.20
+
 - The price chart uses the full width. Quick choices sits beside Plan details below the chart, and below it on phones.
 
 ## 0.29.19
+
 - The price chart now follows the timeline up to 7 days ahead, as far as prices are available. Minimum charging after a later trip (purple) and the rest of the expected charging (orange) stay visible instead of being cut off after 3 days.
 - Test: settings test Y10 checks minimum charging on day 4 and the later charging before day 6.
 
 ## 0.29.18
+
 - **Refresh on Home also fetches the calendar**: it first asks Home Assistant to fetch the departures calendar again (`homeassistant.update_entity`, only for that calendar), then calculates the plan. A trip you just added in Google Calendar is in the plan right away, like the refresh button on your own dashboard. The automatic recalculation does not do this
 - Docs: why a trip added in Google Calendar takes a few minutes, and step by step how to let Home Assistant fetch the calendar every 5 minutes (or with a dashboard button)
 - Tests: settings test U5b (the fake Google calendar only shows a new trip after it is fetched again)
 
 ## 0.29.17
+
 - **Charging status in colour**: ready **green**, charging **red**, waiting **yellow**, anything in the way **orange**, not connected or nothing to do **grey**.
 - More states: **Ready Guard charging**, **Charging on solar**, **Waiting for the sun**, **Waiting for the other charger**, **Charger not reachable**, **Car not reachable**, **The charger did not start**, **Cannot plan**, and **Advice only** when Allow control is off.
 - Tests: charging status checks (every state and colour); settings test J8.
 
 ## 0.29.16
+
 - **Charging status on top of Home**: one clear line with what the charger does right now (checked every minute): **Charging now** (power, level, ready around), **Not charging now · starts at 12:00**, **Ready**, **Car not connected**, or what is in the way.
 - Fix: with "Don't change the car's charge limit" on and the car's limit below your trip (for example 80 % for a trip that needs 100 %), the app quietly planned to 80 % and said "Battery is at the target". Now Home and Ready Guard say **"Car's charge limit is 80 %"** (action needed) and you get the notification "Ready Guard needs you", with how to fix it.
 - Ready Guard: a cheapest plan that starts after the latest safe start now says **"Ready Guard starts earlier"** instead of "On track".
 - Tests: Ready Guard checks for both; settings test J8.
 
 ## 0.29.15
+
 - **The minimum after a trip**: with "Always charge when the battery is below a minimum" on and the car expected back below it (for example back at 26 % with a minimum of 40 %), the timeline and the chart now show that the car charges right away to the minimum when it is back (purple), and the rest in the cheapest hours (orange). Before, all of it was planned in the cheapest hours, which is not what happens
 - A block that is partly for the minimum counts each part on its own line in the timeline
 - Tests: the real Home Assistant Core check now uses **2026.10.1**; settings test Y9
 
 ## 0.29.14
+
 - **The minimum in purple in the chart**: charging for a minimum has its own colour. That is: "Always charge when the battery is below a minimum" (Settings › Rules), **Quick minimum** on Home, and the minimum before an earlier departure with **Ready for**. The legend shows "Minimum (40%)"; the tooltip says how much of a block is for the minimum
 - Below the minimum the plan now shows what really happens: that part is charged right away, the rest in the cheapest hours (before, the plan did not show the immediate charging)
 - The home battery is **turquoise** now (in the chart and on its page), so it does not look like the minimum
@@ -373,15 +405,18 @@
 - Tests: settings tests G2b, J3, J5b and planner checks
 
 ## 0.29.13
+
 - The app has an icon and a logo in Home Assistant: a charging pole with a price chart on its screen (cheap hours green, expensive hours red).
 
 ## 0.29.12
+
 - **Prices and plan shows what was charged**: past blocks in which the charger really charged are now **yellow**, with the kWh in the tooltip. Read from the charger power sensor (Home Assistant's 5-minute statistics)
 - The chart now always reaches back at least **12 hours**, also early in the morning: yesterday's prices come from the price history the app keeps (as far as it has them)
 - Fix: when a trip distance came in while the plan was being calculated, the plan could keep showing the old estimate until the next refresh
 - Tests: settings test E10
 
 ## 0.29.11
+
 - **Notifications to more than one phone**: add recipients in Settings › Notifications, each with its own notify action (a phone or a notify group)
 - Per recipient: **which messages**, in five groups (Problems, Action needed, Car, Start and pause, Home battery). A group switch turns the whole group on or off; open it to choose message by message (16 messages)
 - Per recipient, with more than one car: **which cars**. A message about a car only goes to the recipients of that car, for example your own car to you and the other car to your partner, or both cars to both
@@ -391,28 +426,33 @@
 - Tests: settings tests H4, H5, J11 and W9
 
 ## 0.29.10
+
 - Fix: with the car's range sensor, later trips in the timeline cost far too much (Naar Werk 93 % instead of about 47 %, so "back home 0 %"). The range is the range at the battery level now, but it was divided by the level when leaving (80 %). Now the use per km always comes from the level now, so the same distance costs the same every time
 - Tests: settings test Y8
 
 ## 0.29.9
+
 - **Zones in Home Assistant** are used as places, automatically: a zone "Werk" makes "Naar Werk" (location "Werk", or a title "Naar Werk" with "Northwind Labs" as location) show what the trip costs, with the zone's GPS position. No address needed
 - Plan › My places lists the zones the app found; a name in My places goes before a zone with the same name. The Home zone is your home
 - Docs: which place a trip goes to (location, address, title, zone, My places)
 - Tests: settings test Y7 and a tripcost check
 
 ## 0.29.8
+
 - **My places** (Plan): give names you use in the calendar an address, for example "Werk" → "Industrieweg 10, Rivertown". A trip whose location is that name ("Werk", "Northwind Labs"), or whose title is "Naar Werk", then shows what it costs, and the timeline knows the battery level when you are back. A real address in the event still wins
 - When the distance of a trip is not known, Home says why ("Not an address", "not found on OpenStreetMap") and offers **Add "Werk" to My places**, which opens Plan with the name filled in
 - My places are part of the settings export and import
 - Tests: settings test Y6 and a tripcost check
 
 ## 0.29.7
+
 - **Looking ahead is now a timeline** of the coming days (up to 7 days, 6 departures), in the order things happen: charging (blue, the real plan), leaving (target and what the trip costs), back home (with about how much battery), expected charging (orange), leaving again, … The battery level is on the right of each step. Replaces "Next stop" and "Next goal", which repeated Ready Guard and were hard to follow
 - **The chart** goes on past the departure to the expected charging (at most 3 days ahead): expected charging in orange, the time the car is away shaded ("away"), later departures as orange dashed lines with their target
 - A trip that costs more than the battery holds says so ("charge on the way")
 - Tests: settings test Y5 (a week with trips, back home and expected charging)
 
 ## 0.29.6
+
 - Fix: a trip added with **Add trip** did not show up on Plan and under Looking ahead until the next refresh (up to 5 minutes). Now it counts right away
 - Fix: when OpenStreetMap has found an address (or the route), Plan and Home show what the trip costs right away instead of "Looking up the distance…" until the next refresh
 - Fix: with the calendar read by keyword ("EV"), a trip added by the app was not read back (it has "doel: 80" but not the keyword). Events with "doel:" or "target:" in the description now always count
@@ -422,6 +462,7 @@
 - Tests: group U, Add trip for real (written to the calendar, shown right away on Plan and Home, duplicates, keyword calendar, calendar off, more cars)
 
 ## 0.29.5
+
 - **Test plan written automatically**: after every push GitHub runs all tests and writes `tests/TESTPLAN.md` from the results (settings, every unit test with every check, and the charger × battery matrix), and saves it in the branch when it changed. The plan can no longer fall behind the code
 - `node tests/testplan.js all` does the same on your own computer
 - The test plan now also lists the unit tests (more cars, more chargers, look ahead, Ready Guard, …) and has a summary at the top; doubled lines are gone
@@ -429,6 +470,7 @@
 - The results of each test run are also shown on the run's summary page in GitHub Actions
 
 ## 0.29.4
+
 - Fix: looking ahead took a trip home **after another trip** as the way back. Example: Lakeside on Sunday, then Naar Werk and Naar Thuis on Monday: the car was "back" on Monday 16:45 and Monday's Naar Werk was skipped as next goal. Now only the very next calendar trip counts as the way back, and only when it is a trip home; otherwise the trip is counted there and back and the car is back at the end of its event
 - A trip to your own home address (within 1 km of the home in Home Assistant) counts as a trip home, like "Thuis"
 - Addresses with a company or place name in front ("Northwind Labs, Industrieweg 10, …") are found: when OpenStreetMap does not find the whole text, the app tries again without the first part
@@ -436,21 +478,25 @@
 - Tests: settings test Y2b (this calendar)
 
 ## 0.29.3
+
 - Ready Guard's **Expected ready** time now follows the end of the actual scheduled charging blocks instead of pretending charging starts continuously right now
 - The uninterrupted charging estimate remains separate and is still used internally when Ready Guard must take over
 
 ## 0.29.2
+
 - **Apple iCloud calendars** (Home Assistant 2026.10+: each iCloud calendar is a calendar entity) work for departures like any other calendar: "doel: 80", "precondition: ja" and "auto: …" are read from the event
 - iCloud calendars are read only in Home Assistant: the calendar list marks read-only calendars, and Add trip says so (and refuses with a clear reason) instead of failing; add those trips in the calendar app itself. The app checks the calendar's "create event" feature, so this works for every read-only calendar
 - Docs: which calendars work
 - Tests: settings test Z1 (departure from a read-only iCloud calendar, adding refused)
 
 ## 0.29.1
+
 - Looking ahead now separates **Next stop** (the first upcoming trip, including its required battery level) from **Next goal** (the departure after the car is back). An extra calendar trip such as Harbourtown therefore moves in front of a later 100% trip automatically
 - The fast Home Assistant simulator now reports Core 2026.10.0
 - A separate free GitHub Actions compatibility test starts a real, isolated Home Assistant Core 2026.10.0 container every Monday, on relevant `dev` changes and on demand. It checks the WebSocket contracts and the app's vehicle, charger, grid, price, control and solar discovery routes
 
 ## 0.29.0
+
 - **Looking ahead**: Home shows the **next goal** after the coming departure, also when the current target is already reached and also when the prices for then are not known yet
 - **What a trip costs**: for a calendar trip with an address in its location, the distance by road (OpenStreetMap: Nominatim and OSRM; the straight line × 1.3 when no route is found) and the battery % there and back (+10 % margin). A later trip home in the calendar ("Naar Thuis", or to "Thuis") is used as the way back
 - The expected battery level when the car is back, and the expected charging for the next goal from then, in **orange** in the chart (with a "next goal" marker); the card is orange when the car is expected back below the next goal. An expectation only: nothing is steered by it
@@ -460,6 +506,7 @@
 - Tests: settings test group Y (next goal with a reached target, trip cost, return trip, no route, not an address) and tests/tripcost.test.js
 
 ## 0.28.1
+
 - **Battery care** (Settings › Rules, on by default): for a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest and the rest only in the last 4 hours before departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be set; when the rest needs more time, it starts earlier
 - The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and solar charging (its own "up to" level) still go higher right away
 - Home › Plan details explains it ("Battery care: up to 80 % when it is cheapest; the last part to 100 % from Sun 02:00")
@@ -467,6 +514,7 @@
 - Documentation: the README has an overview of every feature and option (where to find it and its default); DOCS.md (the Documentation tab) explains Ready Guard, Battery care, more cars and more chargers, and uses the new page names (Plan, Activity)
 
 ## 0.28.0
+
 - **More than one charger** (an option, off by default): Settings › Charger › "I have more than one charger". With it off, nothing changes
 - With it on: add up to 4 chargers. Every charger has its own plan, Charge now, Ready for, charging mode, control, start/stop and current method, and log. A bar at the top chooses the charger that Home, Plan, Rules and Activity show
 - Every charger can have a usual car. The app finds the car on each charger from the cars' plug sensors; a car that another charger already has is not a candidate, so the cars can also be the other way round. With nothing plugged in, a charger plans for its usual car
@@ -481,12 +529,14 @@
 - Tests: settings test group X (option off, adding a charger, a plan per charger, sharing 16 A + 6 A, waiting when the house uses more, cars the other way round, sensors per charger, turning it off) and tests/sharing.test.js
 
 ## 0.27.1
+
 - **One calendar for more cars**: "auto: renault" or "car: EV6" in a calendar event says which car the trip is for (Dutch and English both work, also "vehicle:" and "voertuig:"). A trip without it is for every car. The car is found by its new "Name in the calendar" (Settings › Vehicle), its name, or its brand when only one car has that brand; a car that is not recognised counts for every car and is marked on Plan
 - Adding trips (Plan) has a "For" choice with more cars: the trip gets "auto: …" in the event, or nothing for every car
 - "voorverwarmen: ja" / "voorconditioneren: ja" are read like "precondition: ja"
 - Tests: settings test group W7b (one calendar, two cars) and calendar checks in tests/activecar.test.js
 
 ## 0.27.0
+
 - **More than one car on one charger** (an option, off by default): Settings › Vehicle › "I have more than one car". With it off, nothing changes
 - With it on: add up to 6 cars (with or without a car integration) and switch between them in Settings › Vehicle
 - The app recognises which car is connected by each car's "Plugged in" sensor. A car without one is recognised when no other car says it is plugged in. When both say they are plugged in (for example one at a public charger), the car that is charging decides; otherwise Home asks which car it is, with one notification
@@ -498,6 +548,7 @@
 - Tests: settings test group W (option off, adding a car, recognising the car, asking, your choice, a car without a plug sensor, own departures, turning it off) and tests/activecar.test.js
 
 ## 0.26.2
+
 - Plan, Activity and every Settings subpage now share the same Mushroom-style page headers, cards, spacing, controls and responsive layout as Home
 - Settings Overview is a clear tile dashboard with status badges and direct links to Vehicle, Charger, Grid, Prices, Solar, Battery, Rules, Notifications and Diagnostics
 - Plan uses a compact two-column desktop layout with a prominent next-departure card, clearer forms and mobile-friendly stacking
@@ -506,6 +557,7 @@
 - Each functional area has a calm accent colour, including solar, battery, grid, prices and charging rules
 
 ## 0.26.1
+
 - **Home rebuilt around one Ready Guard card**: the duplicate status card is gone; technical plan information is available in a compact expandable section
 - Desktop uses a focused two-column layout with the price plan on the left and Mushroom-style quick choices on the right; mobile collapses to one column
 - Quick choices use clear action tiles, pill controls and a live minimum slider instead of long form-like rows
@@ -516,6 +568,7 @@
 - Tests include the Ready Guard price-forecast regression
 
 ## 0.26.0
+
 - **Ready Guard / plan reliability**: every departure now gets an honest status (on track, at risk, action needed or not achievable), based on conservative charging power, connection, battery-data freshness and price coverage
 - Ready Guard calculates a latest safe start with at least 30 minutes of margin; once that point is reached it temporarily overrides cheap-hour and solar-only waiting and charges continuously at full power
 - Home has a clear Mushroom-style Ready Guard card with target progress, safety facts and the reasons behind the status; the price chart marks the latest safe start

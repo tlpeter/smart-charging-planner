@@ -35,7 +35,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
 - **Vehicle**, **Charger**, **Grid**, **Prices**, **Solar**: shown directly as filled-in forms; change a field and select **Save**. The Charger page also has the **Control check** and how the app starts and stops charging.
 - **Battery**: the home battery (see below).
 - **Rules**: the car's charge limit, **Restart the car when it takes no power** (off by default; see below), the default minimum for the quick choices, always charging below a minimum, the force window, hysteresis, preconditioning, Ready Guard and Battery care. **Always charge when the battery is below a minimum**: below that level the car charges right away, at any price (or only up to a maximum price: then that part is planned in the first blocks at or below that price, and it stops as soon as the price is higher or the battery is at the minimum); in the chart that part is **purple**, the rest is planned as usual. A minimum above the departure's target counts too: the car charges up to the minimum, and the plan and the chart show that (unless the car's own charge limit is lower). In Looking ahead, the minimum after a trip is planned only until the next departure. **Default minimum for the quick choices** is not a switch: it is the level Quick minimum and Ready for start with. **Restart the car when it takes no power**: some cars (for example Renault) end their charging session at their own limit (say 80 % at night, for Battery care) and do not start again when the app raises the limit later: the charger is on and ready, but the car asks for no power. With this option on, when the app wants to charge and no power flows for 2 minutes, it sets the car's limit one step lower (100 % → 95 %) and at the next check back to the goal; that change starts the car again. At most once every 30 minutes, only when the app manages the car's limit and the car is below it. It shows under **Why?** on Home and in the log.
-- **Ask to charge more when a trip needs it** (Settings › Rules, off by default): when the next trip (with all its places in a row) costs more than the target leaves room for, plus a reserve to be back home with (**Be back home with at least**, default 10 %), the app asks once: "Charge to 95% for this trip?". On the phone (Home Assistant phone app) the message has **Yes** and **No** buttons; other notify actions get the text only. Home shows the same question with buttons. Only **Yes** raises the target, and only for that one departure; your weekly schedule and calendar stay as they are. **No**, or no answer, keeps the target. When the trip grows later (a new place in the calendar), the app asks again. When it gets shorter after a Yes (a place removed), the raised target goes down with it, never below the target from the calendar or schedule; when it is not needed any more, the Yes ends. The message is "A trip needs more charge" under **Action needed** in Settings › Notifications.
+- **Ask to charge more when a trip needs it** (Settings › Rules, off by default): when the next trip (with all its places in a row) costs more than the target leaves room for, plus a reserve to be back home with (**Be back home with at least**, default 10 %), the app asks once: "Charge to 95% for this trip?". On the phone (Home Assistant phone app) the message has **Yes** and **No** buttons; other notify actions get the text only. Home shows the same question with buttons. Only **Yes** raises the target, and only for that one departure; your weekly schedule and calendar stay as they are. **No**, or no answer, keeps the target. After No, the answer is remembered but the banner uses the current trip cost and current target, just like the timeline. If a current trip estimate is unavailable, the old cost banner is hidden; that does not reset your answer or send another question. When the trip grows later (a new place in the calendar), the app asks again. When it gets shorter after a Yes (a place removed), the raised target goes down with it, never below the target from the calendar or schedule; when it is not needed any more, the Yes ends. The message is "A trip needs more charge" under **Action needed** in Settings › Notifications.
 - **Notifications**: where notifications go, and the sensors in Home Assistant.
 - **Diagnostics**: the connection to Home Assistant, the **Manual test**, the setup wizard, **Preview diagnostics** and **Export / Import settings**.
 
@@ -103,7 +103,11 @@ Real day-ahead prices are only known for today and, from about 13:00, tomorrow. 
 - Only the hours after the last real price are used, up to the departure. Without a departure the forecast is not used.
 - If a later day is expected to be cheaper, the plan waits. The app never charges on a forecast price; when the real prices come out the plan is recalculated, so a wrong forecast only costs the difference, never a late car.
 - The **safety margin** is added to every forecast price, so the app only waits when the forecast is clearly cheaper.
-- Choose whether the forecast is a market price or all-in. The fees, tax and VAT of the main source are used.
+- **Choose what the forecast price is** (market price excl. VAT, incl. VAT, or all-in). This is required and is never copied from the real prices: a forecast is often already a consumer price, and treating it as a market price would add VAT a second time. The fees, tax and VAT of the main source are used for a market-price forecast.
+- **Test** shows how one forecast price is built (input → + fee and tax → × VAT → + margin). When the sensor also has prices for hours that have a real price, Test compares one such hour. A forecast that comes out about 21 % above the real price probably already includes VAT; one about 17 % below is probably without VAT. Both give a warning.
+- Example: a combined sensor whose forecast is already all-in, 0.2207 per kWh, with a margin of 0.02: choose **All-in** and the app compares 0.2407. With "Market price, excl. VAT" it would wrongly compare 0.2207 × 1.21 + 0.02 = 0.2870.
+- **Combined sensor recipe**: one sensor with real prices and a forecast (entries marked `source: forecast`). Choose it as the price source with the basis of its real prices, and as the forecast sensor with the basis of its forecast prices. Run Test and check the "Same hour" line: real and forecast should be close.
+- Settings from before 0.34.1 took the basis over from the real prices. The Prices page asks to check it and save once.
 - A sensor that combines real prices and a forecast can be used for both: entries marked as a forecast (for example `source: forecast`) are skipped as real prices.
 
 ## Solar
@@ -176,6 +180,10 @@ Settings › Rules, on by default. For every departure Ready Guard checks whethe
 
 ## Battery care
 
+**Small refills after a trip:** within **5 percentage points** below the holding level (75–80% when the hold is 80%), the refill joins the final Battery Care window. The app still chooses the cheapest usable slots inside that window. It only defers when those slots can deliver the full target by departure; otherwise the normal staged plan remains. A session that is already charging keeps its holding-level goal rather than being interrupted when it crosses into the band. Below that band, the normal price plan can charge up to the holding level earlier. A separately configured **Always charge below a minimum**, explicit Charge now / Quick minimum, preconditioning, solar charging and departure protection retain their priority. This margin applies only while Battery Care is on and the final target is above its holding level.
+
+**Session goals on Home:** an early session shows the holding-level goal (for example 74% → 80%) and the end of that session, rather than the final 90% and an overnight finish. Looking ahead shows the early and final sessions separately. When the app has requested a pause but power is still flowing, Home says it is waiting for the charger to stop. Old period locks and price hysteresis cannot carry an early session past the holding level.
+
 Settings › Rules, on by default. For a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest, and the rest only in the last 4 hours before the departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be changed; when the rest needs more time than those hours, it starts earlier. The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and charging on solar (up to its own level) still go higher right away. Below your minimum (Always charge below a minimum) the minimum is charged first, and Battery care still holds for the rest. Home › Plan details shows when the last part is charged.
 
 ## More than one car
@@ -210,7 +218,7 @@ The app reads English and Dutch, also mixed in one calendar. Upper and lower cas
 | What | English | Dutch | Good to know |
 | --- | --- | --- | --- |
 | **Target** (battery level for the trip) | `target: 80` | `doel: 80` | Also `soc: 80`, `charge: 80`, `laaddoel: 80`, `target=80`, or just `80%`. Between 10 and 100. |
-| **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Read and shown, not used yet. |
+| **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Starts preconditioning before that drive when **Preconditioning before a departure** is on (see below). |
 | **Which car** (more cars) | `car: EV6`, `vehicle: EV6` | `auto: EV6`, `voertuig: EV6` | The car's **Name in the calendar**, its name, or its brand. |
 | **Trip to a place** (title) | `To Work` | `Naar Werk` | The first word is left out to find the place. German `nach` and French `vers`/`à` also work. |
 | **Trip home** (title) | `Home`, `To home`, `Back home`, `Going home`, `Go home` | `Thuis`, `Huis`, `Naar huis`, `Naar thuis`, `Terug` | Or your home address or the Home zone as location. A trip home is never a departure: it is when the car is back. |
@@ -278,18 +286,66 @@ Prices are known for a day or two (longer with a price forecast). Days after the
 When another trip is added to the calendar, it takes its place in the timeline right away.
 
 - **Zones in Home Assistant** (Settings › Areas, labels & zones › Zones), such as "Work": used automatically, with their GPS position, so no address is needed. A trip whose location is the zone's name ("Work"), or whose title is "To Work", goes to that zone. The Home zone is your home.
-- **My places** (Plan): names you use in the calendar, such as "Work" or "Gym", with their address. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
+- **My places** (Plan): names you use in the calendar, such as "Work" or "Gym", with their address, or a **distance** (km one way from home) you enter yourself. A distance goes before the address and is never looked up. For places that are not a zone. Works the same way as a zone, and goes before a zone with the same name. Plan lists the zones the app found.
 - Which place a trip goes to, first match wins: the event's location is a name from My places or a zone → that place; the location is a real address (with a house number) → that address; the title ("To Work") is a name from My places or a zone → that place; otherwise the location as it is (looked up on OpenStreetMap). When the distance of a trip is not known, Home says why and offers to add its name to My places. My places are part of the settings export.
 - **What a trip costs**: when the calendar event has an address in its location (for example "Main Street 12, 1234 AB Springfield"). Words like "Work" or "Home" are not addresses (see [Calendar words](#calendar-words)); put the full address in the location to see the cost.
-  - **Distance**: the address is looked up on OpenStreetMap (Nominatim), the distance by road with OpenStreetMap routing (OSRM). When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
+  - **Distance**: depends on **Plan › Trip distances and privacy** (see below). With OpenStreetMap, the address is looked up with Nominatim and the distance by road with OSRM. When the route cannot be found: the straight line × 1.3, marked as an estimate. Every address is looked up once and remembered; lookups run in the background, one per second. Your home is the location set in Home Assistant (Settings → System → General).
   - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
   - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "To Work" 06:00–16:30, then "To Gym" 16:30–20:30, then "Home"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
 
+### Trip distances and privacy
+
+To know what a trip costs, the app needs its distance by road. Under **Plan › Trip distances and privacy** you choose what may be sent:
+
+| Choice | What is sent, and where | Distances |
+| --- | --- | --- |
+| **OpenStreetMap public services** | The location text of calendar trips and the addresses in My places to nominatim.openstreetmap.org; the coordinates of your home and the destination to router.project-osrm.org. | By road |
+| **My own servers** | The same, but to a Nominatim- and an OSRM-compatible server you run yourself (http or https). | By road |
+| **Offline** | Nothing. | Zones: straight line × 1.3. My places: the distance you entered. Places looked up before keep their distance. |
+| **Off** | Nothing. | None; trips show no cost. Charging for departures works as before. |
+
+No names, times or car data are sent. A **new install** sends nothing until you choose. An install from **before 0.34.1** keeps OpenStreetMap (as it did before) and shows a notice on Plan until you confirm or change it. Lookups that were waiting are dropped right away when you switch to Offline or Off. The choice is part of the settings export; the public diagnostics only show which choice it is, never the server addresses.
+
+### Charging stops on the way
+
+When a trip needs more than the battery holds, the app can suggest public charging stations along the route. Turn it on under **Plan › Charging stops on the way** (off by default). The suggestions are in the day's details under **Looking ahead**, below "Back home", and the day's line says **charge on the way**.
+
+- **When**: the level after the trip would drop below **Suggest a stop when the level drops below** (default 10 %). The app shows how much to charge on the way (in % and kWh) to stay above it.
+- **Needs**: Trip distances set to OpenStreetMap or your own servers (the route is needed), a destination with a position (an address or a zone, not only a distance you entered), and your own free **Open Charge Map API key** (sign in on openchargemap.org › My profile › My apps).
+- **Saved key**: after Save, a green **Key saved** badge and the field's placeholder confirm the key is stored, including after reloading. The key itself is never returned to the page. Leave the field empty to keep it; type a new key to replace it and Save. A typed replacement is marked **New key — not saved** until the save succeeds. **Remove key** stages removal and turns the suggestion switch off; Save applies both changes, while Discard keeps the saved key and settings. A failed save keeps the draft so you can retry.
+- **What is sent**: the route from your home to the destination, and via each of the closest stations, goes to OSRM (the same server as for trip distances); that line and your key go to api.openchargemap.io (the key in a header, not in the address). No names, times or car data. Routes are remembered for 30 days, stations for a day.
+- **Countries**: the Netherlands and Belgium for now; stations in other countries are left out. Other European countries are planned (#40).
+- **Preferred operators** (optional): only stations of these operators are shown when one of them is on the way; otherwise the others, with a note. The list: Fastned, Tesla Supercharger, IONITY, Allego, Shell Recharge, bp pulse, TotalEnergies, Electra (BE), LEAP24, AVIA Volt, Tango (NL), Powerdale, DATS 24 (BE), and for normal charging Engie Vianeo, Lidl, Vattenfall InCharge, Equans, Eneco, PitPoint, Blue Corner, Wattif. The operator is recognised by its name in the station data.
+- **Connector** (CCS, CHAdeMO, Type 2) and **Minimum power** (default 50 kW): a station needs at least one of the chosen connectors with at least this power.
+- **Maximum detour** (default 5 km): the extra distance by road to visit the station, looked up with OSRM for the closest stations. A service area on the other side of a motorway gets its real detour (to the next exit and back), so it is not suggested as a stop on the way. When no station is within the maximum detour, stations up to a longer detour (25 km, or three times the maximum) are shown, marked as such.
+- **Reach**: only stations the car reaches before it drops below the level above (with the same 10 % margin as the trip cost). When the car gets to the destination with enough left, the stop is on the way back: the detour and the reach are counted from the destination, so the station is on the side of the road going home.
+- **Order**: the smallest detour by road first, then the most power; at most three. Each links to the station on Open Charge Map.
+
+The station data is **not live**: a station can be busy, out of order or gone. Check it in your charging app before you go. Nothing is steered by it. A trip with more places in a row searches along the route from home to the first place. The API key is in the settings export (a backup stays private), never in the public diagnostics.
+
 **The chart** goes on to the last expected charging (up to 7 days ahead), as far as prices are available: charging right away to the minimum in **purple**, the rest of the expected charging in **orange**, the time the car is away shaded, and every later departure as an orange dashed line with its target.
 
 This is an expectation. Nothing is steered by it: when the car is back and plugged in, the app plans with the real battery level. The Plan tab shows the distance and the % per calendar trip too.
+
+## Preconditioning before a departure
+
+Under **Settings › Rules › Preconditioning before a departure** (per car, off by default) the app asks the car to heat or cool before it leaves.
+
+- **What the app turns on**: one switch (turned on) or button (pressed) of your car, for example Renault's "Start air conditioner". Helpers, scripts, automations and climate entities are never controlled by this app; use a switch or button of the car's own integration.
+- **When**: **Minutes before departure** (default 15, 5–60) before the drive.
+- **Which drives** (the calendar first):
+  1. From home: a calendar trip with `precondition: yes` (or `ja`), and a departure from the **weekly schedule** (the **Precondition** tick of that day), the **helper** (its tick, or an on/off entity you choose that is only read: "on" means precondition) or a **one-off departure** (its tick). On a day where a calendar trip wins, the calendar rules count. A Ready-for choice follows the departure it is based on.
+  2. The next drive of a trip (on to the next place, for example work and then sport) and a trip home in the calendar ("To home" / "Naar huis"): that event decides. With `precondition: yes` on, without it (or with `no`) off; the setting below does not count then.
+  3. No event for the drive home (the car comes home at the end of the event): **Preconditioning on the way back** decides. When on, the app asks the set minutes before the event ends (for example "Work 06:30–16:30" → 16:15).
+- **Plugged in or not**: not needed. When the car is plugged in, the charger stays on during preconditioning, so the energy comes from the grid.
+- **Once**: one request per drive, tried once more when the command fails. The request is saved before it is sent, so after a restart it is not sent twice (a second button press could switch it off again).
+- **Switch off again**: a switch the app turned on for a drive from home is turned off 15 minutes after the departure time when the car is still plugged in (it did not leave). A button is never pressed again. On the way back nothing is turned off: the car is driving.
+- **Allow control off**: nothing is sent; Looking ahead shows the moment as advice.
+- **Visible**: Looking ahead shows "Preconditioning for …" with the time, and whether it was asked. Only calendar events have an end time, so the way back only follows calendar trips.
+
+A command the car's cloud accepts is not proof that the car started: check it in the car's app the first times.
 
 ## Departure priority
 

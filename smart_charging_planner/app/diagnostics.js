@@ -4,7 +4,9 @@
 // No reverse identifier map, free-form reason/error text or raw log is exported.
 const KEYS = new Set(`generated_at app_version ha_version time_zone connected options settings control_check detected entities plan now control_log
 allow_control allow_battery_control allow_calendar_write publish_sensors loss_percent continuous_charging min_split_saving use_house_load refresh_minutes log_level
-vehicles chargers grid prices departures rules solar battery notify recipients multi_car multi_charger vehicle charger
+vehicles chargers grid prices departures rules solar battery notify recipients multi_car multi_charger vehicle charger routing confirmed basis_explicit
+charge_stops min_power_kw max_detour_km reserve_pct
+precondition minutes way_back
 id device_id vehicle_id charger_id entity_id config_entry_id soc_entity power_entity capacity_entity status_entity switch_entity plugged_entity charging_entity charge_limit_entity preheat_entity net_entity import_entity export_entity current_l1_entity current_l2_entity current_l3_entity max_current_entities datetime_entity
 platform integration type domain source mode available reason_code code supported recommended allowed start_stop current phase phases phase_method_id current_id start_stop_id actions commands service target data value option entity_ids
 enabled capacity_kwh charge_kw discharge_kw min_pct max_pct efficiency wear arbitrage ev_discharge ev_from_pct ev_to_pct solar_priority power_sign
@@ -22,7 +24,7 @@ control check importable action controls stopped round_trip_loss uses_forecast r
 `.split(/\s+/));
 const SAFE = new Set(`on off unknown unavailable none auto charge discharge hold no_discharge pause wait ready charging connected disconnected
 advice_only action_needed at_risk not_achievable on_track no_goal
-fixed action attribute single day_night all_in market_excl_vat market_incl_vat
+fixed action attribute single day_night all_in market_excl_vat market_incl_vat osm custom offline
 import_positive export_positive charge_positive discharge_positive never always solar_only range smart car battery
 energy sensor app equalizer plan solar plan_solar target soc kwh session_kwh manual_soc
 planned boost below_minimum preheat ready_guard at_target current_limit shared_wait solar_wait control_wait

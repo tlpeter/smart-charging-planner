@@ -252,4 +252,44 @@ check('a block that is partly for the minimum is still a planned block', () => {
   assert.equal(d.code, 'planned');
 });
 
+
+const carePlan = {
+  vehicle: { soc: 79 }, planning: { target_soc: 90 }, departure: { time: now + 10 * H },
+  prices: [{ start: now, end: now + H, total: 0.40 }],
+  plan: { blocks: [{ start: now + 8 * H, end: now + 9 * H, kwh: 6.6, price: 0.10 }],
+    notes: ['battery_care'], care: { soc: 80, target: 90, window_start: now + 6 * H, refill_deferred: true } },
+};
+const careCtx = { now, actual: { plugged: true, charging: true, status_invalid: false }, rules: { ...controller.DEFAULT_RULES, ready_guard_enabled: false },
+  states: [], phases: 3, plan: carePlan, lock: { start: now - H, end: now + H, amps: 16 }, prevCode: 'planned' };
+check('Battery Care deferred refill ignores a previous lock and price hysteresis (#43)', () => {
+  const d = controller.decide(careCtx);
+  assert.equal(d.want, 'pause');
+  assert.equal(d.code, 'battery_care_wait');
+  assert.equal(d.clear_lock, true);
+  assert.equal(d.next_start, now + 8 * H);
+});
+check('Battery Care at the holding level stops instead of continuing to 90%', () => {
+  const d = controller.decide({ ...careCtx, plan: { ...carePlan, vehicle: { soc: 80 }, plan: { ...carePlan.plan, care: { ...carePlan.plan.care, refill_deferred: false } } } });
+  assert.equal(d.want, 'pause');
+  assert.equal(d.clear_lock, true);
+});
+check('Battery Care refill still respects a separately configured hard minimum', () => {
+  const d = controller.decide({ ...careCtx, rules: { ...careCtx.rules, min_soc_enabled: true, min_soc: 80 } });
+  assert.equal(d.code, 'below_minimum');
+  assert.equal(d.want, 'charge');
+  const capped = controller.decide({ ...careCtx, rules: { ...careCtx.rules, min_soc_enabled: true, min_soc: 80, min_soc_max_price: 0.20 } });
+  assert.equal(capped.want, 'pause');
+});
+check('Battery Care refill never delays explicit Charge now or Ready Guard', () => {
+  assert.equal(controller.decide({ ...careCtx, boostActive: true }).code, 'boost');
+  assert.equal(controller.decide({ ...careCtx, plan: { ...carePlan, reliability: { protect: true, guard_until: now + 10 * H } } }).code, 'ready_guard');
+  assert.equal(controller.decide({ ...careCtx, plan: { ...carePlan, departure: { time: now + 0.5 * H } }, rules: { ...careCtx.rules, force_minutes: 60 } }).code, 'force_window');
+  assert.equal(controller.decide({ ...careCtx, solar: { mode: 'plan_solar', charge: true, amps: 6 } }).code, 'solar');
+});
+check('Battery Care charges normally in the selected final-window price slot', () => {
+  const d = controller.decide({ ...careCtx, now: now + 8 * H, lock: null });
+  assert.equal(d.code, 'planned');
+  assert.equal(d.want, 'charge');
+});
+
 console.log('Ready Guard tests passed');

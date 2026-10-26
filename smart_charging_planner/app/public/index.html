@@ -63,9 +63,61 @@
         <div class="error form-error" hidden></div>
         <div id="trip-result"></div>
       </form>
+      <div class="card" id="routing-card">
+        <h2>Trip distances and privacy</h2>
+        <div class="calendar-warning" id="routing-notice" hidden></div>
+        <p class="muted small">To show what a trip costs, the app needs the distance by road. Choose what may be sent to look it up:</p>
+        <ul class="muted small">
+          <li><strong>Address search</strong> receives the location text of your calendar trips and the addresses in My places.</li>
+          <li><strong>Road distance</strong> receives the coordinates of your home and of the destination.</li>
+        </ul>
+        <p class="muted small">Every place and route is looked up once and remembered in the app. Nothing else (no names, no times, no car data) is sent.</p>
+        <div class="field"><label>Look up trip distances with</label>
+          <select id="routing-mode">
+            <option value="">— choose —</option>
+            <option value="osm">OpenStreetMap public services (nominatim.openstreetmap.org, router.project-osrm.org)</option>
+            <option value="custom">My own servers (Nominatim and OSRM compatible)</option>
+            <option value="offline">Offline: zones and distances I enter, nothing is sent</option>
+            <option value="off">Off: no trip distances</option>
+          </select></div>
+        <div class="routing-custom" hidden>
+          <div class="field"><label>Address search (Nominatim) address</label><input id="routing-geocode" maxlength="200" placeholder="https://nominatim.example.lan/search"></div>
+          <div class="field"><label>Road distance (OSRM) address</label><input id="routing-route" maxlength="200" placeholder="https://osrm.example.lan/route/v1/driving"></div>
+        </div>
+        <p class="muted small" id="routing-help"></p>
+        <div class="buttons"><button class="primary" type="button" id="routing-save">Save</button></div>
+        <div class="error form-error" id="routing-error" hidden></div>
+        <div id="routing-result"></div>
+      </div>
+      <div class="card" id="cstops-card" data-guard="Charging stops">
+        <h2>Charging stops on the way</h2>
+        <p class="muted small">When a trip needs more than the battery holds, the app suggests public charging stations along the route, in the day's details under Looking ahead. Off by default.</p>
+        <div class="calendar-warning" id="cstops-routing" hidden>Charging stops need the route: choose OpenStreetMap or your own servers under <strong>Trip distances and privacy</strong> above.</div>
+        <ul class="muted small">
+          <li>The station list comes from <a href="https://openchargemap.org" target="_blank" rel="noopener">Open Charge Map</a>. It needs your own free API key (sign in on openchargemap.org › My profile › My apps).</li>
+          <li><strong>Sent to Open Charge Map:</strong> the route line from your home to the destination, and your key. Nothing else (no names, no times, no car data).</li>
+          <li>The station data is not live: a station can be busy or out of order. Check it in your charging app before you go.</li>
+        </ul>
+        <div class="field"><label class="check"><input type="checkbox" id="cstops-enabled"> Suggest charging stops when a trip needs more than the battery holds</label></div>
+        <div class="field"><label for="cstops-key">Open Charge Map API key</label>
+          <div class="cstops-key-actions"><span id="cstops-key-state" class="cstops-key-state" role="status" aria-live="polite">Loading key status…</span>
+            <button class="secondary" type="button" id="cstops-key-remove" hidden>Remove key</button></div>
+          <input id="cstops-key" type="password" maxlength="80" autocomplete="off" placeholder="Paste your key" aria-describedby="cstops-key-state cstops-key-note">
+          <p class="muted small" id="cstops-key-note"></p></div>
+        <div class="field"><label>Countries</label><div class="days" id="cstops-countries"></div></div>
+        <div class="field"><label>Preferred operators (optional)</label><div id="cstops-operators"></div>
+          <p class="muted small">Stations of these operators come first. Other operators are only shown when none of yours is on the way.</p></div>
+        <div class="field"><label>Connector</label><div class="days" id="cstops-connectors"></div></div>
+        <div class="field"><label>Minimum power (kW)</label><input id="cstops-power" type="number" min="3" max="400" step="1"></div>
+        <div class="field"><label>Maximum detour (km, there and back)</label><input id="cstops-detour" type="number" min="1" max="30" step="1"></div>
+        <div class="field"><label>Suggest a stop when the level drops below (%)</label><input id="cstops-reserve" type="number" min="0" max="50" step="1"></div>
+        <div class="buttons"><button class="primary" type="button" id="cstops-save" data-guard-save>Save</button></div>
+        <div class="error form-error" id="cstops-error" hidden></div>
+        <div id="cstops-result"></div>
+      </div>
       <div class="card" id="places-card">
         <h2>My places</h2>
-        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant.</p>
+        <p class="muted small">Names you use in the calendar, such as "Work" or "Gym", with their address. Not needed for a zone you already have in Home Assistant. A trip whose location or title ("To Work") has one of these names uses this address to work out what the trip costs. Your home is the home location in Home Assistant. Enter the distance (one way, from home) yourself when you do not want the address looked up; a distance goes before the address.</p>
         <p class="muted small" id="places-zones"></p>
         <div id="places-list"></div>
         <div class="buttons">
@@ -80,7 +132,7 @@
         <div class="card">
           <h2>Weekly schedule</h2>
           <label class="check"><input type="checkbox" name="schedule_enabled"> Use the weekly schedule</label>
-          <table class="periods sched"><tr><th>Day</th><th>On</th><th>Ready by</th><th class="n">Battery %</th></tr><tbody id="dep-days"></tbody></table>
+          <table class="periods sched"><tr><th>Day</th><th>On</th><th>Ready by</th><th class="n">Battery %</th><th title="Preconditioning before this departure (Settings › Rules)">Precondition</th></tr><tbody id="dep-days"></tbody></table>
           <div class="field"><label>Default battery level (%) – used when a source gives no level</label>
             <input name="default_soc" type="number" min="10" max="100" step="1"></div>
         </div>
@@ -92,6 +144,9 @@
             <div class="field"><label>Date/time helper</label><select name="helper_datetime"></select></div>
             <div class="field"><label>Battery level helper (optional)</label><select name="helper_soc"></select></div>
           </div>
+          <label class="check"><input type="checkbox" name="helper_precondition"> Precondition before a helper departure</label>
+          <div class="field"><label>Or let an on/off entity decide (optional, only read)</label><select name="helper_precondition_entity"></select>
+            <p class="muted small">When chosen, preconditioning happens when this entity is "on" at the departure. Preconditioning itself is set up under Settings › Rules.</p></div>
         </div>
         <div class="card">
           <h2>Calendar</h2>
@@ -192,6 +247,25 @@
           <button class="primary" type="submit">Save rules</button>
         </div>
       </form>
+      <div class="card" id="precond-card" data-guard="Preconditioning">
+        <h2 data-icon="clock" data-color="orange">Preconditioning before a departure</h2>
+        <p class="muted small">The app asks the car to heat or cool a few minutes before it leaves. The car does not need to be plugged in; when it is, the charger stays on, so the energy comes from the grid. Off by default.</p>
+        <ul class="muted small">
+          <li><strong>From home:</strong> a calendar trip with <code>precondition: yes</code> (or <code>precondition: ja</code>), and a departure from the weekly schedule, the helper or a one-off departure with its <em>Precondition</em> tick (Plan).</li>
+          <li><strong>Next drive of a trip</strong> (on to the next place, or a trip home in the calendar): that event decides; without <code>precondition: yes</code> nothing happens.</li>
+          <li><strong>No event for the drive home</strong>: the setting <em>Preconditioning on the way back</em> below decides, before the event ends.</li>
+        </ul>
+        <div class="field" id="precond-car-field" hidden><label>Car</label><select id="precond-car"></select></div>
+        <label class="check"><input type="checkbox" id="precond-enabled"> <strong>Start preconditioning before a departure</strong></label>
+        <div class="field"><label>What the app turns on</label><select id="precond-entity"></select>
+          <p class="muted small">A switch (turned on) or a button (pressed) of your car, for example "Start air conditioner". Helpers, scripts and the car's climate entity are never controlled by this app.</p></div>
+        <div class="field"><label>Minutes before departure</label><input id="precond-minutes" type="number" min="5" max="60" step="1"></div>
+        <label class="check"><input type="checkbox" id="precond-wayback"> Preconditioning on the way back (when there is no event for the drive home)</label>
+        <div id="precond-next" class="muted small" style="margin-top:10px"></div>
+        <div class="buttons"><button class="primary" type="button" id="precond-save" data-guard-save>Save</button></div>
+        <div class="error form-error" id="precond-error" hidden></div>
+        <div id="precond-result"></div>
+      </div>
     </section>
     <section id="tab-solar" hidden>
       <div id="solar-status"></div>
@@ -453,10 +527,12 @@
           <div class="fc-on">
             <div class="field"><label>The forecast price is</label>
               <select name="forecast_price_type">
+                <option value="">— choose —</option>
                 <option value="market_excl_vat">Market price, excluding VAT</option>
                 <option value="market_incl_vat">Market price, including VAT</option>
                 <option value="all_in">All-in price (taxes and fees included)</option>
               </select></div>
+            <p class="muted small">Look at the sensor, not at the real prices: a forecast is often already all-in (for example a combined sensor with consumer prices). Test shows how one forecast price is built, and compares an hour that has both a real and a forecast price.</p>
             <div class="field"><label>Safety margin per kWh</label>
               <input name="forecast_margin" type="number" step="0.005" min="0" max="0.5" value="0.02"></div>
             <p class="muted small">Added to every forecast price, so the app only waits when the forecast is clearly cheaper. 0 = trust the forecast fully.</p>

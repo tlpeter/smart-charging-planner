@@ -17,16 +17,18 @@ const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function defaultDepartures() {
   const schedule = {};
-  for (const d of DAYS) schedule[d] = { enabled: true, time: '07:00', soc: 80 };
+  for (const d of DAYS) schedule[d] = { enabled: true, time: '07:00', soc: 80, precondition: false };
   return {
     default_soc: 80,
     schedule_enabled: true,
     schedule,
-    helper: { enabled: false, datetime_entity: null, soc_entity: null },
+    // precondition: preconditioning before a helper departure (#45); with
+    // precondition_entity (on/off, only read) that entity decides instead.
+    helper: { enabled: false, datetime_entity: null, soc_entity: null, precondition: false, precondition_entity: null },
     // match: 'target' = events with a target in the text (e.g. "doel: 80"),
     // 'keyword' = events containing the keyword, 'all' = every event with a time.
     calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80, language: 'auto' },
-    override: null, // { time: ms, soc }
+    override: null, // { time: ms, soc, precondition }
   };
 }
 
@@ -77,7 +79,7 @@ function fromSchedule(dep, tz, now, days) {
     const t = day && day.enabled && hhmm(day.time);
     if (!t) continue;
     const time = localDateTime(tz, p.y, p.m, p.d + i, t[0], t[1]);
-    if (time > now) out.push({ time, soc: Number(day.soc) || dep.default_soc, source: 'schedule' });
+    if (time > now) out.push({ time, soc: Number(day.soc) || dep.default_soc, source: 'schedule', precondition: day.precondition === true });
   }
   return out;
 }
@@ -105,7 +107,13 @@ function fromHelper(dep, states, tz, now) {
     const n = states.find((x) => x.entity_id === h.soc_entity);
     if (n && Number.isFinite(Number(n.state))) soc = Number(n.state);
   }
-  return [{ time, soc, source: 'helper' }];
+  // Preconditioning (#45): the chosen on/off entity, else the tick.
+  let precondition = h.precondition === true;
+  if (h.precondition_entity) {
+    const e = states.find((x) => x.entity_id === h.precondition_entity);
+    precondition = !!e && e.state === 'on';
+  }
+  return [{ time, soc, source: 'helper', precondition }];
 }
 
 // Target battery level written in an event, e.g. "doel: 80", "target=90", "85%".
@@ -218,7 +226,7 @@ function fromCalendar(dep, events, tz, now, carCtx) {
 function fromOverride(dep, now) {
   const o = dep.override;
   if (!o || !(o.time > now)) return [];
-  return [{ time: o.time, soc: Number(o.soc) || dep.default_soc, source: 'override' }];
+  return [{ time: o.time, soc: Number(o.soc) || dep.default_soc, source: 'override', precondition: o.precondition === true }];
 }
 
 // --- Choosing --------------------------------------------------------------

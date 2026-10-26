@@ -1205,7 +1205,7 @@ function durationText(minutes) {
       const notes = p.notes.map((n) => n === 'car_limit'
         ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
         : n === 'battery_care' && p.care
-          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long. <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
           : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `
@@ -1284,7 +1284,7 @@ function durationText(minutes) {
 
     function tripText(t) {
       if (!t) return '';
-      const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : '';
+      const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : t.how === 'manual' ? ' (distance you entered)' : '';
       const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
@@ -1299,6 +1299,9 @@ function durationText(minutes) {
           if (t.reason === 'not_an_address') return `Not an address, so the distance is not known${add}`;
           if (t.reason === 'not_found') return `${t.place ? `The address of ${esc(t.place)}` : 'The address'} was not found on OpenStreetMap${add}`;
           if (t.reason === 'no_location') return t.ask ? `No location in the event${add}` : '';
+          if (t.reason === 'routing_not_chosen') return `Distance not looked up: choose how under Plan › Trip distances${add}`;
+          if (t.reason === 'offline') return `Distance not known (offline): add a distance in My places${add}`;
+          if (t.reason === 'routing_off') return 'Trip distances are off (Plan › Trip distances)';
           return '';
         }
       }
@@ -1314,7 +1317,10 @@ function durationText(minutes) {
       // it; a trip that starts inside keeps its way back home.
       const until = Date.now() + aheadDays * 86400000;
       const cut = all.findIndex((x) => x.type === 'leave' && x.time >= until);
-      const items = (cut < 0 ? all : all.slice(0, cut)).filter((x) => !(x.type === 'charge' && x.start >= until));
+      // Preconditioning the app will ask for (#44), in time order with the rest.
+      const pre = (n.preconditioning || []).filter((m) => m.at < until).map((m) => ({ type: 'precondition', time: m.at, until: m.until, kind: m.kind, title: m.title, state: m.state || null }));
+      const items = [...(cut < 0 ? all : all.slice(0, cut)).filter((x) => !(x.type === 'charge' && x.start >= until)), ...pre]
+        .map((x, k) => ({ x, k })).sort((a, b) => ((a.x.type === 'charge' ? a.x.start : a.x.time) - (b.x.type === 'charge' ? b.x.start : b.x.time)) || (a.k - b.k)).map((o) => o.x);
       // After the last known price, charging and levels are an estimate.
       const known = n.prices_until || 0;
       const pct = (v) => (v == null ? '' : `${esc(tidy(v))}%`);
@@ -1344,6 +1350,13 @@ function durationText(minutes) {
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
             ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
+        if (x.type === 'precondition') {
+          const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
+          const st = x.state === 'asked' ? ' · asked' : x.state === 'would' ? ' · advice only ("Allow control" is off)' : x.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '';
+          return `<li class="tl-row tl-leave">${shape('clock', 'orange', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Preconditioning ${what}</div>
+            <div class="tl-sub">Until ${esc(hm(x.until))}${st}</div></div></li>`;
+        }
         if (x.type === 'stop') {
           // The level on the right: when the car arrives here.
           const from = x.from_title ? shortName(x.from_title) : 'the place before';
@@ -1364,8 +1377,37 @@ function durationText(minutes) {
           ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
+          ${x.charge_stops ? chargeStopsHtml(x.charge_stops) : ''}
           ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
       };
+
+      // Charging stops on the way (#37): the suggestions, or why there are none.
+      const cstopsDetour = () => (cstopsNow ? `${cstopsNow.max_detour_km} km` : 'see Plan');
+      function chargeStopsHtml(c) {
+        const where = 'Plan › Charging stops on the way';
+        const why = {
+          pending: 'Looking up charging stations along the route…',
+          needs_routing: 'Charging stops need the route: choose how under Plan › Trip distances and privacy.',
+          no_key: `Add your Open Charge Map API key under ${where}.`,
+          no_position: 'The destination has no position (only a distance you entered), so there is no route to search along.',
+          no_route: 'No route was found to the destination.',
+          bad_key: `Open Charge Map did not accept the API key (${where}).`,
+          failed: 'Charging stations could not be looked up. The app tries again later.',
+          none: `No charging station on the way fits your settings (power, connector, detour, country)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
+        };
+        // More than a full battery (from the reserve) short: one stop is not enough.
+        const more = c.need_pct > 100 - c.reserve_pct ? ' · more than one stop is needed' : '';
+        const need = `Charge on the way${c.on_way_back ? ' back' : ''}: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${more}`;
+        if (c.status !== 'ok') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
+        const items = c.stops.map((st) => `<li><a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}</span>` : ''}
+          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ~${esc(st.km_from_home)} km from home · +${esc(tidy(st.detour_km))} km detour</div></li>`).join('');
+        return `<div class="cstops"><div class="cstops-head">${need}</div>
+          ${c.on_way_back ? '<div class="muted small">You get there with enough left: charge on the way back, so these stations are on the side of the road going home.</div>' : ''}
+          ${c.longer_only ? `<div class="muted small warn-text">No station within your maximum detour by road (${esc(cstopsDetour(c))}). These need a longer detour, for example on the other side of the motorway.</div>` : ''}
+          ${c.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
+          <ul>${items}</ul>
+          <div class="muted small">Stations from Open Charge Map, smallest detour by road first. Not live: check availability in your charging app.</div></div>`;
+      }
 
       // One line per day; tap a day for all its details (the rows above).
       const when = (x) => (x.type === 'charge' ? x.start : x.time);
@@ -1406,9 +1448,14 @@ function durationText(minutes) {
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
+          const stopOnWay = b && b.x.charge_stops && b.x.charge_stops.status === 'ok' ? ' <span class="tl-p exp">charge on the way</span>' : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
-          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}</span>`);
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
+          return;
+        }
+        if (x.type === 'precondition') {
+          day.parts.push(`<span class="tl-p">❄ ${esc(hm(x.time))}</span>`);
           return;
         }
         if (used.has(i)) return;
@@ -2162,16 +2209,17 @@ function durationText(minutes) {
         $('dep-override').innerHTML = `
           <h2>One-off departure</h2>
           <p class="muted small">For a trip that differs from normal. It has the highest priority and is removed automatically after it has passed.</p>
-          ${ov ? `<div class="row"><span>${esc(depWhen(ov.time))} · ${esc(ov.soc)}%</span><button class="secondary" id="ov-clear">Remove</button></div>` : ''}
+          ${ov ? `<div class="row"><span>${esc(depWhen(ov.time))} · ${esc(ov.soc)}%${ov.precondition ? ' · precondition' : ''}</span><button class="secondary" id="ov-clear">Remove</button></div>` : ''}
           <div class="two">
             <div class="field"><label>Leave at</label><input type="datetime-local" id="ov-time" value="${ov ? localInputValue(ov.time) : ''}"></div>
             <div class="field"><label>Battery level (%)</label><input type="number" id="ov-soc" min="10" max="100" step="1" value="${ov ? ov.soc : 100}"></div>
           </div>
+          <label class="check"><input type="checkbox" id="ov-pre" ${ov && ov.precondition ? 'checked' : ''}> Precondition before this departure</label>
           <div class="buttons"><button class="primary" id="ov-set">${ov ? 'Change' : 'Set one-off departure'}</button></div>
           <div class="error" id="ov-error" hidden></div>`;
         $('ov-set').onclick = async () => {
           try {
-            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, vehicle_id: depCar });
+            await api('POST', 'api/departures/override', { datetime: $('ov-time').value, soc: $('ov-soc').value, precondition: $('ov-pre').checked, vehicle_id: depCar });
             loadDepartures();
           } catch (err) {
             $('ov-error').textContent = err.message;
@@ -2189,10 +2237,13 @@ function durationText(minutes) {
           <tr><td>${DAY_NAMES[k]}</td>
             <td><input type="checkbox" name="${k}_on" ${dep.schedule[k].enabled ? 'checked' : ''}></td>
             <td><input type="time" name="${k}_time" value="${esc(dep.schedule[k].time)}"></td>
-            <td class="n"><input type="number" name="${k}_soc" min="10" max="100" step="1" value="${esc(dep.schedule[k].soc)}" style="width:80px"></td></tr>`).join('');
+            <td class="n"><input type="number" name="${k}_soc" min="10" max="100" step="1" value="${esc(dep.schedule[k].soc)}" style="width:80px"></td>
+            <td><input type="checkbox" name="${k}_pre" ${dep.schedule[k].precondition ? 'checked' : ''} title="Precondition before this departure"></td></tr>`).join('');
         f.helper_enabled.checked = dep.helper.enabled;
         f.helper_datetime.innerHTML = entityOptions(d.options.input_datetime, dep.helper.datetime_entity, '— choose —');
         f.helper_soc.innerHTML = entityOptions(d.options.input_number, dep.helper.soc_entity, '— none: use the default level —');
+        f.helper_precondition.checked = !!dep.helper.precondition;
+        f.helper_precondition_entity.innerHTML = entityOptions(d.options.on_off || [], dep.helper.precondition_entity, '— none: use the tick above —');
         f.cal_enabled.checked = dep.calendar.enabled;
         f.cal_entity.innerHTML = entityOptions(d.options.calendar.map((c) => ({ ...c, name: c.writable ? c.name : `${c.name} – read only` })), dep.calendar.entity, '— choose —');
         f.cal_match.value = dep.calendar.match || 'target';
@@ -2215,14 +2266,14 @@ function durationText(minutes) {
       errBox.hidden = true;
       const schedule = {};
       for (const k of DAY_KEYS) {
-        schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value };
+        schedule[k] = { enabled: f[`${k}_on`].checked, time: f[`${k}_time`].value, soc: f[`${k}_soc`].value, precondition: f[`${k}_pre`].checked };
       }
       const body = {
         vehicle_id: depCar,
         schedule_enabled: f.schedule_enabled.checked,
         schedule,
         default_soc: f.default_soc.value,
-        helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value },
+        helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value, precondition: f.helper_precondition.checked, precondition_entity: f.helper_precondition_entity.value || null },
         calendar: {
           enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
           buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value, language: f.cal_language.value,
@@ -2495,8 +2546,59 @@ function durationText(minutes) {
       }
     }
 
+    // ---------- Preconditioning before a departure (#44) ----------
+    let precondNow = null;
+    function showPrecond(carId) {
+      const d = precondNow;
+      if (!d || !d.cars.length) { $('precond-card').hidden = true; return; }
+      $('precond-card').hidden = false;
+      const c = d.cars.find((x) => x.id === carId) || d.cars[0];
+      $('precond-car-field').hidden = d.cars.length < 2;
+      $('precond-car').innerHTML = d.cars.map((x) => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(x.name || x.id)}</option>`).join('');
+      const p = c.precondition;
+      $('precond-enabled').checked = !!p.enabled;
+      $('precond-entity').innerHTML = entityOptions(c.options, p.entity_id, '— choose —');
+      $('precond-minutes').value = p.minutes;
+      $('precond-wayback').checked = !!p.way_back;
+      const at = dayHm;
+      const next = (c.upcoming || []).filter((m) => m.until > Date.now()).slice(0, 3);
+      $('precond-next').innerHTML = !p.enabled ? '' : next.length
+        ? `Next: ${next.map((m) => `<strong>${esc(at(m.at))}</strong> ${esc(m.kind === 'back_auto' ? 'way back' : m.title || 'departure')}`).join(' · ')}${d.control_allowed ? '' : ' <span class="differ">(advice only: "Allow control" is off)</span>'}`
+        : 'No preconditioning planned in the calendar.';
+    }
+    async function loadPrecond() {
+      try {
+        precondNow = await api('GET', 'api/precondition');
+        showPrecond($('precond-car').value);
+      } catch (e) {
+        $('precond-error').textContent = e.message;
+        $('precond-error').hidden = false;
+      }
+    }
+    $('precond-car').addEventListener('change', (e) => showPrecond(e.target.value));
+    $('precond-save').addEventListener('click', async () => {
+      const err = $('precond-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/precondition', {
+          vehicle_id: $('precond-car').value,
+          enabled: $('precond-enabled').checked,
+          entity_id: $('precond-entity').value || null,
+          minutes: $('precond-minutes').value,
+          way_back: $('precond-wayback').checked,
+        });
+        $('precond-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Preconditioning is ${r.precondition.enabled ? 'on' : 'off'}.</p>`;
+        await loadPrecond();
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+
     async function loadControl() {
       loadConflicts();
+      loadPrecond();
       const box = $('control-body');
       try {
         const d = await api('GET', 'api/control');
@@ -2670,14 +2772,58 @@ function durationText(minutes) {
       const row = document.createElement('div');
       row.className = 'two place-row';
       row.innerHTML = `<div class="field"><label>Name</label><input name="place_name" maxlength="40" placeholder="e.g. Work" value="${esc(p.name || '')}"></div>
-        <div class="field"><label>Address</label><div class="place-addr"><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
+        <div class="field"><label>Address</label><input name="place_address" maxlength="120" placeholder="Street and number, town" value="${esc(p.address || '')}"></div>
+        <div class="field"><label>Distance (km, one way, optional)</label><div class="place-addr"><input name="place_km" type="number" min="0.1" max="2000" step="0.1" placeholder="looked up" value="${esc(p.km ?? '')}"><button class="secondary small-btn" type="button" title="Remove">Remove</button></div></div>`;
       row.querySelector('button').onclick = () => row.remove();
       $('places-list').appendChild(row);
       return row;
     }
+    // ---------- Trip distances (#31) ----------
+    let routingNow = null;
+    const ROUTING_HELP = {
+      '': 'Until you choose, nothing is looked up and trips show no distance.',
+      osm: 'Free public services run by volunteers, with fair-use limits. The app asks at most once per second and remembers every answer.',
+      custom: 'For a Nominatim and an OSRM server you run yourself, for example on your own network.',
+      offline: 'Nothing is sent. Zones in Home Assistant give the straight line × 1.3; places in My places need a distance; places looked up before keep their distance.',
+      off: 'Trips show no distance and no cost. Charging plans for departures still work.',
+    };
+    function syncRouting() {
+      const mode = $('routing-mode').value;
+      document.querySelectorAll('.routing-custom').forEach((el) => { el.hidden = mode !== 'custom'; });
+      $('routing-help').textContent = ROUTING_HELP[mode] || '';
+    }
+    function showRouting(r) {
+      routingNow = r;
+      $('routing-mode').value = r.mode || '';
+      $('routing-geocode').value = r.geocode_url || '';
+      $('routing-route').value = r.route_url || '';
+      const n = $('routing-notice');
+      n.hidden = !!r.confirmed;
+      n.textContent = !r.mode
+        ? 'Choose how trip distances are looked up. Until then nothing is sent and trips show no distance.'
+        : 'This app uses the OpenStreetMap public services to look up trip distances. Check below what is sent, and confirm or change it.';
+      syncRouting();
+    }
+    $('routing-mode').addEventListener('change', syncRouting);
+    $('routing-save').addEventListener('click', async () => {
+      const err = $('routing-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/routing', { mode: $('routing-mode').value, geocode_url: $('routing-geocode').value.trim(), route_url: $('routing-route').value.trim() });
+        showRouting(r.routing);
+        if (cstopsNow) $('cstops-routing').hidden = !!r.routing.online;
+        $('routing-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved: ${esc(r.routing.label)}.</p>`;
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+
     async function loadPlaces() {
       try {
         const r = await api('GET', 'api/places');
+        if (r.routing) showRouting(r.routing);
         $('places-list').innerHTML = '';
         r.places.forEach((p) => placeRow(p));
         if (!r.places.length) placeRow();
@@ -2694,11 +2840,106 @@ function durationText(minutes) {
       const err = $('places-error');
       err.hidden = true;
       const places = [...document.querySelectorAll('#places-list .place-row')]
-        .map((row) => ({ name: row.querySelector('[name=place_name]').value.trim(), address: row.querySelector('[name=place_address]').value.trim() }))
-        .filter((p) => p.name || p.address);
+        .map((row) => ({ name: row.querySelector('[name=place_name]').value.trim(), address: row.querySelector('[name=place_address]').value.trim(), km: row.querySelector('[name=place_km]').value.trim() }))
+        .filter((p) => p.name || p.address || p.km);
       try {
         const r = await api('POST', 'api/places', { places });
-        $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost (the address is looked up in the background).</p>`;
+        $('places-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved ${r.places.length} place${r.places.length === 1 ? '' : 's'}. Trips with these names now show what they cost${routingNow && routingNow.online ? ' (an address is looked up in the background)' : ''}.</p>`;
+        loadDepartures();
+      } catch (e) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+    // ---------- Charging stops on the way (#37) ----------
+    let cstopsNow = null;
+    let cstopsClearKey = false;
+    function showCstopsKey() {
+      const pending = $('cstops-key').value.trim() !== '';
+      const saved = !!(cstopsNow && cstopsNow.has_key);
+      const state = $('cstops-key-state');
+      state.textContent = cstopsClearKey ? 'Removal pending' : pending ? 'New key — not saved' : saved ? '✓ Key saved' : 'No key saved';
+      state.className = 'cstops-key-state' + (saved && !pending && !cstopsClearKey ? ' saved' : '');
+      $('cstops-key').placeholder = saved ? 'Key saved — enter a new key to replace it' : 'Paste your key';
+      $('cstops-key-note').textContent = cstopsClearKey ? 'Save to remove the key and turn charging stops off. Discard keeps your saved key.' : pending ? 'Save to store this key. The saved key is never shown here.' : saved ? 'Leave this empty to keep your saved key, or enter a new one to replace it.' : 'Paste your Open Charge Map API key, then Save.';
+      $('cstops-key-remove').hidden = !saved;
+      $('cstops-key-remove').disabled = cstopsClearKey;
+    }
+    // Tick boxes: one per item, ticked when its id is in `on`.
+    const ticks = (box, items, on, name) => {
+      $(box).innerHTML = items.map((x) => `<label><input type="checkbox" name="${name}" value="${esc(x.id)}"${on.includes(x.id) ? ' checked' : ''}> ${esc(x.name)}</label>`).join('');
+    };
+    const ticked = (box) => [...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value);
+    // The operators of the countries that are ticked (a chosen operator stays visible).
+    function cstopsOperators(chosen) {
+      const c = cstopsNow;
+      if (!c) return;
+      const countries = ticked('cstops-countries');
+      const list = c.operator_list.filter((o) => o.countries.some((x) => countries.includes(x)) || chosen.includes(o.id));
+      // Two groups: mainly fast charging, and mainly normal charging.
+      const box = $('cstops-operators');
+      box.innerHTML = '';
+      for (const [fast, label] of [[true, 'Fast charging'], [false, 'Normal charging']]) {
+        const part = list.filter((o) => !!o.fast === fast);
+        if (!part.length) continue;
+        const group = document.createElement('div');
+        group.innerHTML = `<p class="muted small cstops-group">${label}</p><div class="days"></div>`;
+        group.lastChild.innerHTML = part.map((o) => `<label><input type="checkbox" name="cstops_operator" value="${esc(o.id)}"${chosen.includes(o.id) ? ' checked' : ''}> ${esc(o.name)}</label>`).join('');
+        box.appendChild(group);
+      }
+    }
+    function showCstops(c) {
+      cstopsNow = c;
+      cstopsClearKey = false;
+      $('cstops-enabled').checked = !!c.enabled;
+      $('cstops-key').value = '';
+      showCstopsKey();
+      $('cstops-routing').hidden = !!c.routing_online;
+      ticks('cstops-countries', c.country_list.map((x) => ({ id: x.code, name: x.name })), c.countries, 'cstops_country');
+      ticks('cstops-connectors', c.connector_list, c.connectors, 'cstops_connector');
+      cstopsOperators(c.operators);
+      $('cstops-power').value = c.min_power_kw;
+      $('cstops-detour').value = c.max_detour_km;
+      $('cstops-reserve').value = c.reserve_pct;
+    }
+    async function loadCstops() {
+      try {
+        showCstops((await api('GET', 'api/charge-stops')).charge_stops);
+      } catch (e) {
+        $('cstops-error').textContent = e.message;
+        $('cstops-error').hidden = false;
+      }
+    }
+    $('cstops-key').addEventListener('input', () => {
+      if ($('cstops-key').value.trim()) cstopsClearKey = false;
+      showCstopsKey();
+    });
+    $('cstops-key-remove').addEventListener('click', () => {
+      cstopsClearKey = true;
+      $('cstops-key').value = '';
+      $('cstops-enabled').checked = false;
+      $('cstops-result').textContent = '';
+      showCstopsKey();
+      unsavedGuard.markDirty($('cstops-card'));
+    });
+    $('cstops-countries').addEventListener('change', () => cstopsOperators(ticked('cstops-operators')));
+    $('cstops-save').addEventListener('click', async () => {
+      const err = $('cstops-error');
+      err.hidden = true;
+      try {
+        const r = await api('POST', 'api/charge-stops', {
+          enabled: $('cstops-enabled').checked,
+          api_key: $('cstops-key').value.trim(),
+          clear_key: cstopsClearKey,
+          countries: ticked('cstops-countries'),
+          operators: ticked('cstops-operators'),
+          connectors: ticked('cstops-connectors'),
+          min_power_kw: $('cstops-power').value,
+          max_detour_km: $('cstops-detour').value,
+          reserve_pct: $('cstops-reserve').value,
+        });
+        showCstops(r.charge_stops);
+        $('cstops-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Charging stops are ${r.charge_stops.enabled ? 'on' : 'off'}.</p>`;
         loadDepartures();
       } catch (e) {
         err.textContent = e.message;
@@ -2756,6 +2997,18 @@ function durationText(minutes) {
       timeZone: priceTz, weekday: 'short', hour: '2-digit', minute: '2-digit',
     }).format(new Date(ms));
 
+    // How one price is built (#26): input → + fee and tax → × VAT → + margin.
+    function breakdownText(b) {
+      const n = (x) => Number(x).toFixed(4);
+      const basis = { market_excl_vat: 'excl. VAT', market_incl_vat: 'incl. VAT', all_in: 'all-in' }[b.basis] || b.basis;
+      let t = `${n(b.input)} <span class="muted small">(${esc(basis)})</span>`;
+      if (b.basis === 'market_excl_vat') t += ` + ${n(b.fee + b.tax)} fee and tax, × ${esc(1 + b.vat_percent / 100)} VAT`;
+      else if (b.basis === 'market_incl_vat') t += ` + ${n(b.fee + b.tax)} × ${esc(1 + b.vat_percent / 100)} (fee and tax with VAT)`;
+      t += ` = <strong>${n(b.total)}</strong>`;
+      if (b.margin) t += ` + margin ${n(b.margin)} = ${n(b.compared)}`;
+      return t;
+    }
+
     function forecastHtml(f) {
       if (!f) return '';
       const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
@@ -2765,6 +3018,8 @@ function durationText(minutes) {
         ${row('Forecast', `<span class="ok">${f.count}</span> prices, ${esc(fmtTime(f.from))} – ${esc(fmtTime(f.until))}`)}
         ${row('Forecast average (all-in)', `${fmtPrice(f.average)} <span class="muted small">+ margin ${Number(f.margin).toFixed(3)}</span>`)}
         ${row('Forecast lowest', f.lowest ? `${fmtPrice(f.lowest.total)} <span class="muted small">at ${esc(fmtTime(f.lowest.start))}</span>` : '–')}
+        ${f.example ? row('One forecast price', breakdownText(f.example)) : ''}
+        ${f.overlap ? row(`Same hour, ${esc(fmtTime(f.overlap.start))}`, `real ${breakdownText(f.overlap.real)}<br>forecast ${breakdownText(f.overlap.forecast)}`) : ''}
         ${(f.warnings || []).map((w) => `<div class="note">${esc(w)}</div>`).join('')}`;
     }
 
@@ -2845,6 +3100,7 @@ function durationText(minutes) {
       const f = $('prices-form');
       const id = f.forecast_entity.value;
       f.querySelectorAll('.fc-on').forEach((el) => { el.hidden = !id; });
+      f.forecast_price_type.required = !!id;
       const c = priceSources.find((x) => x.entity_id === id);
       $('forecast-detail').textContent = c
         ? `${c.detail}${c.forecast_capable ? '' : ' · this sensor does not seem to have prices after tomorrow'}${c.forecast_marked ? ' · only the hours after the last real price are used' : ''}`
@@ -2860,7 +3116,7 @@ function durationText(minutes) {
           ? `Integration action · ${src.domain}${src.detail ? ' · ' + src.detail : ''}`
           : `Sensor attributes · ${src.detail}${src.note ? ` · ${src.note}` : ''}`;
       $('prices-form').price_type.value = src.price_type;
-      $('prices-form').forecast_price_type.value = src.price_type;
+      // The forecast's basis is chosen on its own, never copied (#26).
       showChoice(null);
       syncFixed();
     }
@@ -3744,6 +4000,7 @@ function durationText(minutes) {
     unsavedGuard.init({
       nav: '#main-nav .tab, #settings-nav .subtab, #history-nav .subtab, #charger-bar [data-bar], [data-goto]',
       scope: (form) => { const s = form.closest('main > section'); return !!s && GUARDED.includes(s.id); },
+      onDiscard: (group) => { if (group.id === 'cstops-card' && cstopsNow) showCstops(cstopsNow); },
     });
     for (const kind of Object.keys(SECTIONS)) {
       sectionShell(kind);
@@ -3756,6 +4013,7 @@ function durationText(minutes) {
     loadStatus();
     loadPrices();
     loadPlaces();
+    loadCstops();
     loadChargerBar().finally(() => checkWizard().then((active) => { if (!active) loadOverview(); }));
     setInterval(() => {
       const busy = document.activeElement.form === $('boost-form') || ($('boost-check') && $('boost-check').innerHTML);

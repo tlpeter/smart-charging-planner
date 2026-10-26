@@ -9,7 +9,7 @@
 //   2. charger status invalid for a short while   -> leave as it is
 //      ... and for longer than the grace period   -> pause
 //   3. battery below the minimum (and price ok)   -> charge
-//   4. preconditioning active                     -> charge
+//   4. preconditioning active (or asked by the app) -> charge
 //   5. Charge now / quickly to a minimum (Home)   -> charge
 //   6. Ready Guard at/after the latest safe start -> charge continuously
 //   7. solar surplus (Plan + solar, Solar only)   -> charge on solar
@@ -222,6 +222,8 @@ function decide(ctx) {
   // 4. Preconditioning: keep the charger on so the car uses grid power.
   const pre = findState(states, rules.preheat_entity);
   if (pre && pre.state === 'on') return charge('Preconditioning is active', 'preheat');
+  // Preconditioning the app asked for before this departure (#44).
+  if (ctx.preconditioning === true) return charge('Preconditioning was asked by the app', 'preheat');
 
   // Charge now, started by the user: charge until its goal is reached.
   // The live state counts, not the (possibly older) plan: Charge now
@@ -265,6 +267,16 @@ function decide(ctx) {
   const force = Number(rules.force_minutes) || 0;
   if (force > 0 && departure && departure > now && departure - now <= force * 60000) {
     return charge(`Less than ${force} minutes to departure`, 'force_window');
+  }
+
+  // A previous small top-up must not keep a price lock or hysteresis alive
+  // before Battery Care's final session. Explicit minimums and overrides above win.
+  const care = p.care;
+  if (rules.battery_care_enabled !== false && care && Number.isFinite(care.window_start) && now < care.window_start
+    && (care.refill_deferred === true || (Number.isFinite(soc) && Number.isFinite(care.soc) && soc >= care.soc))) {
+    const next = p.blocks.find((b) => b.start > now && !b.forecast);
+    return pause(care.refill_deferred ? 'Small Battery Care top-up joins the planned session' : 'Battery Care holding level reached; waiting for the planned session',
+      'battery_care_wait', { clear_lock: true, next_start: next ? next.start : care.window_start });
   }
 
   // 7. Locked block: once a planned period has started, finish it even if a
@@ -392,12 +404,12 @@ function commandsFor(decision, actual, methods, deviceId) {
 // share (more chargers, sharing.js): { pause, amps, reason } – wait for
 // another charger, or charge with less current. record = false: only decide
 // (no lock change, no log line), for the first round of sharing.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true, preconditioning = false }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning });
   if (share && decision.want === 'charge') {
     if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
     else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };

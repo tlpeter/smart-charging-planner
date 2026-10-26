@@ -21,7 +21,12 @@ const DEFAULTS = {
   departures: null, // filled by departures.js defaults on first use
   control: null, // control rules and chosen methods (controller.js defaults)
   notify: { service: null }, // notify action chosen in the app
-  places: [], // My places: [{ name, address }] (Plan › My places)
+  places: [], // My places: [{ name, address, km }] (Plan › My places)
+  // Trip distances (#31): which services may be asked. A new install has not
+  // chosen yet (nothing is sent until you choose on Plan).
+  routing: { mode: null, geocode_url: null, route_url: null, confirmed: false },
+  // Charging stops on the way (#37): off until you turn it on (Plan).
+  charge_stops: null,
 };
 
 // The planning settings come from the app's Configuration tab in Home
@@ -40,6 +45,9 @@ function load() {
   try {
     const saved = JSON.parse(fs.readFileSync(FILE, 'utf8'));
     s = { ...DEFAULTS, ...saved, planning: { ...DEFAULTS.planning, ...(saved.planning || {}) } };
+    // Settings from before the routing choice (#31): those installs already
+    // used OpenStreetMap, so they keep it until you confirm or change it.
+    if (!saved.routing) s.routing = { mode: 'osm', geocode_url: null, route_url: null, confirmed: false };
   } catch {
     s = JSON.parse(JSON.stringify(DEFAULTS));
   }

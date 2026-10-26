@@ -174,4 +174,30 @@ check('not connected and nothing to do are grey; advice only is marked', () => {
   assert.equal(S(plan({ control_allowed: false }), n()).advice_only, true);
 });
 
+
+check('Battery Care early session shows 80% and its own end, rather than the final 90% overnight (#43)', () => {
+  const d = plan({ vehicle: { soc: 74, car_data: { ok: true } }, planning: { target_soc: 90, wanted_soc: 90 },
+    plan: { blocks: [{ start: now, end: now + 0.5 * H, kwh: 4 }, { start: now + 8 * H, end: now + 9 * H, kwh: 6.6 }], notes: ['battery_care'],
+      care: { soc: 80, target: 90, window_start: now + 6 * H } }, reliability: { expected_ready: now + 9 * H } });
+  const s = S(d, n({ charging: true, power_w: 2800, want: 'charge', code: 'planned' }));
+  assert.match(s.detail, /74% → 80%/);
+  assert.match(s.detail, new RegExp('ready around ' + fmt.dayHm(now + 0.5 * H)));
+  assert.ok(!s.detail.includes('→ 90%') && !s.detail.includes(fmt.dayHm(now + 9 * H)));
+});
+check('Battery Care deferred 79%: waiting is explicit; power still flowing is reported as pausing', () => {
+  const d = plan({ vehicle: { soc: 79, car_data: { ok: true } }, planning: { target_soc: 90 },
+    plan: { blocks: [{ start: now + 8 * H, end: now + 9 * H, kwh: 7 }], notes: ['battery_care'],
+      care: { soc: 80, target: 90, window_start: now + 6 * H, refill_deferred: true } } });
+  const waiting = S(d, n({ code: 'battery_care_wait' }));
+  assert.equal(waiting.state, 'care_wait');
+  assert.match(waiting.detail, /small top-up joins the planned session/);
+  const stopping = S(d, n({ charging: true, power_w: 2800, code: 'battery_care_wait' }));
+  assert.equal(stopping.state, 'stopping');
+  assert.match(stopping.detail, /waiting for the charger to stop/);
+  assert.ok(!stopping.detail.includes('→ 90%'));
+  const override = S({ ...d, reliability: { protect: true, expected_ready: now + H } }, n({ charging: true, power_w: 8000, want: 'charge', code: 'ready_guard' }));
+  assert.equal(override.title, 'Ready Guard charging');
+  assert.match(override.detail, /79% → 90%/);
+});
+
 console.log('Charging status tests passed');

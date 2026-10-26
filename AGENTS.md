@@ -60,6 +60,45 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
   4. Remove `-dev` from the changelog headings on `main`.
   5. Push `main` (only after the owner said so).
   6. Merge `main` into the history of `dev` while keeping the current files of `dev` (the equivalent of `git merge -s ours main`), then push `dev`, so `dev` keeps its own names. Codex does this through the connector.
+  7. Update the documentation on both branches (see "Documentation" below): `dev` keeps its own files in step 6, so its README and RELEASE are updated there too.
+  8. Create the GitHub release (see "GitHub releases" below), only after the tests on `main` are green.
+
+## GitHub releases
+
+A GitHub release is a fixed tag plus a page with notes. Home Assistant does not use it (it follows the branch and `config.yaml`); it is the overview for people: one page per stable version.
+
+- **Only for a stable version on `main`**, as the last step of "uitbrengen X.Y.Z". Never for `dev` or a `-dev` version, and never a pre-release.
+- **How**: the notes are written as `release-notes/vX.Y.Z.md` and committed with the release on `main`. When the tests on `main` are green, the tag `vX.Y.Z` is pushed on that release commit (the commit with version `X.Y.Z` in `config.yaml`, not the later "Test plan" commit). `.github/workflows/release.yml` then checks the tag, the version, that the commit is on `main` and that the notes file exists, builds the zip, creates the release (title `vX.Y.Z`) and closes the milestone. Check that the Release workflow is green. Claude sessions cannot create releases through the API; the tag push is how they make one. If the workflow cannot run, Peter creates the release by hand with the same notes and zip.
+- **Notes**, in plain English, built from the changelog entries since the previous stable version (on `dev` these are the `-dev` headings after the previous release):
+  - one line on what the release is about;
+  - **New** and **Fixed**: one short line per issue, ending in `(#<number>)`, grouped by feature (not one line per `-dev` version); entries without an issue (tests, documentation) go under one line **Other**;
+  - **Upgrade notes** when something needs attention (a new option that is off by default, a choice to confirm, a changed default);
+  - **Tested**: which automated checks passed for this commit (unit, the three settings set-ups, the charger matrix, Home Assistant Core), and that physical devices are only checked where Peter tested them at home;
+  - a link to the full `CHANGELOG.md`.
+- **Asset**: the release zip `smart-charging-planner-vX.Y.Z.zip` (the contents of `smart_charging_planner`, no top folder); the workflow builds it.
+- **Milestone**: issues planned for the next stable version get the milestone `X.Y.Z`; it is closed when that version is released. A new milestone is made for the next version when the first issue needs it.
+- No release, tag or milestone change without the owner's "uitbrengen"; pushing the tag follows the same push rule. Never move or delete a pushed release tag.
+
+## Documentation
+
+The Markdown files are part of every change. `tests/docs.test.js` checks the parts marked *(checked)* on every push; a red test means a file was forgotten.
+
+On every change on `dev` (in the same commit):
+
+- `smart_charging_planner/CHANGELOG.md`: a short entry under the new version heading, ending in `(#<number>)` when it belongs to an issue.
+- `smart_charging_planner/DOCS.md`: every new or changed option or behaviour.
+- `README.md`:
+  - the line "The current development candidate is **X.Y.Z-dev** (stable is A.B.C)": the same X.Y as `config.yaml` *(checked)*;
+  - every issue in the changelog since the stable version is listed under "Implemented on dev, awaiting a stable release" *(checked)*, and taken out of the open roadmap lists;
+  - new open work (a new issue) goes in the roadmap under its priority (P1, P2, P3).
+- `RELEASE.md`: the heading "## Current candidate: X.Y.Z-dev" with the same X.Y as `config.yaml` *(checked)*; under it the scope with every issue since the stable version *(checked)*, what is still open, and what Peter should check at home.
+
+On a release ("uitbrengen X.Y.Z"), on `main` and on `dev`:
+
+- `README.md`: move the items under "Implemented on dev" to "Available features" (short, plain words) and empty that list; set "stable is X.Y.Z"; on `main`, keep main's own wording.
+- `RELEASE.md`: the released scope becomes one line ("released in X.Y.Z"); start the next candidate section on `dev` when the next change comes.
+- `CHANGELOG.md`: on `main`, remove `-dev` from the headings (step 4 above) and add a short "Stable release of …" entry.
+- Remove the label `fixed in dev` from the released issues.
 
 ## Issues (bugs and wishes on GitHub)
 
@@ -80,7 +119,7 @@ How a GitHub issue is handled, from report to release:
    - **How to check:** a few steps to try it yourself;
    - the last line: "Closes when released to main."
 6. **Peter tests** the dev version at home. If it is not right, the issue gets a comment and the label is removed again.
-7. **Release** ("uitbrengen"): `dev` goes to `main`, and GitHub closes the issue by itself. Remove the label `fixed in dev` then.
+7. **Release** ("uitbrengen"): `dev` goes to `main`, and GitHub closes the issue by itself. Remove the label `fixed in dev` then. The issue is listed in the GitHub release notes of that version and its milestone is closed.
 
 ## Tests
 
@@ -88,13 +127,13 @@ How a GitHub issue is handled, from report to release:
 - Every push runs `.github/workflows/tests.yml`:
   - syntax, persistence and coverage;
   - unit tests, including `releaseguard.test.js` and the real-app `recovery.test.js`;
-  - the settings test for two set-ups;
+  - the settings test for three set-ups (Renault + Easee, Skoda + Wallbox, Kia + Zaptec);
   - the charger × battery matrix.
 - After that, GitHub writes `tests/TESTPLAN.md` from the results and **commits it to the branch** ("Test plan: results of …"). So:
   - read the latest branch through the connector before preparing the next commit;
   - never edit `tests/TESTPLAN.md` by hand.
 - **Run local tests only when Peter explicitly asks.** Do not install test dependencies or start a local test server by default. If local tests are requested (after `npm install` in `smart_charging_planner/app`):
-  - `node tests/settings.test.js`, and the same with `SCP_PROFILE=skoda_wallbox` in front: every setting, against a fake Home Assistant (`tests/fake-ha.js`).
+  - `node tests/settings.test.js`, and the same with `SCP_PROFILE=skoda_wallbox` or `SCP_PROFILE=kia_zaptec` in front: every setting, against a fake Home Assistant (`tests/fake-ha.js`).
   - `node tests/<name>.test.js`: brands, solar, battery, forecast, reliability, activecar, sharing, tripcost, persistence.
   - `node tests/matrix.test.js` (several minutes), or `SCP_CHARGERS=Easee` in front of it for one charger.
   - `node tests/testplan.js all`: everything, and writes the test plan (about 15 minutes).

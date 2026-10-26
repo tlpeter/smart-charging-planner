@@ -11,6 +11,19 @@ function num(v) {
   return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null;
 }
 
+// End of the current uninterrupted session, rather than the final session.
+function currentSessionEnd(blocks, at, before) {
+  let end = null;
+  for (const block of [...blocks].sort((a, b) => a.start - b.start)) {
+    if (block.start >= before) break;
+    if (end == null) {
+      if (block.start <= at && at < block.end) end = block.end;
+    } else if (block.start <= end + 1000) end = Math.max(end, block.end);
+    else break;
+  }
+  return end == null ? null : Math.min(end, before);
+}
+
 // What a charger status text means, in plain words (from the integrations).
 const STATUS_MEANING = {
   awaiting_start: 'a car is connected; charging has not started',
@@ -108,6 +121,14 @@ function chargeStateOnly(d, n, fmt) {
     return st('charger_offline', 'orange', 'alert', 'Charger not reachable', `Home Assistant does not get the charger's status${n.status ? ` (${n.status})` : ''}. Check the charger and its integration.`);
   }
   if (n.charging === true || (num(n.power_w) || 0) > 500) {
+    const care = p.care;
+    const at = n.at || Date.now();
+    if (care && care.refill_deferred && at < care.window_start && n.want === 'pause') {
+      const next = blocks.find((b) => b.start > at);
+      return st('stopping', 'orange', 'pause', 'Pausing for Battery care',
+        join([kw, soc != null ? `${soc}%` : null, 'waiting for the charger to stop',
+          next ? `planned session starts at ${fmt.dayHm(next.start)}` : null]));
+    }
     // What it charges to right now: Charge now or Quick minimum (their goal),
     // your minimum (the part below it is charged first), or the plan's target.
     const b = d.boost;
@@ -126,6 +147,11 @@ function chargeStateOnly(d, n, fmt) {
       goal = num(minPlan.soc);
       if (minBlocks.length) until = minBlocks[minBlocks.length - 1].end;
       why = 'your minimum first, then the plan';
+    } else if (care && at < care.window_start && num(care.soc) != null
+      && !['solar', 'ready_guard', 'force_window'].includes(n.code)) {
+      goal = target == null ? num(care.soc) : Math.min(target, num(care.soc));
+      until = currentSessionEnd(blocks, at, care.window_start);
+      why = 'Battery care: the rest in the planned session';
     }
     const lvl = soc != null && goal != null ? `${soc}% → ${goal}%` : b && b.mode === 'on' ? null : level;
     const title = n.code === 'ready_guard' ? 'Ready Guard charging'
@@ -142,12 +168,12 @@ function chargeStateOnly(d, n, fmt) {
   // charger is on. Say when the rest really starts.
   const care = p.care;
   const at = n.at || Date.now();
-  if (care && !d.boost && soc != null && num(care.soc) != null && soc >= num(care.soc) - 0.5
+  if (care && !d.boost && soc != null && num(care.soc) != null && (soc >= num(care.soc) - 0.5 || care.refill_deferred === true)
     && target != null && soc < target && num(care.window_start) != null && at < care.window_start) {
     const top = blocks.find((x) => x.end > care.window_start);
     const start = top ? Math.max(top.start, care.window_start) : care.window_start;
     return st('care_wait', 'amber', 'clock', `Battery care · charging starts at ${fmt.hm(start)}`,
-      join([`${soc}% → ${target}%`, `the car stays at ${num(care.soc)}% until then`, readyAt ? `ready around ${fmt.dayHm(readyAt)}` : null]));
+      join([`${soc}% → ${target}%`, care.refill_deferred ? 'small top-up joins the planned session' : `the car stays at ${num(care.soc)}% until then`, readyAt ? `ready around ${fmt.dayHm(readyAt)}` : null]));
   }
   if (n.code === 'no_reaction' || (n.error && n.want === 'charge')) {
     return st('no_reaction', 'orange', 'alert', 'The charger did not start', n.error || n.reason || 'The app turned the charger on, but it does not charge.');

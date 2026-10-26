@@ -24,6 +24,30 @@ const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'places.json');
 const GEOCODE_URL = process.env.SCP_GEOCODE_URL || 'https://nominatim.openstreetmap.org/search';
 const ROUTE_URL = process.env.SCP_ROUTE_URL || 'https://router.project-osrm.org/route/v1/driving';
+
+// Routing privacy (#31). What may be sent to look up a trip's distance:
+//  - 'osm':     the public OpenStreetMap services (Nominatim for the address,
+//               the OSRM demo server for the road distance);
+//  - 'custom':  your own Nominatim- and OSRM-compatible servers;
+//  - 'offline': nothing leaves Home Assistant: zones (straight line × 1.3),
+//               distances you enter in My places, and places looked up before;
+//  - 'off':     no trip distances at all.
+// null: not chosen yet; works like 'offline' until you choose.
+const ROUTING_MODES = ['osm', 'custom', 'offline', 'off'];
+let routingConfig = () => ({ mode: 'osm' });
+function setRouting(fn) {
+  routingConfig = typeof fn === 'function' ? fn : () => fn || {};
+}
+function routing() {
+  const r = routingConfig() || {};
+  const mode = ROUTING_MODES.includes(r.mode) ? r.mode : null;
+  return {
+    mode,
+    online: mode === 'osm' || mode === 'custom',
+    geocode_url: mode === 'custom' && r.geocode_url ? r.geocode_url : GEOCODE_URL,
+    route_url: mode === 'custom' && r.route_url ? r.route_url : ROUTE_URL,
+  };
+}
 const GAP_MS = Number(process.env.SCP_GEOCODE_GAP_MS) || 1100;
 const ROAD_FACTOR = 1.3;
 const MARGIN = 1.1;
@@ -60,7 +84,7 @@ function setSavedPlaces(fn) {
 function savedPlace(text) {
   const t = norm(text);
   if (!t) return null;
-  return (savedPlaces() || []).find((p) => p && norm(p.name) === t && String(p.address || '').trim()) || null;
+  return (savedPlaces() || []).find((p) => p && norm(p.name) === t && (String(p.address || '').trim() || Number(p.km) > 0)) || null;
 }
 // Zones in Home Assistant (Settings › Areas & zones), such as "Werk": a name
 // with GPS coordinates, used like My places. The home zone is your home.
@@ -82,7 +106,7 @@ function zoneList() {
 // A name you use: My places first, then a zone.
 function lookupName(text) {
   const saved = savedPlace(text);
-  if (saved) return { location: saved.address, place: saved.name, kind: 'saved' };
+  if (saved) return { location: saved.address || null, place: saved.name, kind: 'saved', ...(Number(saved.km) > 0 ? { manual_km: Number(saved.km) } : {}) };
   const t = norm(text);
   const z = t ? zones.find((x) => x.keys.includes(t)) : null;
   return z ? { location: z.name, place: z.name, kind: 'zone', point: { lat: z.lat, lon: z.lon } } : null;
@@ -163,6 +187,11 @@ async function run() {
   running = true;
   while (queue.length) {
     const { key, job } = queue.shift();
+    // The choice may have changed while this lookup waited: send nothing then.
+    if (!routing().online) {
+      queued.delete(key);
+      continue;
+    }
     try {
       await job();
     } catch (err) {
@@ -189,13 +218,13 @@ async function getJson(url) {
 async function geocode(text, country) {
   const q = new URLSearchParams({ q: text, format: 'json', limit: '1' });
   if (country) q.set('countrycodes', String(country).toLowerCase());
-  const r = await getJson(`${GEOCODE_URL}?${q}`);
+  const r = await getJson(`${routing().geocode_url}?${q}`);
   const hit = Array.isArray(r) && r[0];
   return hit && Number.isFinite(Number(hit.lat)) ? { lat: Number(hit.lat), lon: Number(hit.lon) } : null;
 }
 
 async function routeKm(from, to) {
-  const r = await getJson(`${ROUTE_URL}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`);
+  const r = await getJson(`${routing().route_url}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`);
   const m = r && r.routes && r.routes[0] && r.routes[0].distance;
   return Number.isFinite(m) ? m / 1000 : null;
 }
@@ -209,9 +238,12 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
   if (isHome(text)) return { status: 'home', km: 0 };
   if (!looksLikePlace(text)) return { status: 'unknown', reason: 'not_an_address' };
   if (!home) return { status: 'no_home' };
+  const rt = routing();
+  if (rt.mode === 'off') return { status: 'unknown', reason: 'routing_off' };
   const c = load();
   const key = norm(text);
   const place = c.places[key];
+  if (!rt.online && (!place || !place.found)) return { status: 'unknown', reason: rt.mode ? 'offline' : 'routing_not_chosen' };
   if (!place || (!place.found && Date.now() - place.at > RETRY_MS)) {
     enqueue(`place:${key}`, async () => {
       let p = null;
@@ -244,6 +276,7 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
 // Home Assistant): by road when OpenStreetMap has the route, else an estimate.
 function pointDistance(point, home = ha.state.home) {
   if (!home) return { status: 'no_home' };
+  if (routing().mode === 'off') return { status: 'unknown', reason: 'routing_off' };
   return toPoint(home, point, `${point.lat},${point.lon}`);
 }
 function toPoint(home, place, text) {
@@ -253,7 +286,7 @@ function toPoint(home, place, text) {
   const rkey = `${home.lat.toFixed(4)},${home.lon.toFixed(4)}|${place.lat.toFixed(4)},${place.lon.toFixed(4)}`;
   const route = c.routes[rkey];
   if (route && route.km != null) return { status: 'ok', km: route.km, how: 'route', lat: place.lat, lon: place.lon };
-  if (!route || Date.now() - route.at > RETRY_MS) {
+  if (routing().online && (!route || Date.now() - route.at > RETRY_MS)) {
     enqueue(`route:${rkey}`, async () => {
       let km = null;
       try {
@@ -289,7 +322,8 @@ function pctPerKm(vehicle, states, soc) {
 
 // Where a place is, for a trip from one place to the next: { status, lat, lon }.
 function pointOf(given, title) {
-  const { location, point } = placeFor(given, title);
+  const { location, point, manual_km: manualKm } = placeFor(given, title);
+  if (manualKm) return { status: 'ok', lat: null, lon: null, home_km: manualKm, how: 'manual' };
   const d = point ? pointDistance(point) : distance(location);
   if (d.status === 'home') return { status: 'home', lat: ha.state.home ? ha.state.home.lat : null, lon: ha.state.home ? ha.state.home.lon : null, home_km: 0 };
   if (d.status !== 'ok') return { status: d.status, reason: d.reason || null };
@@ -303,8 +337,9 @@ function pointOf(given, title) {
 // the place before; the way back starts at the last place.
 function tripCost({ location: given, title = null, returnLocation = undefined, stops = [], vehicle, states, soc }) {
   if (stops && stops.length) return chainCost({ location: given, title, stops, vehicle, states, soc });
-  const { location, place, kind, point } = placeFor(given, title);
-  const there = { ...(point ? pointDistance(point) : distance(location)), ...(place ? { place, place_kind: kind } : {}) };
+  const { location, place, kind, point, manual_km: manualKm } = placeFor(given, title);
+  const reach = manualKm ? { status: 'ok', km: manualKm, how: 'manual' } : point ? pointDistance(point) : distance(location);
+  const there = { ...reach, ...(place ? { place, place_kind: kind } : {}) };
   if (there.status !== 'ok') {
     const ask = there.status === 'unknown' ? askName(given, title) : null;
     return { status: there.status, reason: there.reason || null, km: there.km ?? null, pct: there.status === 'home' ? 0 : null, ...(place ? { place, place_kind: kind } : {}), ...(ask ? { ask } : {}) };
@@ -314,11 +349,14 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
   // Back: the return trip in the calendar when there is one (home: the same distance).
   const backKm = returnLocation === undefined ? there.km : (() => {
     const r = placeFor(returnLocation, null);
+    if (r.manual_km) return r.manual_km;
     const b = r.point ? pointDistance(r.point) : distance(r.location);
     return b.status === 'home' ? there.km : b.status === 'ok' ? b.km : there.km;
   })();
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(place ? { place, place_kind: kind } : {}) };
+  // lat/lon: where the destination is (for charging stops on the way, #37).
+  const at = Number.isFinite(there.lat) && Number.isFinite(there.lon) ? { lat: there.lat, lon: there.lon } : {};
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...at, ...(place ? { place, place_kind: kind } : {}) };
 }
 
 // A trip with more places in a row: home → first place → next place → … → home.
@@ -335,7 +373,12 @@ function chainCost({ location: given, title, stops, vehicle, states, soc }) {
       const ask = cur.status === 'unknown' ? askName(s.location, s.title) : null;
       return { ...first, status: 'unknown', reason: cur.reason || 'not_found', pct: null, ...(ask ? { ask } : {}) };
     }
-    const leg = cur.status === 'home' ? { km: prev.home_km, how: prev.how } : toPoint(prev, cur, `${cur.lat},${cur.lon}`);
+    // A place with only a distance you entered has no position: the leg from
+    // the place before is estimated as that place's distance from home.
+    const noPos = cur.lat == null || prev.lat == null;
+    const leg = cur.status === 'home' ? { km: prev.home_km, how: prev.how }
+      : noPos ? { km: cur.home_km, how: 'estimate' }
+        : toPoint(prev, cur, `${cur.lat},${cur.lon}`);
     legs.push({ title: s.title || null, km: leg.km || 0, how: leg.how || null });
     if (leg.how === 'estimate') first.how = 'estimate';
     prev = cur;
@@ -408,4 +451,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

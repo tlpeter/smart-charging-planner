@@ -4,9 +4,9 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 > Status: public beta. With "Allow control" off (default) everything is advice and a dry run; with it on, the app starts and pauses the charger itself; the home battery also needs "Allow home battery control".
 
-## Version 0.34.0 and compatibility
+## Version 0.35.0 and compatibility
 
-Version **0.34.0** adds a 7-, 14- or 30-day look-ahead with estimates marked (#4), choosing the Tibber home or Nord Pool area (#16), support for the HACS Nord Pool integration next to the Home Assistant one (#17) and keeps Charge now first when chargers share the connection (#35). Version 0.33.0 repaired clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+Version **0.35.0** adds charging-stop suggestions along long trips in the Netherlands and Belgium, on your side of the road (#37, #41, #42), preconditioning before a departure and on the way back for every departure source (#44, #45), a small Battery Care refill after a short trip that joins the planned session (#43), an explicit choice of what is sent to look up trip distances, with an offline option (#31), and an explicit forecast price basis so VAT is never added twice (#26). Version 0.34.0 added a 7-, 14- or 30-day look-ahead (#4), choosing the Tibber home or Nord Pool area (#16), the HACS Nord Pool integration (#17) and kept Charge now first when chargers share the connection (#35). Version 0.33.0 repaired clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -94,7 +94,7 @@ When several sources give a departure on one day: one-off, then calendar, then h
 | **Prices** | A dynamic price source (EnergyZero, Nord Pool, Tibber, …) with your purchase fee, energy tax and VAT, or **Fixed or day/night tariff**. Optional **price forecast** with a safety margin, so the plan can wait for a cheaper day. |
 | **Solar** | Solar forecast (Energy dashboard or a sensor), **Count on this part of the forecast** (80 %), house use, the **feed-in compensation** (dynamic or fixed), **Charge with solar up to** (90 %), **Grid power allowed while charging on solar**, start/stop delays, current control and one/three-phase switching. **Who follows the surplus?**: the app or the **Easee Equalizer**. |
 | **Battery** | Home battery plan: charge from the grid when it pays, hold for expensive hours. Capacity, power, efficiency, wear per kWh, **Never below / Never above**. **May the home battery charge the car?** (never / only stored solar / always / between two levels). **Who gets the sun first?** (smart / car / battery). 10 brands steered (only with **Allow home battery control**). |
-| **Rules** | **Don't change the car's charge limit** (off: the limit follows every choice). **Default minimum for the quick choices** (30 %). **Always charge below a minimum** (off; optional entity and price limit). **Force charging before departure** (0 min). **Hysteresis** (0.03 per kWh). **Keep charging while the car preconditions**. **Ready Guard** (on, margin 30 min). **Battery care** (on: above 80 % only in the last 4 hours before departure). |
+| **Rules** | **Don't change the car's charge limit** (off: the limit follows every choice). **Default minimum for the quick choices** (30 %). **Always charge below a minimum** (off; optional entity and price limit). **Force charging before departure** (0 min). **Hysteresis** (0.03 per kWh). **Keep charging while the car preconditions**. **Ready Guard** (on, margin 30 min). **Battery care** (on: above 80 % only in the last 4 hours before departure; a small refill within 5 percentage points joins that session when it still fits). |
 | **Notifications** | Recipients (phones or groups): per recipient its notify action, which cars, and which messages (5 groups, each message on or off); a test per recipient. |
 | **Diagnostics** | Connection, manual start/stop test, the setup wizard, **Preview diagnostics** (public report for a bug report), **Export / Import settings** (backup, or move to the test version). |
 
@@ -170,13 +170,16 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] Trips added in English or Dutch, calendar read in both
 - [x] MIT license and contribution guidance [#32](https://github.com/tlpeter/smart-charging-planner/issues/32)
 - [x] Look ahead 7, 14 or 30 days, with estimates marked beyond known prices [#4](https://github.com/tlpeter/smart-charging-planner/issues/4)
+- [x] Explicit forecast price basis, so VAT is never added twice [#26](https://github.com/tlpeter/smart-charging-planner/issues/26)
+- [x] Trip distances and privacy: choose what is sent, or work offline [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
+- [x] Charging stops on the way (Netherlands and Belgium), on your side of the road [#37](https://github.com/tlpeter/smart-charging-planner/issues/37) [#41](https://github.com/tlpeter/smart-charging-planner/issues/41) [#42](https://github.com/tlpeter/smart-charging-planner/issues/42)
+- [x] Battery Care: a small refill after a short trip joins the planned session [#43](https://github.com/tlpeter/smart-charging-planner/issues/43)
+- [x] Preconditioning before a departure and on the way back, for every departure source [#44](https://github.com/tlpeter/smart-charging-planner/issues/44) [#45](https://github.com/tlpeter/smart-charging-planner/issues/45)
 
 ### Before broader public promotion (P1)
 
-- [ ] Show actual and forecast price breakdowns, including VAT, fees and forecast margin, to prevent applying VAT twice. [#26](https://github.com/tlpeter/smart-charging-planner/issues/26)
 - [ ] Publish a capability-based compatibility matrix with integration versions and physical beta-test status. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 - [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
-- [ ] Add an explicit routing privacy choice and a manual/offline distance alternative. [#31](https://github.com/tlpeter/smart-charging-planner/issues/31)
 
 ### Reliability and usability (P2)
 
@@ -184,16 +187,17 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [ ] Provide a supported week-price forecast path with freshness, schema and price-basis checks. [#27](https://github.com/tlpeter/smart-charging-planner/issues/27)
 - [ ] Plan all chargers against shared capacity before charging time, including realistic readiness estimates. [#30](https://github.com/tlpeter/smart-charging-planner/issues/30)
 - [ ] Add Pause until and a guided release/recovery action for app-owned device settings. [#33](https://github.com/tlpeter/smart-charging-planner/issues/33)
+- [ ] Charging-stop suggestions for all European countries, not only the Netherlands and Belgium. [#40](https://github.com/tlpeter/smart-charging-planner/issues/40)
 
 ### Later extensions (P3)
 
-- [ ] Suggest suitable charging stations along routes that exceed the usable battery range, with operator, connector and power preferences. Depends on the routing privacy choice. [#37](https://github.com/tlpeter/smart-charging-planner/issues/37)
+No open items at the moment.
 
 ## Tests
 
 **[tests/TESTPLAN.md](tests/TESTPLAN.md)** shows every test and the result of the last run. GitHub writes it after every push, so it always matches the code; `node tests/testplan.js all` runs everything and writes it here (several minutes).
 
-`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox.
+`node tests/settings.test.js` tests every setting against a fake Home Assistant with a Renault and an Easee (about a minute); `SCP_PROFILE=skoda_wallbox node tests/settings.test.js` does the same with a Skoda Enyaq and a Wallbox, and `SCP_PROFILE=kia_zaptec` with a Kia Niro EV (Kia Uvo) and a Zaptec Go.
 
 `node tests/solar.test.js` checks solar brand by brand: inverters, forecasts, the value of own solar power and charging on surplus.
 

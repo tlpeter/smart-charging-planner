@@ -148,6 +148,57 @@ const PROFILES = {
       phasesOf: () => null,
     },
   },
+  // Entity names from the integrations' source (see tests/fixtures.js):
+  // Hyundai-Kia-Connect/kia_uvo and custom-components/zaptec.
+  kia_zaptec: {
+    label: 'Kia Niro EV (Kia Uvo) + Zaptec Go',
+    car: {
+      device: 'car', name: 'Niro EV', manufacturer: 'Kia', model: 'Niro EV', platform: 'kia_uvo', capacity: 64,
+      soc: 'sensor.niro_ev_ev_battery_level', range: 'sensor.niro_ev_ev_range', plugged: 'binary_sensor.niro_ev_ev_battery_plug',
+      limit: 'number.niro_ev_ac_charging_limit', limit_min: 50, limit_max: 100, limit_step: 10,
+      preheat: 'input_boolean.niro_voorverwarmen',
+      states: (w) => [
+        ['sensor.niro_ev_ev_battery_level', w.soc, { friendly_name: 'Niro EV EV Battery Level', ...PCT, device_class: 'battery' }],
+        ['sensor.niro_ev_ev_range', '200', { friendly_name: 'Niro EV EV Range', unit_of_measurement: 'km', device_class: 'distance' }],
+        ['sensor.niro_ev_total_driving_range', '200', { friendly_name: 'Niro EV Total Driving Range', unit_of_measurement: 'km', device_class: 'distance' }],
+        ['binary_sensor.niro_ev_ev_battery_plug', (w.car1Plug ?? w.plugged) ? 'on' : 'off', { friendly_name: 'Niro EV EV Battery Plug', device_class: 'plug' }],
+        ['binary_sensor.niro_ev_ev_battery_charge', w.charging ? 'on' : 'off', { friendly_name: 'Niro EV EV Battery Charge', device_class: 'battery_charging' }],
+        // The DC limit first on purpose: for charging at home the app must take the AC limit.
+        ['number.niro_ev_dc_charging_limit', '80', { friendly_name: 'Niro EV DC Charging Limit', ...PCT, min: 50, max: 100, step: 10 }],
+        ['number.niro_ev_ac_charging_limit', w.limit, { friendly_name: 'Niro EV AC Charging Limit', ...PCT, min: 50, max: 100, step: 10 }],
+        // A helper of the user, not on the car's device.
+        ['input_boolean.niro_voorverwarmen', w.preheat, { friendly_name: 'Niro voorverwarmen' }, null],
+      ],
+    },
+    charger: {
+      device: 'ch', name: 'Zaptec Go', manufacturer: 'Zaptec', model: 'Go', platform: 'zaptec',
+      status: 'sensor.zaptec_go_charger_mode', power: 'sensor.zaptec_go_charge_power',
+      switch: 'switch.zaptec_go_charging',
+      text: { unplugged: 'disconnected', paused: 'connected_requesting', charging: 'connected_charging' },
+      services: {},
+      states: (w, status) => [
+        ['sensor.zaptec_go_charger_mode', status, { friendly_name: 'Zaptec Go Charger mode', device_class: 'enum' }],
+        ['sensor.zaptec_go_charge_power', String(Math.round(carKw(w) * 1000)), { friendly_name: 'Zaptec Go Charge power', unit_of_measurement: 'W', device_class: 'power' }],
+        ['button.zaptec_go_resume_charging', 'unknown', { friendly_name: 'Zaptec Go Resume charging' }],
+        ['button.zaptec_go_stop_charging', 'unknown', { friendly_name: 'Zaptec Go Stop charging' }],
+        ['switch.zaptec_go_charging', w.charging ? 'on' : 'off', { friendly_name: 'Zaptec Go Charging' }],
+        ['number.zaptec_go_charger_max_current', '32', { friendly_name: 'Zaptec Go Charger max current', unit_of_measurement: 'A', min: 0, max: 32, step: 1 }],
+      ],
+      react(call) {
+        const id = call.target && call.target.entity_id;
+        if (call.domain === 'button' && call.service === 'press') return id === 'button.zaptec_go_resume_charging' ? 'start' : id === 'button.zaptec_go_stop_charging' ? 'stop' : null;
+        if (call.domain === 'switch' && id === 'switch.zaptec_go_charging') return call.service === 'turn_on' ? 'start' : call.service === 'turn_off' ? 'stop' : null;
+        return null;
+      },
+      isStart: (c) => (c.domain === 'button' && c.service === 'press' && c.target && c.target.entity_id === 'button.zaptec_go_resume_charging')
+        || (c.domain === 'switch' && c.service === 'turn_on' && c.target && c.target.entity_id === 'switch.zaptec_go_charging'),
+      isControl: (c) => (c.domain === 'button' && c.target && /^button\.zaptec_go_(resume|stop)_charging$/.test(c.target.entity_id))
+        || (c.domain === 'switch' && c.target && c.target.entity_id === 'switch.zaptec_go_charging'),
+      describe: (c) => `${c.domain}.${c.service} ${c.target && c.target.entity_id}${c.data && c.data.value != null ? ' ' + c.data.value : ''}`,
+      currentOf: (c) => (c.domain === 'number' && c.target && c.target.entity_id === 'number.zaptec_go_charger_max_current' ? c.data.value : null),
+      phasesOf: () => null,
+    },
+  },
 };
 
 function createWorld(profileName = 'renault_easee') {
@@ -200,6 +251,8 @@ function entityList(w) {
   const ch = p.charger;
   const status = !w.plugged ? ch.text.unplugged : w.charging ? ch.text.charging : w.enabledNoPower && ch.text.ready ? ch.text.ready : ch.text.paused;
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
+  // A button of the car that starts the air conditioning (preconditioning, #44).
+  car.push(['button.test_car_start_air_conditioner', 'unknown', { friendly_name: 'Car Start air conditioner' }, p.car.device]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
   const car2 = w.car2 ? [
@@ -438,8 +491,34 @@ function start(w, wsPort, restPort) {
     }
     if (req.url.startsWith('/route/')) {
       if (w.routeKm === null) { res.writeHead(503); res.end('{}'); return; }
+      // With a line (charging stops, #37): a straight line from start to end.
+      const u = new URL(req.url, 'http://x');
+      const line = u.searchParams.get('geometries') === 'polyline'
+        ? encodeLine(u.pathname.split('/').pop().split(';').map((x) => { const [lon, lat] = x.split(',').map(Number); return { lat, lon }; }))
+        : undefined;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ routes: [{ distance: (w.routeKm ?? 50) * 1000 }] }));
+      // Via a point (start;station;end, charging stops #41): leaving the road
+      // to that point and back, so twice its distance off the straight line.
+      const pts = u.pathname.split('/').pop().split(';').map((x) => { const [lon, lat] = x.split(',').map(Number); return { lat, lon }; });
+      const off = (a, b, p) => {
+        const kx = 111.32 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
+        const bx = (b.lon - a.lon) * kx; const by = (b.lat - a.lat) * 110.57;
+        const px = (p.lon - a.lon) * kx; const py = (p.lat - a.lat) * 110.57;
+        const t = Math.max(0, Math.min(1, (px * bx + py * by) / (bx * bx + by * by || 1)));
+        return Math.hypot(px - t * bx, py - t * by);
+      };
+      const via = pts.length === 3 ? 2 * off(pts[0], pts[2], pts[1]) : 0;
+      res.end(JSON.stringify({ routes: [{ distance: ((w.routeKm ?? 50) + via) * 1000, ...(line ? { geometry: line } : {}) }] }));
+      return;
+    }
+    // Open Charge Map (charging stops, #37). w.stations: the answer;
+    // w.ocmStatus: an HTTP error instead; w.ocmCalls: what was asked.
+    if (req.url.startsWith('/ocm/')) {
+      const u = new URL(req.url, 'http://x');
+      (w.ocmCalls = w.ocmCalls || []).push({ key: req.headers['x-api-key'] || null, params: Object.fromEntries(u.searchParams) });
+      if (w.ocmStatus) { res.writeHead(w.ocmStatus); res.end('{}'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(w.stations || []));
       return;
     }
     let body = '';
@@ -461,4 +540,25 @@ function start(w, wsPort, restPort) {
   };
 }
 
-module.exports = { PROFILES, createWorld, start, TZ };
+// Google encoded polyline (precision 5), as OSRM sends it.
+function encodeLine(points) {
+  let out = '';
+  let pLat = 0;
+  let pLon = 0;
+  const enc = (v) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    let r = '';
+    while (n >= 0x20) { r += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+    return r + String.fromCharCode(n + 63);
+  };
+  for (const p of points) {
+    const lat = Math.round(p.lat * 1e5);
+    const lon = Math.round(p.lon * 1e5);
+    out += enc(lat - pLat) + enc(lon - pLon);
+    pLat = lat;
+    pLon = lon;
+  }
+  return out;
+}
+
+module.exports = { PROFILES, createWorld, start, TZ, encodeLine };

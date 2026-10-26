@@ -13,11 +13,13 @@ const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
-const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
+const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
+const chargestops = require('./chargestops');
+const precondition = require('./precondition');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -57,6 +59,7 @@ const STATIC_FILES = new Map([
 ]);
 const APP_VERSION = require('./package.json').version;
 require('./tripcost').setUserAgent(APP_VERSION);
+require('./chargestops').setUserAgent(APP_VERSION);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -363,7 +366,12 @@ function tripTopupFor({ s, vehicle, departure, next, now, tz }) {
   const view = (r) => (r ? { state: r.state, time: r.time, soc: r.soc, from: r.from, pct: r.pct, title: r.title, token: r.state === 'asked' ? r.token : null } : null);
   const shown = () => {
     const r = topup.current(vehicle.id, now);
-    return r && departure && Math.abs(r.time - departure.time) <= 60000 ? view(r) : null;
+    // Keep the answer, but use the same current estimate as the timeline (#43).
+    // No reliable current estimate means no stale cost banner.
+    const trip = next && next.trip;
+    if (!r || !departure || Math.abs(r.time - departure.time) > 60000 || !trip || trip.status !== 'ok' || !Number.isFinite(trip.pct)) return null;
+    return { ...view(r), pct: trip.pct, from: departure.topup ? departure.topup.from : departure.soc,
+      title: departure.title || (next.current && next.current.title) || null };
   };
   if (!departure || departure.source === 'choice' || !next || !next.trip || next.trip.status !== 'ok' || next.trip.pct == null) return shown();
   const reserve = Number.isFinite(Number(rules.trip_topup_reserve)) ? Number(rules.trip_topup_reserve) : 10;
@@ -465,7 +473,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   const timeline = [];
   // Charging in the timeline: the part for a minimum (purple) and the rest.
   // A block can be partly for the minimum: each part counts its own kWh.
-  const chargeItems = (blocks, base, minimum) => {
+  const chargeItems = (blocks, base, minimum, splitSessions = false) => {
     const out = [];
     const minPart = (b) => Math.min(b.kwh, b.min_kwh || 0);
     const parts = minimum
@@ -473,11 +481,25 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       : [[blocks, false, (b) => b.kwh]];
     for (const [list, forMin, part] of parts) {
       if (!list.length) continue;
-      const ps = periods(list);
-      const kwh = list.reduce((a, b) => a + part(b), 0);
-      const cost = list.reduce((a, b) => a + (Number.isFinite(b.price) ? b.price * part(b) : 0), 0);
-      out.push({ ...base, start: ps[0].start, end: ps[ps.length - 1].end, periods: ps, kwh: Math.round(kwh * 10) / 10, cost: Math.round(cost * 100) / 100,
-        ...(forMin ? { minimum: true, soc_to: minimum.soc } : {}) });
+      const groups = splitSessions ? periods(list).map((p) => list.filter((b) => b.start < p.end && b.end > p.start)) : [list];
+      for (const group of groups) {
+        const ps = periods(group);
+        const kwh = group.reduce((a, b) => a + part(b), 0);
+        const cost = group.reduce((a, b) => a + (Number.isFinite(b.price) ? b.price * part(b) : 0), 0);
+        out.push({ ...base, start: ps[0].start, end: ps[ps.length - 1].end, periods: ps, kwh: Math.round(kwh * 10) / 10, cost: Math.round(cost * 100) / 100,
+          ...(splitSessions ? { session_kwh: kwh } : {}),
+          ...(forMin ? { minimum: true, soc_to: minimum.soc } : {}) });
+      }
+    }
+    if (splitSessions && Number.isFinite(soc) && vehicle.capacity_kwh > 0) {
+      let added = 0;
+      const fullKwh = energyNeededKwh(0, 100, vehicle.capacity_kwh, planning.loss_percent);
+      out.sort((a, b) => a.start - b.start);
+      for (const item of out) {
+        added += item.session_kwh;
+        item.soc_to = Math.round(Math.min(base.soc_to, soc + added / fullKwh * 100) * 10) / 10;
+        delete item.session_kwh;
+      }
     }
     return out;
   };
@@ -500,7 +522,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
-    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null));
+    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null, !!plan.care));
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
@@ -518,7 +540,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       from = v.title;
     }
     const chain = tr && tr.via && tr.via.length ? { from_title: from, km: tr.back_km ?? null, soc_from: round(lv) } : {};
-    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) timeline.push({ type: 'back', time: tr.return_at, soc: tr.pct == null ? null : tr.soc_end ?? tr.soc_after, title: tr.return_trip ? tr.return_trip.title : null, ...chain });
+    if (tr && tr.status !== 'home' && !(t && isReturnTrip(t))) {
+      const socBack = tr.pct == null ? null : tr.soc_end ?? tr.soc_after;
+      // Not enough for the whole trip: charging stops on the way (#37).
+      const stops = tr.pct != null && socLeave != null && socBack != null && chargestops.enabled()
+        ? chargestops.suggest({ home: ha.state.home, dest: tr.lat != null ? { lat: tr.lat, lon: tr.lon } : null, socLeave, socEnd: socBack, pctPerKm: tr.pct_per_km, capacityKwh: vehicle.capacity_kwh, now })
+        : null;
+      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: tr.return_trip ? tr.return_trip.title : null, ...chain, ...(stops ? { charge_stops: stops } : {}) });
+    }
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
@@ -540,6 +569,8 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     // charging and levels are an estimate (#4).
     real_prices_until: prices.filter((p) => !p.forecast).reduce((m, p) => Math.max(m, p.end), 0) || null,
     prices_until: prices.length ? lastKnown : null,
+    // Preconditioning the app will ask for (#44).
+    preconditioning: precondition.upcoming(vehicle.id, now),
   };
 
   // The departures after this one, one after the other.
@@ -619,13 +650,18 @@ const tripWatch = new Map(); // vehicle id -> { plugged }
 // so Plan and Home show what the trip costs without waiting for the refresh.
 // (The plan is kept until then: it is only marked as outdated.)
 tripcost.setSavedPlaces(() => settings.load().places || []);
-tripcost.onUpdate(() => {
+tripcost.setRouting(() => settings.load().routing || {});
+function tripLookupDone() {
   // Also count it, so a plan that was being calculated right now is not kept as fresh.
   for (const x of ST.all.values()) {
     if (x.planCache) x.planCache.at = 0;
     x.tripUpdates = (x.tripUpdates || 0) + 1;
   }
-});
+}
+tripcost.onUpdate(tripLookupDone);
+// Charging stops on the way (#37): a route or the stations along it were found.
+chargestops.setConfig(() => settings.load().charge_stops || {});
+chargestops.onUpdate(tripLookupDone);
 
 function tripLearning(vehicle, plugged, soc, carData, next, now) {
   if (!vehicle || !vehicle.id || plugged == null) return;
@@ -787,12 +823,12 @@ const routes = {
     if (idx >= 0) {
       // Keep what is not on this form: the car's own departures.
       const old = s.vehicles[idx];
-      s.vehicles[idx] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+      s.vehicles[idx] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures, ...(old.precondition ? { precondition: old.precondition } : {}) };
     } else if (body.add || !s.vehicles.length) {
       s.vehicles.push(vehicle);
     } else {
       const old = s.vehicles[0];
-      s.vehicles[0] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures };
+      s.vehicles[0] = { ...vehicle, id: old.id, own_departures: old.own_departures === true, departures: old.departures, ...(old.precondition ? { precondition: old.precondition } : {}) };
     }
     settings.vehicleIds(s.vehicles);
     settings.save(s);
@@ -1054,7 +1090,8 @@ const routes = {
 
   // Fetch prices with the given (unsaved) settings and summarise them.
   'POST /api/prices/test': async (req) => {
-    const cfg = priceConfigFrom(await readBody(req));
+    // A test may run before the forecast basis is chosen; saving needs it (#26).
+    const cfg = priceConfigFrom(await readBody(req), { test: true });
     let result;
     try {
       result = await fetchPrices(cfg.source, ha.state.timeZone);
@@ -1339,7 +1376,7 @@ const routes = {
         const careKwh = soc < careSoc ? energyNeededKwh(soc, careSoc, vehicle.capacity_kwh, planning.loss_percent) : 0;
         const topKwh = Math.max(0, neededKwh - careKwh);
         const hours = Math.max(Number(careRules.battery_care_hours) || 4, powerKw > 0 ? topKwh / powerKw + 0.5 : 0);
-        care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, window_start: departure.time - hours * 3600000 };
+        care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, refill_kwh: actualNow.charging === true ? 0 : energyNeededKwh(0, 5, vehicle.capacity_kwh, planning.loss_percent), window_start: departure.time - hours * 3600000 };
       }
     }
     // The car is away and a trip home is in the calendar (for example "Naar
@@ -1354,14 +1391,14 @@ const routes = {
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
         prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
-        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh } : null,
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
       })
       : care
       ? planCare({
-        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, neededKwh, powerKw,
+        prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, neededKwh, powerKw,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1634,7 +1671,92 @@ const routes = {
   // Zones in Home Assistant are used too (automatically), shown as a list.
   'GET /api/places': async () => {
     try { tripcost.setZones(await ha.call({ type: 'get_states' })); } catch { /* the list shows the last known zones */ }
-    return { places: settings.load().places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })) };
+    const s = settings.load();
+    return { places: s.places || [], zones: tripcost.zoneList().map((z) => ({ name: z.name, entity_id: z.entity_id })), routing: routingView(s.routing) };
+  },
+
+  // Trip distances (#31): which services may be asked to look up a trip.
+  'GET /api/routing': async () => ({ routing: routingView(settings.load().routing) }),
+
+  'POST /api/routing': async (req) => {
+    const body = (await readBody(req)) || {};
+    const mode = String(body.mode || '');
+    if (!tripcost.ROUTING_MODES.includes(mode)) throw badRequest('Choose how trip distances are looked up');
+    const url = (v, name) => {
+      const t = String(v || '').trim();
+      if (!t) throw badRequest(`${name}: enter the address of your server`);
+      let u;
+      try { u = new URL(t); } catch { throw badRequest(`${name}: not a valid web address`); }
+      if (!['http:', 'https:'].includes(u.protocol) || t.length > 200) throw badRequest(`${name}: use an http:// or https:// address (at most 200 characters)`);
+      if (u.username || u.password) throw badRequest(`${name}: no user name or password in the address`);
+      return t.replace(/\/+$/, '');
+    };
+    const routing = mode === 'custom'
+      ? { mode, geocode_url: url(body.geocode_url, 'Address search (Nominatim)'), route_url: url(body.route_url, 'Road distance (OSRM)'), confirmed: true }
+      : { mode, geocode_url: null, route_url: null, confirmed: true };
+    const s = settings.load();
+    s.routing = routing;
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    ha.log(`Trip distances: ${routingView(routing).label}`);
+    return { ok: true, routing: routingView(routing) };
+  },
+
+  // Charging stops on the way (#37): the settings, without the API key itself.
+  'GET /api/charge-stops': async () => ({ charge_stops: chargestops.view() }),
+
+  'POST /api/charge-stops': async (req) => {
+    const body = (await readBody(req)) || {};
+    const s = settings.load();
+    s.charge_stops = chargestops.clean(body, s.charge_stops || {});
+    settings.save(s);
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.countries.join(', ')})` : 'off'}`);
+    return { ok: true, charge_stops: chargestops.view() };
+  },
+
+  // Preconditioning before a departure (#44), per car.
+  'GET /api/precondition': async () => {
+    const s = settings.load();
+    let states = [];
+    try { states = await ha.call({ type: 'get_states' }); } catch { /* list without states */ }
+    let byDevice = new Map();
+    try {
+      const { entities } = await loadRegistries();
+      byDevice = new Map(entities.map((e) => [e.entity_id, e.device_id]));
+    } catch { /* names only */ }
+    const words = /precondition|preheat|pre[ _-]?heat|hvac|climat|airco|air[ _-]?con|heat|cool|defrost|voorverwarm|voorkoel/;
+    return {
+      control_allowed: options.allow_control === true,
+      cars: cars(s).map((v) => ({
+        id: v.id,
+        name: v.name,
+        precondition: precondition.config(v),
+        upcoming: precondition.upcoming(v.id),
+        options: states.filter((x) => precondition.DOMAINS.test(x.entity_id)
+          && ((v.device_id && byDevice.get(x.entity_id) === v.device_id) || words.test(`${x.entity_id} ${(x.attributes && x.attributes.friendly_name) || ''}`.toLowerCase())
+            || x.entity_id === precondition.config(v).entity_id))
+          .map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id, state: x.state, group: v.device_id && byDevice.get(x.entity_id) === v.device_id ? 'car' : 'other' })),
+      })),
+    };
+  },
+
+  'POST /api/precondition': async (req) => {
+    const body = (await readBody(req)) || {};
+    const s = settings.load();
+    const v = cars(s).find((x) => x.id === String(body.vehicle_id || '')) || (cars(s).length === 1 ? cars(s)[0] : null);
+    if (!v) throw badRequest('Choose the car');
+    const cfg = precondition.clean(body);
+    const saved = s.vehicles.find((x) => x.id === v.id);
+    saved.precondition = cfg;
+    settings.save(s);
+    ha.log(`Preconditioning (${v.name || v.id}): ${cfg.enabled ? `on, ${cfg.minutes} min before, ${cfg.entity_id}, way back ${cfg.way_back ? 'on' : 'off'}` : 'off'}`);
+    await preconditionRefresh().catch(() => {});
+    for (const x of ST.all.values()) x.planCache = null;
+    ST().planCache = null;
+    return { ok: true, precondition: cfg, upcoming: precondition.upcoming(v.id) };
   },
 
   'POST /api/places': async (req) => {
@@ -1646,13 +1768,16 @@ const routes = {
     const places = list.map((p) => {
       const name = String((p && p.name) || '').trim().replace(/\s+/g, ' ');
       const address = String((p && p.address) || '').trim().replace(/\s+/g, ' ');
+      const kmRaw = p && p.km !== undefined && p.km !== null && String(p.km).trim() !== '' ? Number(String(p.km).replace(',', '.')) : null;
       if (!name || name.length > 40) throw badRequest('Name: 1 to 40 characters');
-      if (address.length < 3 || address.length > 120) throw badRequest(`Address of ${name}: 3 to 120 characters`);
+      if (kmRaw !== null && !(kmRaw > 0 && kmRaw <= 2000)) throw badRequest(`Distance of ${name}: between 0 and 2000 km`);
+      if (!address && kmRaw === null) throw badRequest(`${name}: enter an address or a distance`);
+      if (address && (address.length < 3 || address.length > 120)) throw badRequest(`Address of ${name}: 3 to 120 characters`);
       if (tripcost.isHome(name)) throw badRequest(`"${name}" is your home: the app uses the home location of Home Assistant`);
       const key = name.toLowerCase();
       if (seen.has(key)) throw badRequest(`"${name}" is in the list twice`);
       seen.add(key);
-      return { name, address };
+      return { name, address, ...(kmRaw !== null ? { km: Math.round(kmRaw * 10) / 10 } : {}) };
     });
     const s = settings.load();
     s.places = places;
@@ -1747,6 +1872,7 @@ const routes = {
       options: {
         input_datetime: list('input_datetime'),
         input_number: list('input_number'),
+        on_off: [...list('input_boolean'), ...list('binary_sensor')],
         calendar: list('calendar').map((c) => ({ ...c, writable: calendarWritable(states, c.entity_id) })),
       },
     };
@@ -1769,7 +1895,7 @@ const routes = {
     const schedule = {};
     for (const day of DAYS) {
       const d = (body.schedule || {})[day] || {};
-      schedule[day] = { enabled: !!d.enabled, time: time(d.time, day), soc: soc(d.soc, day) };
+      schedule[day] = { enabled: !!d.enabled, time: time(d.time, day), soc: soc(d.soc, day), precondition: d.precondition === true };
     }
     const helper = body.helper || {};
     const cal = body.calendar || {};
@@ -1787,6 +1913,8 @@ const routes = {
         enabled: !!helper.enabled,
         datetime_entity: helper.datetime_entity || null,
         soc_entity: String(helper.soc_entity || '').startsWith('input_number.') ? helper.soc_entity : null,
+        precondition: helper.precondition === true,
+        precondition_entity: /^(input_boolean|binary_sensor)\.[a-z0-9_]+$/.test(String(helper.precondition_entity || '')) ? helper.precondition_entity : null,
       },
       calendar: {
         enabled: !!cal.enabled,
@@ -1835,7 +1963,7 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const n = Number(body.soc);
     if (!(n >= 10 && n <= 100)) throw badRequest('Battery level must be between 10 and 100 %');
-    setDeparturesFor(s, vehicle, { ...dep, override: { time, soc: n } });
+    setDeparturesFor(s, vehicle, { ...dep, override: { time, soc: n, precondition: body.precondition === true } });
     settings.save(s);
     ST().planCache = null;
     return { ok: true };
@@ -3525,6 +3653,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
     solar: solarCtx,
     share,
     record,
+    preconditioning: (() => { const v = currentVehicle(s); return !!v && precondition.active(v.id); })(),
   });
   const entry = ST().lastDryRun;
   if (solarCtx) entry.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason, equalizer: !!solarCtx.equalizer };
@@ -3707,6 +3836,7 @@ function shareConnection(s, steps) {
 
 // Plans of every charger (more chargers), or the one charger.
 async function refreshAll(reason, opts = {}) {
+  preconditionRefresh().catch((err) => ha.warn('Preconditioning schedule failed:', err.message));
   const s = settings.load();
   const list = chargersList(s);
   if (list.length <= 1) return refreshPlan(reason, opts);
@@ -3716,6 +3846,57 @@ async function refreshAll(reason, opts = {}) {
   }
   await controlSite().catch((err) => ha.warn('Control step failed:', err.message));
   return out[0];
+}
+
+// Preconditioning before a departure (#44): the moments, from the calendar,
+// per car. Recalculated with every refresh; acted on every minute.
+async function preconditionRefresh(now = Date.now()) {
+  const s = settings.load();
+  const tz = ha.state.timeZone;
+  for (const v of cars(s)) {
+    const cfg = precondition.config(v);
+    if (!cfg.enabled || !cfg.entity_id) { precondition.setSchedule(v.id, []); continue; }
+    const dep = departuresFor(s, v);
+    const { events, error } = await calendarEvents(dep, tz, now);
+    if (error && !events.length) continue; // keep the last known moments
+    // From two days back, so the event going on now counts (its end: the way back).
+    const trips = calendarTrips(dep, events, tz, now - 2 * 86400000, carCtx(s, v));
+    // The other sources (#45): the departure that counts on each day (a day
+    // where a calendar trip wins is left to the calendar rules above).
+    let states = [];
+    try { states = await ha.call({ type: 'get_states' }); } catch { /* the helper is skipped */ }
+    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: 7, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
+    precondition.setSchedule(v.id, [...precondition.schedule({ trips, cfg, isReturn: isReturnTrip }), ...precondition.fromDepartures({ departures: others, cfg })].sort((a, b) => a.at - b.at));
+  }
+}
+
+let preconditionBusy = false;
+async function preconditionStep() {
+  if (preconditionBusy || !ha.state.connected) return;
+  preconditionBusy = true;
+  try {
+    const s = settings.load();
+    const list = cars(s).filter((v) => precondition.config(v).enabled);
+    if (!list.length) return;
+    const states = await ha.call({ type: 'get_states' });
+    const plugged = (v) => {
+      const st = v.plugged_entity ? states.find((x) => x.entity_id === v.plugged_entity) : null;
+      return st ? (st.state === 'on' ? true : st.state === 'off' ? false : null) : null;
+    };
+    const done = await precondition.step({
+      vehicles: list,
+      now: Date.now(),
+      live: options.allow_control === true,
+      send: (cmd) => ha.sendControl(cmd, [{ service: cmd.service, entity_id: cmd.target.entity_id }]),
+      plugged,
+      log: (m) => ha.log(m),
+    });
+    if (done.length) for (const x of ST.all.values()) if (x.planCache) x.planCache.at = 0;
+  } catch (err) {
+    ha.warn('Preconditioning step failed:', err.message);
+  } finally {
+    preconditionBusy = false;
+  }
 }
 
 // Time as the user reads it, e.g. "Thu 03:10".
@@ -3883,7 +4064,7 @@ routes['GET /api/control'] = async () => {
 // the settings to another install (for example the dev version). Only the
 // app's own settings; "Allow control" and the other options stay in Home
 // Assistant's Configuration tab and are never part of it.
-const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'setup_done'];
+const SETTINGS_KEYS = ['vehicles', 'multi_car', 'chargers', 'multi_charger', 'grid', 'prices', 'planning', 'departures', 'control', 'notify', 'solar', 'battery', 'places', 'routing', 'charge_stops', 'setup_done'];
 const EXPORT_FORMAT = 'smart-charging-planner-settings';
 
 routes['GET /api/settings/export'] = async () => {
@@ -4297,6 +4478,9 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshAll('timer').catch(() => {});
   }, every);
+  // Preconditioning (#44): checked every minute, also when the car is away.
+  precondition.recover();
+  setInterval(() => { preconditionStep().catch(() => {}); }, Number(process.env.SCP_PRECONDITION_MS) || 60000);
   // With control on, check the charger every minute between plan refreshes,
   // so plugging in or the start of a planned period is followed quickly.
   if (options.allow_control === true && every > 60000) {
@@ -4352,7 +4536,35 @@ async function forecastSummary(cfg, result) {
     const list = fc.prices;
     const avg = list.length ? list.reduce((a, p) => a + p.expected, 0) / list.length : null;
     const low = list.length ? list.reduce((a, p) => (p.expected < a.expected ? p : a)) : null;
+    const fcCosts = { ...cfg, price_type: cfg.forecast.price_type || cfg.price_type };
+    const warnings = [...fc.warnings];
+    if (cfg.forecast.basis_explicit === false) warnings.push('Choose what the forecast price is (excl. VAT, incl. VAT or all-in) before saving. It is not taken over from the real prices.');
+    else if (cfg.forecast.basis_explicit !== true) warnings.push('What the forecast price is was taken over from the real prices by an older version. Check "The forecast price is" against the sensor and save once.');
+    // The same hour in both: when the forecast sensor also has the real hours,
+    // compare them, so VAT applied twice (or not at all) shows (#26).
+    let overlap = null;
+    try {
+      const all = await fetchForecast(cfg.forecast, tz, result.window.start);
+      for (const f of all.prices) {
+        const real = result.prices.find((p) => p.start === f.start);
+        if (!real) continue;
+        const realTotal = totalPrice(real.price, cfg);
+        const fcTotal = totalPrice(f.price, fcCosts);
+        overlap = { start: f.start, real: priceBreakdown(real.price, cfg), forecast: priceBreakdown(f.price, fcCosts, fc.margin), ratio: realTotal > 0 ? fcTotal / realTotal : null };
+        break;
+      }
+    } catch { /* the comparison is extra: the summary stays */ }
+    const vat = 1 + (Number(cfg.vat_percent ?? 21) || 0) / 100;
+    if (overlap && overlap.ratio != null && vat > 1.05) {
+      const near = (x, y) => Math.abs(x / y - 1) < 0.04;
+      if (near(overlap.ratio, vat)) warnings.push(`At the same hour the forecast comes out ${Math.round((overlap.ratio - 1) * 100)}% above the real price: it probably already includes VAT. Check "The forecast price is".`);
+      else if (near(overlap.ratio, 1 / vat)) warnings.push(`At the same hour the forecast comes out ${Math.round((1 - overlap.ratio) * 100)}% below the real price: it is probably without VAT. Check "The forecast price is".`);
+    }
     return {
+      basis: cfg.forecast.price_type || cfg.price_type,
+      basis_explicit: cfg.forecast.basis_explicit === true,
+      example: list.length ? priceBreakdown(list[0].price, fcCosts, fc.margin, list[0].start) : null,
+      overlap,
       entity_id: cfg.forecast.entity_id,
       margin: fc.margin,
       count: list.length,
@@ -4360,11 +4572,25 @@ async function forecastSummary(cfg, result) {
       until: list.length ? list[list.length - 1].end : null,
       average: avg,
       lowest: low ? { start: low.start, end: low.end, total: low.expected } : null,
-      warnings: fc.warnings,
+      warnings,
     };
   } catch (err) {
     return { entity_id: cfg.forecast.entity_id, error: err.message };
   }
+}
+
+// The routing choice for the page: what is sent where, in plain words.
+function routingView(r) {
+  const rt = r || {};
+  const mode = tripcost.ROUTING_MODES.includes(rt.mode) ? rt.mode : null;
+  const host = (u) => { try { return new URL(u).host; } catch { return null; } };
+  const label = {
+    osm: 'OpenStreetMap public services (nominatim.openstreetmap.org, router.project-osrm.org)',
+    custom: `Your own servers (${host(rt.geocode_url) || '?'}, ${host(rt.route_url) || '?'})`,
+    offline: 'Offline: zones, distances you entered and places looked up before',
+    off: 'Off: no trip distances',
+  }[mode] || 'Not chosen yet: nothing is looked up';
+  return { mode, geocode_url: mode === 'custom' ? rt.geocode_url || null : null, route_url: mode === 'custom' ? rt.route_url || null : null, confirmed: !!rt.confirmed && !!mode, online: mode === 'osm' || mode === 'custom', label };
 }
 
 function badRequest(message) {
@@ -4374,7 +4600,7 @@ function badRequest(message) {
 }
 
 // Validate price settings sent by the page.
-function priceConfigFrom(body) {
+function priceConfigFrom(body, opts = {}) {
   const src = body.source || {};
   let source;
   if (src.type === 'action') {
@@ -4424,10 +4650,16 @@ function priceConfigFrom(body) {
   const fcEntity = String(body.forecast_entity || '');
   if (fcEntity) {
     if (!/^sensor\.[a-z0-9_]+$/.test(fcEntity)) throw badRequest('Invalid forecast sensor');
+    const margin = num(body.forecast_margin ?? 0.02, 'Forecast margin', 0, 0.5);
+    // The forecast's basis is never copied from the real prices (#26): a
+    // forecast that is already all-in would otherwise get VAT a second time.
+    const explicit = types.includes(body.forecast_price_type);
+    if (!explicit && !(opts && opts.test)) throw badRequest('Forecast: choose what the forecast price is (market price excl. VAT, incl. VAT, or all-in)');
     forecast = {
       entity_id: fcEntity,
-      price_type: types.includes(body.forecast_price_type) ? body.forecast_price_type : priceType,
-      margin: num(body.forecast_margin ?? 0.02, 'Forecast margin', 0, 0.5),
+      price_type: explicit ? body.forecast_price_type : priceType,
+      margin,
+      basis_explicit: explicit,
     };
   }
   return {

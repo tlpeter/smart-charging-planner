@@ -30,6 +30,13 @@ let dataDir = null;
 const world = fake.createWorld(process.env.SCP_PROFILE || 'renault_easee');
 const CAR = world.profile.car;
 const CH = world.profile.charger;
+// The word for the second car (an EV6, a Kia) in a calendar event: its brand,
+// or its name when the first car is a Kia too (then the brand fits both).
+const EV6_WORD = CAR.manufacturer === 'Kia' ? 'EV6' : 'kia';
+// Y13 needs a trip that costs a given % of the battery. Its numbers were
+// tuned for the Renault (52 kWh) and work for the Skoda too; for the Kia
+// (64 kWh) the use per 100 km is scaled to the bigger battery.
+const CAP_K = CAR.platform === 'kia_uvo' ? CAR.capacity / 52 : 1;
 // The value the car accepts for a wanted limit (rounded up to its step).
 const lim = (v) => Math.max(CAR.limit_min, 50, Math.min(CAR.limit_max, Math.ceil((v - CAR.limit_min) / CAR.limit_step - 1e-9) * CAR.limit_step + CAR.limit_min));
 let ha = fake.start(world, WS_PORT, REST_PORT);
@@ -89,6 +96,12 @@ async function startApp(options = {}) {
   await stopApp();
   if (!dataDir) dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-test-'));
   fs.writeFileSync(path.join(dataDir, 'options.json'), JSON.stringify({ log_level: 'info', ...options }));
+  // Trip distances (#31): a new install has not chosen yet. These tests use the
+  // fake OpenStreetMap server, as if the owner chose OpenStreetMap.
+  const settingsFile = path.join(dataDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
+    fs.writeFileSync(settingsFile, JSON.stringify({ routing: { mode: 'osm', geocode_url: null, route_url: null, confirmed: true } }));
+  }
   app = spawn(process.execPath, ['server.js'], {
     cwd: APP,
     env: {
@@ -108,6 +121,9 @@ async function startApp(options = {}) {
       SCP_GEOCODE_URL: `http://127.0.0.1:${REST_PORT}/search`,
       SCP_ROUTE_URL: `http://127.0.0.1:${REST_PORT}/route/v1/driving`,
       SCP_GEOCODE_GAP_MS: '50',
+      SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
+      SCP_OCM_GAP_MS: '50',
+      SCP_PRECONDITION_MS: '500',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
     },
@@ -394,6 +410,32 @@ async function run() {
       assert(p.price_warnings.length === 1, JSON.stringify(p.price_warnings));
       assert(p.price_warnings[0].includes('2026-10-25 02:00:00') && p.price_warnings[0].includes('sensor.stroom_prijzen_gecombineerd'), p.price_warnings[0]);
       return 'one source/date warning; valid prices still used';
+    } finally {
+      world.combined = combined;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
+  await test('E12b', 'Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice', async () => {
+    const combined = world.combined;
+    const fcBody = (basis) => ({ source: ez, price_type: 'market_excl_vat', purchase_fee: 0, energy_tax: 0, vat_percent: 21, forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_margin: 0.02, ...(basis ? { forecast_price_type: basis } : {}) });
+    // The forecast sensor has consumer prices (already all-in) for the same hours as EnergyZero.
+    world.combined = () => world.energyzero().map((p) => ({ time: Date.parse(p.timestamp), price: Math.round(p.price * 1.21 * 10000) / 10000, source: 'forecast' }))
+      .concat(Array.from({ length: 72 }, (_, i) => ({ time: require(path.join(APP, 'prices.js')).localMidnight(fake.TZ, 2) + i * H, price: 0.2207, source: 'forecast' })));
+    try {
+      await refused('POST', 'api/prices', fcBody(null), 'choose what the forecast price is');
+      const loose = await ok('POST', 'api/prices/test', fcBody(null));
+      assert(loose.forecast && loose.forecast.basis_explicit === false && loose.forecast.warnings.some((w) => /choose what the forecast price is/i.test(w)), JSON.stringify(loose.forecast));
+      const wrong = await ok('POST', 'api/prices/test', fcBody('market_excl_vat'));
+      assert(wrong.forecast.overlap && Math.abs(wrong.forecast.overlap.ratio - 1.21) < 0.01, JSON.stringify(wrong.forecast.overlap));
+      assert(wrong.forecast.warnings.some((w) => /already includes VAT/.test(w)), JSON.stringify(wrong.forecast.warnings));
+      const right = await ok('POST', 'api/prices/test', fcBody('all_in'));
+      assert(Math.abs(right.forecast.overlap.ratio - 1) < 0.01 && !right.forecast.warnings.some((w) => /VAT/.test(w)), JSON.stringify(right.forecast));
+      const ex = right.forecast.example;
+      assert(ex && ex.basis === 'all_in' && Math.abs(ex.input - 0.2207) < 1e-9 && Math.abs(ex.compared - 0.2407) < 1e-9, JSON.stringify(ex));
+      await ok('POST', 'api/prices', fcBody('all_in'));
+      const saved = await ok('GET', 'api/prices');
+      assert(saved.prices.forecast.basis_explicit === true && saved.prices.forecast.price_type === 'all_in', JSON.stringify(saved.prices.forecast));
+      return `wrong basis: ratio ${wrong.forecast.overlap.ratio.toFixed(3)} with a warning; all-in: 0.2207 + 0.02 = ${ex.compared.toFixed(4)}`;
     } finally {
       world.combined = combined;
       await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
@@ -980,6 +1022,49 @@ async function run() {
     world.soc = 20;
     await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     return `up to 80 %: ${before.toFixed(1)} kWh in the night · last ${inWindow.toFixed(1)} kWh from 19:00 · car limit 80 %`;
+  });
+  await test('J13b', 'Battery Care refill (#43): 79% and the 75% boundary wait for one priced session; below it gets an 80% session and a later 90% session; a hard minimum still charges', async () => {
+    try {
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4 }));
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 90 } }) }));
+      for (const soc of [79, 75]) {
+        world.soc = soc;
+        world.charging = false;
+        const result = await plan();
+        const c = result.plan.care;
+        assert(c && c.refill_deferred && c.refill_margin === 5, JSON.stringify(c));
+        assert(result.plan.blocks.length && result.plan.blocks.every((b) => b.start >= c.window_start), 'small top-up still planned before the final window');
+        const next = (await ok('GET', 'api/control')).now;
+        assert(next.want === 'pause' && next.code === 'battery_care_wait', JSON.stringify(next));
+        const charges = result.next.timeline.filter((x) => x.type === 'charge' && x.expected === false);
+        assert(charges.length === 1 && charges[0].soc_to === 90 && charges[0].start >= c.window_start, JSON.stringify(charges));
+        assert(Math.abs(result.plan.planned_kwh - result.plan.needed_kwh) < 0.1, 'target energy lost');
+        await sleep(800);
+        assert(world.limit === lim(80), 'car limit raised before the final window');
+      }
+      world.soc = 76;
+      world.charging = true;
+      const active = await plan();
+      assert(!active.plan.care.refill_deferred, 'already-started early session interrupted in the refill band');
+      world.charging = false;
+      world.soc = 74;
+      const lower = await plan();
+      assert(!lower.plan.care.refill_deferred, 'larger deficit was deferred');
+      const sessions = lower.next.timeline.filter((x) => x.type === 'charge' && x.expected === false);
+      assert(sessions.length >= 2 && sessions[0].start < lower.plan.care.window_start, JSON.stringify(sessions));
+      assert(Math.abs(sessions[0].soc_to - 80) < 0.2 && sessions[sessions.length - 1].soc_to === 90, JSON.stringify(sessions));
+      world.soc = 79;
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, min_soc_enabled: true, min_soc: 80 }));
+      const minimum = await plan();
+      const decision = (await ok('GET', 'api/control')).now;
+      assert(minimum.plan.minimum && minimum.plan.minimum.soc === 80 && decision.code === 'below_minimum', JSON.stringify({ minimum: minimum.plan.minimum, decision }));
+      return '75–79% waits; 74% shows 80% then 90%; explicit minimum remains immediate';
+    } finally {
+      await ok('POST', 'api/control/settings', rules());
+      world.soc = 20;
+      world.charging = false;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    }
   });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
@@ -1679,7 +1764,7 @@ async function run() {
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
     world.events = [
       { summary: 'Naar werk', description: `doel: 90 precondition: ja auto: ${CAR.name}`, start: isoLocal(at(1, 7, 0), tz), end: isoLocal(at(1, 8, 0), tz) },
-      { summary: 'To Ghent', description: 'target: 70\ncar: kia', start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
+      { summary: 'To Ghent', description: `target: 70\ncar: ${EV6_WORD}`, start: isoLocal(at(1, 6, 0), tz), end: isoLocal(at(1, 7, 0), tz) },
       { summary: 'Weekend', description: 'doel: 85', start: isoLocal(at(2, 9, 0), tz), end: isoLocal(at(2, 10, 0), tz) },
       { summary: 'Tesla trip', description: 'doel: 60, car: tesla', start: isoLocal(at(3, 9, 0), tz), end: isoLocal(at(3, 10, 0), tz) },
     ];
@@ -1702,7 +1787,7 @@ async function run() {
     assert(all.events[0].description === 'target: 75 precondition: no', all.events[0].description);
     world.events = [];
     await ok('POST', 'api/departures', depBody({ vehicle_id: firstId, schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 80 } }) }));
-    return `EV6 → ${e.departure.soc}% (car: kia) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
+    return `EV6 → ${e.departure.soc}% (car: ${EV6_WORD}) · ${CAR.name} → ${r.departure.soc}% · new trip: "${pv.events[0].description}"`;
   });
   await test('W9', 'Notifications per car: Alex gets both cars, Sam only the EV6; "Charging started" for the EV6 goes to both, for the other car only to Alex', async () => {
     await ok('POST', 'api/notify', { recipients: [
@@ -1901,6 +1986,139 @@ async function run() {
       world.soc = 100;
       return `zone Werk → ${leaves[0].trip.km} km (${leaves[0].trip.how})`;
     });
+    await test('Y7b', 'Trip distances (#31): the choice is checked; offline sends nothing and uses a distance from My places; off shows no distance; back to OpenStreetMap', async () => {
+      const r0 = await ok('GET', 'api/routing');
+      assert(r0.routing.mode === 'osm' && r0.routing.confirmed, JSON.stringify(r0));
+      await refused('POST', 'api/routing', { mode: 'everything' }, 'choose');
+      await refused('POST', 'api/routing', { mode: 'custom', geocode_url: '', route_url: '' }, 'server');
+      await refused('POST', 'api/routing', { mode: 'custom', geocode_url: 'ftp://geo.lan/search', route_url: 'https://osrm.lan/route/v1/driving' }, 'http');
+      await refused('POST', 'api/places', { places: [{ name: 'Gym', address: '' }] }, 'address or a distance');
+      await refused('POST', 'api/places', { places: [{ name: 'Gym', km: 5000 }] }, 'between');
+      const off = await ok('POST', 'api/routing', { mode: 'offline' });
+      assert(off.routing.mode === 'offline' && !off.routing.online && off.routing.confirmed, JSON.stringify(off));
+      await ok('POST', 'api/places', { places: [{ name: 'Gym', address: '', km: '15,5' }] });
+      world.soc = 80;
+      world.events = [
+        ev('Naar Gym', 'doel: 80', 'Gym', 1, 18, 20),
+        ev('Naar Ergens', 'doel: 80', 'Nieuwe Weg 7, 9999 ZZ Nergens', 2, 8, 18),
+      ];
+      let p = await settle();
+      let leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      assert(leaves[0].trip.status === 'ok' && leaves[0].trip.km === 15.5 && leaves[0].trip.how === 'manual' && leaves[0].trip.pct > 0, JSON.stringify(leaves[0].trip));
+      assert(leaves[1].trip.status === 'unknown' && leaves[1].trip.reason === 'offline', JSON.stringify(leaves[1].trip));
+      await ok('POST', 'api/routing', { mode: 'off' });
+      p = await settle();
+      leaves = p.next.timeline.filter((x) => x.type === 'leave');
+      assert(leaves[1].trip.reason === 'routing_off', JSON.stringify(leaves[1].trip));
+      const back = await ok('POST', 'api/routing', { mode: 'osm' });
+      assert(back.routing.online && /openstreetmap/i.test(back.routing.label), JSON.stringify(back));
+      await ok('POST', 'api/places', { places: [] });
+      world.events = [];
+      world.soc = 100;
+      return `Gym → 15.5 km (manual); unknown address offline: ${leaves[1].trip.reason}`;
+    });
+    await test('Y7c', 'Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing', async () => {
+      const r0 = await ok('GET', 'api/charge-stops');
+      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && r0.charge_stops.country_list.map((x) => x.code).join(',') === 'NL,BE', JSON.stringify(r0));
+      await refused('POST', 'api/charge-stops', { enabled: true, countries: ['NL'], connectors: ['ccs'] }, 'API key');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['DE'], connectors: ['ccs'] }, 'country');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], min_power_kw: 1000 }, 'between');
+      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
+      const on = await ok('POST', 'api/charge-stops', body);
+      assert(on.charge_stops.enabled && on.charge_stops.has_key && !JSON.stringify(on).includes('test-key-123'), JSON.stringify(on));
+      // Stations along the straight line from home (fake: 51.37, 5.19) to the destination.
+      const home = { lat: 51.37, lon: 5.19 };
+      const FAR = 'Verreweg 9, 1234 AB Farville';
+      world.places[FAR] = { lat: 52.37, lon: 4.9 };
+      const dest = world.places[FAR];
+      // dLon: east of the route (the route runs roughly north).
+      const along = (f, dLon = 0) => ({ lat: home.lat + (dest.lat - home.lat) * f, lon: home.lon + (dest.lon - home.lon) * f + dLon });
+      const poi = (id, op, p, country, conns, usage = 'Public') => ({ ID: id, OperatorInfo: { Title: op }, UsageType: { Title: usage }, StatusType: { IsOperational: true },
+        AddressInfo: { Title: `Station ${id}`, Town: 'Testdorp', Latitude: p.lat, Longitude: p.lon, Country: { ISOCode: country } }, Connections: conns });
+      const ccs = (kw) => ({ ConnectionTypeID: 33, ConnectionType: { Title: 'CCS (Type 2)' }, PowerKW: kw, Quantity: 2 });
+      const t2 = (kw) => ({ ConnectionTypeID: 25, ConnectionType: { Title: 'Type 2 (Socket Only)' }, PowerKW: kw, Quantity: 2 });
+      world.stations = [
+        poi(1, 'Fastned', along(0.5, 0.001), 'NL', [ccs(300)]),
+        poi(2, 'IONITY GmbH', along(0.4, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
+        poi(3, 'Shell Recharge', along(0.6), 'BE', [ccs(150)]), // another country
+        poi(4, 'Allego BV', along(0.3), 'NL', [t2(22)]), // too slow, wrong connector
+        poi(5, 'Fastned', along(0.7), 'NL', [ccs(300)], 'Private - Restricted Access'),
+        poi(6, 'Fastned', along(0.5, 0.12), 'NL', [ccs(300)]), // ~8 km off: too far
+      ];
+      world.ocmCalls = [];
+      world.routeKm = 400; // too far for every test car, also with a bigger battery
+      world.soc = 100;
+      world.events = [ev('Naar Lakeside', 'doel: 100', FAR, 1, 8, 18)];
+      // Wait until the trip's cost is known and (when on) the stations are looked up.
+      const stopsNow = async (want = true) => {
+        let back = null;
+        for (let i = 0; i < 15; i++) {
+          const p = await settle();
+          const tl = (p.next && p.next.timeline) || [];
+          const leave = tl.find((x) => x.type === 'leave');
+          back = tl.find((x) => x.type === 'back') || null;
+          if (leave && leave.trip && leave.trip.pct != null && back && (!want || (back.charge_stops && back.charge_stops.status !== 'pending'))) break;
+        }
+        return back;
+      };
+      let back = await stopsNow();
+      let c = back && back.charge_stops;
+      assert(back.soc < 10 && c && c.status === 'ok' && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
+      assert(c.stops.map((x) => x.id).join(',') === '1,2' && c.stops[0].operator === 'Fastned' && c.stops[0].power_kw === 300 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      const call = world.ocmCalls[0];
+      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5', JSON.stringify(world.ocmCalls));
+      // IONITY preferred: only IONITY, although Fastned is closer to the route.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.status === 'ok' && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
+      // A preferred operator that is not on the way: the others, marked as such.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.status === 'ok' && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      // Belgium too: the Shell station counts.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
+      c = (await stopsNow()).charge_stops;
+      assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3', JSON.stringify(c.stops));
+      // Offline: nothing is sent, the trip says why.
+      const calls = world.ocmCalls.length;
+      await ok('POST', 'api/routing', { mode: 'offline' });
+      await ok('POST', 'api/places', { places: [{ name: 'Lakeside', address: '', km: 250 }] });
+      world.events = [ev('Naar Lakeside', 'doel: 100', 'Lakeside', 1, 8, 18)];
+      c = (await stopsNow()).charge_stops;
+      assert(c && c.status === 'needs_routing' && world.ocmCalls.length === calls, JSON.stringify(c));
+      // Off: no suggestions at all.
+      await ok('POST', 'api/routing', { mode: 'osm' });
+      await ok('POST', 'api/places', { places: [] });
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', enabled: false });
+      world.events = [ev('Naar Lakeside', 'doel: 100', FAR, 1, 8, 18)];
+      back = await stopsNow(false);
+      assert(back && back.soc < 10 && !back.charge_stops, JSON.stringify(back));
+      world.routeKm = 60;
+      world.events = [];
+      world.stations = [];
+      return 'Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent';
+    });
+    await test('Y7c1', 'Open Charge Map key (#42): saved state survives reload and empty saves; replacement and explicit removal persist without returning the secret', async () => {
+      const body = { enabled: false, api_key: 'saved-key-12345', countries: ['NL'], connectors: ['ccs'] };
+      const safe = (r, hasKey) => {
+        assert(r.charge_stops.has_key === hasKey, JSON.stringify(r));
+        assert(!Object.hasOwn(r.charge_stops, 'api_key'), 'API returned the key field');
+        assert(!JSON.stringify(r).includes('saved-key-12345') && !JSON.stringify(r).includes('replacement-key-67890'), 'API exposed a secret');
+      };
+      safe(await ok('POST', 'api/charge-stops', body), true);
+      safe(await ok('GET', 'api/charge-stops'), true);
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: '' }), true);
+      let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === body.api_key, 'empty save removed the key');
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: 'replacement-key-67890' }), true);
+      stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === 'replacement-key-67890', 'replacement not stored');
+      safe(await ok('POST', 'api/charge-stops', { ...body, api_key: '', clear_key: true }), false);
+      safe(await ok('GET', 'api/charge-stops'), false);
+      stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8'));
+      assert(stored.charge_stops.api_key === '' && stored.charge_stops.enabled === false, 'key removal not stored');
+      return 'save → reload → keep → replace → remove; responses never include the key';
+    });
     await test('Y8', 'Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery', async () => {
       await ok('POST', 'api/vehicles', vehicleBody({ range_entity: CAR.range }));
       world.soc = 50;
@@ -2043,7 +2261,7 @@ async function run() {
       const asked = (n) => callsSince(n).filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge');
       try {
         // Off (the default): no question.
-        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
         const n0 = world.calls.length;
         let p = await settle();
         assert(p.trip_topup === null && !asked(n0).length && p.departure.soc === 80, JSON.stringify(p.trip_topup));
@@ -2080,7 +2298,7 @@ async function run() {
         // the first Yes was already (almost) 100 % (a smaller battery).
         let big = want;
         if (want < 98) {
-          await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 40 }));
+          await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(40 * CAP_K)) }));
           p = await settle();
           big = Math.min(100, Math.ceil(p.next.trip.pct + 10));
           assert(p.trip_topup && p.trip_topup.state === 'asked' && p.trip_topup.soc === big && big > want + 2 && asked(n0).length === 2, JSON.stringify({ t: p.trip_topup, big, want }));
@@ -2102,7 +2320,7 @@ async function run() {
             .filter((e) => place.sport || e.summary !== 'Naar Sport')
             .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
         };
-        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
         else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
         await settle();
         p = await settle();
@@ -2126,8 +2344,45 @@ async function run() {
         return `${first} · ${big > want ? `bigger trip → ${big}% · ` : ''}costs less → ${less}% · Sport removed → back to 80%`;
       } finally {
         await ok('POST', 'api/control/settings', rules());
-        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(18 * CAP_K)) }));
         world.routeKm = 60;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y13b', 'Declined trip top-up (#43): the answer stays No while the banner follows the current trip cost and target, and hides an unavailable estimate', async () => {
+      const places = (await ok('GET', 'api/places')).places;
+      const questionCount = () => world.calls.filter((c) => c.domain === 'notify' && c.data.title === 'This trip needs more charge').length;
+      try {
+        world.soc = 90;
+        world.events = [ev('Naar Example', 'doel: 90', 'Example', 1, 8, 20)];
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 30 }));
+        await ok('POST', 'api/places', { places: [{ name: 'Example', address: '', km: 400 }] });
+        await ok('POST', 'api/control/settings', rules({ trip_topup_enabled: true, trip_topup_reserve: 10 }));
+        let result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'asked', JSON.stringify(result.trip_topup));
+        const oldCost = result.trip_topup.pct;
+        await ok('POST', 'api/topup', { token: result.trip_topup.token, answer: 'no' });
+        const questions = questionCount();
+        await ok('POST', 'api/places', { places: [{ name: 'Example', address: '', km: 20 }] });
+        result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'no' && result.trip_topup.pct < oldCost, JSON.stringify(result.trip_topup));
+        assert(Math.abs(result.trip_topup.pct - result.next.trip.pct) < 0.01, 'banner and timeline use different costs');
+        assert(result.trip_topup.from === result.departure.soc && result.departure.soc === 90, 'retained No changed the target');
+        assert(Math.abs(result.next.trip.soc_end - (90 - result.trip_topup.pct)) < 0.2, 'arrival level contradicts the banner');
+        assert(questionCount() === questions, 'asked again after No');
+        const knownEvent = { ...world.events[0] };
+        world.events = [{ ...knownEvent, summary: 'Naar Unknown', location: 'Unknown' }];
+        const unknown = await settle();
+        assert(unknown.next.trip.status !== 'ok' && unknown.trip_topup === null, 'stale cost shown without a current estimate');
+        world.events = [knownEvent];
+        result = await settle();
+        assert(result.trip_topup && result.trip_topup.state === 'no' && questionCount() === questions, 'No was lost while the estimate was unavailable');
+        return 'declined answer retained; current trip and banner agree; no repeated notification';
+      } finally {
+        await ok('POST', 'api/places', { places });
+        await ok('POST', 'api/control/settings', rules());
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
         world.soc = 100;
         world.events = [];
       }
@@ -2155,6 +2410,110 @@ async function run() {
   }
 
   // ----- Z. Apple iCloud calendar (read only, Home Assistant 2026.10+) ------
+  // ----- Y2. Preconditioning before a departure (#44) ---------------------
+  group = 'Y2. Preconditioning before a departure';
+  {
+    const BTN = 'button.test_car_start_air_conditioner';
+    const evp = (title, desc, startMs, endMs) => ({ summary: title, description: desc, location: null, start: isoLocal(startMs, tz), end: isoLocal(endMs, tz) });
+    const presses = (n) => callsSince(n).filter((c) => c.domain === 'button' && c.service === 'press' && [].concat(c.target && c.target.entity_id)[0] === BTN);
+    const wait = async (cond, ms = 6000) => { for (let i = 0; i < ms / 100 && !cond(); i++) await sleep(100); return cond(); };
+    await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+    await test('Y20', 'Preconditioning (#44): off by default; the car\'s button is offered; only a switch or button can be chosen', async () => {
+      const r = await ok('GET', 'api/precondition');
+      const car = r.cars[0];
+      assert(car && car.precondition.enabled === false && car.precondition.minutes === 15 && car.precondition.way_back === false, JSON.stringify(car && car.precondition));
+      assert(car.options.some((o) => o.entity_id === BTN && o.group === 'car'), JSON.stringify(car.options));
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true }, 'Choose what');
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: 'input_boolean.voorverwarmen' }, 'switch or a button');
+      await refused('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 90 }, 'between 5 and 60');
+      return `offered: ${car.options.map((o) => o.entity_id).join(', ')}`;
+    });
+    await test('Y21', 'Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car\'s button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // not needed
+      world.events = [evp('Naar Werk', 'doel: 80 precondition: ja', now + 10 * 60000, now + 8 * 3600000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(saved.precondition.enabled && saved.upcoming.length === 1 && saved.upcoming[0].kind === 'out', JSON.stringify(saved));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await sleep(1500);
+      assert(presses(n0).length === 1, `pressed again: ${presses(n0).length}`);
+      world.plugged = true;
+      const p = await plan();
+      const shown = p.next && p.next.preconditioning;
+      assert(Array.isArray(shown) && shown.length === 1 && shown[0].state === 'asked', JSON.stringify(shown));
+      // Without "precondition: ja": nothing.
+      world.events = [evp('Naar Sport', 'doel: 80', Date.now() + 10 * 60000, Date.now() + 3 * 3600000)];
+      const n1 = world.calls.length;
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      await sleep(1500);
+      assert(presses(n1).length === 0, `pressed without precondition: ${presses(n1).length}`);
+      return 'one press for "precondition: ja", none without';
+    });
+    await test('Y22', 'Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // the car is away
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 10 * 60000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: true });
+      assert(saved.upcoming.length === 1 && saved.upcoming[0].kind === 'back_auto', JSON.stringify(saved.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      // A trip home in the calendar, without "precondition": off, also with the setting on.
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 20 * 60000), evp('Naar huis', 'doel: 80', now + 20 * 60000, now + 80 * 60000)];
+      const n1 = world.calls.length;
+      const s2 = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 30, way_back: true });
+      assert(s2.upcoming.length === 0, JSON.stringify(s2.upcoming));
+      await sleep(1500);
+      assert(presses(n1).length === 0, `pressed: ${presses(n1).length}`);
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      world.plugged = true;
+      world.events = [];
+      return 'way back: one press; a trip home without "precondition": none';
+    });
+    await test('Y23', 'Preconditioning for the weekly schedule and a one-off departure (#45): the day\'s tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const soon = Date.now() + 10 * 60000;
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(soon)).map((x) => [x.type, x.value]));
+      const dayKey = parts.weekday.slice(0, 3).toLowerCase();
+      const hhmm = `${parts.hour}:${parts.minute}`;
+      const sched = (pre) => {
+        const b = depBody({ schedule_enabled: true, calendar: { enabled: false, entity: null, match: 'target', buffer_minutes: 0, soc: 80 } });
+        for (const k of Object.keys(b.schedule)) b.schedule[k] = { ...b.schedule[k], enabled: k === dayKey, time: k === dayKey ? hhmm : b.schedule[k].time, precondition: k === dayKey && pre };
+        return b;
+      };
+      world.events = [];
+      // Without the tick: nothing.
+      await ok('POST', 'api/departures', sched(false));
+      let n0 = world.calls.length;
+      let r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.length === 0, JSON.stringify(r.upcoming));
+      await sleep(1500);
+      assert(presses(n0).length === 0, `pressed: ${presses(n0).length}`);
+      // With the tick: one press.
+      await ok('POST', 'api/departures', sched(true));
+      const saved = await ok('GET', 'api/departures');
+      assert(saved.departures.schedule[dayKey].precondition === true, JSON.stringify(saved.departures.schedule[dayKey]));
+      n0 = world.calls.length;
+      r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.length >= 1 && r.upcoming.every((m) => m.source === 'schedule') && r.upcoming[0].until - Date.now() < 11 * 60000, JSON.stringify(r.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      // A one-off departure with its tick.
+      await ok('POST', 'api/departures', sched(false));
+      const ovAt = Date.now() + 12 * 60000;
+      const op = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ovAt)).map((x) => [x.type, x.value]));
+      await ok('POST', 'api/departures/override', { datetime: `${op.year}-${op.month}-${op.day}T${op.hour}:${op.minute}`, soc: 80, precondition: true });
+      n0 = world.calls.length;
+      r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(r.upcoming.some((m) => m.source === 'override'), JSON.stringify(r.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await api('DELETE', 'api/departures/override');
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      return `schedule ${dayKey} ${hhmm}: one press with the tick, none without; one-off: one press`;
+    });
+  }
+
   group = 'Z. Apple iCloud calendar (read only)';
   await test('Z1', 'An iCloud calendar is read: "doel: 90" becomes the departure; it is marked read only and adding trips to it is refused with a clear reason', async () => {
     await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.icloud_alex', match: 'target', buffer_minutes: 0, soc: 80 } }));

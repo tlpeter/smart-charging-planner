@@ -529,6 +529,27 @@ function totalPrice(raw, cfg) {
   return (raw + fee + tax) * vat;
 }
 
+// How a price is built, step by step (#26): input → fees and tax → VAT → margin.
+function priceBreakdown(raw, cfg, margin = 0, start = null) {
+  const type = cfg.price_type || 'market_excl_vat';
+  const fee = Number(cfg.purchase_fee) || 0;
+  const tax = Number(cfg.energy_tax) || 0;
+  const vatPct = Number(cfg.vat_percent ?? 21) || 0;
+  const total = totalPrice(raw, cfg);
+  return {
+    ...(start != null ? { start } : {}),
+    input: raw,
+    basis: type,
+    fee: type === 'all_in' ? 0 : fee,
+    tax: type === 'all_in' ? 0 : tax,
+    vat_percent: type === 'all_in' ? 0 : vatPct,
+    vat_on: type === 'market_excl_vat' ? 'price, fee and tax' : type === 'market_incl_vat' ? 'fee and tax only' : 'nothing (already all-in)',
+    total,
+    margin: Number(margin) || 0,
+    compared: total + (Number(margin) || 0),
+  };
+}
+
 function summarise(result, cfg, now = Date.now()) {
   const { prices, window: win, interval_minutes, warnings } = result;
   const withTotal = prices.map((p) => ({ ...p, total: totalPrice(p.price, cfg) }));
@@ -569,7 +590,7 @@ function summarise(result, cfg, now = Date.now()) {
 
 module.exports = {
   fixedTariff, fetchForecast,
-  detectPriceSources, hasAction, unitHint, pickEntry, fetchPrices, backfill, summarise, totalPrice,
+  detectPriceSources, hasAction, unitHint, pickEntry, fetchPrices, backfill, summarise, totalPrice, priceBreakdown,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES, priceTime, toPerKwh,
 };

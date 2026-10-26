@@ -6,7 +6,7 @@
 const path = require('path');
 const app = path.join(__dirname, '..', 'smart_charging_planner', 'app');
 const { pricesFromAttributes, localDateTime } = require(path.join(app, 'prices.js'));
-const { planCharging, periods } = require(path.join(app, 'planner.js'));
+const { planCharging, planCare, periods } = require(path.join(app, 'planner.js'));
 
 let failed = 0;
 const check = (name, ok) => { if (!ok) failed++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`); };
@@ -81,6 +81,31 @@ check('minimum + care: the minimum still right away', crMin.length && Math.abs(c
 check('minimum + care: all energy planned', Math.abs(cr.planned_kwh - 50) < 0.01);
 check('minimum + care: the part above the care level only in the window', Math.abs(cr.blocks.filter((b) => b.start >= win).reduce((a, b) => a + b.kwh, 0) - 15) < 0.01);
 check('minimum + care: care info kept for Home', cr.care && cr.care.top_kwh > 14.9);
+
+
+// Battery Care refill tolerance (#43): up to 5 percentage points joins the
+// price-aware final window, provided that window can deliver the whole target.
+const refillPrices = Array.from({ length: 20 }, (_, i) => ({ start: t0 + i * H, end: t0 + (i + 1) * H, total: i < 12 ? 0.05 : i === 14 ? 0.10 : 0.30 }));
+const refill = (careKwh, extra = {}) => planCare({ prices: refillPrices, now: t0, deadline: t0 + 16 * H, windowStart: t0 + 12 * H,
+  careKwh, refillKwh: 3, neededKwh: careKwh + 6, powerKw: 10, continuous: true, ...extra });
+for (const [label, kwh] of [['79%', 0.6], ['75% boundary', 3]]) {
+  const p = refill(kwh);
+  check('Battery Care small dip ' + label + ': one final session, no early top-up', p.care.refill_deferred === true && p.blocks.every((b) => b.start >= p.care.window_start) && periods(p.blocks).length === 1);
+  check('Battery Care small dip ' + label + ': all energy, using the cheapest window slot', Math.abs(p.planned_kwh - (kwh + 6)) < 0.01 && p.blocks.some((b) => b.price === 0.10));
+}
+const largeRefill = refill(3.06);
+check('Battery Care below 75%: the normal cheaper base charge remains', !largeRefill.care.refill_deferred && largeRefill.blocks.some((b) => b.start < largeRefill.care.window_start));
+const activeRefill = refill(0.6, { refillKwh: 0 });
+check('Battery Care already-started early session: no mid-session deferral', !activeRefill.care.refill_deferred && activeRefill.blocks.some((b) => b.start < activeRefill.care.window_start));
+const shortRefill = refill(3, { powerKw: 1 });
+check('Battery Care insufficient final capacity: never defer the base charge', !shortRefill.care.refill_deferred && shortRefill.blocks.some((b) => b.start < shortRefill.care.window_start));
+const unknownRefill = refill(0.6, { prices: refillPrices.filter((p) => p.end <= t0 + 12 * H) });
+check('Battery Care missing window prices: no deferred refill claim', !unknownRefill.care.refill_deferred);
+const inWindowRefill = refill(0.6, { now: t0 + 12 * H });
+check('Battery Care final window already open: normal price planning', !inWindowRefill.care.refill_deferred);
+const explicitMinimum = planStaged({ prices: refillPrices, now: t0, deadline: t0 + 16 * H, firstDeadline: t0, minKwh: 0.6, neededKwh: 6.6,
+  powerKw: 10, immediateFirst: true, care: { windowStart: t0 + 12 * H, careKwh: 0.6, refillKwh: 3 } });
+check('Battery Care does not defer an explicit minimum', explicitMinimum.blocks.some((b) => b.start === t0 && b.min_kwh > 0.59));
 
 // Look ahead: the minimum after a trip never runs past the next departure.
 const until = t0 + H;

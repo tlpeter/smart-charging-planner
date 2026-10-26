@@ -55,6 +55,30 @@ function validateImportSettings(settings) {
     if (settings[key] != null) objectAt(settings[key], key);
   }
 
+  // Trip distances (#31): only a known choice, and only web addresses for your own servers.
+  if (settings.routing != null) {
+    objectAt(settings.routing, 'routing');
+    const r = settings.routing;
+    if (r.mode != null && !['osm', 'custom', 'offline', 'off'].includes(r.mode)) bad('routing.mode is not a known choice');
+    for (const key of ['geocode_url', 'route_url']) {
+      if (r[key] == null) continue;
+      let u = null;
+      try { u = new URL(String(r[key])); } catch { /* checked below */ }
+      if (!u || !['http:', 'https:'].includes(u.protocol) || u.username || u.password || String(r[key]).length > 200) bad(`routing.${key} must be an http(s) address`);
+    }
+    if (r.mode === 'custom' && (!r.geocode_url || !r.route_url)) bad('routing needs both server addresses for your own servers');
+  }
+
+  // Charging stops on the way (#37): the same checks as saving them on Plan.
+  if (settings.charge_stops != null) {
+    objectAt(settings.charge_stops, 'charge_stops');
+    try {
+      require('./chargestops').clean(settings.charge_stops, {});
+    } catch (err) {
+      bad(`charge_stops: ${err.message}`);
+    }
+  }
+
   nestedObject(settings.prices, 'source', 'prices');
   nestedObject(settings.prices, 'fixed', 'prices');
   nestedObject(settings.prices, 'forecast', 'prices');
@@ -64,6 +88,11 @@ function validateImportSettings(settings) {
 
   for (const [i, vehicle] of (settings.vehicles || []).entries()) {
     nestedObject(vehicle, 'departures', `vehicles[${i}]`);
+    // Preconditioning (#44): the same checks as saving it in the app.
+    if (vehicle && vehicle.precondition != null) {
+      objectAt(vehicle.precondition, `vehicles[${i}].precondition`);
+      try { require('./precondition').clean(vehicle.precondition); } catch (err) { bad(`vehicles[${i}].precondition: ${err.message}`); }
+    }
     for (const key of ['schedule', 'helper', 'calendar', 'override']) nestedObject(vehicle.departures, key, `vehicles[${i}].departures`);
     if (vehicle.id != null && (typeof vehicle.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(vehicle.id))) bad(`vehicles[${i}].id must be a short id`);
   }
