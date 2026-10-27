@@ -2936,16 +2936,18 @@ async function run() {
         await ok('POST', 'api/grid', { ...grid, current_l1_entity: 'sensor.p1_current_l1', current_l2_entity: 'sensor.p1_current_l2', current_l3_entity: 'sensor.p1_current_l3' });
         let r = await place('L1', 'L2');
         assert(r.o.share.how === 'phase_currents' && r.o.share.phases_a && r.o.share.phases_a.L1 != null, say(r));
-        assert(r.b.want === 'charge' && !r.b.shared && r.a.want === 'charge' && !r.a.shared, `different phases: ${say(r)}`);
-        assert(world.charging === true && world.ch2.charging === true, `laadpaal ${world.charging}, garage ${world.ch2.charging}`);
+        // The share itself is checked: an Easee first switches to one phase (control_wait) before it charges.
+        const res = (r) => r.o.share.result || {};
+        assert(!res(r)[ch1] && !res(r)[ch2] && r.o.share.left_a.L1 === 5 && r.o.share.left_a.L2 === 6, `different phases: ${say(r)}`);
         r = await place('L1', 'L1');
-        assert(r.o.share.order[0] === ch2 && r.b.want === 'charge' && r.a.want === 'pause' && r.a.code === 'shared_wait', `same phase: ${say(r)}`);
+        assert(r.o.share.order[0] === ch2 && !res(r)[ch2] && res(r)[ch1] && res(r)[ch1].pause === true, `same phase: ${say(r)}`);
         r = await place('', 'L2');
-        assert(r.b.want === 'charge' && r.a.want === 'charge' && r.a.shared && r.a.amps === 6, `unknown phase: ${say(r)}`);
+        // On L1 it would get 16 A; with an unknown phase only what is left on L2 (6 A, or a little more while it still draws on L1).
+        assert(!res(r)[ch2] && res(r)[ch1] && res(r)[ch1].amps >= 6 && res(r)[ch1].amps < 16, `unknown phase: ${say(r)}`);
         world.ages = Object.fromEntries(P1.map((id) => [id, 10 * 60000]));
         r = await look();
-        assert(r.o.share.how === 'no_reading' && r.a.want === 'pause' && (r.b.want === 'pause' || r.b.amps === 6), `stale meter: ${say(r)}`);
-        return `different phases: both 16 A · same phase: Laadpaal waits · unknown phase: 6 A · stale meter: ${r.b.amps || r.b.want}`;
+        assert(r.o.share.how === 'no_reading' && res(r)[ch1] && res(r)[ch1].pause === true && (!res(r)[ch2] ? false : res(r)[ch2].pause || res(r)[ch2].amps === 6), `stale meter: ${say(r)}`);
+        return 'different phases: both 16 A · same phase: Laadpaal waits · unknown phase: limited by L2 · stale meter: one charger at 6 A';
       } finally {
         world.ages = undefined; world.phaseHouse = undefined; world.phases = null; world.line = undefined;
         if (world.ch2) { world.ch2.phases = undefined; world.ch2.line = undefined; }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.6-dev
+
+- Test only: the per-phase test checks how the connection is shared, not whether an Easee has already switched to one phase. No app changes. (#29)
+
 ## 0.36.5-dev
 
 - **Sharing the connection per phase** (more chargers): the app now keeps a budget for L1, L2 and L3 instead of one number. A one-phase charger only uses its own phase (new: "Phase used when it charges on one phase" in Settings › Charger); when that phase is not known, the app keeps room on all three, to be safe. With phase current sensors, each phase is checked on its own; with net power only, the house is spread over the phases as before. A grid reading older than 5 minutes is not used: without a fresh reading only the first charger charges, at 6 A. A charger goes up only as far as the others have already come down; chargers that go down are switched first. A load balancer can now protect only some chargers (Settings › Grid); the app shares for the others. The home battery (planning on) charges from the grid only with the room the chargers leave on its phases (new: battery phases in Settings › Home battery); the cars go first. One charger: nothing changes. (#29)
