@@ -51,13 +51,15 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.36.4-dev
+## Current candidate: 0.36.5-dev
 
 Stable main is 0.35.0 (release v0.35.0: #26, #31, #37, #41, #42, #43, #44, #45). Earlier: 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.35.0: #28 (compatibility matrix generated from the tests, beta test report form and physical test status, container build for amd64 and aarch64, Core check against 2026.4.2 as well as 2026.10.4), #46 (where the car is when not plugged in: car location, person, calendar, else not known; Home no longer assumes the car is at home).
+Scope on dev since 0.35.0: #28 (compatibility matrix generated from the tests, beta test report form and physical test status, container build for amd64 and aarch64, Core check against 2026.4.2 as well as 2026.10.4), #46 (where the car is when not plugged in: car location, person, calendar, else not known; Home no longer assumes the car is at home), #29 (sharing the connection per phase across chargers and the home battery, with load-balancer scope, fresh-reading check and step-by-step changes).
 
-Not resolved: physical site/phase capacity allocation (#29) and charging stops outside the Netherlands and Belgium (#40). Native inverter limits and physical hardware verification remain necessary.
+Not resolved: charging stops outside the Netherlands and Belgium (#40). #29 is fixture-tested only, not yet checked on real hardware. Native inverter limits and physical hardware verification remain necessary.
+
+Home check for #29 (with two chargers): in Settings › Grid choose the phase current sensors of your P1 meter. Home › Chargers then shows the free current per phase. For a one-phase charger, set its phase in Settings › Charger and check that the free current drops on that phase only while it charges. If your load balancer only protects one charger, untick the other in Settings › Grid. Unplug the P1 meter for 5 minutes: only one charger should charge, at 6 A.
 
 Home check for #46: set the car location (and, if you like, yourself as person) under Settings › Vehicle. Leave for work without plugging in: Home should say "Car away (car location)", and Looking ahead should start from the battery level now, with charging as "if plugged in". Back home and unplugged: "At home". Then clear the car location, set the person to a phone that is away: the person decides.
 

@@ -166,6 +166,9 @@ function durationText(minutes) {
             <div class="field"><label>Maximum current in A${follow.length ? '' : ' (optional)'}</label>
               <input name="max_current" type="number" min="6" max="80" step="1" value="${follow.length ? '' : ''}" placeholder="${c && c.suggested_max_current ? esc(c.suggested_max_current) : 'e.g. 16'}"></div>
           </div>
+          <div class="field"><label>Phase used when it charges on one phase</label>
+            <select name="phase"><option value="">Not known</option><option value="L1">L1</option><option value="L2">L2</option><option value="L3">L3</option></select>
+            <div class="muted small">For sharing the connection with more chargers. Not known: the app keeps room on all three phases, to be safe.</div></div>
           ${follow.length ? `<label class="check"><input type="checkbox" name="follow_limits" checked> Follow the charger's own limit (now ${esc(c.suggested_max_current)} A) live</label>
             <input type="hidden" name="max_current_entities" value="${esc(follow.join(','))}">` : ''}
           ${limitList}${disabledNote}
@@ -174,7 +177,7 @@ function durationText(minutes) {
             <div class="muted small">When this car says it is plugged in, it is on this charger; the app still notices when the cars are the other way round.</div></div>` : ''}`;
         },
         extraRows: (c) => [
-          ['Phases', String(c.phases)],
+          ['Phases', `${esc(c.phases)}${c.phase ? ` (one phase: ${esc(c.phase)})` : ''}`],
           ['Maximum current', c.live && c.live.max && c.live.max.amps
             ? `${esc(tidy(c.live.max.amps))} A<div class="muted small">${c.live.max.source === 'manual' ? 'set manually' : `live from ${esc(c.live.max.source)}`}</div>`
             : null],
@@ -224,12 +227,13 @@ function durationText(minutes) {
               <option value="" data-name="">No load balancer</option>
               <option value="other" data-name="">Built into the charger, or not in Home Assistant</option>
             </select></div>
+          ${lbScope(data)}
           <div class="note">With a load balancer, the main fuse is already protected and the app will work within its limits. Without one, the app will watch the main fuse itself using the grid meter.</div>`;
         },
         extraRows: (g) => [
           ['Main fuse', `${esc(g.main_fuse)} A`],
           ['Phases', String(g.phases)],
-          ['Load balancing', g.load_balancer ? esc(g.load_balancer.name) : 'None'],
+          ['Load balancing', g.load_balancer ? `${esc(g.load_balancer.name)}${Array.isArray(g.load_balancer.chargers) ? `<div class="muted small">protects ${g.load_balancer.chargers.length} charger${g.load_balancer.chargers.length === 1 ? '' : 's'}; the app shares the connection for the others</div>` : ''}` : 'None'],
         ],
         manual: (data) => ({
           intro: 'Pick your grid power sensor yourself: a net power sensor, or import and export sensors.',
@@ -239,6 +243,24 @@ function durationText(minutes) {
     };
 
     const lastDetect = {};
+
+    // Grid: which chargers the load balancer protects (more chargers, #29).
+    function lbScope(data) {
+      const list = (data && data.site_chargers) || [];
+      if (list.length < 2) return '';
+      return `<div class="field lb-scope"><label>Chargers the load balancer protects</label>
+        ${list.map((c) => `<label class="check"><input type="checkbox" name="lb_charger" value="${esc(c.id)}" checked> ${esc(c.name)}</label>`).join('')}
+        <div class="muted small">All ticked: the load balancer shares the connection and the app does not. Untick the chargers it does not protect: the app shares what is left for those.</div></div>`;
+    }
+    // The charger list only matters with a load balancer.
+    function syncLbScope(form) {
+      const sel = form.querySelector('select[name=load_balancer]');
+      const box = form.querySelector('.lb-scope');
+      if (sel && box) box.hidden = !sel.value;
+    }
+    document.addEventListener('change', (e) => {
+      if (e.target && e.target.name === 'load_balancer' && e.target.form) syncLbScope(e.target.form);
+    });
 
     // ---------- Rendering helpers ----------
     function optionLabel(o) {
@@ -650,13 +672,16 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
         const lb = saved.load_balancer;
         setValue(form, 'load_balancer', lb ? (lb.type === 'other' ? 'other' : lb.device_id) : '');
         if (!lb) form.querySelector('select[name=load_balancer]').value = '';
+        const scope = lb && Array.isArray(lb.chargers) ? lb.chargers : null;
+        form.querySelectorAll('input[name=lb_charger]').forEach((el) => { el.checked = !scope || scope.includes(el.value); });
+        syncLbScope(form);
       }
       form.dataset.mine = '1';
       const btn = form.querySelector('button[type=submit]');
@@ -699,6 +724,10 @@ function durationText(minutes) {
       $(`${kind}-error`).hidden = true;
       try {
         const data = await api('GET', `${cfg.api}/detect`);
+        if (kind === 'grid') {
+          const ch = await api('GET', 'api/chargers?charger=').catch(() => null);
+          data.site_chargers = ch && ch.multi_charger ? (ch.chargers || []).filter((c) => c.used !== false) : [];
+        }
         lastDetect[kind] = data;
         const n = data.candidates.length;
         const header = n
@@ -707,7 +736,7 @@ function durationText(minutes) {
         $(`${kind}-results`).innerHTML = header +
           data.candidates.map((c, i) => candidateCard(kind, c, i, data)).join('') +
           `<details class="card" ${n ? '' : 'open'}><summary>Not listed? Choose manually</summary>${manualCard(kind, data)}</details>`;
-        $(`${kind}-results`).querySelectorAll('form').forEach((f) => f.addEventListener('submit', save));
+        $(`${kind}-results`).querySelectorAll('form').forEach((f) => { f.addEventListener('submit', save); if (kind === 'grid') syncLbScope(f); });
         if (saved) {
           $(`${kind}-intro`).hidden = true;
           prefill(kind, saved);
@@ -734,6 +763,9 @@ function durationText(minutes) {
       }
       const lbSelect = form.querySelector('select[name=load_balancer]');
       if (lbSelect) data.load_balancer_name = lbSelect.selectedOptions[0].dataset.name || '';
+      const lbBoxes = [...form.querySelectorAll('input[name=lb_charger]')];
+      delete data.lb_charger;
+      if (lbBoxes.length) data.load_balancer_chargers = lbBoxes.every((el) => el.checked) ? 'all' : lbBoxes.filter((el) => el.checked).map((el) => el.value);
       if (form.dataset.index !== 'manual') {
         const c = lastDetect[kind].candidates[Number(form.dataset.index)];
         data.name = c.name;
@@ -2053,9 +2085,15 @@ function durationText(minutes) {
           <span class="charger-row-state small">${esc(status)}${c.ready_guard ? `<br><span class="muted">${esc(c.ready_guard.label)}</span>` : ''}</span>
         </button>`;
       };
+      const perPhase = sh && sh.phases_a && sh.how === 'phase_currents' && Object.keys(sh.phases_a).length > 1
+        ? Object.entries(sh.phases_a).map(([l, a]) => `${esc(l)} ${esc(tidy(a))} A`).join(' · ') : null;
+      const lbNote = sh && sh.load_balancer ? ` ${esc(sh.load_balancer.name)} looks after ${sh.load_balancer.chargers.length === 1 ? 'one charger' : `${sh.load_balancer.chargers.length} chargers`}; the app shares for the others.` : '';
+      const batNote = sh && sh.battery && sh.battery.fits === false ? ' The home battery does not charge from the grid now: the chargers use the connection.' : '';
       const how = !sh ? '' : sh.how === 'load_balancer' ? 'Your load balancer shares the connection.'
-        : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A).`
-          : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
+        : sh.how === 'no_reading' ? `No fresh grid meter reading: to be safe, one charger at 6 A until it is back (main fuse ${esc(sh.main_fuse)} A).${lbNote}`
+          : perPhase ? `Free for the chargers now, per phase: ${perPhase} (main fuse ${esc(sh.main_fuse)} A).${lbNote}${batNote}`
+            : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A${sh.how === 'net_power_fallback' ? '; the phase currents are not fresh, estimated from net power' : ''}).${lbNote}${batNote}`
+              : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
       return `<div class="card chargers-card">
         <div class="ready-kicker">CHARGERS</div>
         ${o.chargers.map(row).join('')}
@@ -3676,6 +3714,8 @@ function durationText(minutes) {
       if (!c.soc_entity && r.candidates[0]) f.battery.value = r.candidates[0].soc_entity;
       f.enabled.checked = !!c.enabled;
       for (const k of ['capacity_kwh', 'efficiency', 'charge_kw', 'discharge_kw', 'min_pct', 'max_pct', 'wear']) f[k].value = c[k];
+      f.phases.value = String(c.phases === 1 ? 1 : 3);
+      f.phase.value = c.phase || '';
       if (!c.soc_entity) {
         const cand = r.candidates.find((x) => x.soc_entity === f.battery.value);
         if (cand && cand.capacity_kwh) f.capacity_kwh.value = tidy(cand.capacity_kwh);
@@ -3717,6 +3757,7 @@ function durationText(minutes) {
           enabled: f.enabled.checked, capacity_kwh: f.capacity_kwh.value, efficiency: f.efficiency.value,
           charge_kw: f.charge_kw.value, discharge_kw: f.discharge_kw.value, min_pct: f.min_pct.value, max_pct: f.max_pct.value,
           wear: f.wear.value, power_sign: f.power_sign.value, arbitrage: f.arbitrage.checked,
+          phases: f.phases.value, phase: f.phase.value,
           ev_discharge: f.ev_discharge.value, solar_priority: f.solar_priority.value,
           ev_from_pct: f.ev_from_pct.value, ev_to_pct: f.ev_to_pct.value,
         });

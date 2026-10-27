@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.5-dev
+
+- **Sharing the connection per phase** (more chargers): the app now keeps a budget for L1, L2 and L3 instead of one number. A one-phase charger only uses its own phase (new: "Phase used when it charges on one phase" in Settings › Charger); when that phase is not known, the app keeps room on all three, to be safe. With phase current sensors, each phase is checked on its own; with net power only, the house is spread over the phases as before. A grid reading older than 5 minutes is not used: without a fresh reading only the first charger charges, at 6 A. A charger goes up only as far as the others have already come down; chargers that go down are switched first. A load balancer can now protect only some chargers (Settings › Grid); the app shares for the others. The home battery (planning on) charges from the grid only with the room the chargers leave on its phases (new: battery phases in Settings › Home battery); the cars go first. One charger: nothing changes. (#29)
+
 ## 0.36.4-dev
 
 - **Where is the car?** When the car is not plugged in, the app no longer assumes it is at home. It checks, in this order: the car's own location (a device tracker, new in Settings › Vehicle), a person who drives (for example a phone with the Companion app, also new), a trip home in the calendar ("Naar huis"). When none of them knows, Home says so: Looking ahead counts from the battery level now and shows the planned charging as "if plugged in by then", with the level it would give next to it. A location that is unknown or unavailable is skipped, so a broken sensor never makes the plan worse. The status on Home shows "Car away (car location)" or "At home (person)". Both settings are empty by default. (#46)

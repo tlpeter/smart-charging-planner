@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.36.4-dev** (stable is 0.35.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.36.5-dev** (stable is 0.35.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 Changes on dev reach main after GitHub Actions and the owner's home check. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -178,7 +178,7 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 ### Before broader public promotion (P1)
 
-- [ ] Allocate capacity per physical phase across chargers and the home battery, with explicit hardware load-balancer scope. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
+- No open P1 items: #29 is implemented on dev (below).
 
 ### Reliability and usability (P2)
 
@@ -195,6 +195,7 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 
 These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.35.0.
 
+- [x] Sharing the connection per phase (L1, L2, L3): one-phase chargers on their own phase, room kept on every phase when the phase is not known, a fresh-reading check, step-by-step changes, a load balancer for some chargers only, and the home battery charging from the grid only with what the chargers leave. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
 - [x] Where is the car when it is not plugged in: car location, then a person, then a trip home in the calendar; when none knows, Home counts from the level now and shows planned charging as "if plugged in". [#46](https://github.com/tlpeter/smart-charging-planner/issues/46)
 - [x] A compatibility matrix per integration (generated from the tests, read-only devices marked), a beta test report form for real-hardware results, a container build for amd64 and aarch64 and a check against an older Home Assistant Core. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
 

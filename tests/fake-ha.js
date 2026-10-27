@@ -33,7 +33,18 @@ const batKw = (w) => {
   return b.autoKw || 0;
 };
 // A second charger (more chargers test): w.ch2 = { plugged, charging, amps }.
-const ch2Kw = (w) => (w.ch2 && w.ch2.charging ? Math.round((w.ch2.amps ?? 16) * 3 * 230) / 1000 : 0);
+const ch2Kw = (w) => (w.ch2 && w.ch2.charging ? Math.round((w.ch2.amps ?? 16) * (w.ch2.phases ?? 3) * 230) / 1000 : 0);
+// Phase currents of the grid meter. Fixed (3/2/2 A) unless w.phaseHouse is
+// set: then the house per phase plus each charger on its own phases (#29).
+const phaseA = (w, line) => {
+  if (!w.phaseHouse) return { L1: 3, L2: 2, L3: 2 }[line];
+  const on = (phases, ln) => (phases ?? 3) !== 1 || (ln || 'L1') === line;
+  let a = w.phaseHouse[line] || 0;
+  if (w.charging && on(w.phases, w.line)) a += w.amps ?? 16;
+  if (w.ch2 && w.ch2.charging && on(w.ch2.phases, w.ch2.line)) a += w.ch2.amps ?? 16;
+  a += Math.max(0, batKw(w)) * 1000 / 230 / 3;
+  return Math.round(a * 10) / 10;
+};
 const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 + ch2Kw(w) * 1000 + batKw(w) * 1000 - (w.pvW ?? 0));
 const PCT = { unit_of_measurement: '%' };
 const KW = { unit_of_measurement: 'kW', device_class: 'power' };
@@ -276,9 +287,9 @@ function entityList(w) {
     ...(w.liveLimit === undefined ? [] : [['sensor.laadpaal_live_limit', String(w.liveLimit), { unit_of_measurement: 'A', friendly_name: 'Live charger limit' }, 'ch']]),
     ...ch2,
     ['sensor.p1_power', String(gridW(w) * (w.gridExportPositive ? -1 : 1)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
-    ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
-    ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
-    ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l1', String(phaseA(w, 'L1')), { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l2', String(phaseA(w, 'L2')), { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l3', String(phaseA(w, 'L3')), { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
@@ -313,7 +324,8 @@ function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
   // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
   // for a while (a car whose cloud is down).
-  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : ago));
+  // A grid meter reports all the time: its sensors are fresh unless w.ages says otherwise.
+  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : id.startsWith('sensor.p1_') ? new Date().toISOString() : ago));
   return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state: w.stateOverrides && w.stateOverrides[entity_id] !== undefined ? String(w.stateOverrides[entity_id]) : state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 

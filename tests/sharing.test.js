@@ -4,7 +4,7 @@
 // Run: node tests/sharing.test.js   (from the repository root)
 
 const assert = require('assert');
-const { share, available } = require('../smart_charging_planner/app/sharing');
+const { share, available, capacity, linesOf } = require('../smart_charging_planner/app/sharing');
 
 let failures = 0;
 function check(name, fn) {
@@ -111,6 +111,102 @@ check('both grid sign conventions give the same allocation for import and export
     assert.strictEqual(capacity('import_positive', netW), capacity('export_positive', -netW / 1000, 'kW'));
   }
   assert.strictEqual(gridNetW({ net_entity: 'sensor.absent' }, [], 'export_positive'), null);
+});
+
+// Per phase (#29).
+const first = (o = {}) => car('A', { priority: { latest_safe_start: 1 }, ...o });
+const second = (o = {}) => car('B', { priority: { latest_safe_start: 2 }, ...o });
+check('two one-phase chargers on different phases both get their full current', () => {
+  const r = share([first({ lines: ['L1'] }), second({ lines: ['L2'] })], { L1: 21, L2: 22, L3: 22 });
+  assert.deepStrictEqual(r.result, {});
+});
+check('two one-phase chargers on the same phase share it: the second gets what is left or waits', () => {
+  let r = share([first({ lines: ['L1'] }), second({ lines: ['L1'] })], { L1: 21, L2: 22, L3: 22 });
+  assert.strictEqual(r.result.A, undefined);
+  assert.strictEqual(r.result.B.pause, true); // 5 A left on L1
+  r = share([first({ lines: ['L1'] }), second({ lines: ['L1'] })], { L1: 24, L2: 24, L3: 24 });
+  assert.strictEqual(r.result.B.amps, 8);
+});
+check('one phase with an unknown phase: the current is kept free on every phase', () => {
+  assert.deepStrictEqual(linesOf({ phases: 1, phase: null }), ['L1', 'L2', 'L3']);
+  assert.deepStrictEqual(linesOf({ phases: 1, phase: 'L2' }), ['L2']);
+  assert.deepStrictEqual(linesOf({ phases: 3, phase: 'L2' }), ['L1', 'L2', 'L3']);
+  assert.deepStrictEqual(linesOf({ phases: 3, gridPhases: 1 }), ['L1']);
+  const known = share([first({ lines: ['L2'] }), second({ lines: ['L1'] })], { L1: 21, L2: 22, L3: 22 });
+  assert.strictEqual(known.result.B, undefined); // L1 is free: full current
+  const unknown = share([first({ lines: ['L2'] }), second({ lines: linesOf({ phases: 1 }) })], { L1: 21, L2: 22, L3: 22 });
+  assert.strictEqual(unknown.result.B.amps, 6); // only 6 A left on L2
+});
+check('mixed: a three-phase charger and a one-phase charger', () => {
+  // Three-phase first (16 A on each phase): 5/6/6 A left.
+  const onL1 = share([first(), second({ lines: ['L1'] })], { L1: 21, L2: 22, L3: 22 });
+  assert.strictEqual(onL1.result.B.pause, true);
+  const onL2 = share([first(), second({ lines: ['L2'] })], { L1: 21, L2: 22, L3: 22 });
+  assert.strictEqual(onL2.result.B.amps, 6);
+  // One-phase first on L1: the three-phase charger is limited by L1.
+  const r = share([first({ lines: ['L1'] }), second()], { L1: 30, L2: 24, L3: 24 });
+  assert.strictEqual(r.result.B.amps, 14);
+});
+check('fair share per phase: chargers on other phases do not count', () => {
+  const r = share([first({ lines: ['L1'], amps: 6 }), second({ lines: ['L2'] }), car('C', { lines: ['L2'], priority: { latest_safe_start: 3 } })], { L1: 24, L2: 24, L3: 24 });
+  assert.strictEqual(r.result.B.amps, 12);
+  assert.strictEqual(r.result.C.amps, 12);
+});
+check('changes take time: a charger only goes up as far as the others have come down', () => {
+  // B draws 16 A now and must make room for A (Charge now).
+  const now = [first({ priority: { code: 'boost' }, measured_a: 0 }), second({ measured_a: 16 })];
+  const r = share(now, 24);
+  assert.strictEqual(r.result.B.amps, 8); // B goes down to 8 A
+  assert.strictEqual(r.result.A.amps, 8); // A may only use 24 - 16 for now
+  assert.ok(/for now/.test(r.result.A.reason), r.result.A.reason);
+  // Next step, B draws 8 A: A gets its full 16 A.
+  const next = share([first({ priority: { code: 'boost' }, measured_a: 8 }), second({ measured_a: 8 })], 24);
+  assert.strictEqual(next.result.A, undefined);
+  // A start/stop-only charger waits until there is room for all of it.
+  const ss = share([first({ priority: { code: 'boost' }, can_set_current: false }), second({ measured_a: 16 })], 24);
+  assert.strictEqual(ss.result.A.pause, true);
+  assert.ok(/lowering/.test(ss.result.A.reason));
+});
+check('a charger that stops wanting still counts with what it draws now', () => {
+  const r = share([first(), car('B', { want: 'pause', measured_a: 16 })], 24);
+  assert.strictEqual(r.result.A.amps, 8);
+});
+check('home battery: grid charging only with what the chargers leave, the cars go first', () => {
+  const bat = (o = {}) => ({ lines: ['L1', 'L2', 'L3'], need_a: 4.3, measured_a: 0, ...o }); // 3 kW on three phases
+  assert.strictEqual(share([first()], 24, { battery: bat() }).battery.fits, true); // 8 A left
+  assert.strictEqual(share([first(), second({ amps: 6 })], 24, { battery: bat() }).battery.fits, false); // 2 A left
+  // A one-phase battery on L2 only needs room on L2.
+  const one = { lines: ['L2'], need_a: 13, measured_a: 0 };
+  assert.strictEqual(share([first({ lines: ['L1'] })], { L1: 21, L2: 22, L3: 22 }, { battery: one }).battery.fits, true);
+  assert.strictEqual(share([first({ lines: ['L2'] })], { L1: 21, L2: 22, L3: 22 }, { battery: one }).battery.fits, false);
+  // The battery charges now (13 A on L2): a charger on L2 goes up only once the battery stopped.
+  const r = share([first({ lines: ['L2'] })], { L1: 21, L2: 22, L3: 22 }, { battery: { ...one, measured_a: 13 } });
+  assert.strictEqual(r.result.A.amps, 9);
+  assert.strictEqual(r.battery.fits, false);
+  // No battery: no battery answer.
+  assert.strictEqual(share([first()], 24).battery, null);
+});
+check('capacity per phase: main fuse minus the house on that phase (grid minus the chargers on it) minus 1 A', () => {
+  const c = capacity({ mainFuse: 25, phaseA: { L1: 19, L2: 2, L3: 2 }, consumers: [{ lines: ['L1'], measured_a: 16 }] });
+  assert.deepStrictEqual(c, { L1: 21, L2: 22, L3: 22 });
+  // An unknown-phase charger is taken off every phase (and kept free on every phase by share).
+  const u = capacity({ mainFuse: 25, phaseA: { L1: 19, L2: 2, L3: 2 }, consumers: [{ lines: ['L1', 'L2', 'L3'], measured_a: 16 }] });
+  assert.deepStrictEqual(u, { L1: 21, L2: 24, L3: 24 });
+  // Net power only: spread over the phases, as before.
+  const n = capacity({ mainFuse: 25, gridW: 850 + 11040, consumers: [{ power_w: 11040 }] });
+  assert.strictEqual(Math.round(n.L1 * 10) / 10, 22.8);
+  // One-phase connection: only L1.
+  assert.deepStrictEqual(Object.keys(capacity({ mainFuse: 35, phases: 1, gridW: 0 })), ['L1']);
+  // A missing phase reading falls back to net power; no reading at all: the safe side, 6 A.
+  assert.strictEqual(capacity({ mainFuse: 25, phaseA: { L1: 3, L2: null, L3: 2 }, gridW: 0 }).L2, 24);
+  assert.deepStrictEqual(capacity({ mainFuse: 25 }), { L1: 6, L2: 6, L3: 6 });
+  assert.strictEqual(capacity({ mainFuse: 0 }), null);
+});
+check('no fresh reading: one charger at 6 A, the others wait, no grid charging for the battery', () => {
+  const r = share([first({ measured_a: 16 }), second({ measured_a: 16 })], capacity({ mainFuse: 25 }), { battery: { need_a: 4, measured_a: 0 } });
+  assert.strictEqual(r.result.A.amps, 6);
+  assert.strictEqual(r.result.B.pause, true);
+  assert.strictEqual(r.battery.fits, false);
 });
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');

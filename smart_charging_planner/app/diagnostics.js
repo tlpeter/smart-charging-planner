@@ -21,6 +21,7 @@ battery_now ev_chargers ev_plan_count ev_planned_kwh solar_now available_w grid_
 charge_for boost charge_for_until charging_now now_w power planned_kw theoretical_kw learned actual_kw readings ok assumed estimate session_uncertain kwh_since last_soc age_ms
 solar_control current_control phase_switching forecast_factor house_base_w grid_sign grid_allow_w max_soc feed_in fixed fee normal low low_from low_to model
 control check importable action controls stopped round_trip_loss uses_forecast recovery pending legacy error
+phases_a left_a fits L1 L2 L3
 `.split(/\s+/));
 const SAFE = new Set(`on off unknown unavailable none auto charge discharge hold no_discharge pause wait ready charging connected disconnected
 advice_only action_needed at_risk not_achievable on_track no_goal
@@ -40,7 +41,7 @@ W kW MW Wh kWh A % s power current battery energy measurement total_increasing
 SELF_CONSUMPTION SELF_CONSUMPTION_WITH_BATTERY_LIFE KEEP_CHARGED EXTERNAL_CONTROL
 autonomous backup self_consumption general eco_charge eco_discharge zero standby to_full zero_charge_only idle nom
 switch_entity number_entity select_entity service_entity charging_started charging_paused
-no_grid main_fuse net_power phase_currents load_balancer
+no_grid main_fuse net_power phase_currents load_balancer net_power_fallback no_reading battery_capacity L1 L2 L3
 `.split(/\s+/));
 const SERVICES = new Set(`switch.turn_on switch.turn_off number.set_value select.select_option button.press
 script.turn_on homeassistant.turn_on homeassistant.turn_off
@@ -73,7 +74,7 @@ function redact(input) {
     }
     if (typeof value !== 'string') return null;
     if (key === 'signature') return '[omitted]';
-    if (ID.test(key) || ['connected_id', 'chosen', 'order', 'candidates'].includes(key)) return anon(value);
+    if (ID.test(key) || ['connected_id', 'chosen', 'order', 'candidates', 'chargers'].includes(key)) return anon(value);
     if (key === 'service') return SERVICES.has(value) ? value : value.startsWith('notify.') ? anon(value) : '[service omitted]';
     if (ENTITY.test(value)) return anon(value);
     if (['app_version', 'ha_version'].includes(key)) return /^\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.]+)?$/.test(value) ? value : '[omitted]';

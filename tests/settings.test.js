@@ -2911,6 +2911,75 @@ async function run() {
       }
     });
 
+    await test('X5d', 'Per phase (#29): two one-phase chargers on different phases both charge; same phase: the second waits; unknown phase: room kept on every phase; no fresh meter: one charger at 6 A', async () => {
+      const saved = (await ok('GET', 'api/chargers')).chargers;
+      const [c1, c2] = [ch1, ch2].map((id) => saved.find((c) => c.id === id));
+      const body = (c, o) => ({ id: c.id, name: c.name, device_id: c.device_id, integration: c.integration, status_entity: c.status_entity, power_entity: c.power_entity,
+        current_entity: c.current_entity, switch_entity: c.switch_entity, phases: c.phases, phase: c.phase || '', max_current: c.max_current, max_current_entities: c.max_current_entities || [], vehicle_id: c.vehicle_id, ...o });
+      const grid = { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' };
+      const P1 = ['sensor.p1_power', 'sensor.p1_current_l1', 'sensor.p1_current_l2', 'sensor.p1_current_l3'];
+      const look = async () => {
+        for (let i = 0; i < 2; i++) { await planOf(ch1); await planOf(ch2); await sleep(250); } // twice: the measured currents settle
+        const o = await overview();
+        return { o, a: o.chargers.find((c) => c.id === ch1), b: o.chargers.find((c) => c.id === ch2) };
+      };
+      const place = async (l1, l2) => {
+        await ok('POST', 'api/chargers', body(c1, { phases: 1, phase: l1 }));
+        await ok('POST', 'api/chargers', body(c2, { phases: 1, phase: l2 }));
+        world.phases = 1; world.line = l1 || 'L1';
+        world.ch2.phases = 1; world.ch2.line = l2 || 'L2';
+        return look();
+      };
+      const say = (r) => JSON.stringify({ share: r.o.share, a: [r.a.want, r.a.code, r.a.amps, r.a.shared], b: [r.b.want, r.b.code, r.b.amps, r.b.shared] });
+      try {
+        world.phaseHouse = { L1: 3, L2: 2, L3: 2 };
+        await ok('POST', 'api/grid', { ...grid, current_l1_entity: 'sensor.p1_current_l1', current_l2_entity: 'sensor.p1_current_l2', current_l3_entity: 'sensor.p1_current_l3' });
+        let r = await place('L1', 'L2');
+        assert(r.o.share.how === 'phase_currents' && r.o.share.phases_a && r.o.share.phases_a.L1 != null, say(r));
+        assert(r.b.want === 'charge' && !r.b.shared && r.a.want === 'charge' && !r.a.shared, `different phases: ${say(r)}`);
+        assert(world.charging === true && world.ch2.charging === true, `laadpaal ${world.charging}, garage ${world.ch2.charging}`);
+        r = await place('L1', 'L1');
+        assert(r.o.share.order[0] === ch2 && r.b.want === 'charge' && r.a.want === 'pause' && r.a.code === 'shared_wait', `same phase: ${say(r)}`);
+        r = await place('', 'L2');
+        assert(r.b.want === 'charge' && r.a.want === 'charge' && r.a.shared && r.a.amps === 6, `unknown phase: ${say(r)}`);
+        world.ages = Object.fromEntries(P1.map((id) => [id, 10 * 60000]));
+        r = await look();
+        assert(r.o.share.how === 'no_reading' && r.a.want === 'pause' && (r.b.want === 'pause' || r.b.amps === 6), `stale meter: ${say(r)}`);
+        return `different phases: both 16 A · same phase: Laadpaal waits · unknown phase: 6 A · stale meter: ${r.b.amps || r.b.want}`;
+      } finally {
+        world.ages = undefined; world.phaseHouse = undefined; world.phases = null; world.line = undefined;
+        if (world.ch2) { world.ch2.phases = undefined; world.ch2.line = undefined; }
+        await ok('POST', 'api/chargers', body(c1, {}));
+        await ok('POST', 'api/chargers', body(c2, {}));
+        await ok('POST', 'api/grid', grid);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+    await test('X5e', 'Load balancer for one charger only (#29): the app still shares the connection for the other charger', async () => {
+      try {
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: 'other', load_balancer_chargers: [ch2] });
+        const g = (await ok('GET', 'api/grid')).grid[0];
+        assert(g.load_balancer && JSON.stringify(g.load_balancer.chargers) === JSON.stringify([ch2]), JSON.stringify(g.load_balancer));
+        world.houseW = 4600;
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        const o = await overview();
+        const a = o.chargers.find((c) => c.id === ch1);
+        assert(o.share.how !== 'load_balancer' && o.share.load_balancer && o.share.order.length === 1 && o.share.order[0] === ch1, JSON.stringify(o.share));
+        assert(a.want === 'pause' && a.code === 'shared_wait', `the house and the Garage use the connection: ${JSON.stringify([a.want, a.code, a.reason])}`);
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: 'other', load_balancer_chargers: 'all' });
+        const all = (await ok('GET', 'api/grid')).grid[0];
+        assert(all.load_balancer.chargers === null, JSON.stringify(all.load_balancer));
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        assert((await overview()).share.how === 'load_balancer', 'all chargers behind the load balancer: the app does not share');
+        return `Laadpaal: ${a.reason}`;
+      } finally {
+        world.houseW = 850;
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' });
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+
     await test('X6', 'Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car', async () => {
       world.car1Plug = false;
       world.ch2 = { plugged: false, charging: false, amps: 16 };

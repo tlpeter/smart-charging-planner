@@ -162,6 +162,7 @@
     .agree { color: var(--good); }
     .differ { color: var(--bad); }
     .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+    .field label.check { display: flex; font-size: 14px; color: inherit; margin: 6px 0; }
     .check input, .sched input[type=checkbox] { width: auto; }
     .sched td { padding: 4px 8px 4px 0; }
     .sched input[type=time], .sched input[type=number] { padding: 4px 8px; }
