@@ -987,5 +987,6 @@
     .cstops { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--expected); background: var(--surface); border-radius: 6px; }
     .cstops-head { font-weight: 600; font-size: 13px; }
     .cstops-group { margin: 8px 0 4px; }
+    .cstops-leg { font-weight: 600; font-size: 13px; margin-top: 8px; }
     .cstops ul { margin: 6px 0; padding-left: 18px; }
     .cstops li { margin: 4px 0; font-size: 13px; }

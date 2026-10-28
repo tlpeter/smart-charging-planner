@@ -2017,13 +2017,19 @@ async function run() {
       world.soc = 100;
       return `Gym → 15.5 km (manual); unknown address offline: ${leaves[1].trip.reason}`;
     });
-    await test('Y7c', 'Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing', async () => {
+    await test('Y7c', 'Charging stops on the way (#37, #40): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first, one block per stop; every country on the route counts unless limited; offline sends nothing', async () => {
       const r0 = await ok('GET', 'api/charge-stops');
-      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && r0.charge_stops.country_list.map((x) => x.code).join(',') === 'NL,BE', JSON.stringify(r0));
+      const codes = r0.charge_stops.country_list.map((x) => x.code);
+      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && codes.length >= 40 && ['NL', 'BE', 'DE', 'FR', 'CH', 'NO'].every((x) => codes.includes(x)), JSON.stringify(r0));
+      assert(r0.charge_stops.only_countries === false && r0.charge_stops.charge_to_pct === 80, JSON.stringify(r0));
       await refused('POST', 'api/charge-stops', { enabled: true, countries: ['NL'], connectors: ['ccs'] }, 'API key');
-      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['DE'], connectors: ['ccs'] }, 'country');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['XX'], connectors: ['ccs'] }, 'country');
       await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], min_power_kw: 1000 }, 'between');
-      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], charge_to_pct: 40 }, 'between');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], reserve_pct: 10, arrive_min_pct: 15 }, 'not above');
+      assert(r0.charge_stops.arrive_min_pct === 10, JSON.stringify(r0));
+      // Only the Netherlands first, to check the country filter.
+      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], only_countries: true, operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
       const on = await ok('POST', 'api/charge-stops', body);
       assert(on.charge_stops.enabled && on.charge_stops.has_key && !JSON.stringify(on).includes('test-key-123'), JSON.stringify(on));
       // Stations along the straight line from home (fake: 51.37, 5.19) to the destination.
@@ -2037,10 +2043,12 @@ async function run() {
         AddressInfo: { Title: `Station ${id}`, Town: 'Testdorp', Latitude: p.lat, Longitude: p.lon, Country: { ISOCode: country } }, Connections: conns });
       const ccs = (kw) => ({ ConnectionTypeID: 33, ConnectionType: { Title: 'CCS (Type 2)' }, PowerKW: kw, Quantity: 2 });
       const t2 = (kw) => ({ ConnectionTypeID: 25, ConnectionType: { Title: 'Type 2 (Socket Only)' }, PowerKW: kw, Quantity: 2 });
+      // Close together halfway (200 of 400 km), so every test car reaches them
+      // and they all count as the same stop.
       world.stations = [
         poi(1, 'Fastned', along(0.5, 0.001), 'NL', [ccs(300)]),
-        poi(2, 'IONITY GmbH', along(0.4, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
-        poi(3, 'Shell Recharge', along(0.6), 'BE', [ccs(150)]), // another country
+        poi(2, 'IONITY GmbH', along(0.48, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
+        poi(3, 'Shell Recharge', along(0.52), 'BE', [ccs(150)]), // another country
         poi(4, 'Allego BV', along(0.3), 'NL', [t2(22)]), // too slow, wrong connector
         poi(5, 'Fastned', along(0.7), 'NL', [ccs(300)], 'Private - Restricted Access'),
         poi(6, 'Fastned', along(0.5, 0.12), 'NL', [ccs(300)]), // ~8 km off: too far
@@ -2063,22 +2071,38 @@ async function run() {
       };
       let back = await stopsNow();
       let c = back && back.charge_stops;
-      assert(back.soc < 10 && c && c.status === 'ok' && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
+      // 800 km there and back is more than one stop: after the stations halfway
+      // there is none further on, so the first stop is shown and where the gap is.
+      const fine = (x) => x && (x.status === 'ok' || x.status === 'partial');
+      assert(back.soc < 10 && fine(c) && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
       assert(c.stops.map((x) => x.id).join(',') === '1,2' && c.stops[0].operator === 'Fastned' && c.stops[0].power_kw === 300 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      assert(c.legs.length >= 1 && c.legs[0].n === 1 && c.legs[0].charge_to_pct === 80 && c.legs[0].stations.map((x) => x.id).join(',') === '1,2', JSON.stringify(c.legs));
+      assert(c.status === 'ok' || c.gap_km > 0, JSON.stringify(c));
       const call = world.ocmCalls[0];
-      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5', JSON.stringify(world.ocmCalls));
+      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5' && call.params.minpowerkw === '50', JSON.stringify(world.ocmCalls));
       // IONITY preferred: only IONITY, although Fastned is closer to the route.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
       c = (await stopsNow()).charge_stops;
-      assert(c.status === 'ok' && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
+      assert(fine(c) && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
       // A preferred operator that is not on the way: the others, marked as such.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
       c = (await stopsNow()).charge_stops;
-      assert(c.status === 'ok' && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      assert(fine(c) && c.others_only && c.stops.length === 2, JSON.stringify(c));
       // Belgium too: the Shell station counts.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
       c = (await stopsNow()).charge_stops;
       assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3', JSON.stringify(c.stops));
+      // Not limited to your countries (#40, the default): every country on the route counts.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false });
+      c = (await stopsNow()).charge_stops;
+      assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3' && c.stops.some((x) => x.country === 'BE'), JSON.stringify(c.stops));
+      // More stops (#40): a station further on makes a second stop.
+      // (Another minimum power, so the stations are asked for again.)
+      world.stations.push(poi(7, 'Fastned', along(0.75), 'NL', [ccs(300)]));
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 49 });
+      c = (await stopsNow()).charge_stops;
+      assert(fine(c) && c.legs.length >= 2 && c.legs[1].stations.some((x) => x.id === 7) && c.legs[1].km_on_trip > c.legs[0].km_on_trip, JSON.stringify(c.legs));
+      world.stations.pop();
       // Offline: nothing is sent, the trip says why.
       const calls = world.ocmCalls.length;
       await ok('POST', 'api/routing', { mode: 'offline' });

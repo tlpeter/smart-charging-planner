@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.7-dev
+
+- **Charging stops in all of Europe, and more stops on a long trip:** the country list has every European country, and you can tick more than one. A route across a border gets stations in every country on it; "Only suggest stops in these countries" (off by default) limits it to your ticked countries. The operator list has the main networks per country (for example EnBW, Aral pulse, Izivia, Atlante, Ewiva, Circle K, Mer, Recharge). When one stop is not enough, the trip shows one block per stop: where, the level on arrival and how far to charge (new: "Charge to at a stop", default 80 %; at the last stop only what is needed). A station that would leave too much of the trip after charging is no longer suggested as the only stop. A longer route asks Open Charge Map for more stations, only with enough power. New: "Arrive at a charger with at least" (default 10 %, the same as the level for a stop): most cars charge fastest when nearly empty, so below the level for a stop the app looks for a station and may drive on to this level to reach one; a station where you arrive between the two comes first. (#40)
+
 ## 0.36.6-dev
 
 - Test only: the per-phase test checks how the connection is shared, not whether an Easee has already switched to one phase. No app changes. (#29)

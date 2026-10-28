@@ -1752,7 +1752,7 @@ const routes = {
     settings.save(s);
     for (const x of ST.all.values()) x.planCache = null;
     ST().planCache = null;
-    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.countries.join(', ')})` : 'off'}`);
+    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.only_countries ? `only ${s.charge_stops.countries.join(', ')}` : 'every country on the route'}, charge to ${s.charge_stops.charge_to_pct}%)` : 'off'}`);
     return { ok: true, charge_stops: chargestops.view() };
   },
 

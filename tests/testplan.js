@@ -38,7 +38,7 @@ const UNIT = [
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
   ['pricebasis', 'Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26)'],
   ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31)'],
-  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
+  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
   ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
   ['compat', 'Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28)'],

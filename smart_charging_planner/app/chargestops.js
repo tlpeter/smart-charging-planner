@@ -16,8 +16,10 @@
 // remembered (/data/chargestops.json), so a plan never waits for it. Station
 // data is not live: a station can be busy or out of order.
 //
-// Countries and operators: the Netherlands and Belgium for now (#40 adds the
-// rest of Europe).
+// Countries and operators: all of Europe (#40). A route that crosses a border
+// gets stations in every country on it, unless you limit it to your countries.
+// A long trip can need more than one stop (#40): the app plans them one after
+// the other, each as far as the battery allows.
 
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
@@ -35,34 +37,94 @@ const MAX_POINTS = 250; // the route line sent to Open Charge Map
 const SHOW = 3; // suggestions per trip
 const CHECK = 8; // stations whose real detour by road is looked up (#41)
 const FAR_DETOUR_KM = 25; // a longer detour is only shown when nothing else fits
+const MAX_STOPS = 40; // a safety limit for very long trips (#40), not a normal limit
 
-const COUNTRIES = { NL: 'Netherlands', BE: 'Belgium' };
+// European countries (ISO codes, as Open Charge Map sends them) (#40).
+const COUNTRIES = {
+  AL: 'Albania', AD: 'Andorra', AT: 'Austria', BE: 'Belgium', BA: 'Bosnia and Herzegovina', BG: 'Bulgaria',
+  HR: 'Croatia', CY: 'Cyprus', CZ: 'Czechia', DK: 'Denmark', EE: 'Estonia', FI: 'Finland', FR: 'France',
+  DE: 'Germany', GR: 'Greece', HU: 'Hungary', IS: 'Iceland', IE: 'Ireland', IT: 'Italy', XK: 'Kosovo',
+  LV: 'Latvia', LI: 'Liechtenstein', LT: 'Lithuania', LU: 'Luxembourg', MT: 'Malta', MD: 'Moldova',
+  MC: 'Monaco', ME: 'Montenegro', NL: 'Netherlands', MK: 'North Macedonia', NO: 'Norway', PL: 'Poland',
+  PT: 'Portugal', RO: 'Romania', SM: 'San Marino', RS: 'Serbia', SK: 'Slovakia', SI: 'Slovenia',
+  ES: 'Spain', SE: 'Sweden', CH: 'Switzerland', UA: 'Ukraine', GB: 'United Kingdom',
+};
+const ALL = Object.keys(COUNTRIES);
 
-// The main charging operators in the Netherlands and Belgium. `match` finds
-// the operator in the station data (Open Charge Map uses names such as
-// "Allego BV" or "Tesla Motors (Worldwide)"). fast: mainly fast charging.
+// The main charging operators. `match` finds the operator in the station data
+// (Open Charge Map uses names such as "Allego BV", "Tesla Motors (Worldwide)"
+// or "EnBW Energie Baden-Württemberg AG"); the first match wins, so a name
+// that contains another one ("Shell Recharge") comes before it.
+// countries: where it mainly operates (for the list on the settings page).
+// fast: mainly fast charging.
 const OPERATORS = [
-  { id: 'fastned', name: 'Fastned', countries: ['NL', 'BE'], fast: true, match: /fastned/i },
-  { id: 'tesla', name: 'Tesla Supercharger', countries: ['NL', 'BE'], fast: true, match: /tesla/i },
-  { id: 'ionity', name: 'IONITY', countries: ['NL', 'BE'], fast: true, match: /ionity/i },
-  { id: 'allego', name: 'Allego', countries: ['NL', 'BE'], fast: true, match: /allego/i },
-  { id: 'shell', name: 'Shell Recharge', countries: ['NL', 'BE'], fast: true, match: /shell|newmotion/i },
-  { id: 'bp', name: 'bp pulse', countries: ['NL', 'BE'], fast: true, match: /\bbp\b|bp ?pulse/i },
-  { id: 'totalenergies', name: 'TotalEnergies', countries: ['NL', 'BE'], fast: true, match: /total ?energies|^total\b/i },
-  { id: 'electra', name: 'Electra', countries: ['BE'], fast: true, match: /electra/i },
+  // Across Europe.
+  { id: 'ionity', name: 'IONITY', countries: ALL, fast: true, match: /ionity/i },
+  { id: 'tesla', name: 'Tesla Supercharger', countries: ALL, fast: true, match: /tesla/i },
+  { id: 'fastned', name: 'Fastned', countries: ['NL', 'BE', 'DE', 'FR', 'CH', 'GB', 'DK'], fast: true, match: /fastned/i },
+  { id: 'allego', name: 'Allego', countries: ['NL', 'BE', 'DE', 'FR', 'DK', 'SE', 'NO', 'GB', 'AT'], fast: true, match: /allego/i },
+  { id: 'electra', name: 'Electra', countries: ['FR', 'BE', 'IT', 'NL', 'CH', 'ES', 'DE'], fast: true, match: /electra\b/i },
+  { id: 'shell', name: 'Shell Recharge', countries: ['NL', 'BE', 'DE', 'GB', 'FR', 'AT', 'CH'], fast: true, match: /shell|newmotion|ubitricity/i },
+  { id: 'bp', name: 'bp pulse', countries: ['NL', 'BE', 'GB', 'ES', 'PL'], fast: true, match: /\bbp\b|bp ?pulse|bp ?chargemaster/i },
+  { id: 'aral', name: 'Aral pulse', countries: ['DE'], fast: true, match: /\baral\b/i },
+  { id: 'totalenergies', name: 'TotalEnergies', countries: ['NL', 'BE', 'FR', 'DE', 'LU', 'IT', 'GB'], fast: true, match: /total ?energies|^total\b/i },
+  { id: 'circlek', name: 'Circle K', countries: ['NO', 'SE', 'DK', 'IE', 'PL', 'EE', 'LV', 'LT'], fast: true, match: /circle ?k\b/i },
+  { id: 'mer', name: 'Mer', countries: ['NO', 'SE', 'DE', 'GB'], fast: true, match: /^mer\b|\bmer (germany|norway|sweden|uk|solutions)/i },
+  { id: 'recharge', name: 'Recharge', countries: ['NO', 'SE', 'FI'], fast: true, match: /^recharge\b/i },
+  { id: 'powerdot', name: 'Power Dot', countries: ['PT', 'FR', 'ES', 'PL', 'BE', 'LU'], fast: true, match: /power ?dot/i },
+  { id: 'eon', name: 'E.ON Drive', countries: ['DE', 'DK', 'SE', 'IT', 'CZ', 'GB'], fast: true, match: /\be\.on\b|\beon\b/i },
+  // Netherlands and Belgium.
   { id: 'leap24', name: 'LEAP24', countries: ['NL'], fast: true, match: /leap ?24/i },
-  { id: 'avia', name: 'AVIA Volt', countries: ['NL'], fast: true, match: /avia/i },
+  { id: 'avia', name: 'AVIA Volt', countries: ['NL', 'CH'], fast: true, match: /avia/i },
   { id: 'tango', name: 'Tango', countries: ['NL'], fast: true, match: /tango/i },
   { id: 'powerdale', name: 'Powerdale', countries: ['BE'], fast: true, match: /powerdale/i },
   { id: 'dats24', name: 'DATS 24', countries: ['BE'], fast: true, match: /dats ?24/i },
-  { id: 'engie', name: 'Engie Vianeo', countries: ['BE'], fast: false, match: /engie|vianeo/i },
-  { id: 'lidl', name: 'Lidl', countries: ['NL', 'BE'], fast: false, match: /lidl/i },
-  { id: 'vattenfall', name: 'Vattenfall InCharge', countries: ['NL'], fast: false, match: /vattenfall|incharge/i },
+  // Germany and Austria.
+  { id: 'enbw', name: 'EnBW', countries: ['DE', 'AT'], fast: true, match: /enbw/i },
+  { id: 'ewego', name: 'EWE Go', countries: ['DE'], fast: true, match: /ewe ?go|\bewe\b/i },
+  { id: 'smatrics', name: 'SMATRICS', countries: ['AT'], fast: true, match: /smatrics/i },
+  // Switzerland.
+  { id: 'gofast', name: 'GOFAST', countries: ['CH'], fast: true, match: /gofast/i },
+  { id: 'move', name: 'MOVE', countries: ['CH'], fast: true, match: /^move\b|move mobility/i },
+  // France.
+  { id: 'izivia', name: 'Izivia', countries: ['FR'], fast: true, match: /izivia|corri-?door/i },
+  // Italy.
+  { id: 'atlante', name: 'Atlante', countries: ['IT', 'FR', 'ES', 'PT'], fast: true, match: /atlante/i },
+  { id: 'ewiva', name: 'Ewiva', countries: ['IT'], fast: true, match: /ewiva/i },
+  { id: 'enelx', name: 'Enel X Way', countries: ['IT', 'ES'], fast: true, match: /\benel\b/i },
+  { id: 'freetox', name: 'Free To X', countries: ['IT'], fast: true, match: /free ?to ?x/i },
+  { id: 'becharge', name: 'Be Charge (Plenitude)', countries: ['IT'], fast: true, match: /be ?charge|plenitude/i },
+  // Spain and Portugal.
+  { id: 'iberdrola', name: 'Iberdrola', countries: ['ES', 'PT'], fast: true, match: /iberdrola/i },
+  { id: 'zunder', name: 'Zunder', countries: ['ES', 'PT', 'FR'], fast: true, match: /zunder/i },
+  { id: 'endesa', name: 'Endesa X', countries: ['ES'], fast: true, match: /endesa/i },
+  { id: 'repsol', name: 'Repsol', countries: ['ES', 'PT'], fast: true, match: /repsol/i },
+  { id: 'wenea', name: 'Wenea', countries: ['ES'], fast: true, match: /wenea/i },
+  // The Nordic countries.
+  { id: 'clever', name: 'Clever', countries: ['DK', 'SE', 'DE'], fast: true, match: /clever/i },
+  { id: 'okq8', name: 'OKQ8', countries: ['SE'], fast: true, match: /okq8/i },
+  { id: 'eviny', name: 'Eviny', countries: ['NO'], fast: true, match: /eviny|bkk/i },
+  // Central and Eastern Europe.
+  { id: 'orlen', name: 'Orlen Charge', countries: ['PL', 'CZ', 'SK', 'DE', 'LT'], fast: true, match: /orlen/i },
+  { id: 'greenway', name: 'GreenWay', countries: ['PL', 'SK'], fast: true, match: /green ?way/i },
+  { id: 'cez', name: 'ČEZ', countries: ['CZ'], fast: true, match: /\bcez\b|čez/i },
+  // United Kingdom and Ireland.
+  { id: 'gridserve', name: 'GRIDSERVE', countries: ['GB'], fast: true, match: /gridserve/i },
+  { id: 'instavolt', name: 'InstaVolt', countries: ['GB', 'IS'], fast: true, match: /instavolt/i },
+  { id: 'osprey', name: 'Osprey', countries: ['GB'], fast: true, match: /osprey/i },
+  { id: 'esb', name: 'ESB ecars', countries: ['IE', 'GB'], fast: true, match: /\besb\b/i },
+  // Luxembourg.
+  { id: 'chargy', name: 'Chargy', countries: ['LU'], fast: false, match: /chargy/i },
+  // Mainly normal charging.
+  { id: 'engie', name: 'Engie Vianeo', countries: ['BE', 'FR'], fast: false, match: /engie|vianeo/i },
+  { id: 'lidl', name: 'Lidl', countries: ['NL', 'BE', 'DE', 'FR', 'AT', 'IT', 'ES', 'PL'], fast: false, match: /lidl/i },
+  { id: 'vattenfall', name: 'Vattenfall InCharge', countries: ['NL', 'DE', 'SE'], fast: false, match: /vattenfall|incharge/i },
   { id: 'equans', name: 'Equans', countries: ['NL'], fast: false, match: /equans/i },
   { id: 'eneco', name: 'Eneco', countries: ['NL'], fast: false, match: /eneco/i },
   { id: 'pitpoint', name: 'PitPoint', countries: ['NL'], fast: false, match: /pitpoint/i },
   { id: 'bluecorner', name: 'Blue Corner', countries: ['BE'], fast: false, match: /blue ?corner/i },
   { id: 'wattif', name: 'Wattif', countries: ['BE'], fast: false, match: /wattif/i },
+  { id: 'podpoint', name: 'Pod Point', countries: ['GB'], fast: false, match: /pod ?point/i },
 ];
 
 // Connectors: Open Charge Map connection type ids, with the name as a fallback.
@@ -76,11 +138,17 @@ const DEFAULTS = {
   enabled: false,
   api_key: '',
   countries: ['NL'],
+  only_countries: false, // false: stations in every country on the route count (#40)
   operators: [],
   min_power_kw: 50,
   connectors: ['ccs'],
   max_detour_km: 5,
   reserve_pct: 10,
+  charge_to_pct: 80, // how far to charge at a stop when more stops follow (#40)
+  // The lowest level to arrive with at a charger (#40). Most cars charge
+  // fastest when nearly empty: below reserve_pct the app looks for a station,
+  // and it may drive on to this level to reach one. Not above reserve_pct.
+  arrive_min_pct: 10,
 };
 
 let configFn = () => ({});
@@ -94,6 +162,13 @@ function config() {
   c.operators = (Array.isArray(c.operators) ? c.operators : []).filter((x) => OPERATORS.some((o) => o.id === x));
   c.connectors = (Array.isArray(c.connectors) ? c.connectors : []).filter((x) => CONNECTORS[x]);
   if (!c.connectors.length) c.connectors = [...DEFAULTS.connectors];
+  c.only_countries = c.only_countries === true;
+  const to = Number(c.charge_to_pct);
+  c.charge_to_pct = Number.isFinite(to) && to >= 50 && to <= 100 ? to : DEFAULTS.charge_to_pct;
+  const res = Number(c.reserve_pct);
+  c.reserve_pct = Number.isFinite(res) && res >= 0 && res <= 50 ? res : DEFAULTS.reserve_pct;
+  const low = Number(c.arrive_min_pct);
+  c.arrive_min_pct = Math.min(c.reserve_pct, Number.isFinite(low) && low >= 0 && low <= 50 ? low : DEFAULTS.arrive_min_pct);
   return c;
 }
 function enabled() {
@@ -127,12 +202,25 @@ function clean(body, saved = {}) {
     enabled: b.enabled === true,
     api_key: key,
     countries: list(b.countries, (x) => !!COUNTRIES[x]),
+    only_countries: b.only_countries === true,
     operators: list(b.operators, (x) => OPERATORS.some((o) => o.id === x)),
     min_power_kw: num(b.min_power_kw, 'Minimum power', 3, 400, DEFAULTS.min_power_kw),
     connectors: list(b.connectors, (x) => !!CONNECTORS[x]),
     max_detour_km: num(b.max_detour_km, 'Maximum detour', 1, 30, DEFAULTS.max_detour_km),
     reserve_pct: num(b.reserve_pct, 'Suggest a stop below', 0, 50, DEFAULTS.reserve_pct),
+    charge_to_pct: num(b.charge_to_pct, 'Charge to at a stop', 50, 100, DEFAULTS.charge_to_pct),
   };
+  out.arrive_min_pct = num(b.arrive_min_pct, 'Arrive at a charger with at least', 0, 50, Math.min(DEFAULTS.arrive_min_pct, out.reserve_pct));
+  if (out.arrive_min_pct > out.reserve_pct) {
+    const err = new Error('Arrive at a charger with at least: not above the level for a stop');
+    err.status = 400;
+    throw err;
+  }
+  if (out.charge_to_pct < out.reserve_pct + 20) {
+    const err = new Error('Charge to at a stop: at least 20% above the level for a stop');
+    err.status = 400;
+    throw err;
+  }
   if (!out.countries.length) {
     const err = new Error('Choose at least one country');
     err.status = 400;
@@ -158,7 +246,7 @@ function view(c = config()) {
     ...rest,
     has_key: !!key,
     routing_online: tripcost.routing().online,
-    country_list: Object.entries(COUNTRIES).map(([code, name]) => ({ code, name })),
+    country_list: Object.entries(COUNTRIES).map(([code, name]) => ({ code, name })).sort((a, b) => a.name.localeCompare(b.name)),
     operator_list: OPERATORS.map(({ id, name, countries, fast }) => ({ id, name, countries, fast })),
     connector_list: Object.entries(CONNECTORS).map(([id, x]) => ({ id, name: x.name })),
   };
@@ -405,14 +493,18 @@ function routeOf(home, dest, now) {
   return r || null;
 }
 
-function stationsOf(key, line, detourKm, now) {
+// How many stations to ask for: more on a longer route (#40), so a trip across
+// Europe does not stop at the first few hundred stations.
+const maxResults = (km) => Math.min(5000, Math.max(300, Math.round((km || 0) * 3)));
+
+function stationsOf(key, line, detourKm, minKw, routeKm, now) {
   const corridor = Math.max(0.5, detourKm / 2);
-  const skey = `${key}|${corridor}`;
+  const skey = `${key}|${corridor}|${minKw}`;
   const s = load().stations[skey];
   const stale = !s || (s.error ? now - s.at > ERROR_RETRY : now - s.at > STATION_TTL);
   if (stale) {
     enqueue(`stations:${skey}`, async () => {
-      const q = new URLSearchParams({ output: 'json', polyline: line, distance: String(corridor), distanceunit: 'km', maxresults: '300', compact: 'false', verbose: 'false', client: 'SmartChargingPlanner' });
+      const q = new URLSearchParams({ output: 'json', polyline: line, distance: String(corridor), distanceunit: 'km', minpowerkw: String(minKw), maxresults: String(maxResults(routeKm)), compact: 'false', verbose: 'false', client: 'SmartChargingPlanner' });
       let rec;
       try {
         const res = await getJson(`${OCM_URL}?${q}`, { 'X-API-Key': config().api_key });
@@ -462,18 +554,28 @@ function viaKm(rkey, from, s, to, back, now) {
 // socEnd: the level when it is back (can be below 0); pctPerKm: battery % per
 // km (without the margin); capacityKwh: the battery.
 // Returns null when charging stops are off or the trip does not need one, else
-// { status, reserve_pct, need_pct, need_kwh, reach_km, route_km, stops: [...] }.
+// { status, reserve_pct, need_pct, need_kwh, reach_km, route_km, legs: [...],
+//   stops: [...] }.
+// The trip is there and back. A stop is planned as far along as the battery
+// allows; when the battery is not enough after it either, the next stop follows
+// from there (#40). legs: one per stop, each with up to three stations; the
+// next stop is planned from the first station of the one before. stops: the
+// stations of the first stop (as before #40).
 // status: 'ok' | 'pending' | 'needs_routing' | 'no_key' | 'no_position' |
-// 'no_route' | 'bad_key' | 'failed' | 'none' (no station fits).
+// 'no_route' | 'bad_key' | 'failed' | 'none' (no station fits) | 'partial'
+// (the first stops fit, but from gap_km on no station does).
 function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Date.now() }) {
   const c = config();
   if (!c.enabled || socEnd == null || !(socEnd < c.reserve_pct)) return null;
   const needPct = Math.round((c.reserve_pct - socEnd) * 10) / 10;
   const base = {
     reserve_pct: c.reserve_pct,
+    arrive_min_pct: c.arrive_min_pct,
+    charge_to_pct: c.charge_to_pct,
     need_pct: needPct,
     need_kwh: capacityKwh > 0 ? Math.round((needPct / 100) * capacityKwh * 10) / 10 : null,
     stops: [],
+    legs: [],
   };
   if (!tripcost.routing().online) return { ...base, status: 'needs_routing' };
   if (!c.api_key) return { ...base, status: 'no_key' };
@@ -481,81 +583,169 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
   const route = routeOf(home, dest, now);
   if (!route) return { ...base, status: 'pending' };
   if (route.error) return { ...base, status: route.error === 'no_route' ? 'no_route' : 'failed' };
-  const st = stationsOf(routeKey(home, dest), route.line, c.max_detour_km, now);
+  const st = stationsOf(routeKey(home, dest), route.line, c.max_detour_km, c.min_power_kw, route.km, now);
   if (!st) return { ...base, status: 'pending', route_km: Math.round(route.km) };
   if (st.error) return { ...base, status: st.error === 'bad_key' ? 'bad_key' : 'failed', route_km: Math.round(route.km) };
 
-  // How far the car gets before it drops to the reserve (with the same 10 %
-  // margin as the trip cost). When the car reaches the destination with
-  // enough left, the stop is on the way back (#41): from the destination.
-  const use = pctPerKm > 0 ? pctPerKm * tripcost.MARGIN : null;
-  const arrive = use && socLeave != null ? socLeave - route.km * use : null;
-  const back = arrive != null && arrive >= c.reserve_pct;
-  const reach = use && socLeave != null ? Math.max(0, ((back ? arrive : socLeave) - c.reserve_pct) / use) : null;
+  // Battery use per km, with the same 10 % margin as the trip cost. When the
+  // trip's own cost says more (for example more places on the way), that.
+  const R = route.km;
+  const trip = 2 * R; // there and back
+  const own = socLeave != null && trip > 0 ? (socLeave - socEnd) / trip : 0;
+  const use = pctPerKm > 0 ? Math.max(pctPerKm * tripcost.MARGIN, own) : null;
   const points = decodePolyline(route.line);
   const prefer = new Set(c.operators);
+  // Every station that fits your settings, with its place on the route line.
+  // The line can be a little shorter than the road: scale to the road.
+  let scale = 1;
   const near = [];
   for (const s of st.list) {
-    if (s.country && !c.countries.includes(s.country)) continue;
+    if (c.only_countries && s.country && !c.countries.includes(s.country)) continue;
     const plugs = c.connectors.filter((k) => s.connectors[k] && s.connectors[k].kw >= c.min_power_kw);
     if (!plugs.length) continue;
     const pos = onRoute(points, s);
     if (pos.off * 2 > c.max_detour_km) continue;
-    // Reach the station (along the route, then off it) before the reserve.
-    const from = back ? pos.total - pos.along : pos.along;
-    if (reach != null && from + pos.off > reach) continue;
+    scale = pos.total > 0 ? R / pos.total : 1;
     near.push({ s, plugs, pos, preferred: !!s.operator_id && prefer.has(s.operator_id) });
   }
-  // The real detour by road for the closest stations (your operators first).
-  near.sort((a, b) => (b.preferred - a.preferred) || (a.pos.off - b.pos.off));
-  const check = near.slice(0, CHECK);
+  // Each station is on the trip twice: on the way there and on the way back.
+  // p: km from the start of the trip (there and back) to that point.
+  const spots = [];
+  for (const y of near) {
+    const along = y.pos.along * scale;
+    spots.push({ ...y, along, back: false, p: along });
+    spots.push({ ...y, along, back: true, p: trip - along });
+  }
+
   const rkey = routeKey(home, dest);
   let waiting = false;
-  for (const x of check) {
-    const km = back ? viaKm(rkey, dest, x.s, home, true, now) : viaKm(rkey, home, x.s, dest, false, now);
-    if (km === null) waiting = true;
-    // When the lookup failed: the straight estimate.
-    x.detour = Number.isFinite(km) ? Math.max(0, km - route.km) : x.pos.off * 2;
-  }
-  const common = { route_km: Math.round(route.km), reach_km: reach == null ? null : Math.round(reach), on_way_back: back };
-  if (waiting) return { ...base, ...common, status: 'pending' };
-  const item = (x, far) => {
-    const kw = Math.max(...x.plugs.map((k) => x.s.connectors[k].kw));
-    return {
-      id: x.s.id,
-      name: x.s.name,
-      town: x.s.town,
-      country: x.s.country,
-      operator: x.s.operator,
-      preferred: x.preferred,
-      power_kw: Math.round(kw),
-      connectors: x.plugs.map((k) => CONNECTORS[k].name),
-      points: x.plugs.reduce((a, k) => a + x.s.connectors[k].count, 0),
-      km_from_home: Math.round(x.pos.along),
-      detour_km: Math.round(x.detour * 10) / 10,
-      ...(far ? { longer_detour: true } : {}),
-      url: `https://map.openchargemap.io/?id=${encodeURIComponent(x.s.id)}`,
-    };
+  // The best stations for one stop: the real detour by road for the closest
+  // (your operators first), then the smallest detour.
+  const choose = (pool) => {
+    pool.sort((a, b) => (b.preferred - a.preferred) || (a.pos.off - b.pos.off) || (b.p - a.p));
+    const check = pool.slice(0, CHECK);
+    let wait = false;
+    for (const x of check) {
+      const km = x.back ? viaKm(rkey, dest, x.s, home, true, now) : viaKm(rkey, home, x.s, dest, false, now);
+      if (km === null) wait = true;
+      // When the lookup failed: the straight estimate.
+      x.detour = Number.isFinite(km) ? Math.max(0, km - R) : x.pos.off * 2;
+    }
+    if (wait) return null;
+    // Within the maximum detour by road. When none is: the others up to a
+    // longer detour (for example the other side of a motorway), marked as such.
+    let fits = check.filter((x) => x.detour <= c.max_detour_km);
+    const longer = !fits.length;
+    if (longer) fits = check.filter((x) => x.detour <= Math.max(FAR_DETOUR_KM, c.max_detour_km * 3));
+    // Your operators first: other operators only when none of yours fits. Then
+    // the smallest detour, then the most power.
+    const mine = fits.filter((x) => x.preferred);
+    const pick = mine.length ? mine : fits;
+    const kw = (x) => Math.max(...x.plugs.map((k) => x.s.connectors[k].kw));
+    pick.sort((a, b) => (a.detour - b.detour) || (kw(b) - kw(a)));
+    // A station once, also when it fits on the way there and on the way back.
+    const seen = new Set();
+    const unique = pick.filter((x) => !seen.has(x.s.id) && seen.add(x.s.id));
+    return { pick: unique, longer: longer && pick.length > 0, others: prefer.size > 0 && !mine.length && fits.length > 0 };
   };
-  // Within the maximum detour by road. When none is: the others up to a
-  // longer detour (for example the other side of a motorway), marked as such.
-  let fits = check.filter((x) => x.detour <= c.max_detour_km);
-  const longer = !fits.length;
-  if (longer) fits = check.filter((x) => x.detour <= Math.max(FAR_DETOUR_KM, c.max_detour_km * 3));
-  // Your operators first: other operators only when none of yours fits. Then
-  // the smallest detour, then the most power.
-  const mine = fits.filter((x) => x.preferred);
-  const pick = (mine.length ? mine : fits).map((x) => item(x, longer));
-  pick.sort((a, b) => (a.detour_km - b.detour_km) || (b.power_kw - a.power_kw));
+  const item = (x, far) => ({
+    id: x.s.id,
+    name: x.s.name,
+    town: x.s.town,
+    country: x.s.country,
+    operator: x.s.operator,
+    preferred: x.preferred,
+    power_kw: Math.round(Math.max(...x.plugs.map((k) => x.s.connectors[k].kw))),
+    connectors: x.plugs.map((k) => CONNECTORS[k].name),
+    points: x.plugs.reduce((a, k) => a + x.s.connectors[k].count, 0),
+    km_from_home: Math.round(x.along),
+    km_on_trip: Math.round(x.p),
+    on_way_back: x.back,
+    detour_km: Math.round(x.detour * 10) / 10,
+    ...(far ? { longer_detour: true } : {}),
+    url: `https://map.openchargemap.io/?id=${encodeURIComponent(x.s.id)}`,
+  });
+
+  const legs = [];
+  let gap = null;
+  // Reach: down to the lowest level to arrive with at a charger. Below the
+  // level for a stop the app looks for one (#40).
+  const low = c.arrive_min_pct;
+  const range0 = use && socLeave != null ? Math.max(0, (socLeave - low) / use) : null;
+  if (range0 == null) {
+    // The use per km or the level is not known: one stop, anywhere on the way there.
+    const got = choose(spots.filter((x) => !x.back));
+    if (!got) waiting = true;
+    else if (!got.pick.length) gap = 0;
+    else legs.push({ got, first: got.pick[0], arrive: null, to: null });
+  } else {
+    // How far a stop gets you: from the reserve up to "charge to".
+    const full = Math.max(0, (c.charge_to_pct - c.reserve_pct) / use);
+    let x = 0;
+    let soc = socLeave;
+    for (let n = 0; n < MAX_STOPS; n++) {
+      // Home again above the level for a stop: no (more) stop needed.
+      if (x + Math.max(0, (soc - c.reserve_pct) / use) >= trip) break;
+      const range = Math.max(0, (soc - low) / use);
+      // Stations ahead that the car reaches with at least the lowest level
+      // (along the route, then off it).
+      const ahead = spots.filter((y) => y.p > x + (n ? 1 : -1) && y.p + y.pos.off <= x + range);
+      // A stop after which the rest of the trip fits; else one where the car
+      // arrives below the level for a stop (fast charging when nearly empty);
+      // else one far along (the second half of the reach), so there are not
+      // more stops than needed.
+      const search = x + Math.max(0, (soc - c.reserve_pct) / use);
+      const last = ahead.filter((y) => y.p + full >= trip);
+      const low2 = ahead.filter((y) => y.p >= search);
+      const late = ahead.filter((y) => y.p >= x + range / 2);
+      const pool = last.length ? last : low2.length ? low2 : late.length ? late : ahead;
+      if (!pool.length) { gap = x; break; }
+      const got = choose(pool.map((y) => ({ ...y })));
+      if (!got) { waiting = true; break; }
+      if (!got.pick.length) { gap = x; break; }
+      const first = got.pick[0];
+      const arrive = soc - (first.p - x) * use;
+      // At the last stop: only what the rest needs (rounded up), at most "charge to".
+      const fin = first.p + full >= trip;
+      const to = fin ? Math.min(c.charge_to_pct, Math.ceil(c.reserve_pct + (trip - first.p) * use)) : c.charge_to_pct;
+      legs.push({ got, first, arrive, to });
+      if (!(first.p > x)) { gap = x; break; } // never stand still
+      x = first.p;
+      soc = to;
+      if (n === MAX_STOPS - 1 && x + Math.max(0, (soc - c.reserve_pct) / use) < trip) gap = x;
+    }
+  }
+
+  const common = {
+    route_km: Math.round(R),
+    reach_km: range0 == null ? null : Math.round(range0),
+    stops_needed: legs.length,
+  };
+  if (waiting) return { ...base, ...common, status: 'pending' };
+  const out = legs.map((l, i) => ({
+    n: i + 1,
+    km_on_trip: Math.round(l.first.p),
+    on_way_back: l.first.back,
+    arrive_pct: l.arrive == null ? null : Math.round(l.arrive),
+    charge_to_pct: l.to,
+    stations: l.got.pick.slice(0, SHOW).map((x) => item(x, l.got.longer)),
+    found: l.got.pick.length,
+    longer_only: l.got.longer,
+    others_only: l.got.others,
+  }));
+  const first = out[0];
   return {
     ...base,
     ...common,
-    status: pick.length ? 'ok' : 'none',
-    stops: pick.slice(0, SHOW),
-    found: pick.length,
-    longer_only: longer && pick.length > 0,
-    // You chose operators, but none of them is on the way: these are others.
-    others_only: prefer.size > 0 && !mine.length && fits.length > 0,
+    status: gap != null ? (out.length ? 'partial' : 'none') : out.length ? 'ok' : 'none',
+    ...(gap != null ? { gap_km: Math.round(gap) } : {}),
+    legs: out,
+    // The first stop, as before more stops (#40).
+    stops: first ? first.stations : [],
+    found: first ? first.found : 0,
+    on_way_back: first ? first.on_way_back : false,
+    longer_only: first ? first.longer_only : false,
+    others_only: first ? first.others_only : false,
   };
 }
 
@@ -580,7 +770,7 @@ function idle() {
 }
 
 module.exports = {
-  COUNTRIES, OPERATORS, CONNECTORS, DEFAULTS,
+  COUNTRIES, OPERATORS, CONNECTORS, DEFAULTS, MAX_STOPS,
   setConfig, config, enabled, clean, view, suggest, onUpdate, setUserAgent,
   decodePolyline, encodePolyline, thin, onRoute, shortStation, operatorOf, connectorOf,
   reset, idle,
