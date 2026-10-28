@@ -42,7 +42,7 @@ const UNIT = [
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
   ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
   ['compat', 'Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28)'],
-  ['page', 'The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed (#47)'],
+  ['page', 'The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47)'],
   ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.18-dev
+
+- **The route map in one click:** a trip with charging stops gets a map icon 🗺 in its line in Looking ahead. It opens the route map in a big window without opening the day (close with ✕, Esc or a click next to it). Needs Route map set to OpenStreetMap or your own tile server; map images load only when the window opens. (#47)
+
 ## 0.36.17-dev
 
 - **Removed again: charging stops on the Home Assistant map** (from 0.36.14-dev to 0.36.16-dev). A Home Assistant map shows points but cannot draw the planned route, so the app's own route map is used instead. The option, the sensors `sensor.smart_charging_stop_*` and `sensor.smart_charging_trip_destination`, the Browser Mod popup and the Browser Mod requirement are gone. If you tried it: the sensors disappear when Home Assistant restarts. (#47)

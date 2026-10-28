@@ -1011,6 +1011,14 @@
     .cstops-best { margin: 6px 0 2px; font-size: 13px; }
     .cstops-or { margin-top: 4px; }
     /* The route on a map (#47). */
+    .tl-map { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 0 6px; margin: 0 0 0 4px; min-height: 0; width: auto; font-size: 14px; line-height: 1.6; cursor: pointer; vertical-align: baseline; }
+    .tl-map:hover { border-color: var(--accent); }
+    .map-dialog { width: min(1000px, 96vw); max-width: 96vw; max-height: 94vh; padding: 12px; border: 0; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+    .map-dialog::backdrop { background: rgba(0,0,0,.45); }
+    .map-dialog-head { display: flex; align-items: center; gap: 8px; }
+    .map-dialog-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .map-dialog-close { margin-left: auto; border: 0; background: none; font-size: 18px; min-height: 0; width: auto; padding: 2px 8px; cursor: pointer; color: var(--muted); }
+    .map-dialog .map-box { margin: 8px 0 6px; }
     .cstops-map { margin: 8px 0; }
     .cstops-map > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
     .map-box { position: relative; overflow: hidden; margin: 8px 0 4px; border-radius: 8px; background: #e8e6df; width: 100%; }

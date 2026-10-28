@@ -92,6 +92,28 @@ check('the route map (#47): the zoom fits every point, the tiles cover the map, 
   assert.ok(html.includes('class="cstops-map"') && !html.includes('<img'), 'the trip block must not contain map images');
 });
 
+check('the map icon in Looking ahead (#47): only for a trip with a route map; opens the big map in one click without opening the day; no map images before that', () => {
+  const start = src.indexOf('    function mapDataOf(c) {');
+  const end = src.indexOf('\n    }\n', start) + 7;
+  assert.ok(start > 0 && end > start, 'mapDataOf not found');
+  const ctx = vm.createContext({});
+  vm.runInContext(src.slice(start, end) + '\nthis.mapDataOf = mapDataOf;', ctx);
+  const station = (name, lat) => ({ name, lat, lon: 3.0 });
+  const c = { map: { tiles: 't/{z}/{x}/{y}', line: 'abc', home: { lat: 54, lon: 3 }, dest: { lat: 56, lon: 3 } },
+    legs: [{ n: 1, stations: [station('A', 54.5), station('B', 54.6)] }, { n: 2, stations: [] }] };
+  const d = JSON.parse(JSON.stringify(ctx.mapDataOf(c)));
+  assert.deepEqual(d.stops, [{ n: 1, stations: [{ lat: 54.5, lon: 3, name: 'A' }, { lat: 54.6, lon: 3, name: 'B' }] }]);
+  assert.equal(ctx.mapDataOf({ ...c, map: undefined }), null); // no route map chosen: no icon
+  assert.equal(ctx.mapDataOf({ ...c, legs: [{ n: 1, stations: [] }] }), null); // no station position: no icon
+  // The icon is in the day's line, only when there is map data.
+  assert.match(src, /const mapBtn = md \? ` <button type="button" class="tl-map" data-route-map=/);
+  // One click: the day does not open or close, and the map is drawn in the window.
+  const click = src.slice(src.indexOf("closest('[data-route-map]')"), src.indexOf("window.addEventListener('resize', drawMapDialog);"));
+  assert.ok(click.includes('e.preventDefault()') && click.includes('e.stopPropagation()') && click.includes('openMapDialog('), 'the click must not toggle the day');
+  // No map images in the page until the window is opened: only drawMap makes tiles.
+  assert.ok(!src.slice(src.indexOf('    function mapDialog() {'), src.indexOf('    function drawMapDialog() {')).includes('<img'));
+});
+
 check('the reload every minute leaves Home as it is when nothing changed', () => {
   const from = src.indexOf('    async function loadOverview(');
   const body = src.slice(from, src.indexOf("    window.addEventListener('resize'", from));

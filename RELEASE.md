@@ -51,7 +51,7 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.36.17-dev
+## Current candidate: 0.36.18-dev
 
 Stable main is 0.35.0 (release v0.35.0: #26, #31, #37, #41, #42, #43, #44, #45). Earlier: 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
@@ -65,7 +65,7 @@ Home check for #46: set the car location (and, if you like, yourself as person) 
 
 Home check for #40: under Plan › Charging stops on the way, tick Germany or France too and Save. Put a far trip in the calendar (for example 600 km away, there and back): Looking ahead should show "charge on the way (N stops)" and one block per stop with the level on arrival and "charge to". Check a few stations on the map: are they on the motorway, and are the operators you know recognised? Set "Arrive at a charger with at least" to 5 %: the stops should move further along, arriving between 5 and 10 %. Tick "Only suggest stops in these countries" with only the Netherlands: stations abroad should disappear.
 
-Home check for #47: set Route map to OpenStreetMap under Plan › Charging stops on the way. Open a day with a far trip in Looking ahead and open "Show the route on a map": the map should show the route with H, D and the numbered stops, on the phone and on a computer. It should stay open when Home reloads. Try "Open on openstreetmap.org".
+Home check for #47: set Route map to OpenStreetMap under Plan › Charging stops on the way. In Looking ahead, the line of a far trip should have a map icon 🗺: one click opens the big map without opening the day (close with ✕, Esc or next to it). Open a day with a far trip in Looking ahead and open "Show the route on a map": the map should show the route with H, D and the numbered stops, on the phone and on a computer. It should stay open when Home reloads. Try "Open on openstreetmap.org".
 
 Home check for #51: open a day in Looking ahead and Plan details on Home and wait two minutes: both should stay open. Close one again: it should stay closed.
 

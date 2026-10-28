@@ -1192,7 +1192,10 @@ function durationText(minutes) {
       if (!w || !el.dataset.map) return; // not visible yet: drawn when it is opened
       let m;
       try { m = JSON.parse(el.dataset.map); } catch { return; }
-      const h = Math.round(Math.min(440, Math.max(260, w * 0.7)));
+      drawMap(box, m, w, Math.round(Math.min(440, Math.max(260, w * 0.7))));
+    }
+    // Draw a route map (tiles, the route, H, D and the stops) in a box of w × h.
+    function drawMap(box, m, w, h) {
       const line = decodeLine(m.line || '');
       const stations = m.stops.flatMap((s) => s.stations);
       const L = mapLayout([...line, m.home, m.dest, ...stations], w, h);
@@ -1210,6 +1213,61 @@ function durationText(minutes) {
           ${alts.join('')}${dot(m.dest, 'D', 'map-end', 'Destination')}${dot(m.home, 'H', 'map-end', 'Home')}${firsts.join('')}
         </svg>`;
     }
+    // What a route map needs from a trip's charging stops, or null (no map chosen).
+    function mapDataOf(c) {
+      const mp = c && c.map;
+      if (!mp || !Array.isArray(c.legs)) return null;
+      const stops = c.legs.map((l) => ({ n: l.n, stations: (l.stations || []).filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name })) })).filter((l) => l.stations.length);
+      return stops.length ? { tiles: mp.tiles, line: mp.line, home: mp.home, dest: mp.dest, stops } : null;
+    }
+    // The map icon in Looking ahead (#47): the route map in a big window, in one
+    // click, without opening the day. Map images load only when it opens.
+    let mapDialogData = null;
+    function mapDialog() {
+      let d = document.getElementById('route-map-dialog');
+      if (d) return d;
+      d = document.createElement('dialog');
+      d.id = 'route-map-dialog';
+      d.className = 'map-dialog';
+      d.innerHTML = `<div class="map-dialog-head"><strong class="map-dialog-title"></strong><button type="button" class="map-dialog-close" aria-label="Close">✕</button></div>
+        <div class="map-box"></div>
+        <div class="muted small map-dialog-foot"></div>`;
+      document.body.appendChild(d);
+      d.querySelector('.map-dialog-close').addEventListener('click', () => d.close());
+      // A click next to the window (on the dark backdrop) closes it too.
+      d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+      d.addEventListener('close', () => { mapDialogData = null; d.querySelector('.map-box').innerHTML = ''; });
+      return d;
+    }
+    function drawMapDialog() {
+      const d = document.getElementById('route-map-dialog');
+      if (!d || !d.open || !mapDialogData) return;
+      const box = d.querySelector('.map-box');
+      const w = box.clientWidth;
+      const h = Math.max(260, Math.min(Math.round(window.innerHeight * 0.72), Math.round(w * 0.75)));
+      if (w) drawMap(box, mapDialogData.map, w, h);
+    }
+    function openMapDialog(data, title) {
+      const d = mapDialog();
+      mapDialogData = { map: data };
+      const m = data;
+      d.querySelector('.map-dialog-title').textContent = title || 'Route';
+      d.querySelector('.map-dialog-foot').innerHTML = `Numbers: the stops; small dots: the other stations of a stop. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&amp;route=${esc(`${m.home.lat},${m.home.lon}`)}%3B${esc(`${m.dest.lat},${m.dest.lon}`)}" target="_blank" rel="noopener">Open on openstreetmap.org</a>`;
+      if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+      drawMapDialog();
+    }
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-route-map]');
+      if (!b) return;
+      // The icon sits in a day's line: do not open or close the day.
+      e.preventDefault();
+      e.stopPropagation();
+      let data;
+      try { data = JSON.parse(b.dataset.routeMap); } catch { return; }
+      openMapDialog(data, b.dataset.title);
+    });
+    window.addEventListener('resize', drawMapDialog);
+
     // A map is drawn when you open it, and again when Home was built again.
     // Also when the day around it is opened later.
     const renderOpenMaps = (root) => root.querySelectorAll('details.cstops-map[open]').forEach(renderMap);
@@ -1575,7 +1633,7 @@ function durationText(minutes) {
         };
         // The route on a map (#47), when a map is chosen under Plan.
         const mp = c.map;
-        const mapData = mp ? { tiles: mp.tiles, line: mp.line, home: mp.home, dest: mp.dest, stops: legs.map((l) => ({ n: l.n, stations: l.stations.filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name })) })).filter((l) => l.stations.length) } : null;
+        const mapData = mapDataOf(c);
         const mapHtml = mapData ? `<details class="cstops-map"${keep(`map:${mp.dest.lat.toFixed(3)},${mp.dest.lon.toFixed(3)}`)} data-map="${esc(JSON.stringify(mapData))}">
           <summary>Show the route on a map</summary>
           <div class="map-box"></div>
@@ -1628,7 +1686,10 @@ function durationText(minutes) {
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
           const cs = b && b.x.charge_stops;
-          const stopOnWay = cs && (cs.status === 'ok' || cs.status === 'partial') ? ` <span class="tl-p exp">charge on the way${cs.legs && cs.legs.length > 1 ? ` (${esc(cs.legs.length)} stops)` : ''}</span>` : '';
+          const stopOk = cs && (cs.status === 'ok' || cs.status === 'partial');
+          const md = stopOk ? mapDataOf(cs) : null;
+          const mapBtn = md ? ` <button type="button" class="tl-map" data-route-map="${esc(JSON.stringify(md))}" data-title="${esc(`Route to ${shortName(x.title)}${cs.legs.length > 1 ? ` · ${cs.legs.length} stops` : ' · 1 stop'}`)}" title="Show the route on a map" aria-label="Show the route on a map">🗺</button>` : '';
+          const stopOnWay = stopOk ? ` <span class="tl-p exp">charge on the way${cs.legs && cs.legs.length > 1 ? ` (${esc(cs.legs.length)} stops)` : ''}</span>${mapBtn}` : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
