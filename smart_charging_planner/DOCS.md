@@ -19,6 +19,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
+- **Reloading**: Home reloads every minute. What you opened or closed (a day in Looking ahead, Plan details, the plan table, Next days on Plan) stays that way, and a reload that changes nothing leaves the page as it is (#51).
 - **Charging status** (on top): what the charger does right now, checked every minute, in one line with a colour:
   - **green**: **Ready** (at the target, the charger is off);
   - **red**: **Charging now** (with the power, the level and when it is ready), **Ready Guard charging** or **Charging on solar**;

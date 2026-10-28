@@ -1113,6 +1113,12 @@ function durationText(minutes) {
     // The server works out the state (chargestate.js) from the check every minute.
     let whyOpen = false; // keep "Why?" open across the one-minute reload
     document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('why')) whyOpen = e.target.open; }, true);
+    // Keep what you opened or closed (#51): a part that opens and closes gets
+    // a name (data-keep); the reload every minute builds it again with the
+    // same state, so a day in Looking ahead stays open.
+    const keptOpen = new Map();
+    document.addEventListener('toggle', (e) => { const k = e.target.dataset && e.target.dataset.keep; if (k) keptOpen.set(k, e.target.open); }, true);
+    const keep = (key, dflt = false) => ` data-keep="${esc(key)}"${(keptOpen.has(key) ? keptOpen.get(key) : dflt) ? ' open' : ''}`;
     function chargeStatusHtml(d) {
       const c = d.charge_state;
       if (!c || (d.missing && d.missing.length)) return '';
@@ -1257,7 +1263,7 @@ function durationText(minutes) {
               <div class="chart-wrap" id="chart"></div>
               <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
-              ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
+              ${p.periods.length ? `<details class="table-details"${keep('plan-table')}><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
                 ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
                 </table>
@@ -1266,7 +1272,7 @@ function durationText(minutes) {
 
         <div class="overview-grid">
           <div class="overview-main">
-            <details class="card plan-details">
+            <details class="card plan-details"${keep('plan-details')}>
               <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
               <div class="plan-detail-body">
                 <p class="plan-vehicle">${vehicleLine}</p>
@@ -1526,7 +1532,7 @@ function durationText(minutes) {
         if (x.type === 'stop') return; // shown with the trip it belongs to
         day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
       });
-      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${k === 0 ? '' : ''}>
+      const rows = days.map((day) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${keep(`day:${day.key}`)}>
           <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}${day.est ? ' <span class="chip tl-est">estimate</span>' : ''}</span></summary>
           <ul class="timeline">${day.rows.join('')}</ul>
         </details>`).join('');
@@ -2119,6 +2125,7 @@ function durationText(minutes) {
     // A manual refresh is not overtaken by the automatic one-minute reload.
     let overviewSeq = 0;
     let refreshing = false;
+    let overviewHtmlNow = ''; // what Home shows now, to skip a reload that changes nothing (#51)
     async function loadOverview(force = false, auto = false) {
       if (auto && refreshing) return;
       const seq = ++overviewSeq;
@@ -2129,7 +2136,12 @@ function durationText(minutes) {
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
         if (seq !== overviewSeq) return;
-        $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
+        const html = chargersOverviewHtml(ov) + overviewHtml(d);
+        // Nothing changed since the last reload: leave the page as it is (#51),
+        // so nothing jumps or closes while you read it.
+        if (auto && html === overviewHtmlNow && $('overview-body').innerHTML) return;
+        overviewHtmlNow = html;
+        $('overview-body').innerHTML = html;
         $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
@@ -2231,7 +2243,7 @@ function durationText(minutes) {
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${calendarMessagesHtml(d)}
           ${d.upcoming.length > 1 ? `
-          <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
+          <details${keep('dep-next-days')}><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
             ${aheadButtonsHtml()}
             <table class="periods">
               ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}

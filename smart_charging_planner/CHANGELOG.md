@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.12-dev
+
+- **Fix: what you opened on Home closed again every minute.** A day in Looking ahead, Plan details, the plan table and Next days on Plan now stay open (or closed) when the page reloads, and a reload that changes nothing leaves the page as it is. (#51)
+
 ## 0.36.11-dev
 
 - **Fix: charging stops were sometimes planned early, with a lot of battery left.** A stop is now as late as the battery allows, where the car arrives nearly empty (down to "Arrive at a charger with at least"), and at the best station there: your operators first, then the most power, then the most charging points. Each stop shows one recommended station and up to two others under "Or:", each with its own level on arrival and number of points. (#50)
