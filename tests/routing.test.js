@@ -38,7 +38,7 @@ async function main() {
     if (req.url.includes('/search')) {
       // An address abroad (#49) is only found without the country limit.
       const u = new URL(req.url, 'http://x');
-      const abroad = /Exempelgatan|Göteborg/.test(u.searchParams.get('q') || '');
+      const abroad = /Exempelgatan|Exempelstad/.test(u.searchParams.get('q') || '');
       if (abroad) res.end(JSON.stringify(u.searchParams.get('countrycodes') ? [] : [{ lat: '57.70', lon: '11.97' }]));
       else res.end(JSON.stringify([{ lat: '51.60', lon: '5.30' }]));
     }
@@ -141,7 +141,7 @@ async function main() {
       assert.ok(home[0].includes('countrycodes=nl'), home[0]);
       // Abroad: every try in the Netherlands finds nothing, then anywhere finds it.
       hits.public.length = 0;
-      const where = 'Exempelgatan 7, 411 01 Göteborg, Zweden';
+      const where = 'Exempelgatan 7, 111 11 Exempelstad, Zweden';
       assert.equal(cost(where).status, 'pending');
       await settle();
       const search = hits.public.filter((u) => u.startsWith('/search'));

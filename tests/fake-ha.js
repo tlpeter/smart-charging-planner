@@ -313,7 +313,7 @@ function entityList(w) {
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
     // Zones: home, and w.zones = [{ entity_id, name, lat, lon }].
-    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 5.19, radius: 100 }, null],
+    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 2.69, radius: 100 }, null],
     ...(w.zones || []).map((z) => [z.entity_id, '0', { friendly_name: z.name, latitude: z.lat, longitude: z.lon, radius: 100 }, null]),
   ];
 }
@@ -370,7 +370,7 @@ function start(w, wsPort, restPort) {
       const fail = (message) => s.send(JSON.stringify({ id: m.id, type: 'result', success: false, error: { code: 'x', message } }));
       if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: HA_VERSION }));
       switch (m.type) {
-        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 5.19, country: 'NL' });
+        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 2.69, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
         // Like Home Assistant: events of one type are sent with the id of the

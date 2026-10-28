@@ -1841,13 +1841,13 @@ async function run() {
   // ----- Y. Looking ahead: the next goal and what a trip costs --------------
   group = 'Y. Looking ahead: the next goal and what a trip costs';
   {
-    const ADDR = 'Hoofdweg 1 2661 AA Bergschenhoek';
-    const ADDR2 = 'Molenstraat 5, 4921 AA Hilltown';
-    const ADDR3 = 'Nieuwstraat 2, 3201 AA Harbourtown';
+    const ADDR = 'Hoofdweg 1 1111 AA Meadowtown';
+    const ADDR2 = 'Molenstraat 5, 1113 AA Hilltown';
+    const ADDR3 = 'Nieuwstraat 2, 1114 AA Harbourtown';
     world.places = {
-      [ADDR]: { lat: 51.98, lon: 4.49 },
-      [ADDR2]: { lat: 51.68, lon: 4.79 },
-      [ADDR3]: { lat: 51.85, lon: 4.33 },
+      [ADDR]: { lat: 51.98, lon: 1.99 },
+      [ADDR2]: { lat: 51.68, lon: 2.29 },
+      [ADDR3]: { lat: 51.85, lon: 1.83 },
     };
     world.routeKm = 60;
     const calBody = depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } });
@@ -1896,10 +1896,10 @@ async function run() {
       return `next stop ${n.current.title} ${n.current.target_soc}% · next goal ${n.goal.title} ${n.goal.soc}%`;
     });
     await test('Y2b', 'Lakeside on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday\'s Naar Werk, the company address is found without the company name', async () => {
-      world.places = { ...world.places, 'Industrieweg 10, 3316 AA Rivertown, Nederland': { lat: 51.80, lon: 4.70 }, 'Dorpsstraat 12, 1234 AB Springfield, Nederland': { lat: 51.3705, lon: 5.1905 } };
+      world.places = { ...world.places, 'Industrieweg 10, 1112 AA Rivertown, Nederland': { lat: 51.80, lon: 2.20 }, 'Dorpsstraat 12, 1234 AB Springfield, Nederland': { lat: 51.3705, lon: 2.6905 } };
       world.events = [
         ev('Naar Lakeside', 'doel: 100', ADDR, 1, 6, 20),
-        ev('Naar Werk', 'doel: 80', 'Northwind Labs, Industrieweg 10, 3316 AA Rivertown, Nederland', 2, 6, 7),
+        ev('Naar Werk', 'doel: 80', 'Northwind Labs, Industrieweg 10, 1112 AA Rivertown, Nederland', 2, 6, 7),
         ev('Naar Thuis', 'doel: 80 precondition: ja', 'Dorpsstraat 12, 1234 AB Springfield, Nederland', 2, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 4, 6, 7),
       ];
@@ -1939,8 +1939,8 @@ async function run() {
       return kinds;
     });
     await test('Y6', 'My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost', async () => {
-      const WORK = 'Industrieweg 10, 3316 AA Rivertown';
-      world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 4.70 } };
+      const WORK = 'Industrieweg 10, 1112 AA Rivertown';
+      world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 2.20 } };
       world.soc = 80;
       world.events = [
         ev('Naar Werk', 'doel: 80', 'Northwind Labs', 1, 6, 7),
@@ -1968,7 +1968,7 @@ async function run() {
       return `Werk → ${after[0].trip.km} km, ${after[0].trip.pct}% there and back`;
     });
     await test('Y7', 'Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "Northwind Labs"; Plan lists the zone, not Home', async () => {
-      world.zones = [{ entity_id: 'zone.werk', name: 'Werk', lat: 51.80, lon: 4.70 }];
+      world.zones = [{ entity_id: 'zone.werk', name: 'Werk', lat: 51.80, lon: 2.20 }];
       world.soc = 80;
       world.events = [
         ev('Naar Werk', 'doel: 80', 'Northwind Labs', 1, 6, 7),
@@ -2032,10 +2032,10 @@ async function run() {
       const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], only_countries: true, operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
       const on = await ok('POST', 'api/charge-stops', body);
       assert(on.charge_stops.enabled && on.charge_stops.has_key && !JSON.stringify(on).includes('test-key-123'), JSON.stringify(on));
-      // Stations along the straight line from home (fake: 51.37, 5.19) to the destination.
-      const home = { lat: 51.37, lon: 5.19 };
+      // Stations along the straight line from home (fake: 51.37, 2.69, a made-up place in the sea) to the destination.
+      const home = { lat: 51.37, lon: 2.69 };
       const FAR = 'Verreweg 9, 1234 AB Farville';
-      world.places[FAR] = { lat: 52.37, lon: 4.9 };
+      world.places[FAR] = { lat: 52.37, lon: 2.4 };
       const dest = world.places[FAR];
       // dLon: east of the route (the route runs roughly north).
       const along = (f, dLon = 0) => ({ lat: home.lat + (dest.lat - home.lat) * f, lon: home.lon + (dest.lon - home.lon) * f + dLon });
@@ -2445,7 +2445,7 @@ async function run() {
             .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
         };
         if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
-        else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
+        else move({ work: 'Kerkstraat 1, 1115 AA Bridgetown', workAt: { lat: 51.87, lon: 2.1 }, sport: 'Markt 1, 1112 BA Rivertown', sportAt: { lat: 51.81, lon: 2.17 } }, 40);
         await settle();
         p = await settle();
         const less = Math.max(80, Math.min(100, Math.ceil(p.next.trip.pct + 10)));
@@ -2660,8 +2660,8 @@ async function run() {
   {
     await stopApp();
     await startApp({ allow_control: true, notify_start_stop: false, allow_calendar_write: true });
-    const ADDR = 'Stationsplein 1, 3511 ED Utrecht';
-    world.places = { ...(world.places || {}), [ADDR]: { lat: 52.09, lon: 5.11 } };
+    const ADDR = 'Stationsplein 1, 1116 AA Centretown';
+    world.places = { ...(world.places || {}), [ADDR]: { lat: 52.09, lon: 2.61 } };
     world.routeKm = 75;
     world.events = [];
     world.soc = 60;

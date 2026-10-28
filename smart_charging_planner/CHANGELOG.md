@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.36.10-dev
+
+- Test data and documentation only: every address, town, postcode and position in the tests is now made up (positions in the sea), and AGENTS.md says that everything public stays anonymous. No app changes.
+
 ## 0.36.9-dev
 
-- **Fix: addresses abroad were not found.** The address search only looked in the country of your Home Assistant, so a trip to for example Göteborg said "The address was not found on OpenStreetMap" (and got no trip cost and no charging stops). Now the app searches in your own country first and, when nothing is found there, in every country. (#49)
+- **Fix: addresses abroad were not found.** The address search only looked in the country of your Home Assistant, so a trip abroad said "The address was not found on OpenStreetMap" (and got no trip cost and no charging stops). Now the app searches in your own country first and, when nothing is found there, in every country. (#49)
 
 ## 0.36.8-dev
 

@@ -51,7 +51,7 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.36.9-dev
+## Current candidate: 0.36.10-dev
 
 Stable main is 0.35.0 (release v0.35.0: #26, #31, #37, #41, #42, #43, #44, #45). Earlier: 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
@@ -65,7 +65,7 @@ Home check for #46: set the car location (and, if you like, yourself as person) 
 
 Home check for #40: under Plan › Charging stops on the way, tick Germany or France too and Save. Put a far trip in the calendar (for example 600 km away, there and back): Looking ahead should show "charge on the way (N stops)" and one block per stop with the level on arrival and "charge to". Check a few stations on the map: are they on the motorway, and are the operators you know recognised? Set "Arrive at a charger with at least" to 5 %: the stops should move further along, arriving between 5 and 10 %. Tick "Only suggest stops in these countries" with only the Netherlands: stations abroad should disappear.
 
-Home check for #49: the calendar trip to Göteborg (or any address abroad) should get a distance in Looking ahead within a minute instead of "The address was not found on OpenStreetMap". A trip to an address in the Netherlands should still go to the same place as before.
+Home check for #49: a calendar trip to an address abroad should get a distance in Looking ahead within a minute instead of "The address was not found on OpenStreetMap". A trip to an address in the Netherlands should still go to the same place as before.
 
 Home check for #48: open Plan › Charging stops on the way on your phone and on a computer. Countries and Choose operators should open and close; search for "fast" or a name. Tick an operator and remove it again with ✕ on its label: the Save bar should appear. After a far trip has been looked up, open "Seen on your routes": are there operators you know that are missing from the other groups?
 
