@@ -19,6 +19,7 @@ const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, peri
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
 const chargestops = require('./chargestops');
+const hamap = require('./hamap');
 const carplace = require('./carplace');
 const precondition = require('./precondition');
 const sharing = require('./sharing');
@@ -1753,7 +1754,33 @@ const routes = {
     for (const x of ST.all.values()) x.planCache = null;
     ST().planCache = null;
     ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.only_countries ? `only ${s.charge_stops.countries.join(', ')}` : 'every country on the route'}, charge to ${s.charge_stops.charge_to_pct}%)` : 'off'}`);
+    // Points on the Home Assistant map switched on or off: right away (#53).
+    if (ST().planCache) hamap.sync(ST().planCache.result, s.charge_stops.enabled && s.charge_stops.ha_map).catch((err) => ha.warn('Charging stops on the map failed:', err.message));
     return { ok: true, charge_stops: chargestops.view() };
+  },
+
+  // The charging stops on the Home Assistant map (#53): write the points for
+  // the next trip with stops now, and show them in a popup on this screen
+  // when Browser Mod is installed and the page knows this screen's Browser ID.
+  'POST /api/charge-stops/ha-map': async (req) => {
+    const body = (await readBody(req)) || {};
+    const c = chargestops.config();
+    if (!c.enabled || !c.ha_map) throw badRequest('Turn on "Charging stops on the Home Assistant map" under Plan › Charging stops on the way first');
+    const plan = await freshPlan();
+    let states = [];
+    try { states = await ha.call({ type: 'get_states' }); } catch { /* no list: only what the app wrote itself */ }
+    const ids = await hamap.sync(plan, true, (states || []).map((x) => x.entity_id));
+    if (!ids.length) throw badRequest('No trip with charging stops to show on the map yet');
+    let services = null;
+    try { services = await ha.call({ type: 'get_services' }); } catch { /* treated as no Browser Mod */ }
+    if (!(services && services.browser_mod && services.browser_mod.popup)) return { ok: true, popup: false, reason: 'no_browser_mod', entities: ids };
+    if (!body.browser_id) return { ok: true, popup: false, reason: 'no_browser_id', entities: ids };
+    try {
+      await ha.showMapPopup(String(body.browser_id), ['zone.home', ...ids], 'Charging stops');
+    } catch (err) {
+      throw badRequest(err.message);
+    }
+    return { ok: true, popup: true, entities: ids };
   },
 
   // Preconditioning before a departure (#44), per car.
@@ -3737,6 +3764,11 @@ async function actStep({ s, charger, states, methods, rules, planResult, entry }
     }
   }
   await notifier.publishSensors(planResult, entry, { lastCommand: ST().lastCommandInfo });
+  // The charging stops on the Home Assistant map (#53): the first charger's car.
+  if (scope.isPrimary()) {
+    const cs = chargestops.config();
+    await hamap.sync(planResult, cs.enabled && cs.ha_map, (states || []).map((x) => x.entity_id)).catch((err) => ha.warn('Charging stops on the map failed:', err.message));
+  }
   return entry;
 }
 
@@ -4862,6 +4894,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   ha.log(`Smart Charging Planner ${APP_VERSION} listening on port ${PORT}`);
   ha.onConnect(startBackgroundRefresh);
+  // Home Assistant does not keep the map sensors across its restart (#53).
+  ha.onConnect(() => hamap.forget());
   // The Yes/No buttons of "charge more for this trip?" on the phone.
   ha.onConnect(() => {
     ha.subscribeNotifyActions().catch((err) => ha.warn('Could not listen for notification buttons:', err.message));

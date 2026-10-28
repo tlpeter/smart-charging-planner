@@ -5,7 +5,7 @@
 const KEYS = new Set(`generated_at app_version ha_version time_zone connected options settings control_check detected entities plan now control_log
 allow_control allow_battery_control allow_calendar_write publish_sensors loss_percent continuous_charging min_split_saving use_house_load refresh_minutes log_level
 vehicles chargers grid prices departures rules solar battery notify recipients multi_car multi_charger vehicle charger routing confirmed basis_explicit
-charge_stops min_power_kw max_detour_km reserve_pct only_countries charge_to_pct arrive_min_pct map_tiles
+charge_stops min_power_kw max_detour_km reserve_pct only_countries charge_to_pct arrive_min_pct map_tiles ha_map
 precondition minutes way_back
 id device_id vehicle_id charger_id entity_id config_entry_id soc_entity power_entity capacity_entity status_entity switch_entity plugged_entity charging_entity charge_limit_entity preheat_entity net_entity import_entity export_entity current_l1_entity current_l2_entity current_l3_entity max_current_entities datetime_entity
 platform integration type domain source mode available reason_code code supported recommended allowed start_stop current phase phases phase_method_id current_id start_stop_id actions commands service target data value option entity_ids

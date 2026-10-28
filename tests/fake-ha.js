@@ -360,6 +360,8 @@ function start(w, wsPort, restPort) {
     ...w.profile.charger.services,
     notify: { mobile_app_pixel_8: { name: 'Send a notification via mobile_app_pixel_8' }, mobile_app_iphone_sam: { name: 'Send a notification via mobile_app_iphone_sam' }, persistent_notification: {} },
     energyzero: { get_energy_prices: {} },
+    // Browser Mod (#53): a popup on one screen.
+    browser_mod: { popup: {} },
   };
   const wss = new WebSocket.Server({ port: wsPort });
   wss.on('connection', (s) => {

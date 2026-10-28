@@ -1120,6 +1120,45 @@ function durationText(minutes) {
     document.addEventListener('toggle', (e) => { const k = e.target.dataset && e.target.dataset.keep; if (k) keptOpen.set(k, e.target.open); }, true);
     const keep = (key, dflt = false) => ` data-keep="${esc(key)}"${(keptOpen.has(key) ? keptOpen.get(key) : dflt) ? ' open' : ''}`;
 
+    // ---------- The charging stops on the Home Assistant map (#53) ----------
+    // Browser Mod knows every screen by its Browser ID; the popup is shown on
+    // this screen only. The page finds the ID itself where it can (the app
+    // runs inside Home Assistant), else you paste it once (Browser Mod panel).
+    function browserModId() {
+      const get = (f) => { try { return f() || null; } catch { return null; } };
+      return get(() => window.parent.browser_mod && window.parent.browser_mod.browserID) ||
+        get(() => window.localStorage.getItem('browser_mod-browser-id')) ||
+        get(() => window.localStorage.getItem('scp-browser-id'));
+    }
+    const MAP_LINK = '<a href="/map" target="_top">Open the Map in Home Assistant</a>';
+    async function showOnHaMap(out, id) {
+      out.textContent = 'Opening…';
+      try {
+        const r = await api('POST', 'api/charge-stops/ha-map', { browser_id: id || browserModId() || '' });
+        if (r.popup) { out.innerHTML = `Opened on this screen. The stops are also on the Map: ${MAP_LINK}.`; return; }
+        if (r.reason === 'no_browser_mod') { out.innerHTML = `The stops are on the Map in Home Assistant. ${MAP_LINK}. For a popup here, install Browser Mod (HACS).`; return; }
+        out.innerHTML = `This screen's Browser ID is not known. Copy it from the Browser Mod panel in Home Assistant and paste it here (asked once per screen):
+          <span class="cstops-bmid"><input type="text" maxlength="64" placeholder="Browser ID" data-guard-ignore aria-label="Browser ID"><button class="secondary" type="button" data-ha-map-id>Show</button></span> ${MAP_LINK}`;
+      } catch (e) {
+        out.innerHTML = `${esc(e.message)} ${MAP_LINK}`;
+      }
+    }
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-ha-map], [data-ha-map-id]');
+      if (!b) return;
+      const box = b.closest('.cstops-hamap');
+      const out = box && box.querySelector('[data-ha-map-out]');
+      if (!out) return;
+      if (b.hasAttribute('data-ha-map-id')) {
+        const id = (box.querySelector('.cstops-bmid input') || {}).value || '';
+        if (!id.trim()) return;
+        try { window.localStorage.setItem('scp-browser-id', id.trim()); } catch { /* kept for this time only */ }
+        showOnHaMap(out, id.trim());
+        return;
+      }
+      showOnHaMap(out);
+    });
+
     // ---------- The route on a map (#47) ----------
     // Drawn by the page itself: map images (tiles) from the chosen tile server
     // with the route and the charging stops on top. Nothing is loaded until
@@ -1581,8 +1620,10 @@ function durationText(minutes) {
           <div class="map-box"></div>
           <div class="muted small">Numbers: the stops; small dots: the other stations of a stop. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&amp;route=${esc(`${mp.home.lat},${mp.home.lon}`)}%3B${esc(`${mp.dest.lat},${mp.dest.lon}`)}" target="_blank" rel="noopener">Open on openstreetmap.org</a></div>
         </details>` : '';
+        // The points on the Home Assistant map (#53), when that option is on.
+        const haMap = c.dest ? `<div class="cstops-hamap"><button class="secondary" type="button" data-ha-map>Show on the Home Assistant map</button><div class="small" data-ha-map-out></div></div>` : '';
         return `<div class="cstops"><div class="cstops-head">${need}</div>
-          ${mapHtml}
+          ${mapHtml}${haMap}
           ${legs.map(leg).join('')}
           ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
           <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
@@ -3159,6 +3200,7 @@ function durationText(minutes) {
       $('cstops-map-tiles').value = c.map_tiles || 'off';
       $('cstops-map-url').value = c.map_tile_url || '';
       $('cstops-map-url').hidden = c.map_tiles !== 'custom';
+      $('cstops-ha-map').checked = !!c.ha_map;
     }
     async function loadCstops() {
       try {
@@ -3214,6 +3256,7 @@ function durationText(minutes) {
           arrive_min_pct: $('cstops-arrive-min').value,
           map_tiles: $('cstops-map-tiles').value,
           map_tile_url: $('cstops-map-url').value.trim(),
+          ha_map: $('cstops-ha-map').checked,
         });
         showCstops(r.charge_stops);
         $('cstops-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Charging stops are ${r.charge_stops.enabled ? 'on' : 'off'}.</p>`;

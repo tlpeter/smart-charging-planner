@@ -60,6 +60,7 @@ const CALENDAR_WRITE_TOKEN = Symbol('calendar write');
 const CONTROL_TOKEN = Symbol('charger control');
 const NOTIFY_TOKEN = Symbol('notification');
 const CALENDAR_REFRESH_TOKEN = Symbol('calendar refresh');
+const MAP_POPUP_TOKEN = Symbol('map popup');
 const REST_URL = process.env.HA_REST_URL || 'http://supervisor/core/api';
 const RECONNECT_MS = Math.max(50, Number(process.env.SCP_RECONNECT_MS) || 10000);
 
@@ -85,6 +86,10 @@ function call(message, timeoutMs = 20000, token = null) {
         /^calendar\.[a-z0-9_]+$/.test(message.target.entity_id)) ||
       (message.type === 'call_service' && token === NOTIFY_TOKEN && message.domain === 'notify' &&
         notifyTargets.has(`notify.${message.service}`)) ||
+      // A popup with the charging stops on a map (#53): only browser_mod.popup,
+      // only with the option on and only through showMapPopup() below.
+      (message.type === 'call_service' && token === MAP_POPUP_TOKEN && mapSensors &&
+        message.domain === 'browser_mod' && message.service === 'popup') ||
       // Listening for one event only: a tap on a button in a notification on
       // the phone (the app's own question, "charge more for this trip?").
       (message.type === 'subscribe_events' && message.event_type === 'mobile_app_notification_action');
@@ -295,9 +300,15 @@ async function sendNotification(target, title, message, extra = null) {
 // when "Publish sensors" is on. These sensors are not stored by Home
 // Assistant between restarts; the app writes them again at every refresh.
 const OWN_SENSOR = /^(sensor|binary_sensor)\.smart_charging_[a-z0-9_]+$/;
+// The charging stops on the Home Assistant map (#53): written when that
+// option is on, also when "Publish sensors" is off.
+const MAP_SENSOR = /^sensor\.smart_charging_(stop_[0-9]{1,2}|trip_destination)$/;
+let mapSensors = false;
+function setMapSensors(on) { mapSensors = on === true; }
 
 async function setState(entityId, state, attributes) {
-  if (options.publish_sensors !== true) throw new Error('Publish sensors is off');
+  const mapOk = mapSensors && MAP_SENSOR.test(String(entityId));
+  if (options.publish_sensors !== true && !mapOk) throw new Error('Publish sensors is off');
   if (!OWN_SENSOR.test(entityId)) {
     warn('Refused to write', entityId, '- not one of the app\'s own sensors');
     throw new Error(`${entityId} is not one of the app's own sensors`);
@@ -309,6 +320,40 @@ async function setState(entityId, state, attributes) {
   });
   if (!res.ok) throw new Error(`Writing ${entityId} failed: HTTP ${res.status}`);
   return true;
+}
+
+// Remove one of the map sensors again (#53), when the trip needs no stop.
+async function removeState(entityId) {
+  if (!MAP_SENSOR.test(String(entityId))) {
+    warn('Refused to remove', entityId, '- not one of the app\'s map sensors');
+    throw new Error(`${entityId} is not one of the app's map sensors`);
+  }
+  const res = await fetch(`${REST_URL}/states/${entityId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` } });
+  if (!res.ok && res.status !== 404) throw new Error(`Removing ${entityId} failed: HTTP ${res.status}`);
+  return true;
+}
+
+// A popup with the charging stops on a map, on one screen (#53). Needs
+// Browser Mod. Never to every screen: a Browser ID is required. Only a map
+// card with the app's own map sensors and the home zone.
+const BROWSER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/;
+async function showMapPopup(browserId, entities, title) {
+  if (!mapSensors) throw new Error('Charging stops on the Home Assistant map is off');
+  if (!BROWSER_ID.test(String(browserId || ''))) throw new Error('No valid Browser ID for this screen');
+  const list = (entities || []).filter((e) => MAP_SENSOR.test(e) || e === 'zone.home');
+  if (!list.length || list.length !== (entities || []).length) throw new Error('Only the app\'s own map sensors can be shown');
+  log('Map popup on browser', browserId, '-', list.length, 'points');
+  return call({
+    type: 'call_service',
+    domain: 'browser_mod',
+    service: 'popup',
+    service_data: {
+      browser_id: [browserId],
+      title: String(title || 'Charging stops').slice(0, 80),
+      size: 'wide',
+      content: { type: 'map', entities: list.map((entity) => (entity === 'zone.home' ? { entity } : { entity, label_mode: 'state' })) },
+    },
+  }, 20000, MAP_POPUP_TOKEN);
 }
 
 function onConnect(fn) {
@@ -397,4 +442,4 @@ function connect() {
   });
 }
 
-module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, subscribeNotifyActions, onEvent, appPagePath, setNotifyTargets, setState, normaliseNotify, onConnect, connect, log, debug, warn };
+module.exports = { recentLog, state, call, callAction, createCalendarEvent, refreshCalendar, sendControl, sendBattery, sendNotification, subscribeNotifyActions, onEvent, appPagePath, setNotifyTargets, setState, removeState, setMapSensors, showMapPopup, normaliseNotify, onConnect, connect, log, debug, warn };

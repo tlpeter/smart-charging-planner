@@ -140,6 +140,8 @@
           </select>
           <input id="cstops-map-url" type="text" maxlength="200" autocomplete="off" placeholder="https://tiles.example.lan/{z}/{x}/{y}.png" hidden>
           <p class="muted small">Shows the route and the stops on a map, below the charging stops of a trip. <strong>Sent:</strong> when you open a map, the page loads map images from the tile server; that shows it which area you look at, so roughly where the route goes. Nothing is loaded until you open a map. Off by default.</p></div>
+        <div class="field"><label class="check"><input type="checkbox" id="cstops-ha-map"> Charging stops on the Home Assistant map</label>
+          <p class="muted small">The app writes its own sensors with a position for the next trip with charging stops (<code>sensor.smart_charging_stop_1</code>, <code>_2</code>, … and <code>sensor.smart_charging_trip_destination</code>), so they are on the Map in Home Assistant, where you can zoom and drag. They are removed when no trip needs a stop. <strong>Show on the Home Assistant map</strong> at a trip opens them in a popup on this screen; the popup needs <strong>Browser Mod</strong> (HACS). Without it the button opens the Map. Off by default.</p></div>
         <div class="buttons"><button class="primary" type="button" id="cstops-save" data-guard-save>Save</button></div>
         <div class="error form-error" id="cstops-error" hidden></div>
         <div id="cstops-result"></div>

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.14-dev
+
+- **Charging stops on the Home Assistant map:** new option under Plan › Charging stops on the way (off by default). The stops of the next trip with charging stops appear on the Map in Home Assistant (with zooming and dragging) as `sensor.smart_charging_stop_1`, `_2`, … and the destination. **Show on the Home Assistant map** at the trip opens them in a popup on this screen; that needs **Browser Mod** (HACS), else the button opens the Map. The sensors are removed when no trip needs a stop. (#53)
+
 ## 0.36.13-dev
 
 - **The route on a map:** new **Route map** under Plan › Charging stops on the way (off by default): OpenStreetMap or your own tile server. A trip with charging stops then gets **Show the route on a map**, with the route, home, the destination, the stops (numbered) and their other stations, and a link to open the route on openstreetmap.org. Map images are only loaded when you open a map; the open map stays open when Home reloads. (#47)
