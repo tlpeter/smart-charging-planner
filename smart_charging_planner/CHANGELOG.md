@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.9-dev
+
+- **Fix: addresses abroad were not found.** The address search only looked in the country of your Home Assistant, so a trip to for example Göteborg said "The address was not found on OpenStreetMap" (and got no trip cost and no charging stops). Now the app searches in your own country first and, when nothing is found there, in every country. (#49)
+
 ## 0.36.8-dev
 
 - **Charging stops settings, easier to use:** Countries and Preferred operators are now lists that open and close, with a search field and one item per row, instead of rows of boxes. Your chosen operators show as small labels with ✕ above the list. The operators are grouped: across Europe, then per ticked country. New group **Seen on your routes**: the operators of the stations found along your trips, also ones that are not in the app's own list, so any operator can be preferred (recognised by its Open Charge Map number, not its name). (#48)
