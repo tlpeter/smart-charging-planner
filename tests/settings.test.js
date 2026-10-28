@@ -2115,10 +2115,12 @@ async function run() {
       // The stops on the Home Assistant map (#53): off → refused; on → the
       // sensors are written and, with Browser Mod, a popup on this screen only.
       await refused('POST', 'api/charge-stops/ha-map', { browser_id: 'test-screen-1' }, 'Turn on');
+      // The points are written with the plan, or at the latest by the button
+      // (only what changed is written, so not twice).
+      world.rest = [];
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, ha_map: true });
       c = (await stopsNow()).charge_stops;
       assert(c.dest && c.dest.lat === dest.lat, JSON.stringify(c.dest));
-      world.rest = [];
       const n0 = world.calls.length;
       const hm = await ok('POST', 'api/charge-stops/ha-map', { browser_id: 'test-screen-1' });
       assert(hm.popup === true && hm.entities.includes('sensor.smart_charging_stop_1') && hm.entities.includes('sensor.smart_charging_trip_destination'), JSON.stringify(hm));

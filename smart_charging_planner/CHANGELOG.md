@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.16-dev
+
+- Test only: the Home Assistant map check in the settings test accepts that the points were already written with the plan (only what changed is written). No app changes. (#53)
+
 ## 0.36.15-dev
 
 - Charging stops on the Home Assistant map: switching the option off now removes the points right away, not only at the next refresh. (#53)
