@@ -1754,8 +1754,9 @@ const routes = {
     for (const x of ST.all.values()) x.planCache = null;
     ST().planCache = null;
     ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.only_countries ? `only ${s.charge_stops.countries.join(', ')}` : 'every country on the route'}, charge to ${s.charge_stops.charge_to_pct}%)` : 'off'}`);
-    // Points on the Home Assistant map switched on or off: right away (#53).
-    if (ST().planCache) hamap.sync(ST().planCache.result, s.charge_stops.enabled && s.charge_stops.ha_map).catch((err) => ha.warn('Charging stops on the map failed:', err.message));
+    // Points on the Home Assistant map switched off: removed right away (#53).
+    // (Switched on: they are written with the next plan, or by the button.)
+    if (!(s.charge_stops.enabled && s.charge_stops.ha_map)) await hamap.sync(null, false).catch((err) => ha.warn('Charging stops on the map failed:', err.message));
     return { ok: true, charge_stops: chargestops.view() };
   },
 

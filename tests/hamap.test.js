@@ -84,6 +84,16 @@ async function main() {
     assert.deepEqual(removes().sort(), ['sensor.smart_charging_stop_1', 'sensor.smart_charging_trip_destination']);
   });
 
+  await check('switched off without a plan (just after saving the settings): what was written is removed', async () => {
+    await hamap.sync(two, true);
+    rest.length = 0;
+    await hamap.sync(null, false);
+    assert.deepEqual(removes().sort(), ['sensor.smart_charging_stop_1', 'sensor.smart_charging_stop_2', 'sensor.smart_charging_trip_destination']);
+    rest.length = 0;
+    await hamap.sync(null, false);
+    assert.equal(rest.length, 0, 'nothing left to remove');
+  });
+
   await check('after a restart: map sensors Home Assistant still has are removed when no longer needed; after a new connection everything is written again', async () => {
     rest.length = 0;
     await hamap.sync(one, true, ['sensor.smart_charging_stop_7', 'sensor.smart_charging_status', 'sensor.other']);

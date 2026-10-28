@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.15-dev
+
+- Charging stops on the Home Assistant map: switching the option off now removes the points right away, not only at the next refresh. (#53)
+
 ## 0.36.14-dev
 
 - **Charging stops on the Home Assistant map:** new option under Plan › Charging stops on the way (off by default). The stops of the next trip with charging stops appear on the Map in Home Assistant (with zooming and dragging) as `sensor.smart_charging_stop_1`, `_2`, … and the destination. **Show on the Home Assistant map** at the trip opens them in a popup on this screen; that needs **Browser Mod** (HACS), else the button opens the Map. The sensors are removed when no trip needs a stop. (#53)
