@@ -2922,6 +2922,10 @@ function durationText(minutes) {
     // ---------- Charging stops on the way (#37) ----------
     let cstopsNow = null;
     let cstopsClearKey = false;
+    // The chosen operators (#48): ids from the app's list, and operators from
+    // the station data by Open Charge Map number (with their name).
+    let cstopsOps = new Set();
+    let cstopsOcm = new Map();
     function showCstopsKey() {
       const pending = $('cstops-key').value.trim() !== '';
       const saved = !!(cstopsNow && cstopsNow.has_key);
@@ -2937,23 +2941,73 @@ function durationText(minutes) {
     const ticks = (box, items, on, name) => {
       $(box).innerHTML = items.map((x) => `<label><input type="checkbox" name="${name}" value="${esc(x.id)}"${on.includes(x.id) ? ' checked' : ''}> ${esc(x.name)}</label>`).join('');
     };
-    const ticked = (box) => [...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value);
-    // The operators of the countries that are ticked (a chosen operator stays visible).
-    function cstopsOperators(chosen) {
+    const ticked = (box) => [...new Set([...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value))];
+    // One row per item in a list that opens and closes (#48).
+    const pickRow = (value, name, checked, tag, extra = '') => `<label class="pick-row" data-name="${esc(String(name).toLowerCase())}"><input type="checkbox" value="${esc(value)}"${checked ? ' checked' : ''}${extra}> <span>${esc(name)}</span>${tag ? `<span class="pick-tag">${esc(tag)}</span>` : ''}</label>`;
+    // Countries: the ticked ones first, then the rest by name.
+    function cstopsCountries(on) {
+      const list = cstopsNow.country_list;
+      const first = list.filter((x) => on.includes(x.code));
+      const rest = list.filter((x) => !on.includes(x.code));
+      $('cstops-countries').innerHTML = [...first, ...rest].map((x) => pickRow(x.code, x.name, on.includes(x.code), x.code)).join('');
+      cstopsCountrySum(on);
+    }
+    function cstopsCountrySum(on) {
+      const names = cstopsNow.country_list.filter((x) => on.includes(x.code)).map((x) => x.name);
+      $('cstops-countries-sum').textContent = !names.length ? 'None ticked' : names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+    }
+    // The operators: across Europe, then per ticked country, then the ones
+    // found in the station data on your routes. Chosen operators of countries
+    // that are not ticked stay visible in their own group.
+    function cstopsOperators() {
       const c = cstopsNow;
       if (!c) return;
       const countries = ticked('cstops-countries');
-      const list = c.operator_list.filter((o) => o.countries.some((x) => countries.includes(x)) || chosen.includes(o.id));
-      // Two groups: mainly fast charging, and mainly normal charging.
-      const box = $('cstops-operators');
-      box.innerHTML = '';
-      for (const [fast, label] of [[true, 'Fast charging'], [false, 'Normal charging']]) {
-        const part = list.filter((o) => !!o.fast === fast);
-        if (!part.length) continue;
-        const group = document.createElement('div');
-        group.innerHTML = `<p class="muted small cstops-group">${label}</p><div class="days"></div>`;
-        group.lastChild.innerHTML = part.map((o) => `<label><input type="checkbox" name="cstops_operator" value="${esc(o.id)}"${chosen.includes(o.id) ? ' checked' : ''}> ${esc(o.name)}</label>`).join('');
-        box.appendChild(group);
+      const names = Object.fromEntries(c.country_list.map((x) => [x.code, x.name]));
+      const byName = (a, b) => a.name.localeCompare(b.name);
+      const everywhere = (o) => o.countries.length >= 40;
+      const groups = [['Across Europe', c.operator_list.filter(everywhere)]];
+      for (const code of countries) groups.push([names[code] || code, c.operator_list.filter((o) => !everywhere(o) && o.countries.includes(code))]);
+      const shown = new Set(groups.flatMap((g) => g[1].map((o) => o.id)));
+      groups.push(['Chosen in other countries', c.operator_list.filter((o) => cstopsOps.has(o.id) && !shown.has(o.id))]);
+      const op = (o) => pickRow(o.id, o.name, cstopsOps.has(o.id), o.fast ? 'fast' : '');
+      let html = groups.filter((g) => g[1].length).map(([label, ops], i) => `<details class="pick-group"${i === 0 ? ' open' : ''}><summary>${esc(label)} <span class="muted">(${esc(ops.length)})</span></summary>
+        <div class="pick-list">${[...ops].sort(byName).map(op).join('')}</div></details>`).join('');
+      const seen = c.seen_operators || [];
+      html += `<details class="pick-group"><summary>Seen on your routes <span class="muted">(${esc(seen.length)})</span></summary>
+        ${seen.length ? `<div class="pick-list">${seen.map((o) => pickRow(`ocm:${o.ocm_id}`, o.name, cstopsOcm.has(o.ocm_id), [o.fast ? 'fast' : '', o.countries.slice(0, 3).join(' ')].filter(Boolean).join(' · '), ` data-label="${esc(o.name)}"`)).join('')}</div>`
+          : '<p class="muted small">Operators of the stations found along your trips appear here after the first lookup, also ones that are not in the lists above.</p>'}</details>`;
+      $('cstops-operators').innerHTML = html;
+      cstopsChips();
+    }
+    // The chosen operators as small labels with ✕, above the list.
+    function cstopsChips() {
+      const c = cstopsNow;
+      const names = Object.fromEntries(c.operator_list.map((o) => [o.id, o.name]));
+      const chosen = [...[...cstopsOps].map((id) => [id, names[id] || id]), ...[...cstopsOcm].map(([id, name]) => [`ocm:${id}`, name])];
+      $('cstops-op-chips').innerHTML = chosen.length
+        ? chosen.map(([v, name]) => `<span class="pick-chip">${esc(name)}<button type="button" data-cstops-remove="${esc(v)}" aria-label="Remove ${esc(name)}">✕</button></span>`).join('')
+        : '<span class="muted small">None: every operator counts the same.</span>';
+    }
+    // Tick or untick an operator: the same operator can be in more groups.
+    function cstopsSetOp(value, on, name) {
+      if (value.startsWith('ocm:')) {
+        const id = Number(value.slice(4));
+        if (on) cstopsOcm.set(id, name || cstopsOcm.get(id) || `Operator ${id}`);
+        else cstopsOcm.delete(id);
+      } else if (on) cstopsOps.add(value);
+      else cstopsOps.delete(value);
+      for (const x of document.querySelectorAll('#cstops-operators input[type="checkbox"]')) if (x.value === value) x.checked = on;
+      cstopsChips();
+    }
+    // Search: show the rows that match, and open the groups that have one.
+    function cstopsFilter(box, query) {
+      const q = String(query || '').trim().toLowerCase();
+      for (const row of document.querySelectorAll(`#${box} .pick-row`)) row.hidden = !!q && !row.dataset.name.includes(q);
+      for (const g of document.querySelectorAll(`#${box} .pick-group`)) {
+        const any = [...g.querySelectorAll('.pick-row')].some((r) => !r.hidden);
+        g.hidden = !!q && !any;
+        if (q && any) g.open = true;
       }
     }
     function showCstops(c) {
@@ -2963,10 +3017,14 @@ function durationText(minutes) {
       $('cstops-key').value = '';
       showCstopsKey();
       $('cstops-routing').hidden = !!c.routing_online;
-      ticks('cstops-countries', c.country_list.map((x) => ({ id: x.code, name: x.name })), c.countries, 'cstops_country');
+      cstopsOps = new Set(c.operators || []);
+      cstopsOcm = new Map((c.ocm_operators || []).map((o) => [o.id, o.name]));
+      $('cstops-countries-search').value = '';
+      $('cstops-op-search').value = '';
+      cstopsCountries(c.countries);
       $('cstops-only-countries').checked = !!c.only_countries;
       ticks('cstops-connectors', c.connector_list, c.connectors, 'cstops_connector');
-      cstopsOperators(c.operators);
+      cstopsOperators();
       $('cstops-power').value = c.min_power_kw;
       $('cstops-detour').value = c.max_detour_km;
       $('cstops-reserve').value = c.reserve_pct;
@@ -2993,7 +3051,19 @@ function durationText(minutes) {
       showCstopsKey();
       unsavedGuard.markDirty($('cstops-card'));
     });
-    $('cstops-countries').addEventListener('change', () => cstopsOperators(ticked('cstops-operators')));
+    $('cstops-countries').addEventListener('change', () => { cstopsCountrySum(ticked('cstops-countries')); cstopsOperators(); cstopsFilter('cstops-operators', $('cstops-op-search').value); });
+    $('cstops-operators').addEventListener('change', (e) => {
+      const x = e.target;
+      if (x && x.type === 'checkbox') cstopsSetOp(x.value, x.checked, x.dataset && x.dataset.label);
+    });
+    $('cstops-op-chips').addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-cstops-remove]');
+      if (!b) return;
+      cstopsSetOp(b.dataset.cstopsRemove, false);
+      unsavedGuard.markDirty($('cstops-card'));
+    });
+    $('cstops-countries-search').addEventListener('input', () => cstopsFilter('cstops-countries', $('cstops-countries-search').value));
+    $('cstops-op-search').addEventListener('input', () => cstopsFilter('cstops-operators', $('cstops-op-search').value));
     $('cstops-save').addEventListener('click', async () => {
       const err = $('cstops-error');
       err.hidden = true;
@@ -3004,7 +3074,8 @@ function durationText(minutes) {
           clear_key: cstopsClearKey,
           countries: ticked('cstops-countries'),
           only_countries: $('cstops-only-countries').checked,
-          operators: ticked('cstops-operators'),
+          operators: [...cstopsOps],
+          ocm_operators: [...cstopsOcm].map(([id, name]) => ({ id, name })),
           connectors: ticked('cstops-connectors'),
           min_power_kw: $('cstops-power').value,
           max_detour_km: $('cstops-detour').value,

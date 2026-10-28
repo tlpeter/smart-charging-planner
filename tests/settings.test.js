@@ -2103,6 +2103,18 @@ async function run() {
       c = (await stopsNow()).charge_stops;
       assert(fine(c) && c.legs.length >= 2 && c.legs[1].stations.some((x) => x.id === 7) && c.legs[1].km_on_trip > c.legs[0].km_on_trip, JSON.stringify(c.legs));
       world.stations.pop();
+      // Operators from the station data (#48): one that is not in the app's
+      // list is offered after a lookup, and can be preferred by its number.
+      world.stations.push({ ...poi(8, 'x', along(0.5, 0.002), 'NL', [ccs(150)]), OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } });
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 48 });
+      c = (await stopsNow()).charge_stops;
+      const seen = (await ok('GET', 'api/charge-stops')).charge_stops.seen_operators;
+      assert(seen.some((o) => o.ocm_id === 9001 && o.name === 'Stadtwerke Teststadt') && !seen.some((o) => /fastned|ionity/i.test(o.name)), JSON.stringify(seen));
+      const mine = await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 48, ocm_operators: [{ id: 9001, name: 'Stadtwerke Teststadt' }] });
+      assert(mine.charge_stops.ocm_operators.length === 1 && mine.charge_stops.ocm_operators[0].id === 9001, JSON.stringify(mine.charge_stops.ocm_operators));
+      c = (await stopsNow()).charge_stops;
+      assert(fine(c) && c.stops.map((x) => x.id).join(',') === '8' && c.stops[0].preferred, JSON.stringify(c.stops));
+      world.stations.pop();
       // Offline: nothing is sent, the trip says why.
       const calls = world.ocmCalls.length;
       await ok('POST', 'api/routing', { mode: 'offline' });

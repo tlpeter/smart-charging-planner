@@ -149,7 +149,34 @@ const DEFAULTS = {
   // fastest when nearly empty: below reserve_pct the app looks for a station,
   // and it may drive on to this level to reach one. Not above reserve_pct.
   arrive_min_pct: 10,
+  // Preferred operators that are not in the list above, as Open Charge Map
+  // knows them (#48): [{ id, name }], picked from the stations on your routes.
+  ocm_operators: [],
 };
+
+const MAX_OCM_OPERATORS = 100; // preferred operators from the station data
+const MAX_SEEN = 500; // operators remembered from the station data
+
+// An operator from the station data as the app keeps it: Open Charge Map's
+// number and name. Not "unknown" and not "the owner of the location".
+function ocmOperator(id, name) {
+  const n = Number(id);
+  const t = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!Number.isInteger(n) || n <= 0 || n > 1e7 || !t) return null;
+  if (/unknown|business owner|\(private/i.test(t)) return null;
+  return { id: n, name: t };
+}
+function ocmList(v) {
+  const out = [];
+  const seen = new Set();
+  for (const x of Array.isArray(v) ? v : []) {
+    const o = x && typeof x === 'object' ? ocmOperator(x.id, x.name) : null;
+    if (!o || seen.has(o.id)) continue;
+    seen.add(o.id);
+    out.push(o);
+  }
+  return out;
+}
 
 let configFn = () => ({});
 function setConfig(fn) {
@@ -160,6 +187,7 @@ function config() {
   c.countries = (Array.isArray(c.countries) ? c.countries : []).filter((x) => COUNTRIES[x]);
   if (!c.countries.length) c.countries = [...DEFAULTS.countries];
   c.operators = (Array.isArray(c.operators) ? c.operators : []).filter((x) => OPERATORS.some((o) => o.id === x));
+  c.ocm_operators = ocmList(c.ocm_operators).slice(0, MAX_OCM_OPERATORS);
   c.connectors = (Array.isArray(c.connectors) ? c.connectors : []).filter((x) => CONNECTORS[x]);
   if (!c.connectors.length) c.connectors = [...DEFAULTS.connectors];
   c.only_countries = c.only_countries === true;
@@ -204,6 +232,7 @@ function clean(body, saved = {}) {
     countries: list(b.countries, (x) => !!COUNTRIES[x]),
     only_countries: b.only_countries === true,
     operators: list(b.operators, (x) => OPERATORS.some((o) => o.id === x)),
+    ocm_operators: ocmList(b.ocm_operators),
     min_power_kw: num(b.min_power_kw, 'Minimum power', 3, 400, DEFAULTS.min_power_kw),
     connectors: list(b.connectors, (x) => !!CONNECTORS[x]),
     max_detour_km: num(b.max_detour_km, 'Maximum detour', 1, 30, DEFAULTS.max_detour_km),
@@ -218,6 +247,11 @@ function clean(body, saved = {}) {
   }
   if (out.charge_to_pct < out.reserve_pct + 20) {
     const err = new Error('Charge to at a stop: at least 20% above the level for a stop');
+    err.status = 400;
+    throw err;
+  }
+  if (out.ocm_operators.length > MAX_OCM_OPERATORS) {
+    const err = new Error(`Preferred operators: at most ${MAX_OCM_OPERATORS} from the station data`);
     err.status = 400;
     throw err;
   }
@@ -248,6 +282,7 @@ function view(c = config()) {
     routing_online: tripcost.routing().online,
     country_list: Object.entries(COUNTRIES).map(([code, name]) => ({ code, name })).sort((a, b) => a.name.localeCompare(b.name)),
     operator_list: OPERATORS.map(({ id, name, countries, fast }) => ({ id, name, countries, fast })),
+    seen_operators: seenOperators(rest.ocm_operators),
     connector_list: Object.entries(CONNECTORS).map(([id, x]) => ({ id, name: x.name })),
   };
 }
@@ -386,6 +421,7 @@ function shortStation(poi) {
   }
   if (!Object.keys(connectors).length) return null;
   const opTitle = (poi.OperatorInfo && poi.OperatorInfo.Title) || null;
+  const ocm = ocmOperator((poi.OperatorInfo && poi.OperatorInfo.ID) ?? poi.OperatorID, opTitle);
   const country = (a.Country && a.Country.ISOCode) || null;
   return {
     id: poi.ID,
@@ -396,8 +432,42 @@ function shortStation(poi) {
     lon,
     operator: opTitle ? String(opTitle).slice(0, 60) : null,
     operator_id: operatorOf(opTitle),
+    ...(ocm ? { operator_ocm: ocm.id } : {}),
     connectors,
   };
+}
+
+// Operators found in the station data along your routes (#48) that are not
+// in the list above: so any operator can be preferred. Kept with the
+// stations (/data/chargestops.json); at most MAX_SEEN, the most common first.
+function remember(list) {
+  const seen = load().operators;
+  for (const st of list) {
+    if (!st.operator_ocm || st.operator_id) continue;
+    const key = String(st.operator_ocm);
+    const o = seen[key] || { name: st.operator, countries: [], fast: false, n: 0 };
+    o.name = st.operator || o.name;
+    if (st.country && !o.countries.includes(st.country) && o.countries.length < 12) o.countries.push(st.country);
+    if (Object.values(st.connectors).some((x) => x.kw >= 50)) o.fast = true;
+    o.n++;
+    seen[key] = o;
+  }
+  const keys = Object.keys(seen);
+  if (keys.length > MAX_SEEN) {
+    keys.sort((a, b) => seen[b].n - seen[a].n);
+    for (const k of keys.slice(MAX_SEEN)) delete seen[k];
+  }
+}
+
+// The list for the settings page: seen operators by name, and the chosen ones
+// even when they are no longer seen.
+function seenOperators(chosen = []) {
+  const seen = load().operators;
+  const out = Object.entries(seen).map(([id, o]) => ({ ocm_id: Number(id), name: o.name, countries: o.countries, fast: !!o.fast }));
+  for (const c of chosen) {
+    if (!seen[String(c.id)]) out.push({ ocm_id: c.id, name: c.name, countries: [], fast: false });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +479,7 @@ function load() {
   cache.routes = cache.routes || {};
   cache.stations = cache.stations || {};
   cache.detours = cache.detours || {};
+  cache.operators = cache.operators || {};
   return cache;
 }
 function save() {
@@ -510,6 +581,7 @@ function stationsOf(key, line, detourKm, minKw, routeKm, now) {
         const res = await getJson(`${OCM_URL}?${q}`, { 'X-API-Key': config().api_key });
         const list = Array.isArray(res) ? res.map(shortStation).filter(Boolean) : [];
         rec = { list, at: Date.now() };
+        remember(list);
       } catch (err) {
         ha.debug('Charging stops: Open Charge Map failed -', err.message);
         rec = { error: err.status === 401 || err.status === 403 ? 'bad_key' : 'stations_failed', at: Date.now() };
@@ -595,6 +667,8 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
   const use = pctPerKm > 0 ? Math.max(pctPerKm * tripcost.MARGIN, own) : null;
   const points = decodePolyline(route.line);
   const prefer = new Set(c.operators);
+  const preferOcm = new Set(c.ocm_operators.map((o) => o.id));
+  const preferred = (s) => (!!s.operator_id && prefer.has(s.operator_id)) || (!!s.operator_ocm && preferOcm.has(s.operator_ocm));
   // Every station that fits your settings, with its place on the route line.
   // The line can be a little shorter than the road: scale to the road.
   let scale = 1;
@@ -606,7 +680,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     const pos = onRoute(points, s);
     if (pos.off * 2 > c.max_detour_km) continue;
     scale = pos.total > 0 ? R / pos.total : 1;
-    near.push({ s, plugs, pos, preferred: !!s.operator_id && prefer.has(s.operator_id) });
+    near.push({ s, plugs, pos, preferred: preferred(s) });
   }
   // Each station is on the trip twice: on the way there and on the way back.
   // p: km from the start of the trip (there and back) to that point.
@@ -646,7 +720,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     // A station once, also when it fits on the way there and on the way back.
     const seen = new Set();
     const unique = pick.filter((x) => !seen.has(x.s.id) && seen.add(x.s.id));
-    return { pick: unique, longer: longer && pick.length > 0, others: prefer.size > 0 && !mine.length && fits.length > 0 };
+    return { pick: unique, longer: longer && pick.length > 0, others: prefer.size + preferOcm.size > 0 && !mine.length && fits.length > 0 };
   };
   const item = (x, far) => ({
     id: x.s.id,
@@ -761,7 +835,7 @@ function changed() {
 
 // Tests only.
 function reset() {
-  cache = { routes: {}, stations: {}, detours: {} };
+  cache = { routes: {}, stations: {}, detours: {}, operators: {} };
   queue.length = 0;
   queued.clear();
 }

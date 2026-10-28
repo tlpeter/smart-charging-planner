@@ -498,6 +498,43 @@ async function main() {
     }
   });
 
+  await check('operators from the station data (#48): remembered from the stations on your routes, by Open Charge Map number; one of them can be preferred', async () => {
+    // The station keeps the Open Charge Map number of its operator; "unknown" is not an operator.
+    const own = { OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } };
+    assert.equal(cs.shortStation({ ...poi(40, 'x', 51.5, 5.0, [ccs(150)]), ...own }).operator_ocm, 9001);
+    assert.equal(cs.shortStation({ ...poi(41, 'x', 51.5, 5.0, [ccs(150)]), OperatorInfo: { ID: 1, Title: '(Unknown Operator)' } }).operator_ocm, undefined);
+    // Settings: numbers and names are checked, doubles dropped, at most 100.
+    const c = cs.clean({ countries: ['NL'], connectors: ['ccs'], ocm_operators: [{ id: 9001, name: ' Stadtwerke  Teststadt ' }, { id: 9001, name: 'again' }, { id: -3, name: 'x' }, { id: 'abc', name: 'y' }, { id: 5, name: '' }, 'z'] }, {});
+    assert.deepEqual(c.ocm_operators, [{ id: 9001, name: 'Stadtwerke Teststadt' }]);
+    const many = Array.from({ length: 101 }, (_, i) => ({ id: i + 1, name: `Op ${i}` }));
+    assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], ocm_operators: many }, {}), /at most 100/);
+    // After a lookup the page lists the operator, not the ones in the app's own list.
+    cs.reset();
+    stations = [{ ...poi(42, 'x', 51.6, 5.0, [ccs(150)]), ...own, AddressInfo: { Title: 'S42', Town: 'T', Latitude: 51.6, Longitude: 5.0, Country: { ISOCode: 'DE' } } }, poi(43, 'Fastned', 51.62, 5.0, [ccs(300)])];
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    const run = async () => { let r = cs.suggest(input); for (let i = 0; i < 8 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(input); } return r; };
+    let r = await run();
+    const seen = cs.view().seen_operators;
+    assert.deepEqual(seen, [{ ocm_id: 9001, name: 'Stadtwerke Teststadt', countries: ['DE'], fast: true }], JSON.stringify(seen));
+    assert.equal(r.stops[0].id, 43); // more power first when nobody is preferred
+    // Preferred by its number: its station comes first.
+    cfg = { ...cfg, ocm_operators: [{ id: 9001, name: 'Stadtwerke Teststadt' }] };
+    r = await run();
+    assert.ok(r.stops[0].id === 42 && r.stops[0].preferred && !r.others_only, JSON.stringify(r.stops));
+    // A chosen operator that is no longer seen stays on the page.
+    cs.reset();
+    assert.deepEqual(cs.view().seen_operators.map((o) => o.ocm_id), [9001]);
+  });
+
+  await check('settings page (#48): countries and operators as lists that open and close, chosen operators as labels with a remove button, a search that does not count as a change', () => {
+    const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+    for (const id of ['cstops-countries-box', 'cstops-countries-sum', 'cstops-countries-search', 'cstops-operators-box', 'cstops-op-search', 'cstops-op-chips']) assert.ok(html.includes(`id="${id}"`), id);
+    // The search fields are not settings: the unsaved-changes guard ignores them.
+    for (const id of ['cstops-countries-search', 'cstops-op-search']) assert.match(html, new RegExp(`id="${id}"[^>]*data-guard-ignore`));
+    assert.match(html, /<details class="pick" id="cstops-countries-box">/);
+    assert.match(html, /<details class="pick" id="cstops-operators-box">/);
+  });
+
   await check('a key Open Charge Map does not accept: the trip says so', async () => {
     cs.reset();
     hits.length = 0;
