@@ -1192,10 +1192,62 @@ function durationText(minutes) {
       if (!w || !el.dataset.map) return; // not visible yet: drawn when it is opened
       let m;
       try { m = JSON.parse(el.dataset.map); } catch { return; }
-      drawMap(box, m, w, Math.round(Math.min(440, Math.max(260, w * 0.7))));
+      drawMap(box, m, w, Math.round(Math.min(440, Math.max(260, w * 0.7))), { inline: true });
     }
-    // Draw a route map (tiles, the route, H, D and the stops) in a box of w × h.
-    function drawMap(box, m, w, h) {
+    // Leaflet (#54): a map you can zoom and drag. Shipped with the app and only
+    // loaded when a map opens; when it cannot load, the fixed map is drawn.
+    let leafletLoad = null;
+    function loadLeaflet() {
+      if (window.L && window.L.map) return Promise.resolve(window.L);
+      if (!leafletLoad) {
+        leafletLoad = new Promise((resolve, reject) => {
+          const css = document.createElement('link');
+          css.rel = 'stylesheet';
+          css.href = 'vendor/leaflet/leaflet.css';
+          document.head.appendChild(css);
+          const js = document.createElement('script');
+          js.src = 'vendor/leaflet/leaflet.js';
+          js.onload = () => (window.L && window.L.map ? resolve(window.L) : reject(new Error('Leaflet did not load')));
+          js.onerror = () => reject(new Error('Leaflet did not load'));
+          document.head.appendChild(js);
+        }).catch((err) => { leafletLoad = null; throw err; });
+      }
+      return leafletLoad;
+    }
+    function leafletMap(L, box, m, inline) {
+      if (box._lmap) { box._lmap.remove(); box._lmap = null; }
+      box.innerHTML = '';
+      box.classList.add('map-live');
+      // In the page: no zoom with the mouse wheel and no drag with one finger,
+      // so the page itself still scrolls; in the big window: everything.
+      const touch = !!(L.Browser && L.Browser.mobile);
+      const map = L.map(box, { scrollWheelZoom: !inline, dragging: !inline || !touch, tap: false, zoomSnap: 0.25 });
+      box._lmap = map;
+      L.tileLayer(m.tiles, { maxZoom: 18, subdomains: 'abc', attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>' }).addTo(map);
+      const line = decodeLine(m.line || '').map((p) => [p.lat, p.lon]);
+      if (line.length > 1) L.polyline(line, { className: 'map-route', interactive: false }).addTo(map);
+      const icon = (cls, label, size) => L.divIcon({ className: `map-pin ${cls}`, html: label ? `<span>${esc(label)}</span>` : '', iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2] });
+      const info = (s, x, first) => `<strong>${first ? `Stop ${esc(s.n)}` : `Stop ${esc(s.n)}, or`}</strong><br>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || 'Charging station')}</a>` : esc(x.name || 'Charging station')}${x.kw != null ? `<br>${esc(x.kw)} kW${x.points != null ? ` · ${esc(x.points)} ${x.points === 1 ? 'point' : 'points'}` : ''}` : ''}${x.arrive != null ? `<br>arrive with ~${esc(x.arrive)}%` : ''}${first && s.charge_to != null ? `, charge to ${esc(s.charge_to)}%` : ''}`;
+      for (const s of m.stops) {
+        s.stations.slice(1).forEach((x) => L.marker([x.lat, x.lon], { icon: icon('map-pin-alt', '', 12) }).bindPopup(info(s, x, false)).addTo(map));
+      }
+      L.marker([m.dest.lat, m.dest.lon], { icon: icon('map-pin-end', 'D', 24), title: 'Destination' }).addTo(map);
+      L.marker([m.home.lat, m.home.lon], { icon: icon('map-pin-end', 'H', 24), title: 'Home' }).addTo(map);
+      for (const s of m.stops) L.marker([s.stations[0].lat, s.stations[0].lon], { icon: icon('map-pin-stop', String(s.n), 24), zIndexOffset: 1000 }).bindPopup(info(s, s.stations[0], true)).addTo(map);
+      const all = [...line, [m.home.lat, m.home.lon], [m.dest.lat, m.dest.lon], ...m.stops.flatMap((s) => s.stations.map((x) => [x.lat, x.lon]))];
+      map.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
+      return map;
+    }
+    // Draw a route map (tiles, the route, H, D and the stops) in a box of w × h:
+    // with Leaflet when it loads (zoom and drag), else as a fixed picture.
+    function drawMap(box, m, w, h, { inline = false } = {}) {
+      box.style.height = `${h}px`;
+      if (box._lmap) { box._lmap.invalidateSize(); return; }
+      // The fixed map only when Leaflet does not load (so no map images twice).
+      loadLeaflet().then((L) => { if (box.isConnected) leafletMap(L, box, m, inline); })
+        .catch(() => { if (box.isConnected && !box._lmap) drawStaticMap(box, m, box.clientWidth || w, h); });
+    }
+    function drawStaticMap(box, m, w, h) {
       const line = decodeLine(m.line || '');
       const stations = m.stops.flatMap((s) => s.stations);
       const L = mapLayout([...line, m.home, m.dest, ...stations], w, h);
@@ -1217,7 +1269,7 @@ function durationText(minutes) {
     function mapDataOf(c) {
       const mp = c && c.map;
       if (!mp || !Array.isArray(c.legs)) return null;
-      const stops = c.legs.map((l) => ({ n: l.n, stations: (l.stations || []).filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name })) })).filter((l) => l.stations.length);
+      const stops = c.legs.map((l) => ({ n: l.n, charge_to: l.charge_to_pct, stations: (l.stations || []).filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name, kw: x.power_kw, points: x.points, arrive: x.arrive_pct, url: x.url })) })).filter((l) => l.stations.length);
       return stops.length ? { tiles: mp.tiles, line: mp.line, home: mp.home, dest: mp.dest, stops } : null;
     }
     // The map icon in Looking ahead (#47): the route map in a big window, in one
@@ -1236,7 +1288,12 @@ function durationText(minutes) {
       d.querySelector('.map-dialog-close').addEventListener('click', () => d.close());
       // A click next to the window (on the dark backdrop) closes it too.
       d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
-      d.addEventListener('close', () => { mapDialogData = null; d.querySelector('.map-box').innerHTML = ''; });
+      d.addEventListener('close', () => {
+        mapDialogData = null;
+        const box = d.querySelector('.map-box');
+        if (box._lmap) { box._lmap.remove(); box._lmap = null; }
+        box.innerHTML = '';
+      });
       return d;
     }
     function drawMapDialog() {

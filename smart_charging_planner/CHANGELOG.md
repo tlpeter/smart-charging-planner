@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.19-dev
+
+- **Zoom and drag on the route map:** the map now uses Leaflet (the map library Home Assistant uses too), shipped with the app and only loaded when a map opens. Zoom in on a stop, drag the map, tap a stop for its station (power, points, level on arrival, link). In the page the mouse wheel and one finger still scroll the page; in the big window they move the map. When Leaflet cannot load, the fixed map is shown. (#54)
+
 ## 0.36.18-dev
 
 - **The route map in one click:** a trip with charging stops gets a map icon 🗺 in its line in Looking ahead. It opens the route map in a big window without opening the day (close with ✕, Esc or a click next to it). Needs Route map set to OpenStreetMap or your own tile server; map images load only when the window opens. (#47)

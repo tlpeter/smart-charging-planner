@@ -114,6 +114,29 @@ check('the map icon in Looking ahead (#47): only for a trip with a route map; op
   assert.ok(!src.slice(src.indexOf('    function mapDialog() {'), src.indexOf('    function drawMapDialog() {')).includes('<img'));
 });
 
+check('Leaflet (#54): shipped with the app unchanged (1.9.4, with its license), served by the app, loaded only when a map opens; the fixed map when it cannot load', () => {
+  const crypto = require('crypto');
+  const dir = path.join(APP, 'public', 'vendor', 'leaflet');
+  const sha = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, f))).digest('hex');
+  // The files of the npm package leaflet@1.9.4, unchanged.
+  assert.equal(sha('leaflet.js'), 'db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a');
+  assert.equal(sha('leaflet.css'), 'a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6');
+  assert.match(fs.readFileSync(path.join(dir, 'LICENSE'), 'utf8'), /BSD 2-Clause/);
+  // Served by the app itself: no other site is asked for it.
+  const server = fs.readFileSync(path.join(APP, 'server.js'), 'utf8');
+  assert.match(server, /\['\/vendor\/leaflet\/leaflet\.js', \['vendor\/leaflet\/leaflet\.js', 'application\/javascript/);
+  assert.match(server, /\['\/vendor\/leaflet\/leaflet\.css', \['vendor\/leaflet\/leaflet\.css', 'text\/css/);
+  const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+  assert.ok(!html.includes('leaflet'), 'the page must not load Leaflet before a map opens');
+  assert.ok(src.includes("js.src = 'vendor/leaflet/leaflet.js'") && !/https?:\/\/[^'"`]*leaflet/i.test(src), 'Leaflet only from the app');
+  // The fixed map is drawn only when Leaflet does not load (no map images twice).
+  const draw = src.slice(src.indexOf('    function drawMap(box, m, w, h'), src.indexOf('    function drawStaticMap('));
+  assert.ok(draw.includes('loadLeaflet().then') && draw.includes('.catch(') && draw.includes('drawStaticMap('), 'fallback missing');
+  assert.ok(draw.indexOf('drawStaticMap(') > draw.indexOf('.catch('), 'the fixed map only in the fallback');
+  // In the page: the mouse wheel and one finger still scroll the page; in the big window: zoom and drag.
+  assert.match(src, /scrollWheelZoom: !inline, dragging: !inline \|\| !touch/);
+});
+
 check('the reload every minute leaves Home as it is when nothing changed', () => {
   const from = src.indexOf('    async function loadOverview(');
   const body = src.slice(from, src.indexOf("    window.addEventListener('resize'", from));

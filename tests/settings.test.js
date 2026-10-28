@@ -174,6 +174,9 @@ async function run() {
     const css = await api('GET', 'styles.css');
     const js = await api('GET', 'app.js');
     assert(css.status === 200 && typeof css.body === 'string' && css.body.length > 1000, 'styles.css not served');
+    // Leaflet for the route map (#54), served by the app itself.
+    const lf = await api('GET', 'vendor/leaflet/leaflet.js');
+    assert(lf.status === 200 && typeof lf.body === 'string' && lf.body.includes('Leaflet 1.9.4'), 'leaflet.js not served');
     assert(js.status === 200 && typeof js.body === 'string' && js.body.length > 10000, 'app.js not served');
     // The unsaved-changes guard (shared with the other apps) is served and loaded.
     const guard = await api('GET', 'unsaved.js');

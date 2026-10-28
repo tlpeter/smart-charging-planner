@@ -1019,6 +1019,14 @@
     .map-dialog-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .map-dialog-close { margin-left: auto; border: 0; background: none; font-size: 18px; min-height: 0; width: auto; padding: 2px 8px; cursor: pointer; color: var(--muted); }
     .map-dialog .map-box { margin: 8px 0 6px; }
+    /* Leaflet (#54): the same look for the route and the markers. */
+    .map-box.map-live { background: #e8e6df; }
+    .map-box .leaflet-overlay-pane path.map-route { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; opacity: .85; }
+    .leaflet-marker-icon.map-pin { display: flex; align-items: center; justify-content: center; box-sizing: border-box; line-height: 1; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); color: #fff; font-size: 12px; font-weight: 700; }
+    .map-pin-stop { background: var(--expected); }
+    .map-pin-end { background: #3c3c3c; }
+    .leaflet-marker-icon.map-pin-alt { background: #fff; border-color: var(--expected); }
+    .map-box .leaflet-popup-content { font-size: 13px; line-height: 1.4; margin: 10px 12px; }
     .cstops-map { margin: 8px 0; }
     .cstops-map > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
     .map-box { position: relative; overflow: hidden; margin: 8px 0 4px; border-radius: 8px; background: #e8e6df; width: 100%; }
