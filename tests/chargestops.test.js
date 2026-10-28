@@ -456,6 +456,33 @@ async function main() {
     extra = {};
   });
 
+  await check('a stop as late as possible, at the best station (#50): never an early station with a lot left because its detour is smaller; the most power first; each alternative has its own level on arrival', async () => {
+    cs.reset();
+    // A: 22 km, 150 kW; B: 28 km, 300 kW; E: 50 km, 300 kW with the smallest detour.
+    extra = { '51.2000': 0.5, '51.2500': 1.0, '51.4500': 0.1 };
+    const two = (n) => ({ ...ccs(150), Quantity: n });
+    stations = [poi(50, 'Allego BV', 51.2, 5.0, [two(1)]), poi(51, 'IONITY GmbH', 51.25, 5.0, [ccs(300)]), poi(52, 'Fastned', 51.45, 5.0, [ccs(300)])];
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10, charge_to_pct: 80 };
+    const trip = { ...input, socLeave: 30 };
+    let r = cs.suggest(trip);
+    for (let i = 0; i < 10 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(trip); }
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.ok(r.legs.length >= 2, JSON.stringify(r.legs));
+    for (const l of r.legs) {
+      // The recommended station is reached nearly empty, never with a lot left.
+      assert.ok(l.stations[0].arrive_pct <= 25, JSON.stringify(l));
+      assert.notEqual(l.stations[0].id, 52, 'the early station with the smallest detour was chosen');
+      // Every alternative has its own level on arrival.
+      assert.ok(l.stations.every((x) => Number.isFinite(x.arrive_pct)), JSON.stringify(l.stations));
+    }
+    // More power before more points: B (300 kW) before A (150 kW) where both fit.
+    assert.equal(r.legs[0].stations[0].id, 51, JSON.stringify(r.legs[0]));
+    // After charging to 80 % the next stop is late again, on the way back.
+    const second = r.legs[1].stations[0];
+    assert.ok(second.on_way_back && second.km_on_trip > 150, JSON.stringify(second));
+    extra = {};
+  });
+
   await check('a long trip (#40): more than eight stops, each in reach of the one before, as far along as the battery allows', async () => {
     cs.reset();
     hits.length = 0;

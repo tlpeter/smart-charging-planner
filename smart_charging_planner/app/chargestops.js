@@ -37,6 +37,7 @@ const MAX_POINTS = 250; // the route line sent to Open Charge Map
 const SHOW = 3; // suggestions per trip
 const CHECK = 8; // stations whose real detour by road is looked up (#41)
 const FAR_DETOUR_KM = 25; // a longer detour is only shown when nothing else fits
+const LATE_KM = 25; // a stop is in the last part of the reach: this many km (#50)
 const MAX_STOPS = 40; // a safety limit for very long trips (#40), not a normal limit
 
 // European countries (ISO codes, as Open Charge Map sends them) (#40).
@@ -695,8 +696,15 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
   let waiting = false;
   // The best stations for one stop: the real detour by road for the closest
   // (your operators first), then the smallest detour.
+  // The best station (#50): your operators first, then the most power (in
+  // steps of 50 kW, so 300 and 320 kW count the same), then the most charging
+  // points, then the latest (the least battery left), then the smallest detour.
+  const kw = (x) => Math.max(...x.plugs.map((k) => x.s.connectors[k].kw));
+  const tier = (x) => Math.floor(Math.min(kw(x), 400) / 50);
+  const plugCount = (x) => x.plugs.reduce((a, k) => a + x.s.connectors[k].count, 0);
+  const better = (a, b) => (b.preferred - a.preferred) || (tier(b) - tier(a)) || (plugCount(b) - plugCount(a)) || (b.p - a.p);
   const choose = (pool) => {
-    pool.sort((a, b) => (b.preferred - a.preferred) || (a.pos.off - b.pos.off) || (b.p - a.p));
+    pool.sort((a, b) => better(a, b) || (a.pos.off - b.pos.off));
     const check = pool.slice(0, CHECK);
     let wait = false;
     for (const x of check) {
@@ -711,18 +719,17 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     let fits = check.filter((x) => x.detour <= c.max_detour_km);
     const longer = !fits.length;
     if (longer) fits = check.filter((x) => x.detour <= Math.max(FAR_DETOUR_KM, c.max_detour_km * 3));
-    // Your operators first: other operators only when none of yours fits. Then
-    // the smallest detour, then the most power.
+    // Your operators first: other operators only when none of yours fits.
+    // Then the best station (see `better`), the smallest detour last.
     const mine = fits.filter((x) => x.preferred);
     const pick = mine.length ? mine : fits;
-    const kw = (x) => Math.max(...x.plugs.map((k) => x.s.connectors[k].kw));
-    pick.sort((a, b) => (a.detour - b.detour) || (kw(b) - kw(a)));
+    pick.sort((a, b) => better(a, b) || (a.detour - b.detour));
     // A station once, also when it fits on the way there and on the way back.
     const seen = new Set();
     const unique = pick.filter((x) => !seen.has(x.s.id) && seen.add(x.s.id));
     return { pick: unique, longer: longer && pick.length > 0, others: prefer.size + preferOcm.size > 0 && !mine.length && fits.length > 0 };
   };
-  const item = (x, far) => ({
+  const item = (x, far, from) => ({
     id: x.s.id,
     name: x.s.name,
     town: x.s.town,
@@ -735,6 +742,8 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     km_from_home: Math.round(x.along),
     km_on_trip: Math.round(x.p),
     on_way_back: x.back,
+    // The level when the car gets there (each alternative its own, #50).
+    arrive_pct: from && use ? Math.round(from.soc - (x.p - from.x) * use) : null,
     detour_km: Math.round(x.detour * 10) / 10,
     ...(far ? { longer_detour: true } : {}),
     url: `https://map.openchargemap.io/?id=${encodeURIComponent(x.s.id)}`,
@@ -751,7 +760,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     const got = choose(spots.filter((x) => !x.back));
     if (!got) waiting = true;
     else if (!got.pick.length) gap = 0;
-    else legs.push({ got, first: got.pick[0], arrive: null, to: null });
+    else legs.push({ got, first: got.pick[0], arrive: null, to: null, from: null });
   } else {
     // How far a stop gets you: from the reserve up to "charge to".
     const full = Math.max(0, (c.charge_to_pct - c.reserve_pct) / use);
@@ -764,16 +773,14 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
       // Stations ahead that the car reaches with at least the lowest level
       // (along the route, then off it).
       const ahead = spots.filter((y) => y.p > x + (n ? 1 : -1) && y.p + y.pos.off <= x + range);
-      // A stop after which the rest of the trip fits; else one where the car
-      // arrives below the level for a stop (fast charging when nearly empty);
-      // else one far along (the second half of the reach), so there are not
-      // more stops than needed.
+      // As late as possible (#50): most cars charge fastest when nearly
+      // empty. The stations where the car arrives below the level for a stop
+      // (down to the lowest level), and at least those in the last LATE_KM of
+      // what it reaches; never an early one while a later one is in reach.
+      if (!ahead.length) { gap = x; break; }
       const search = x + Math.max(0, (soc - c.reserve_pct) / use);
-      const last = ahead.filter((y) => y.p + full >= trip);
-      const low2 = ahead.filter((y) => y.p >= search);
-      const late = ahead.filter((y) => y.p >= x + range / 2);
-      const pool = last.length ? last : low2.length ? low2 : late.length ? late : ahead;
-      if (!pool.length) { gap = x; break; }
+      const latest = Math.max(...ahead.map((y) => y.p));
+      const pool = ahead.filter((y) => y.p >= Math.min(search, latest - LATE_KM));
       const got = choose(pool.map((y) => ({ ...y })));
       if (!got) { waiting = true; break; }
       if (!got.pick.length) { gap = x; break; }
@@ -782,7 +789,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
       // At the last stop: only what the rest needs (rounded up), at most "charge to".
       const fin = first.p + full >= trip;
       const to = fin ? Math.min(c.charge_to_pct, Math.ceil(c.reserve_pct + (trip - first.p) * use)) : c.charge_to_pct;
-      legs.push({ got, first, arrive, to });
+      legs.push({ got, first, arrive, to, from: { x, soc } });
       if (!(first.p > x)) { gap = x; break; } // never stand still
       x = first.p;
       soc = to;
@@ -802,7 +809,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     on_way_back: l.first.back,
     arrive_pct: l.arrive == null ? null : Math.round(l.arrive),
     charge_to_pct: l.to,
-    stations: l.got.pick.slice(0, SHOW).map((x) => item(x, l.got.longer)),
+    stations: l.got.pick.slice(0, SHOW).map((x) => item(x, l.got.longer, l.from)),
     found: l.got.pick.length,
     longer_only: l.got.longer,
     others_only: l.got.others,

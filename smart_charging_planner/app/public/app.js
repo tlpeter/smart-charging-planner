@@ -1451,22 +1451,25 @@ function durationText(minutes) {
         const count = legs.length > 1 ? ` · ${esc(legs.length)} stops` : '';
         const need = `Charge on the way${legs.length === 1 && legs[0].on_way_back ? ' back' : ''}: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${count}`;
         if (c.status !== 'ok' && c.status !== 'partial') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
-        const station = (st) => `<li><a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}${st.country ? ` (${esc(st.country)})` : ''}</span>` : ''}
-          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ~${esc(st.km_from_home)} km from home${legs.length > 1 && st.on_way_back !== legs[0].on_way_back ? (st.on_way_back ? ' (way back)' : ' (way there)') : ''} · +${esc(tidy(st.detour_km))} km detour</div></li>`;
+        // One station: the best first, the others as alternatives (#50), each
+        // with its own level on arrival.
+        const station = (st) => `<a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}${st.country ? ` (${esc(st.country)})` : ''}</span>` : ''}
+          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ${esc(st.points)} ${st.points === 1 ? 'point' : 'points'}${st.arrive_pct != null ? ` · arrive with ~${esc(st.arrive_pct)}%` : ''} · ~${esc(st.km_from_home)} km from home${legs.length > 1 && st.on_way_back !== legs[0].on_way_back ? (st.on_way_back ? ' (way back)' : ' (way there)') : ''} · +${esc(tidy(st.detour_km))} km detour</div>`;
+        const choice = (list) => `<div class="cstops-best">${station(list[0])}</div>${list.length > 1 ? `<div class="muted small cstops-or">Or:</div><ul>${list.slice(1).map((st) => `<li>${station(st)}</li>`).join('')}</ul>` : ''}`;
         const leg = (l) => {
           const head = legs.length > 1
-            ? `<div class="cstops-leg">Stop ${esc(l.n)}${l.on_way_back ? ' (on the way back)' : ''}${l.km_on_trip != null ? ` · after ~${esc(l.km_on_trip)} km` : ''}${l.arrive_pct != null ? ` · arrive with ~${esc(l.arrive_pct)}%` : ''}${l.charge_to_pct != null ? `, charge to ${esc(l.charge_to_pct)}%` : ''}</div>`
-            : l.arrive_pct != null && l.charge_to_pct != null ? `<div class="muted small">Arrive with ~${esc(l.arrive_pct)}%, charge to ${esc(l.charge_to_pct)}%.</div>` : '';
+            ? `<div class="cstops-leg">Stop ${esc(l.n)}${l.on_way_back ? ' (on the way back)' : ''}${l.km_on_trip != null ? ` · after ~${esc(l.km_on_trip)} km` : ''}${l.charge_to_pct != null ? ` · charge to ${esc(l.charge_to_pct)}%` : ''}</div>`
+            : l.charge_to_pct != null ? `<div class="muted small">Charge to ${esc(l.charge_to_pct)}%.</div>` : '';
           return `${head}
           ${legs.length === 1 && l.on_way_back ? '<div class="muted small">You get there with enough left: charge on the way back, so these stations are on the side of the road going home.</div>' : ''}
           ${l.longer_only ? `<div class="muted small warn-text">No station within your maximum detour by road (${esc(cstopsDetour(c))}). These need a longer detour, for example on the other side of the motorway.</div>` : ''}
           ${l.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
-          <ul>${l.stations.map(station).join('')}</ul>`;
+          ${choice(l.stations)}`;
         };
         return `<div class="cstops"><div class="cstops-head">${need}</div>
           ${legs.map(leg).join('')}
           ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
-          <div class="muted small">Stations from Open Charge Map, smallest detour by road first${legs.length > 1 ? '; each stop is planned from the first station of the stop before' : ''}. Not live: check availability in your charging app.</div></div>`;
+          <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
       }
 
       // One line per day; tap a day for all its details (the rows above).

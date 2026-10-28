@@ -2075,12 +2075,14 @@ async function run() {
       // there is none further on, so the first stop is shown and where the gap is.
       const fine = (x) => x && (x.status === 'ok' || x.status === 'partial');
       assert(back.soc < 10 && fine(c) && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
-      assert(c.stops.map((x) => x.id).join(',') === '1,2' && c.stops[0].operator === 'Fastned' && c.stops[0].power_kw === 300 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
-      assert(c.legs.length >= 1 && c.legs[0].n === 1 && c.legs[0].charge_to_pct === 80 && c.legs[0].stations.map((x) => x.id).join(',') === '1,2', JSON.stringify(c.legs));
+      // The best station first (#50): IONITY 350 kW before Fastned 300 kW, although Fastned is closer to the road.
+      assert(c.stops.map((x) => x.id).join(',') === '2,1' && c.stops[0].operator === 'IONITY GmbH' && c.stops[0].power_kw === 350 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      assert(c.legs.length >= 1 && c.legs[0].n === 1 && c.legs[0].charge_to_pct === 80 && c.legs[0].stations.map((x) => x.id).join(',') === '2,1', JSON.stringify(c.legs));
+      assert(c.legs[0].stations.every((x) => Number.isFinite(x.arrive_pct)), JSON.stringify(c.legs[0].stations));
       assert(c.status === 'ok' || c.gap_km > 0, JSON.stringify(c));
       const call = world.ocmCalls[0];
       assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5' && call.params.minpowerkw === '50', JSON.stringify(world.ocmCalls));
-      // IONITY preferred: only IONITY, although Fastned is closer to the route.
+      // IONITY preferred: only IONITY.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
       c = (await stopsNow()).charge_stops;
       assert(fine(c) && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));

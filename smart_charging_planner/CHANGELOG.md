@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.11-dev
+
+- **Fix: charging stops were sometimes planned early, with a lot of battery left.** A stop is now as late as the battery allows, where the car arrives nearly empty (down to "Arrive at a charger with at least"), and at the best station there: your operators first, then the most power, then the most charging points. Each stop shows one recommended station and up to two others under "Or:", each with its own level on arrival and number of points. (#50)
+
 ## 0.36.10-dev
 
 - Test data and documentation only: every address, town, postcode and position in the tests is now made up (positions in the sea), and AGENTS.md says that everything public stays anonymous. No app changes.
