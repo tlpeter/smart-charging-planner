@@ -2112,29 +2112,6 @@ async function run() {
       await refused('POST', 'api/charge-stops', { ...body, api_key: '', map_tiles: 'custom', map_tile_url: 'https://tiles.example.lan/tile.png' }, 'tile server');
       c = (await stopsNow()).charge_stops;
       assert(c.map && c.map.tiles.startsWith('https://tile.openstreetmap.org/') && c.map.line && c.map.dest.lat === dest.lat && c.legs[0].stations.every((x) => Number.isFinite(x.lat)), JSON.stringify(c.map));
-      // The stops on the Home Assistant map (#53): off → refused; on → the
-      // sensors are written and, with Browser Mod, a popup on this screen only.
-      await refused('POST', 'api/charge-stops/ha-map', { browser_id: 'test-screen-1' }, 'Turn on');
-      // The points are written with the plan, or at the latest by the button
-      // (only what changed is written, so not twice).
-      world.rest = [];
-      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, ha_map: true });
-      c = (await stopsNow()).charge_stops;
-      assert(c.dest && c.dest.lat === dest.lat, JSON.stringify(c.dest));
-      const n0 = world.calls.length;
-      const hm = await ok('POST', 'api/charge-stops/ha-map', { browser_id: 'test-screen-1' });
-      assert(hm.popup === true && hm.entities.includes('sensor.smart_charging_stop_1') && hm.entities.includes('sensor.smart_charging_trip_destination'), JSON.stringify(hm));
-      assert(world.rest.some((r) => r.method === 'POST' && r.url.includes('/states/sensor.smart_charging_stop_1')), JSON.stringify(world.rest.map((r) => r.url)));
-      const pop = world.calls.slice(n0).find((x) => x.domain === 'browser_mod' && x.service === 'popup');
-      assert(pop && pop.data.browser_id.join() === 'test-screen-1' && pop.data.content.type === 'map' &&
-        pop.data.content.entities.every((e) => /^sensor\.smart_charging_(stop_\d+|trip_destination)$|^zone\.home$/.test(e.entity)), JSON.stringify(pop));
-      const noId = await ok('POST', 'api/charge-stops/ha-map', {});
-      assert(noId.popup === false && noId.reason === 'no_browser_id', JSON.stringify(noId));
-      // Off again: the sensors are removed.
-      world.rest = [];
-      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false });
-      await sleep(500);
-      assert(world.rest.some((r) => r.method === 'DELETE' && r.url.includes('/states/sensor.smart_charging_stop_1')), JSON.stringify(world.rest.map((r) => `${r.method} ${r.url}`)));
       // Operators from the station data (#48): one that is not in the app's
       // list is offered after a lookup, and can be preferred by its number.
       world.stations.push({ ...poi(8, 'x', along(0.5, 0.002), 'NL', [ccs(150)]), OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } });

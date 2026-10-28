@@ -1,16 +1,20 @@
 # Changelog
 
+## 0.36.17-dev
+
+- **Removed again: charging stops on the Home Assistant map** (from 0.36.14-dev to 0.36.16-dev). A Home Assistant map shows points but cannot draw the planned route, so the app's own route map is used instead. The option, the sensors `sensor.smart_charging_stop_*` and `sensor.smart_charging_trip_destination`, the Browser Mod popup and the Browser Mod requirement are gone. If you tried it: the sensors disappear when Home Assistant restarts. (#47)
+
 ## 0.36.16-dev
 
-- Test only: the Home Assistant map check in the settings test accepts that the points were already written with the plan (only what changed is written). No app changes. (#53)
+- Test only: the Home Assistant map check in the settings test (removed again in 0.36.17-dev, see issue 53).
 
 ## 0.36.15-dev
 
-- Charging stops on the Home Assistant map: switching the option off now removes the points right away, not only at the next refresh. (#53)
+- Charging stops on the Home Assistant map: switching the option off removes the points right away (removed again in 0.36.17-dev, see issue 53).
 
 ## 0.36.14-dev
 
-- **Charging stops on the Home Assistant map:** new option under Plan › Charging stops on the way (off by default). The stops of the next trip with charging stops appear on the Map in Home Assistant (with zooming and dragging) as `sensor.smart_charging_stop_1`, `_2`, … and the destination. **Show on the Home Assistant map** at the trip opens them in a popup on this screen; that needs **Browser Mod** (HACS), else the button opens the Map. The sensors are removed when no trip needs a stop. (#53)
+- Charging stops on the Home Assistant map, with a popup via Browser Mod (removed again in 0.36.17-dev, see issue 53).
 
 ## 0.36.13-dev
 

@@ -158,8 +158,6 @@ const DEFAULTS = {
   // open a map.
   map_tiles: 'off',
   map_tile_url: '',
-  // The stops as points on the Home Assistant map (#53); the popup needs Browser Mod.
-  ha_map: false,
 };
 
 const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -216,7 +214,6 @@ function config() {
   c.ocm_operators = ocmList(c.ocm_operators).slice(0, MAX_OCM_OPERATORS);
   if (!MAP_CHOICES.includes(c.map_tiles)) c.map_tiles = 'off';
   c.map_tile_url = typeof c.map_tile_url === 'string' ? c.map_tile_url.trim() : '';
-  c.ha_map = c.ha_map === true;
   c.connectors = (Array.isArray(c.connectors) ? c.connectors : []).filter((x) => CONNECTORS[x]);
   if (!c.connectors.length) c.connectors = [...DEFAULTS.connectors];
   c.only_countries = c.only_countries === true;
@@ -264,7 +261,6 @@ function clean(body, saved = {}) {
     ocm_operators: ocmList(b.ocm_operators),
     map_tiles: MAP_CHOICES.includes(b.map_tiles) ? b.map_tiles : 'off',
     map_tile_url: typeof b.map_tile_url === 'string' ? b.map_tile_url.trim() : '',
-    ha_map: b.ha_map === true,
     min_power_kw: num(b.min_power_kw, 'Minimum power', 3, 400, DEFAULTS.min_power_kw),
     connectors: list(b.connectors, (x) => !!CONNECTORS[x]),
     max_detour_km: num(b.max_detour_km, 'Maximum detour', 1, 30, DEFAULTS.max_detour_km),
@@ -867,8 +863,6 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     others_only: first ? first.others_only : false,
     // The route on a map (#47): the line, home and the destination, for the
     // page only (never in the public diagnostics).
-    // The destination, for the points on the Home Assistant map (#53).
-    ...(out.length && c.ha_map ? { dest: { lat: dest.lat, lon: dest.lon } } : {}),
     ...(out.length && tilesOf(c) ? { map: { tiles: tilesOf(c), line: route.line, home: { lat: home.lat, lon: home.lon }, dest: { lat: dest.lat, lon: dest.lon } } } : {}),
   };
 }
