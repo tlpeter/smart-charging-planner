@@ -1010,6 +1010,18 @@
     .pick-chip button { border: 0; background: none; padding: 0 6px; margin: 0; min-height: 0; width: auto; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1.4; }
     .cstops-best { margin: 6px 0 2px; font-size: 13px; }
     .cstops-or { margin-top: 4px; }
+    /* The route on a map (#47). */
+    .cstops-map { margin: 8px 0; }
+    .cstops-map > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+    .map-box { position: relative; overflow: hidden; margin: 8px 0 4px; border-radius: 8px; background: #e8e6df; width: 100%; }
+    .map-tiles { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+    .map-tile { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; }
+    .map-layer { position: absolute; left: 0; top: 0; }
+    .map-route { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; opacity: .85; }
+    .map-stop circle { fill: var(--expected); stroke: #fff; stroke-width: 2; }
+    .map-stop text, .map-end text { fill: #fff; font-size: 12px; font-weight: 700; }
+    .map-end circle { fill: #3c3c3c; stroke: #fff; stroke-width: 2; }
+    .map-alt circle { fill: #fff; stroke: var(--expected); stroke-width: 2; }
     .cstops-leg { font-weight: 600; font-size: 13px; margin-top: 8px; }
     .cstops ul { margin: 6px 0; padding-left: 18px; }
     .cstops li { margin: 4px 0; font-size: 13px; }

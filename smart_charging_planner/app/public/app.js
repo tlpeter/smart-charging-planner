@@ -1119,6 +1119,107 @@ function durationText(minutes) {
     const keptOpen = new Map();
     document.addEventListener('toggle', (e) => { const k = e.target.dataset && e.target.dataset.keep; if (k) keptOpen.set(k, e.target.open); }, true);
     const keep = (key, dflt = false) => ` data-keep="${esc(key)}"${(keptOpen.has(key) ? keptOpen.get(key) : dflt) ? ' open' : ''}`;
+
+    // ---------- The route on a map (#47) ----------
+    // Drawn by the page itself: map images (tiles) from the chosen tile server
+    // with the route and the charging stops on top. Nothing is loaded until
+    // you open a map.
+    // A route line as Open Charge Map and OSRM send it (Google polyline, 5 decimals).
+    function decodeLine(str) {
+      const out = [];
+      let i = 0;
+      let lat = 0;
+      let lon = 0;
+      const next = () => {
+        let shift = 0;
+        let result = 0;
+        let b;
+        do {
+          b = str.charCodeAt(i++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20 && i <= str.length);
+        return result & 1 ? ~(result >> 1) : result >> 1;
+      };
+      while (i < str.length) {
+        lat += next();
+        lon += next();
+        out.push({ lat: lat / 1e5, lon: lon / 1e5 });
+      }
+      return out;
+    }
+    // Where everything goes on a w × h map: the zoom level that fits all
+    // points, the offset in pixels and the tiles to load. Tiles only come in
+    // whole zoom levels (each twice the one before), so the map is enlarged
+    // (scale, at most 2×) until the route fills it.
+    function mapLayout(points, w, h, pad = 28) {
+      const merc = (p, z) => {
+        const size = 256 * 2 ** z;
+        const sin = Math.sin((Math.max(-85, Math.min(85, p.lat)) * Math.PI) / 180);
+        return { x: ((p.lon + 180) / 360) * size, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size };
+      };
+      let z = 14;
+      let box;
+      for (; z >= 1; z--) {
+        const xy = points.map((p) => merc(p, z));
+        box = { x0: Math.min(...xy.map((q) => q.x)), x1: Math.max(...xy.map((q) => q.x)), y0: Math.min(...xy.map((q) => q.y)), y1: Math.max(...xy.map((q) => q.y)) };
+        if (box.x1 - box.x0 <= w - 2 * pad && box.y1 - box.y0 <= h - 2 * pad) break;
+      }
+      z = Math.max(z, 1);
+      const bw = Math.max(1, box.x1 - box.x0);
+      const bh = Math.max(1, box.y1 - box.y0);
+      const scale = Math.max(1, Math.min(2, (w - 2 * pad) / bw, (h - 2 * pad) / bh));
+      // The tiles are laid out for the map before it is enlarged.
+      const vw = w / scale;
+      const vh = h / scale;
+      const ox = (box.x0 + box.x1) / 2 - vw / 2;
+      const oy = (box.y0 + box.y1) / 2 - vh / 2;
+      const n = 2 ** z;
+      const tiles = [];
+      for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + vh) / 256); ty++) {
+        if (ty < 0 || ty >= n) continue;
+        for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + vw) / 256); tx++) {
+          tiles.push({ z, x: ((tx % n) + n) % n, y: ty, left: Math.round(tx * 256 - ox), top: Math.round(ty * 256 - oy) });
+        }
+      }
+      // at(): where a point is on the map as you see it (after enlarging).
+      return { z, scale, tiles, at: (p) => { const q = merc(p, z); return { x: (q.x - ox) * scale, y: (q.y - oy) * scale }; } };
+    }
+    const tileSrc = (tpl, t) => tpl.replace('{z}', t.z).replace('{x}', t.x).replace('{y}', t.y).replace('{s}', 'a');
+    function renderMap(el) {
+      const box = el.querySelector('.map-box');
+      const w = box ? box.clientWidth : 0;
+      if (!w || !el.dataset.map) return; // not visible yet: drawn when it is opened
+      let m;
+      try { m = JSON.parse(el.dataset.map); } catch { return; }
+      const h = Math.round(Math.min(440, Math.max(260, w * 0.7)));
+      const line = decodeLine(m.line || '');
+      const stations = m.stops.flatMap((s) => s.stations);
+      const L = mapLayout([...line, m.home, m.dest, ...stations], w, h);
+      const pt = (p) => L.at(p);
+      const r1 = (v) => Math.round(v * 10) / 10;
+      const route = line.map((p) => { const q = pt(p); return `${r1(q.x)},${r1(q.y)}`; }).join(' ');
+      const dot = (p, label, cls, title) => { const q = pt(p); return `<g class="${cls}"><title>${esc(title)}</title><circle cx="${r1(q.x)}" cy="${r1(q.y)}" r="${cls === 'map-alt' ? 5 : 11}"></circle>${label ? `<text x="${r1(q.x)}" y="${r1(q.y) + 4}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`; };
+      const alts = m.stops.flatMap((s) => s.stations.slice(1).map((x) => dot(x, '', 'map-alt', `Stop ${s.n}, or: ${x.name || 'charging station'}`)));
+      const firsts = m.stops.map((s) => dot(s.stations[0], String(s.n), 'map-stop', `Stop ${s.n}: ${s.stations[0].name || 'charging station'}`));
+      box.style.height = `${h}px`;
+      // A tile that does not load is left out (no broken-image icon).
+      box.innerHTML = `<div class="map-tiles" style="transform:scale(${L.scale})">${L.tiles.map((t) => `<img class="map-tile" alt="" src="${esc(tileSrc(m.tiles, t))}" style="left:${t.left}px;top:${t.top}px" onerror="this.style.visibility='hidden'">`).join('')}</div>
+        <svg class="map-layer" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+          <polyline class="map-route" points="${route}"></polyline>
+          ${alts.join('')}${dot(m.dest, 'D', 'map-end', 'Destination')}${dot(m.home, 'H', 'map-end', 'Home')}${firsts.join('')}
+        </svg>`;
+    }
+    // A map is drawn when you open it, and again when Home was built again.
+    // Also when the day around it is opened later.
+    const renderOpenMaps = (root) => root.querySelectorAll('details.cstops-map[open]').forEach(renderMap);
+    document.addEventListener('toggle', (e) => {
+      const el = e.target;
+      if (!el.open || !el.classList) return;
+      if (el.classList.contains('cstops-map')) renderMap(el);
+      else if (el.querySelector) renderOpenMaps(el);
+    }, true);
+    window.addEventListener('resize', () => renderOpenMaps(document));
     function chargeStatusHtml(d) {
       const c = d.charge_state;
       if (!c || (d.missing && d.missing.length)) return '';
@@ -1472,7 +1573,16 @@ function durationText(minutes) {
           ${l.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
           ${choice(l.stations)}`;
         };
+        // The route on a map (#47), when a map is chosen under Plan.
+        const mp = c.map;
+        const mapData = mp ? { tiles: mp.tiles, line: mp.line, home: mp.home, dest: mp.dest, stops: legs.map((l) => ({ n: l.n, stations: l.stations.filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name })) })).filter((l) => l.stations.length) } : null;
+        const mapHtml = mapData ? `<details class="cstops-map"${keep(`map:${mp.dest.lat.toFixed(3)},${mp.dest.lon.toFixed(3)}`)} data-map="${esc(JSON.stringify(mapData))}">
+          <summary>Show the route on a map</summary>
+          <div class="map-box"></div>
+          <div class="muted small">Numbers: the stops; small dots: the other stations of a stop. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&amp;route=${esc(`${mp.home.lat},${mp.home.lon}`)}%3B${esc(`${mp.dest.lat},${mp.dest.lon}`)}" target="_blank" rel="noopener">Open on openstreetmap.org</a></div>
+        </details>` : '';
         return `<div class="cstops"><div class="cstops-head">${need}</div>
+          ${mapHtml}
           ${legs.map(leg).join('')}
           ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
           <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
@@ -2142,6 +2252,7 @@ function durationText(minutes) {
         if (auto && html === overviewHtmlNow && $('overview-body').innerHTML) return;
         overviewHtmlNow = html;
         $('overview-body').innerHTML = html;
+        renderOpenMaps($('overview-body'));
         $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
@@ -3045,6 +3156,9 @@ function durationText(minutes) {
       $('cstops-reserve').value = c.reserve_pct;
       $('cstops-charge-to').value = c.charge_to_pct;
       $('cstops-arrive-min').value = c.arrive_min_pct;
+      $('cstops-map-tiles').value = c.map_tiles || 'off';
+      $('cstops-map-url').value = c.map_tile_url || '';
+      $('cstops-map-url').hidden = c.map_tiles !== 'custom';
     }
     async function loadCstops() {
       try {
@@ -3077,6 +3191,7 @@ function durationText(minutes) {
       cstopsSetOp(b.dataset.cstopsRemove, false);
       unsavedGuard.markDirty($('cstops-card'));
     });
+    $('cstops-map-tiles').addEventListener('change', () => { $('cstops-map-url').hidden = $('cstops-map-tiles').value !== 'custom'; });
     $('cstops-countries-search').addEventListener('input', () => cstopsFilter('cstops-countries', $('cstops-countries-search').value));
     $('cstops-op-search').addEventListener('input', () => cstopsFilter('cstops-operators', $('cstops-op-search').value));
     $('cstops-save').addEventListener('click', async () => {
@@ -3097,6 +3212,8 @@ function durationText(minutes) {
           reserve_pct: $('cstops-reserve').value,
           charge_to_pct: $('cstops-charge-to').value,
           arrive_min_pct: $('cstops-arrive-min').value,
+          map_tiles: $('cstops-map-tiles').value,
+          map_tile_url: $('cstops-map-url').value.trim(),
         });
         showCstops(r.charge_stops);
         $('cstops-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Charging stops are ${r.charge_stops.enabled ? 'on' : 'off'}.</p>`;

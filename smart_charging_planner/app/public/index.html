@@ -132,6 +132,14 @@
           <p class="muted small">Most cars charge fastest when the battery is nearly empty. Below the level above the app looks for a station, and it may drive on to this level to reach one. Not above the level above; the same value (default) means: arrive with at least that level.</p></div>
         <div class="field"><label for="cstops-charge-to">Charge to at a stop (%)</label><input id="cstops-charge-to" type="number" min="50" max="100" step="1">
           <p class="muted small">When the trip needs more stops: how far to charge at each one. At the last stop only what the rest of the trip needs.</p></div>
+        <div class="field"><label for="cstops-map-tiles">Route map</label>
+          <select id="cstops-map-tiles">
+            <option value="off">Off</option>
+            <option value="osm">OpenStreetMap (tile.openstreetmap.org)</option>
+            <option value="custom">My own tile server</option>
+          </select>
+          <input id="cstops-map-url" type="text" maxlength="200" autocomplete="off" placeholder="https://tiles.example.lan/{z}/{x}/{y}.png" hidden>
+          <p class="muted small">Shows the route and the stops on a map, below the charging stops of a trip. <strong>Sent:</strong> when you open a map, the page loads map images from the tile server; that shows it which area you look at, so roughly where the route goes. Nothing is loaded until you open a map. Off by default.</p></div>
         <div class="buttons"><button class="primary" type="button" id="cstops-save" data-guard-save>Save</button></div>
         <div class="error form-error" id="cstops-error" hidden></div>
         <div id="cstops-result"></div>

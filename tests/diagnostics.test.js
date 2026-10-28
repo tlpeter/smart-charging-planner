@@ -30,6 +30,16 @@ check('public diagnostics omit personal text across every exported branch', () =
   assert.equal(report.app_log_summary.errors, 1);
   assert.equal(report.settings.battery.saved, undefined);
 });
+check('the route map (#47): no route line, positions or tile server in the public diagnostics; only whether a map is on', () => {
+  const r = diagnostics.redact({
+    settings: { charge_stops: { map_tiles: 'custom', map_tile_url: 'https://tiles.private-house.lan/{z}/{x}/{y}.png', reserve_pct: 10 } },
+    plan: { next: { timeline: [{ type: 'back', charge_stops: { status: 'ok', map: { tiles: 'https://tiles.private-house.lan/{z}/{x}/{y}.png', line: 'abcSecretLine', home: { lat: 51.12345, lon: 2.54321 }, dest: { lat: 57.6789, lon: 11.9876 } },
+      legs: [{ stations: [{ name: 'Private Stop', lat: 52.4321, lon: 3.1234 }] }] } }] } },
+  });
+  const json = JSON.stringify(r);
+  for (const text of ['private-house', 'abcSecretLine', '51.12345', '2.54321', '57.6789', '11.9876', '52.4321', '3.1234', 'Private Stop']) assert(!json.includes(text), text);
+  assert.equal(r.settings.charge_stops.map_tiles, 'custom');
+});
 check('unknown schema keys and identity maps fail closed', () => {
   const r = diagnostics.redact({ mystery: 'Private Person', settings: { arbitrary: { token: 'secret' } }, now: { reason: 'Private Person' } });
   assert.deepEqual(r.settings, {});

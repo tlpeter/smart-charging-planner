@@ -2105,6 +2105,13 @@ async function run() {
       c = (await stopsNow()).charge_stops;
       assert(fine(c) && c.legs.length >= 2 && c.legs[1].stations.some((x) => x.id === 7) && c.legs[1].km_on_trip > c.legs[0].km_on_trip, JSON.stringify(c.legs));
       world.stations.pop();
+      // The route on a map (#47): off by default, then OpenStreetMap: the trip gets the line and positions.
+      assert(!c.map, JSON.stringify(c.map));
+      const mapOn = await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, map_tiles: 'osm' });
+      assert(mapOn.charge_stops.map_tiles === 'osm', JSON.stringify(mapOn.charge_stops));
+      await refused('POST', 'api/charge-stops', { ...body, api_key: '', map_tiles: 'custom', map_tile_url: 'https://tiles.example.lan/tile.png' }, 'tile server');
+      c = (await stopsNow()).charge_stops;
+      assert(c.map && c.map.tiles.startsWith('https://tile.openstreetmap.org/') && c.map.line && c.map.dest.lat === dest.lat && c.legs[0].stations.every((x) => Number.isFinite(x.lat)), JSON.stringify(c.map));
       // Operators from the station data (#48): one that is not in the app's
       // list is offered after a lookup, and can be preferred by its number.
       world.stations.push({ ...poi(8, 'x', along(0.5, 0.002), 'NL', [ccs(150)]), OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } });

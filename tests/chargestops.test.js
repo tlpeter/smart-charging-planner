@@ -483,6 +483,41 @@ async function main() {
     extra = {};
   });
 
+  await check('the route on a map (#47): off by default; OpenStreetMap or your own tile server (checked); when on, the trip has the route line, home, the destination and every station position', async () => {
+    const d = cs.clean({ countries: ['NL'], connectors: ['ccs'] }, {});
+    assert.equal(d.map_tiles, 'off');
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'osm' }, {}).map_tiles, 'osm');
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'nope' }, {}).map_tiles, 'off');
+    const own = cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'custom', map_tile_url: ' http://tiles.example.lan:8080/{z}/{x}/{y}.png ' }, {});
+    assert.equal(own.map_tile_url, 'http://tiles.example.lan:8080/{z}/{x}/{y}.png');
+    for (const bad of ['', 'https://tiles.example.lan/tile.png', 'ftp://tiles.example.lan/{z}/{x}/{y}', 'https://user:pw@tiles.example.lan/{z}/{x}/{y}.png', 'javascript:x//{z}{x}{y}']) {
+      assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'custom', map_tile_url: bad }, {}), /tile server/, bad);
+    }
+    cs.reset();
+    stations = [poi(60, 'Fastned', 51.6, 5.0, [ccs(300)])];
+    const base = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    const run = async () => { let r = cs.suggest(input); for (let i = 0; i < 8 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(input); } return r; };
+    cfg = { ...base };
+    let r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.equal(r.map, undefined); // off: no map
+    cfg = { ...base, map_tiles: 'osm' };
+    r = await run();
+    assert.equal(r.map.tiles, cs.OSM_TILES);
+    assert.deepEqual(r.map.home, home);
+    assert.deepEqual(r.map.dest, dest);
+    assert.ok(cs.decodePolyline(r.map.line).length >= 2);
+    assert.ok(r.legs[0].stations.every((x) => Number.isFinite(x.lat) && Number.isFinite(x.lon)), JSON.stringify(r.legs[0].stations));
+    cfg = { ...base, map_tiles: 'custom', map_tile_url: 'https://tiles.example.lan/{z}/{x}/{y}.png' };
+    assert.equal((await run()).map.tiles, 'https://tiles.example.lan/{z}/{x}/{y}.png');
+    // A map shows nothing when the trip has no stop to show.
+    cfg = { ...base, map_tiles: 'osm' };
+    stations = [];
+    cs.reset();
+    r = await run();
+    assert.ok(r.status === 'none' && !r.map, JSON.stringify(r));
+  });
+
   await check('a long trip (#40): more than eight stops, each in reach of the one before, as far along as the battery allows', async () => {
     cs.reset();
     hits.length = 0;

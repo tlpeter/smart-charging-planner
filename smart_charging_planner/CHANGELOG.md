@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.13-dev
+
+- **The route on a map:** new **Route map** under Plan › Charging stops on the way (off by default): OpenStreetMap or your own tile server. A trip with charging stops then gets **Show the route on a map**, with the route, home, the destination, the stops (numbered) and their other stations, and a link to open the route on openstreetmap.org. Map images are only loaded when you open a map; the open map stays open when Home reloads. (#47)
+
 ## 0.36.12-dev
 
 - **Fix: what you opened on Home closed again every minute.** A day in Looking ahead, Plan details, the plan table and Next days on Plan now stay open (or closed) when the page reloads, and a reload that changes nothing leaves the page as it is. (#51)

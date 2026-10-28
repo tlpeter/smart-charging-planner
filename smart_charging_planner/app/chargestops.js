@@ -153,7 +153,30 @@ const DEFAULTS = {
   // Preferred operators that are not in the list above, as Open Charge Map
   // knows them (#48): [{ id, name }], picked from the stations on your routes.
   ocm_operators: [],
+  // The route on a map (#47): 'off', 'osm' (tile.openstreetmap.org) or
+  // 'custom' (your own tile server). The page loads map images only when you
+  // open a map.
+  map_tiles: 'off',
+  map_tile_url: '',
 };
+
+const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_CHOICES = ['off', 'osm', 'custom'];
+// Your own tile server: http(s), no user name or password, with {z}, {x} and {y}.
+function tileUrlOk(u) {
+  const t = String(u || '').trim();
+  if (!t || t.length > 200 || /\s/.test(t)) return false;
+  let url;
+  try { url = new URL(t.replace(/\{[a-z]\}/g, '0')); } catch { return false; }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) return false;
+  return ['{z}', '{x}', '{y}'].every((k) => t.includes(k));
+}
+// The tile address the page uses, or null when the map is off.
+function tilesOf(c) {
+  if (c.map_tiles === 'osm') return OSM_TILES;
+  if (c.map_tiles === 'custom' && tileUrlOk(c.map_tile_url)) return c.map_tile_url.trim();
+  return null;
+}
 
 const MAX_OCM_OPERATORS = 100; // preferred operators from the station data
 const MAX_SEEN = 500; // operators remembered from the station data
@@ -189,6 +212,8 @@ function config() {
   if (!c.countries.length) c.countries = [...DEFAULTS.countries];
   c.operators = (Array.isArray(c.operators) ? c.operators : []).filter((x) => OPERATORS.some((o) => o.id === x));
   c.ocm_operators = ocmList(c.ocm_operators).slice(0, MAX_OCM_OPERATORS);
+  if (!MAP_CHOICES.includes(c.map_tiles)) c.map_tiles = 'off';
+  c.map_tile_url = typeof c.map_tile_url === 'string' ? c.map_tile_url.trim() : '';
   c.connectors = (Array.isArray(c.connectors) ? c.connectors : []).filter((x) => CONNECTORS[x]);
   if (!c.connectors.length) c.connectors = [...DEFAULTS.connectors];
   c.only_countries = c.only_countries === true;
@@ -234,6 +259,8 @@ function clean(body, saved = {}) {
     only_countries: b.only_countries === true,
     operators: list(b.operators, (x) => OPERATORS.some((o) => o.id === x)),
     ocm_operators: ocmList(b.ocm_operators),
+    map_tiles: MAP_CHOICES.includes(b.map_tiles) ? b.map_tiles : 'off',
+    map_tile_url: typeof b.map_tile_url === 'string' ? b.map_tile_url.trim() : '',
     min_power_kw: num(b.min_power_kw, 'Minimum power', 3, 400, DEFAULTS.min_power_kw),
     connectors: list(b.connectors, (x) => !!CONNECTORS[x]),
     max_detour_km: num(b.max_detour_km, 'Maximum detour', 1, 30, DEFAULTS.max_detour_km),
@@ -248,6 +275,11 @@ function clean(body, saved = {}) {
   }
   if (out.charge_to_pct < out.reserve_pct + 20) {
     const err = new Error('Charge to at a stop: at least 20% above the level for a stop');
+    err.status = 400;
+    throw err;
+  }
+  if (out.map_tiles === 'custom' && !tileUrlOk(out.map_tile_url)) {
+    const err = new Error('Map tile server: an http(s) address with {z}, {x} and {y}, without a user name or password');
     err.status = 400;
     throw err;
   }
@@ -745,6 +777,8 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     // The level when the car gets there (each alternative its own, #50).
     arrive_pct: from && use ? Math.round(from.soc - (x.p - from.x) * use) : null,
     detour_km: Math.round(x.detour * 10) / 10,
+    lat: x.s.lat,
+    lon: x.s.lon,
     ...(far ? { longer_detour: true } : {}),
     url: `https://map.openchargemap.io/?id=${encodeURIComponent(x.s.id)}`,
   });
@@ -827,6 +861,9 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     on_way_back: first ? first.on_way_back : false,
     longer_only: first ? first.longer_only : false,
     others_only: first ? first.others_only : false,
+    // The route on a map (#47): the line, home and the destination, for the
+    // page only (never in the public diagnostics).
+    ...(out.length && tilesOf(c) ? { map: { tiles: tilesOf(c), line: route.line, home: { lat: home.lat, lon: home.lon }, dest: { lat: dest.lat, lon: dest.lon } } } : {}),
   };
 }
 
@@ -851,7 +888,7 @@ function idle() {
 }
 
 module.exports = {
-  COUNTRIES, OPERATORS, CONNECTORS, DEFAULTS, MAX_STOPS,
+  COUNTRIES, OPERATORS, CONNECTORS, DEFAULTS, MAX_STOPS, OSM_TILES, tileUrlOk,
   setConfig, config, enabled, clean, view, suggest, onUpdate, setUserAgent,
   decodePolyline, encodePolyline, thin, onRoute, shortStation, operatorOf, connectorOf,
   reset, idle,
