@@ -1467,6 +1467,7 @@ function durationText(minutes) {
 
       return `
         ${connectedCarHtml(d)}
+        ${pauseCardHtml(d)}
         ${chargeStatusHtml(d)}
         ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
@@ -1945,11 +1946,113 @@ function durationText(minutes) {
             </form>
             <div id="min-check"></div>
           </div>` : ''}
+          ${!d.pause && !d.released ? pauseTileHtml(d) : ''}
           <div class="qsec action-tile">
             <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready later</strong><div class="muted small">Move the goal to tomorrow or the day after when that is cheaper.</div></div></div>
             <div id="cf-box"><p class="muted small">Loading…</p></div>
           </div>
         </div>`;
+    }
+
+    // ---------- Pause until and Hand back control (#33) ----------
+    let pauseMessage = '';
+    let pauseDefaultAt = 0;
+
+    // "YYYY-MM-DDTHH:MM" in the plan's time zone, for a datetime-local input.
+    function inputInTz(ms, tz) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+      }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+      return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+    }
+
+    function pauseTileHtml(d) {
+      // The default stays the same between reloads, so the page does not change by itself.
+      if (!(pauseDefaultAt > Date.now() + 60000)) pauseDefaultAt = Math.ceil((Date.now() + 2 * 3600000) / 900000) * 900000;
+      const later = pauseDefaultAt;
+      return `
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('pause', 'amber', true)}<div><strong>Pause</strong><div class="muted small">No charging until the moment you choose, whatever the plan says.</div></div></div>
+            <form id="pause-form" class="choice-form">
+              <select name="until" aria-label="Pause until">
+                <option value="time">Until a time</option>
+                <option value="unplug">Until the car is unplugged</option>
+                <option value="resume">Until I resume</option>
+              </select>
+              <div class="choice-value"><input name="datetime" type="datetime-local" aria-label="Pause until this time" value="${esc(inputInTz(later, d.time_zone))}"></div>
+              <button class="secondary" type="submit">Pause</button>
+            </form>
+            <div id="pause-check">${pauseMessage}</div>
+          </div>`;
+    }
+
+    function pauseCardHtml(d) {
+      if (d.released) {
+        return `
+        <div class="card pause-card">
+          <h2>${shape('control', 'grey', true)} Control handed back to you</h2>
+          <p>Since ${esc(dayHm(d.released.since))} the app sends nothing to the charger${d.battery ? ' and the home battery' : ''}. The plan below is only advice.</p>
+          <p class="muted small">What was put back is listed under <a href="#" data-goto="log">Activity › Log</a>.</p>
+          <div class="buttons"><button class="primary" type="button" id="release-resume">Resume control</button></div>
+          <div id="pause-result">${pauseMessage}</div>
+        </div>`;
+      }
+      const p = d.pause;
+      if (!p) return '';
+      const after = p.mode === 'time'
+        ? 'The plan below starts after the pause.'
+        : 'Charging in the plan below does not happen while the pause lasts.';
+      return `
+        <div class="card pause-card">
+          <h2>${shape('pause', 'amber', true)} ${esc(p.text)}</h2>
+          <p>The app does not start the charger, also not for the minimum, Ready Guard or preconditioning. ${after}</p>
+          ${!d.control_allowed ? '<p class="muted small">Allow control is off: nothing is sent; the Log shows what the app would do.</p>' : ''}
+          <div class="buttons"><button class="primary" type="button" id="pause-resume">Resume now</button></div>
+          <p class="muted small">Charge now also ends the pause.</p>
+          <div id="pause-result">${pauseMessage}</div>
+        </div>`;
+    }
+
+    function bindPause() {
+      const f = $('pause-form');
+      if (f) {
+        const sync = () => { f.datetime.parentElement.hidden = f.until.value !== 'time'; };
+        f.until.onchange = sync;
+        sync();
+        f.onsubmit = async (e) => {
+          e.preventDefault();
+          const btn = f.querySelector('button[type=submit]');
+          btn.disabled = true;
+          btn.textContent = 'Pausing…';
+          try {
+            const r = await api('POST', 'api/pause', { until: f.until.value, ...(f.until.value === 'time' ? { datetime: f.datetime.value } : {}) });
+            pauseMessage = sendHtml(r.send, 'Pause');
+            await loadOverview();
+            setTimeout(() => { pauseMessage = ''; }, 60000);
+          } catch (err) {
+            $('pause-check').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+            btn.disabled = false;
+            btn.textContent = 'Pause';
+          }
+        };
+      }
+      for (const [id, path] of [['pause-resume', 'api/pause'], ['release-resume', 'api/release']]) {
+        const btn = $(id);
+        if (btn) btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = 'Resuming…';
+          try {
+            const r = await api('DELETE', path);
+            pauseMessage = `<p class="muted small">Resumed.${r.next ? ` The plan takes over: ${esc(wantText(r.next).toLowerCase())} (${esc(r.next.reason)}).` : ''}</p>${sendHtml(r.send, r.send && r.send.command && r.send.command.what === 'start charging' ? 'Start' : 'Pause')}`;
+            await loadOverview();
+            setTimeout(() => { pauseMessage = ''; }, 60000);
+          } catch (err) {
+            $('pause-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+            btn.disabled = false;
+            btn.textContent = id === 'pause-resume' ? 'Resume now' : 'Resume control';
+          }
+        };
+      }
     }
 
     // How to charge: price plan, plan and solar, solar only.
@@ -2395,6 +2498,7 @@ function durationText(minutes) {
           loadOverview(true);
         };
         bindBoost();
+        bindPause();
         bindModes();
         bindCars();
         loadChargeFor();
@@ -2908,9 +3012,102 @@ function durationText(minutes) {
       }
     });
 
+    // ---------- Who controls the devices; Hand back control (#33) ----------
+    const RELEASE_RESULT = {
+      confirmed: ['agree', 'Done, the device reports it'],
+      sent: ['agree', 'Sent'],
+      done: ['agree', 'Done'],
+      left: ['muted', 'Left as it is'],
+      failed: ['differ', 'Failed'],
+      not_done: ['differ', 'Not done'],
+    };
+
+    function releaseRowsHtml(items, done) {
+      if (!items.length) return '<p class="muted small">The app has changed nothing on your devices.</p>';
+      return `<table class="periods release-table">
+        <tr><th>Device</th><th>Now</th><th>${done ? 'Result' : 'When you hand back control'}</th></tr>
+        ${items.map((x) => {
+          const r = done && RELEASE_RESULT[x.result];
+          return `<tr>
+            <td><strong>${esc(x.device)}</strong> · ${esc(x.what)}${x.entity_id ? `<div class="src cmd">${esc(x.entity_id)}</div>` : ''}</td>
+            <td data-label="Now">${x.now != null ? esc(x.now) : '<span class="muted">–</span>'}${x.to ? `<div class="src">→ ${esc(x.to)}</div>` : ''}</td>
+            <td data-label="${done ? 'Result' : 'Then'}">${r && x.result !== 'left' ? `<span class="${r[0]}">${esc(r[1])}</span><div class="src">` : `<span class="${x.action === 'blocked' ? 'differ' : ''}">`}${esc(x.text)}${x.error ? ` <span class="differ">${esc(x.error)}</span>` : ''}${x.note ? ` ${esc(x.note)}` : ''}${r && x.result !== 'left' ? '</div>' : '</span>'}</td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+    }
+
+    async function loadOwner() {
+      const box = $('owner-body');
+      if (!box) return;
+      let d;
+      try { d = await api('GET', 'api/release'); } catch (err) { box.innerHTML = `<div class="card error">${esc(err.message)}</div>`; return; }
+      const r = d.released;
+      if (r) {
+        box.innerHTML = `
+          <div class="card" id="owner-card">
+            <h2>${shape('control', 'grey', true)} Who controls the devices: you</h2>
+            <p>Control was handed back at ${esc(dayHm(r.since))}. The app sends nothing to the chargers and the home battery until you resume control. Helpers, scripts and automations were never changed.</p>
+            ${r.done ? '' : '<div class="note">Handing back did not finish (the app was restarted?). The app still sends nothing; resume control and hand it back again to retry.</div>'}
+            ${r.failed ? `<div class="error">${r.failed === 1 ? 'One setting was' : `${esc(r.failed)} settings were`} not put back. Put ${r.failed === 1 ? 'it' : 'them'} back in Home Assistant yourself, or resume control and try again.</div>` : ''}
+            ${releaseRowsHtml(r.items || [], true)}
+            <div class="buttons"><button class="primary" type="button" id="owner-resume">Resume control</button></div>
+            <div id="owner-result"></div>
+          </div>`;
+      } else {
+        const owned = d.items.filter((x) => x.action === 'restore' || x.action === 'blocked').length;
+        box.innerHTML = `
+          <div class="card" id="owner-card">
+            <h2>${shape('control', d.control_allowed ? 'green' : 'grey', true)} Who controls the devices: ${d.control_allowed ? 'the app' : 'you (Allow control is off)'}</h2>
+            <p class="muted small">${d.control_allowed ? 'The app starts and pauses the charger and, when set up, steers the current, the phases and the home battery.' : 'Allow control is off: the app only gives advice and sends nothing.'} ${owned ? `It changed ${owned === 1 ? 'one setting' : `${owned} settings`} that it would put back.` : ''} <strong>Hand back control</strong> puts back what the app changed and then sends nothing until you resume. To stop charging for a while instead, use Pause on Home.</p>
+            ${d.warnings.map((w) => `<div class="note">${esc(w)}</div>`).join('')}
+            <details class="table-details" id="owner-details"><summary>Show what the app controls</summary>${releaseRowsHtml(d.items, false)}</details>
+            ${d.control_allowed ? `<div class="buttons"><button class="secondary" type="button" id="owner-release">Hand back control…</button></div>` : ''}
+            <div id="owner-result"></div>
+          </div>`;
+      }
+      const resume = $('owner-resume');
+      if (resume) resume.onclick = async () => {
+        resume.disabled = true;
+        resume.textContent = 'Resuming…';
+        try {
+          const x = await api('DELETE', 'api/release');
+          await loadOwner();
+          $('owner-result').innerHTML = `<p class="muted small">Control resumed.${x.next ? ` The plan takes over: ${esc(wantText(x.next).toLowerCase())} (${esc(x.next.reason)}).` : ''}</p>`;
+        } catch (err) {
+          $('owner-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          resume.disabled = false;
+          resume.textContent = 'Resume control';
+        }
+      };
+      const rel = $('owner-release');
+      if (rel) rel.onclick = async () => {
+        // First show the list, then confirm.
+        if (rel.dataset.confirm !== '1') {
+          $('owner-details').open = true;
+          rel.dataset.confirm = '1';
+          rel.className = 'primary';
+          rel.textContent = 'Confirm: hand back control';
+          $('owner-result').innerHTML = '<p class="muted small">Check the list above. Confirm to put these back; after that the app sends nothing until you resume.</p>';
+          return;
+        }
+        rel.disabled = true;
+        rel.textContent = 'Handing back…';
+        try {
+          await api('POST', 'api/release', { confirm: true });
+          await loadOwner();
+        } catch (err) {
+          $('owner-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          rel.disabled = false;
+          rel.textContent = 'Confirm: hand back control';
+        }
+      };
+    }
+
     async function loadControl() {
       loadConflicts();
       loadPrecond();
+      if ($('tab-log') && !$('tab-log').hidden) loadOwner();
       const box = $('control-body');
       try {
         const d = await api('GET', 'api/control');

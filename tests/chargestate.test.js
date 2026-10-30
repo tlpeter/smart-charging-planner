@@ -200,4 +200,22 @@ check('Battery Care deferred 79%: waiting is explicit; power still flowing is re
   assert.match(override.detail, /79% → 90%/);
 });
 
+check('Pause until (#33): paused by you, also while the car still charges; Hand back control: says the app sends nothing', () => {
+  const d = plan({ pause: { mode: 'unplug', until: null, text: 'Paused by you until the car is unplugged' } });
+  const p = S(d, n({ code: 'paused_by_you', reason: 'Paused by you until the car is unplugged' }));
+  assert.equal(p.state, 'paused');
+  assert.equal(p.color, 'amber');
+  assert.equal(p.title, 'Paused by you until the car is unplugged');
+  assert.match(p.detail, /planned charging waits for the pause to end/);
+  const stopping = S(d, n({ charging: true, power_w: 7000, code: 'paused_by_you', reason: 'Paused by you until the car is unplugged' }));
+  assert.equal(stopping.state, 'stopping');
+  assert.equal(stopping.title, 'Pausing: paused by you');
+  const timed = S(plan({ pause: { mode: 'time', until: now + 2 * H } }), n({ code: 'paused_by_you', reason: 'Paused by you until Sun 11:00' }));
+  assert.ok(!/waits for the pause/.test(timed.detail));
+  const r = S(plan(), n({ charging: true, power_w: 7000, want: 'leave', code: 'released' }));
+  assert.equal(r.state, 'released');
+  assert.equal(r.title, 'Control handed back to you');
+  assert.match(r.detail, /charging at 7\.0 kW · 87% → 100% · the app sends nothing until you resume control/);
+});
+
 console.log('Charging status tests passed');

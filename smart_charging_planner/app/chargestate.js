@@ -130,7 +130,16 @@ function chargeStateOnly(d, n, fmt) {
   if (offline) {
     return st('charger_offline', 'orange', 'alert', 'Charger not reachable', `Home Assistant does not get the charger's status${n.status ? ` (${n.status})` : ''}. Check the charger and its integration.`);
   }
-  if (n.charging === true || (num(n.power_w) || 0) > 500) {
+  // Hand back control and Pause until (#33): your choice wins over the plan.
+  const live = n.charging === true || (num(n.power_w) || 0) > 500;
+  if (n.code === 'released') {
+    return st('released', 'grey', 'pause', 'Control handed back to you', join([live ? (kw ? `charging at ${kw}` : 'charging') : 'not charging', level, 'the app sends nothing until you resume control']));
+  }
+  if (n.code === 'paused_by_you') {
+    return st(live ? 'stopping' : 'paused', 'amber', 'pause', live ? 'Pausing: paused by you' : n.reason || 'Paused by you',
+      join([level, live ? 'waiting for the charger to stop' : null, d.pause && d.pause.mode !== 'time' ? 'planned charging waits for the pause to end' : null]));
+  }
+  if (live) {
     const care = p.care;
     const at = n.at || Date.now();
     if (care && care.refill_deferred && at < care.window_start && n.want === 'pause') {

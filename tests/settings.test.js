@@ -113,6 +113,7 @@ async function startApp(options = {}) {
       SUPERVISOR_TOKEN: 'test',
       HOSTNAME: 'a0b1c2d3-smart-charging-planner',
       SCP_CHECK_AFTER_MS: '2000',
+      SCP_RELEASE_CONFIRM_MS: '300',
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
       SCP_CURRENT_GAP_MS: '1000',
@@ -986,6 +987,89 @@ async function run() {
     assert(a.sent && b.sent && cmds.length === 2, `sent ${a.sent}/${b.sent}, commands ${cmds}`);
     return cmds.join(' → ');
   });
+  // Pause until (#33): a pause is a real, lasting stop, not the 3-minute grace.
+  const ctlNow = async () => (await ok('GET', 'api/control')).now;
+  const stopsSince = (n) => callsSince(n).filter((c) => CH.isControl(c) && !CH.isStart(c));
+  await test('J9c', 'Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause', async () => {
+    world.plugged = true;
+    world.charging = false;
+    await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    assert(world.charging === true, 'Charge now did not start');
+    await refused('POST', 'api/pause', { until: 'later' }, 'until when');
+    await refused('POST', 'api/pause', { until: 'time', at: Date.now() - 60000 }, 'future');
+    await refused('POST', 'api/pause', { until: 'time', at: Date.now() + 8 * 24 * H }, '7 days');
+    const until = Date.now() + 3 * H;
+    const n0 = world.calls.length;
+    const r = await ok('POST', 'api/pause', { until: 'time', at: until });
+    await sleep(800);
+    const p = await plan();
+    const n = await ctlNow();
+    assert(stopsSince(n0).length >= 1 && world.charging === false, `charging ${world.charging}, sent ${callsSince(n0).map((c) => CH.describe(c))}`);
+    assert(!p.boost, 'Charge now did not end');
+    assert(p.pause && p.pause.mode === 'time' && p.pause.until === until && /Paused by you until/.test(p.pause.text), JSON.stringify(p.pause));
+    assert(n.want === 'pause' && n.code === 'paused_by_you', `${n.want}/${n.code}`);
+    assert(p.plan.blocks.every((b) => b.end > until), `a block before the pause ends: ${JSON.stringify(p.plan.blocks.map((b) => [b.start, b.end]))}`);
+    return `${r.pause.text}; ${p.plan.blocks.length} blocks after it`;
+  });
+  await test('J9d', 'Paused: below the minimum the app still does not start the charger (the pause wins); Resume: the plan takes over again', async () => {
+    const soc0 = world.soc;
+    try {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 20 }));
+      world.soc = 10;
+      world.charging = false;
+      const n0 = world.calls.length;
+      await plan();
+      await sleep(800);
+      const n = await ctlNow();
+      assert(n.code === 'paused_by_you' && world.charging === false && !callsSince(n0).some((c) => CH.isStart(c)), `${n.code}, charging ${world.charging}`);
+      const r = await ok('DELETE', 'api/pause');
+      await sleep(800);
+      const p = await plan();
+      const n2 = await ctlNow();
+      assert(r.was_paused && !p.pause, `pause ${JSON.stringify(p.pause)}`);
+      assert(n2.code === 'below_minimum' && world.charging === true, `after resume ${n2.code}, charging ${world.charging}`);
+      return `paused at 10 % (minimum 20 %), after resume: ${n2.code}`;
+    } finally {
+      world.soc = soc0;
+      await ok('POST', 'api/control/settings', rules());
+      await plan();
+    }
+  });
+  await test('J9e', 'Pause until the car is unplugged: refused when not plugged in; ends when the car is unplugged', async () => {
+    world.plugged = false;
+    world.charging = false;
+    await plan();
+    await refused('POST', 'api/pause', { until: 'unplug' }, 'not plugged in');
+    world.plugged = true;
+    await plan();
+    await ok('POST', 'api/pause', { until: 'unplug' });
+    const p1 = await plan();
+    assert(p1.pause && p1.pause.mode === 'unplug' && (await ctlNow()).code === 'paused_by_you', JSON.stringify(p1.pause));
+    world.plugged = false;
+    await plan();
+    const p2 = await plan();
+    world.plugged = true;
+    await plan();
+    const n = await ctlNow();
+    assert(!p2.pause && n.code !== 'paused_by_you', `pause ${JSON.stringify(p2.pause)}, ${n.code}`);
+    return `ended on unplug, now ${n.code}`;
+  });
+  await test('J9f', 'Pause until I resume: kept after a restart; Charge now ends it', async () => {
+    world.charging = false;
+    await ok('POST', 'api/pause', { until: 'resume' });
+    await startApp({ allow_control: true, notify_start_stop: true });
+    const p = await plan();
+    const n = await ctlNow();
+    assert(p.pause && p.pause.mode === 'resume' && n.code === 'paused_by_you', `${JSON.stringify(p.pause)} ${n.code}`);
+    await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    const q = await plan();
+    assert(!q.pause && world.charging === true, `pause ${JSON.stringify(q.pause)}, charging ${world.charging}`);
+    await ok('DELETE', 'api/boost');
+    await plan();
+    return 'kept after restart, ended by Charge now';
+  });
   await test('J12', 'Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 %', async () => {
     // J8 changed the limit "in the car" (80) shortly after the app sent 90; the
     // app waits the retry gap (here 2 s, live 15 min) before sending 90 again.
@@ -1167,6 +1251,40 @@ async function run() {
     assert(n.code === 'solar' && world.charging === true, `decision ${n.code}, charging ${world.charging}, sent ${calls}`);
     assert(Number.isFinite(world.amps) && world.amps >= 6 && world.amps <= 8, `current ${world.amps}`);
     return `${world.amps} A, sent: ${calls.join(' · ')}`;
+  });
+  await test('S6b', 'Hand back control (#33): the list shows the current the app set; confirmed, it is put back and the app sends nothing until you resume', async () => {
+    const pre = await ok('GET', 'api/release');
+    const cur = pre.items.find((x) => x.kind === 'current');
+    assert(cur && cur.action === 'restore' && cur.to === '16 A', `items ${JSON.stringify(pre.items)}`);
+    assert(pre.items.some((x) => x.what === 'Start and stop' && x.action === 'leave'), 'start/stop not listed');
+    await refused('POST', 'api/release', {}, 'confirm');
+    const r = await ok('POST', 'api/release', { confirm: true });
+    const item = r.released.items.find((x) => x.kind === 'current');
+    assert(item && ['confirmed', 'sent'].includes(item.result) && world.amps === 16, `result ${JSON.stringify(item)}, current ${world.amps}`);
+    world.charging = false;
+    const n1 = world.calls.length;
+    await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    const sent = callsSince(n1).filter((c) => !['notify', 'calendar', 'homeassistant'].includes(c.domain));
+    const n = (await ok('GET', 'api/control')).now;
+    const p = await plan();
+    assert(!sent.length, `sent while handed back: ${sent.map((c) => CH.describe(c))}`);
+    assert(n.code === 'released' && p.released && world.charging === false, `${n.code}, released ${JSON.stringify(p.released)}`);
+    await refused('POST', 'api/boost', { mode: 'on' }, 'handed back');
+    await refused('POST', 'api/pause', { until: 'resume' }, 'handed back');
+    const still = await ok('GET', 'api/release');
+    assert(still.released && still.released.done, 'not shown as handed back');
+    await ok('DELETE', 'api/release');
+    const after = await ok('GET', 'api/release');
+    assert(!after.released && !after.items.some((x) => x.kind === 'current'), `record not cleared: ${JSON.stringify(after.items)}`);
+    await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    assert(world.charging === true, 'the app did not take over again after Resume control');
+    return `current ${item.result} at 16 A; nothing sent meanwhile; resumed: ${world.amps} A`;
   });
   await test('S7', 'Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop', async () => {
     world.pvW = 2500;

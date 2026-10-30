@@ -204,6 +204,9 @@ function decide(ctx) {
   };
   const pause = (reason, code, extra = {}) => ({ want: 'pause', reason, code, ...extra });
 
+  // Control handed back to you (#33): nothing is sent to the charger.
+  if (ctx.handsOff) return { want: 'leave', reason: 'Control is handed back to you: the app sends nothing to the charger', code: 'released', clear_lock: true };
+
   // 1. Not plugged in (a plugged-in sensor that says "off" is trusted first).
   if (actual.plugged === false) return { want: 'none', reason: 'Car is not plugged in', code: 'unplugged', clear_lock: true };
   if (actual.status_invalid) {
@@ -212,6 +215,9 @@ function decide(ctx) {
     return pause('Charger status invalid for more than 2 minutes', 'status_invalid');
   }
   if (actual.plugged == null) return { want: 'none', reason: 'Cannot tell whether the car is plugged in', code: 'unknown_plug' };
+  // Paused by you (#33): wins over the plan, the minimum, Ready Guard and
+  // preconditioning. Charge now ends a pause.
+  if (ctx.paused) return pause(ctx.paused.reason || 'Paused by you', 'paused_by_you', { clear_lock: true });
   if (maxAmps < MIN_CURRENT) return pause('The available current is below 6 A', 'current_limit', { clear_lock: true });
   if (!p) return { want: 'leave', reason: 'No plan yet', code: 'no_plan' };
 
@@ -404,12 +410,12 @@ function commandsFor(decision, actual, methods, deviceId) {
 // share (more chargers, sharing.js): { pause, amps, reason } – wait for
 // another charger, or charge with less current. record = false: only decide
 // (no lock change, no log line), for the first round of sharing.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true, preconditioning = false }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true, preconditioning = false, paused = null, handsOff = false }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning, paused, handsOff });
   if (share && decision.want === 'charge') {
     if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
     else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };

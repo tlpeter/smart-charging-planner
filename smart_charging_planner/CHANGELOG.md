@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.37.1-dev
+
+- **Pause until** (Home › Quick choices): no charging until a time, until the car is unplugged, or until you resume. It is sent right away and wins over the plan, the minimum, Ready Guard and preconditioning; a timed pause moves the plan to after it. Kept across a restart; Charge now ends it. Before, a stop by hand held for only 3 minutes. (#33)
+- **Hand back control** (Activity › Log › Who controls the devices): shows what the app controls and what it changed, then puts back a charging current and phases it changed and the home battery settings, checks what the devices report, and sends nothing to the chargers, the car and the battery until you press Resume control. Phases are never switched while the car charges. The start/stop switch and the car's charge limit are left as they are. (#33)
+
 ## 0.37.0-dev
 
 - Released 0.36.0 on main. Dev continues as 0.37.0-dev; the documentation check stops at the stable release heading below.

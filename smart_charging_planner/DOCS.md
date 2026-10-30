@@ -18,6 +18,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
   - **Quick minimum**: charge right away up to 20–45 % (the default comes from **Default minimum for the quick choices** in Settings › Rules), then the plan takes over. Shown in **purple** in the chart.
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
+  - **Pause** (#33): no charging until **a time** (at most 7 days ahead), until **the car is unplugged**, or until **you resume**. The pause is sent right away, also when you started or stopped the charger by hand a minute ago, and it wins over the plan, your minimum, Ready Guard and preconditioning. A pause until a time moves the plan: it starts after the pause. With the other two, the plan stays as it is, but its charging does not happen while the pause lasts. Home shows "Paused by you until …" with **Resume now**; **Charge now** (or a manual start in Settings › Diagnostics › Manual test) also ends the pause. A pause is kept when the app restarts. With Allow control off, nothing is sent; the Log shows what the app would do. Before #33, a stop by hand only held for 3 minutes; then the plan could start the charger again.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
 - **Reloading**: Home reloads every minute. What you opened or closed (a day in Looking ahead, Plan details, the plan table, Next days on Plan) stays that way, and a reload that changes nothing leaves the page as it is (#51).
 - **Charging status** (on top): what the charger does right now, checked every minute, in one line with a colour:
@@ -460,9 +461,25 @@ Turn on **Publish sensors** to get these sensors for dashboards and automations:
 
 These sensors are not stored by Home Assistant between restarts; the app writes them again right after Home Assistant is back. The app writes no other entities.
 
+## Hand back control
+
+**Activity › Log › Who controls the devices** (#33) shows who controls the charger and the home battery now: the app (Allow control on) or you. **Show what the app controls** lists every device setting the app steers: the start/stop switch or button, a charging current or phase mode the app set (for solar charging or for sharing the connection), the home battery settings it changed, and the car's charge limit, each with its value now and what happens when you hand back control.
+
+**Hand back control…** first opens that list; **Confirm** then:
+
+1. stops the app's control steps (this is saved first, so a restart or a step that runs at the same moment also leaves the devices alone);
+2. sets a charging current the app lowered back to the maximum in Settings › Charger (or, without one, the lowest maximum from a sensor, else 16 A);
+3. switches phases the app changed back to the charger's normal phases. **Never while the car charges**: then this line says so and the app keeps its record; stop charging and hand back control again;
+4. puts the home battery settings back to the values from before the app changed them, and checks that the battery reports them (the same restore as when battery planning is turned off). This needs "Allow home battery control";
+5. ends Charge now and a pause.
+
+The start/stop switch and the car's charge limit are left as they are now. Helpers, scripts and automations are never changed. Each line then shows the result: **Done, the device reports it**, **Sent** (Home Assistant accepted it, but the device does not report the value, or not yet), **Failed** (with the reason; the app keeps its record so nothing is forgotten) or **Not done** (with what to do yourself). Afterwards the app sends nothing to the chargers, the car and the home battery: the plan on Home is only advice, and Charge now and Pause are refused. Home shows **Control handed back to you** with **Resume control**; then the app follows the plan again from the next step. With more than one charger and no load balancer in Settings › Grid, the list warns that the app no longer shares the connection while control is handed back. Hand back control needs Allow control on (otherwise the app sends nothing anyway).
+
+Use **Pause** on Home to stop charging for a while; use **Hand back control** to let your own automation or the charger's app take over, or before you change the charger set-up.
+
 ## Handing over from your own automation
 
-If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again.
+If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again. To go back for a while without changing the Configuration tab, use **Hand back control** (above): it also puts back the current, phases and battery settings the app changed.
 
 ## Backup and moving to another install
 
