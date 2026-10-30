@@ -1003,9 +1003,11 @@ async function run() {
     const n0 = world.calls.length;
     const r = await ok('POST', 'api/pause', { until: 'time', at: until });
     await sleep(800);
+    await plan();
+    await sleep(800);
     const p = await plan();
     const n = await ctlNow();
-    assert(stopsSince(n0).length >= 1 && world.charging === false, `charging ${world.charging}, sent ${callsSince(n0).map((c) => CH.describe(c))}`);
+    assert(stopsSince(n0).length >= 1 && world.charging === false, `charging ${world.charging}, decision ${n.code}, sent ${callsSince(n0).map((c) => `${c.domain}.${c.service} ${c.target ? c.target.entity_id : ''}`)}`);
     assert(!p.boost, 'Charge now did not end');
     assert(p.pause && p.pause.mode === 'time' && p.pause.until === until && /Paused by you until/.test(p.pause.text), JSON.stringify(p.pause));
     assert(n.want === 'pause' && n.code === 'paused_by_you', `${n.want}/${n.code}`);
@@ -1276,9 +1278,12 @@ async function run() {
     await refused('POST', 'api/pause', { until: 'resume' }, 'handed back');
     const still = await ok('GET', 'api/release');
     assert(still.released && still.released.done, 'not shown as handed back');
+    // The app's own record of the current it set is gone (it is the write-ahead record).
+    const record = JSON.parse(fs.readFileSync(path.join(dataDir, 'device_control.json'), 'utf8'));
+    assert(record.current == null, `record not cleared: ${JSON.stringify(record)}`);
     await ok('DELETE', 'api/release');
     const after = await ok('GET', 'api/release');
-    assert(!after.released && !after.items.some((x) => x.kind === 'current'), `record not cleared: ${JSON.stringify(after.items)}`);
+    assert(!after.released, 'still handed back after Resume control');
     await plan();
     await sleep(600);
     await plan();

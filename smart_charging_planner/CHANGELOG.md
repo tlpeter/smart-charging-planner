@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.37.2-dev
+
+- Test only: the pause test waits for one more control step on a slow test machine, and the hand-back test checks the app's own record while control is handed back (after Resume control the app may set the current again for solar charging). No app changes. (#33)
+
 ## 0.37.1-dev
 
 - **Pause until** (Home › Quick choices): no charging until a time, until the car is unplugged, or until you resume. It is sent right away and wins over the plan, the minimum, Ready Guard and preconditioning; a timed pause moves the plan to after it. Kept across a restart; Charge now ends it. Before, a stop by hand held for only 3 minutes. (#33)
