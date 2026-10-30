@@ -31,6 +31,15 @@ Peter checks the dev version at home before a stable release:
 
 Use the regression fixtures for fault injection; do not create hazardous real-world electrical conditions for testing. Record physical checks honestly, including checks that were not performed.
 
+## Physical beta validation
+
+[COMPATIBILITY.md](COMPATIBILITY.md) shows per integration what is fixture-tested, Core-tested and physically verified. Its **Physical test** column comes from `tests/physical.json`:
+
+- Results come from Peter's home checks and from **Beta test report** issues (label `beta report`). Only anonymous details: brand, model, integration and its version, Home Assistant version, app version, and which capabilities were seen working on the device itself.
+- Per integration: `verified` (every capability in its row worked on real hardware), `partly` (with a short note which ones), or `problem` (a real-hardware problem with an open issue). Never names, addresses, entity ids or serial numbers.
+- After editing `tests/physical.json` or `tests/fixtures.js`, run `node tests/compat.js write`; `tests/compat.test.js` fails otherwise.
+- A stable release does not claim physical support beyond what that column says.
+
 ## Stable release
 
 - Preserve main's prioritized, issue-linked roadmap and any other main-only documentation changes when merging. MIT licensing is already published on both branches; include the dev contribution guide with the release.
@@ -42,12 +51,12 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Released as 0.35.0 (candidate 0.35.9-dev)
+## Released as 0.36.0 (candidate 0.36.19-dev)
 
-Scope: #26 (explicit forecast price basis), #31 (trip-distance privacy choice and offline distances), #37, #41 and #42 (charging stops on the way in the Netherlands and Belgium, on the right side of the road, saved key state), #43 (Battery Care refill after a short trip), #44 and #45 (preconditioning before a departure and on the way back, for every departure source).
+Scope: #28 (compatibility matrix, beta test report form, multi-arch build, older Core check), #29 (sharing the connection per phase across chargers and the home battery), #40 (charging stops in all European countries, more stops on a long trip), #46 (where the car is when not plugged in), #47 and #54 (route map, zoom and drag), #48 (country and operator lists), #49 (addresses abroad), #50 (a stop as late as possible at the best station), #51 (what you opened on Home stays open).
 
-Earlier: 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
+Earlier: 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45); 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
 
-Not resolved: physical site/phase capacity allocation (#29), compatibility validation (#28) and charging stops outside the Netherlands and Belgium (#40). Native inverter limits and physical hardware verification remain necessary. Open Charge Map station data and preconditioning commands are fixture-tested, not physically verified for every car.
+Not resolved: #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
 
 The MIT license and third-party icon notice are retained. Contribution expectations are in CONTRIBUTING.md.

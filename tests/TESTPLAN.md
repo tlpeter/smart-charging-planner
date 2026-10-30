@@ -8,20 +8,20 @@ Three kinds of tests:
 2. **Unit tests**: one part of the app at a time, without Home Assistant (brands, solar, batteries, price forecast, Ready Guard, more cars, more chargers, look ahead, saving).
 3. **Matrix**: every charger brand with every home battery brand.
 
-A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core.
+A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core: the current version and the oldest one checked (2026.4.2). The Tests workflow also builds the app image for amd64 and aarch64.
 
 ## Summary
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 189 of 189 ✓ |
-| Settings B: Kia Niro EV (Kia Uvo) + Zaptec Go | 176 of 176 ✓ |
-| Settings 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 177 of 177 ✓ |
-| Unit tests (22 files) | 797 of 797 ✓ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 194 of 194 ✓ |
+| Settings B: Kia Niro EV (Kia Uvo) + Zaptec Go | 179 of 179 ✓ |
+| Settings 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 180 of 180 ✓ |
+| Unit tests (25 files) | 838 of 838 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.35.0.
+Version: 0.36.19-dev.
 
 # Settings
 
@@ -46,7 +46,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Kia Niro EV (Kia Uvo) + Zaptec Go | 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 47 kB CSS, 255 kB JS | ✓ 47 kB CSS, 255 kB JS | ✓ 47 kB CSS, 255 kB JS |
+| A2 | Frontend assets are served separately | ✓ 52 kB CSS, 283 kB JS | ✓ 52 kB CSS, 283 kB JS | ✓ 52 kB CSS, 283 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ | ✓ |
 
 ## B. Vehicle
@@ -98,8 +98,8 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.1 h back | ✓ 13 charged blocks, from 12.1 h back | ✓ 13 charged blocks, from 12.1 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 15 charged blocks, from 14.1 h back | ✓ 15 charged blocks, from 14.1 h back | ✓ 15 charged blocks, from 14.1 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks | ✓ 24 h: 10 blocks, 72 h: 58 blocks, 168 h: 154 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ | ✓ |
@@ -165,9 +165,9 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | J1 | Car limit follows the plan: tomorrow 90 % (one call) | ✓ number.set_value 90 | ✓ number.set_value 90 | ✓ number.set_value 90 |
 | J2 | Plan is not capped at the old limit when the app manages it | ✓ | ✓ | ✓ |
-| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-27T06:00, limit sent 95 | ✓ 52.8 kWh before 10-27T06:00, limit sent 100 | ✓ 63.5 kWh before 10-27T06:00, limit sent 100 |
+| J3 | Ready for the day after tomorrow 95 %: minimum 30 % first, limit follows | ✓ 42.9 kWh before 10-29T06:00, limit sent 95 | ✓ 52.8 kWh before 10-29T06:00, limit sent 100 | ✓ 63.5 kWh before 10-29T06:00, limit sent 100 |
 | J4 | Back to normal: limit goes down to the plan again | ✓ limit 90 | ✓ limit 90 | ✓ limit 90 |
-| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-28) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-28) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-28) is no longer planned. The car is planned for the next departure again. |
+| J4b | Ready for the day after tomorrow, chosen for a calendar trip; the trip is removed → the choice ends by itself | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-30) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-30) is no longer planned. The car is planned for the next departure again. | ✓ based on "Naar werk", ended; notified: The departure it was chosen for (Naar werk on 2026-10-30) is no longer planned. The car is planned for the next departure again. |
 | J4c | Ready for tomorrow when no departure was planned that day: the choice stays | ✓ | ✓ | ✓ |
 | J5 | Quickly to a minimum (35 %) does not lower the limit | ✓ | ✓ | ✓ |
 | J5b | Quick minimum started: all of it is marked as minimum (purple in the chart) | ✓ 8.6 kWh to 35% | ✓ 10.6 kWh to 35% | ✓ 12.7 kWh to 35% |
@@ -190,10 +190,10 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | S1 | Refused: solar up to 30 %, forecast sensor without a sensor, factor 2 | ✓ | ✓ | ✓ |
 | S2 | Solar page: forecast from the Energy dashboard, inverter found, phase switching of the charger | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: Set charger phase mode, current: Set charger dynamic limit | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Zaptec Go Charger max current | ✓ forecast tomorrow 18 kWh, inverter Fronius, phase switching: not possible, current: Wallbox Pulsar Plus Maximum Charging Current |
-| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 23.8 kWh on solar, 10.5 kWh from the grid | ✓ 23.8 kWh on solar, 18.4 kWh from the grid | ✓ 23.8 kWh on solar, 27.0 kWh from the grid |
-| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 23.8 kWh on solar | ✓ 23.8 kWh on solar | ✓ 23.8 kWh on solar |
-| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 9.1 kWh on solar | ✓ 33.1 kWh at night, 17.7 kWh on solar |
-| S5 | Solar only: the plan uses only the sun | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 23.8 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
+| S3 | Plan + solar, feed-in 0.03: the plan charges on tomorrow's sun (cheaper than the night at 0.05) | ✓ 15.7 kWh on solar, 18.6 kWh from the grid | ✓ 15.7 kWh on solar, 26.5 kWh from the grid | ✓ 15.7 kWh on solar, 35.1 kWh from the grid |
+| S4 | Dynamic feed-in (market 0.20 − 0.02 = 0.18) vs grid all-in 0.21 at night: the sun is cheaper, also without salderen | ✓ 15.7 kWh on solar | ✓ 15.7 kWh on solar | ✓ 15.7 kWh on solar |
+| S4b | Feed-in 0.25 (more than the night at 0.21): the night first; the sun only for what does not fit (day grid 0.39) | ✓ 33.1 kWh at night, 1.2 kWh on solar | ✓ 33.1 kWh at night, 9.1 kWh on solar | ✓ 35.1 kWh at night, 15.7 kWh on solar |
+| S5 | Solar only: the plan uses only the sun | ✓ 15.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 15.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only | ✓ 15.7 kWh, notes: prices_incomplete, not_enough_known_time, solar_only |
 | S6 | Live: 6 kW sun, car not charging → start on solar with a matching current | ✓ 7 A, sent: easee.set_charger_dynamic_limit {"device_id":"ch","current":7,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ 7 A, sent: number.set_value number.zaptec_go_charger_max_current 7 · button.press button.zaptec_go_resume_charging | ✓ 7 A, sent: number.set_value number.wallbox_pulsar_plus_maximum_charging_current 7 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | S7 | Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop | ✓ one phase, 6 A · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"1_phase"} · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":6,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ paused (no phase switching) · button.press button.zaptec_go_stop_charging | ✓ paused (no phase switching) · switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
 | S8 | Charge now after solar: current back to the maximum (and three phases) | ✓ easee.set_charger_phase_mode {"device_id":"ch","phase_mode":"3_phase"} · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · switch.turn_off switch.laadpaal_charger_enabled · easee.set_charger_dynamic_limit {"device_id":"ch","current":16,"time_to_live":30} · switch.turn_on switch.laadpaal_charger_enabled | ✓ number.set_value number.zaptec_go_charger_max_current 16 · button.press button.zaptec_go_resume_charging | ✓ number.set_value number.wallbox_pulsar_plus_maximum_charging_current 16 · switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
@@ -209,7 +209,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.46 | ✓ charges in 3 block(s), saving €1.42 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.50 | ✓ charges in 3 block(s), saving €1.45 | ✓ charges in 3 block(s), saving €1.40 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -234,7 +234,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Kia Niro EV (Kia Uvo) + Zaptec Go | 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|---|
-| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-28T10 (forecast) | ✓ 31 forecast hours, planned: 10-28T10 (forecast) | ✓ 31 forecast hours, planned: 10-28T10 (forecast) |
+| K1 | Forecast on: plan waits for the cheap forecast day, never charges on it now | ✓ 31 forecast hours, planned: 10-30T10 (forecast) | ✓ 31 forecast hours, planned: 10-30T10 (forecast) | ✓ 31 forecast hours, planned: 10-30T10 (forecast) |
 | K2 | Forecast is not used without a departure | ✓ | ✓ | ✓ |
 | K3 | Checklist after setup: ready; shows the points that need attention | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional | ✓ vehicle:ok charger:ok method:ok prices:ok forecast:ok departures:ok control:ok car_limit:ok conflicts:ok notify:ok grid:ok battery:optional solar:optional |
 
@@ -290,12 +290,15 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y6 | My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost | ✓ Werk → 60 km, 45.7% there and back | ✓ Werk → 60 km, 37.1% there and back | ✓ Werk → 60 km, 30.9% there and back |
 | Y7 | Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "Northwind Labs"; Plan lists the zone, not Home | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) | ✓ zone Werk → 60 km (route) |
 | Y7b | Trip distances (#31): the choice is checked; offline sends nothing and uses a distance from My places; off shows no distance; back to OpenStreetMap | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off | ✓ Gym → 15.5 km (manual); unknown address offline: routing_off |
-| Y7c | Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent |
+| Y7c | Charging stops on the way (#37, #40): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first, one block per stop; every country on the route counts unless limited; offline sends nothing | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent | ✓ Fastned + IONITY on the way; IONITY preferred → only IONITY; offline → nothing sent |
 | Y7c1 | Open Charge Map key (#42): saved state survives reload and empty saves; replacement and explicit removal persist without returning the secret | ✓ save → reload → keep → replace → remove; responses never include the key | ✓ save → reload → keep → replace → remove; responses never include the key | ✓ save → reload → keep → replace → remove; responses never include the key |
 | Y8 | Use per km from the range sensor (range at the level now): two trips of the same distance cost the same, also when the car leaves the second time with more battery | ✓ 60 km → 44% both times | ✓ 60 km → 33% both times | ✓ 60 km → 31.4% both times |
 | Y9 | Minimum 60 % and back home below it: the timeline charges right away to 60 % when the car is back (purple), the rest in the cheapest hours | ✓ back 34.3% → right away to 60% (14.7 kWh), then 11.4 kWh to 80% | ✓ back 42.9% → right away to 60% (12 kWh), then 14.1 kWh to 80% | ✓ back 49.1% → right away to 60% (9.2 kWh), then 16.9 kWh to 80% |
 | Y10 | Minimum charging after the third day is included in the chart, through the last expected charging in the timeline | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices | ✓ day 4: right away to 60%, then charging for day 6; all expected blocks have chart prices |
 | Y11 | The car is away and a trip home is in the calendar ("Naar huis" 16:00–17:00, even with a target): the trip home is not a departure, charging is planned only from 17:00, and the timeline starts with "Back home" | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC | ✓ departure Naar Werk, charging from 16:00 UTC |
+| Y24 | Car not plugged in, no car location, no person, no trip home (#46): the place is "unknown"; Looking ahead counts from the level now (50%), the planned charging is "if plugged in" and the level with it is shown next to it | ✓ leaves with 50% (80% if plugged in), charging shown as "if plugged in" | ✓ leaves with 50% (80% if plugged in), charging shown as "if plugged in" | ✓ leaves with 50% (80% if plugged in), charging shown as "if plugged in" |
+| Y25 | Car location first, then the person, then the calendar (#46): car "not_home" wins over person "home"; car "unavailable" is skipped and person "not_home" decides; both unknown and "Naar huis" in the calendar: away until the trip home; a wrong entity type is not saved | ✓ car → person → calendar; wrong entity types are not saved | ✓ car → person → calendar; wrong entity types are not saved | ✓ car → person → calendar; wrong entity types are not saved |
+| Y26 | Car location "home" while not plugged in (#46): at home, so the plan counts on the charging as before, also with "Naar huis" in the calendar; plugged in: no place check at all | ✓ at home: leaves with 80% | ✓ at home: leaves with 80% | ✓ at home: leaves with 80% |
 | Y12 | More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00 | ✓ home → Werk → Sport → home: 180 km ≈ 68.5% · at Sport 34.3% · home 11.5% at 22:00 · with 40 kWh/100 km: home -72.3% | ✓ home → Werk → Sport → home: 180 km ≈ 55.7% · at Sport 42.9% · home 24.3% at 22:00 · with 40 kWh/100 km: home -43.8% | ✓ home → Werk → Sport → home: 180 km ≈ 46.3% · at Sport 49.1% · home 33.7% at 22:00 · with 40 kWh/100 km: home -22.9% |
 | Y13 | Ask to charge more for a long trip (on, reserve 10 %): the trip costs more than 80 % leaves room for, so the phone gets one question with Yes/No buttons; a tap on Yes raises the target for this trip only | ✓ trip ≈ 114.2% → asked to charge to 100% · Yes on the phone → target 100% (Plan page too) · costs less → 87% · Sport removed → back to 80% | ✓ trip ≈ 114.5% → asked to charge to 100% · Yes on the phone → target 100% (Plan page too) · costs less → 87% · Sport removed → back to 80% | ✓ trip ≈ 77.1% → asked to charge to 88% · Yes on the phone → target 88% (Plan page too) · bigger trip → 100% · costs less → 88% · Sport removed → back to 80% |
 | Y13b | Declined trip top-up (#43): the answer stays No while the banner follows the current trip cost and target, and hides an unavailable estimate | ✓ declined answer retained; current trip and banner agree; no repeated notification | ✓ declined answer retained; current trip and banner agree; no repeated notification | ✓ declined answer retained; current trip and banner agree; no repeated notification |
@@ -308,7 +311,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y20 | Preconditioning (#44): off by default; the car's button is offered; only a switch or button can be chosen | ✓ offered: button.test_car_start_air_conditioner | ✓ offered: button.test_car_start_air_conditioner | ✓ offered: switch.enyaq_charging, switch.enyaq_battery_care_mode, button.test_car_start_air_conditioner |
 | Y21 | Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car's button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without |
 | Y22 | Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none |
-| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule mon 10:16: one press with the tick, none without; one-off: one press | ✓ schedule mon 10:16: one press with the tick, none without; one-off: one press | ✓ schedule mon 10:16: one press with the tick, none without; one-off: one press |
+| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule wed 14:20: one press with the tick, none without; one-off: one press | ✓ schedule wed 14:20: one press with the tick, none without; one-off: one press | ✓ schedule wed 14:20: one press with the tick, none without; one-off: one press |
 
 ## Z. Apple iCloud calendar (read only)
 
@@ -320,14 +323,14 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Kia Niro EV (Kia Uvo) + Zaptec Go | 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|---|
-| U1 | One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at" | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes | ✓ To Stationsplein 1, 3511 ED Utrecht · target: 90 precondition: yes |
-| U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 57.1% there and back · back 32.9% | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 46.4% there and back · back 43.6% | ✓ next stop To Stationsplein 1, 3511 ED Utrecht · 75 km → 38.6% there and back · back 51.4% |
+| U1 | One car: no car to choose (the trip is for that car), the event is "To <destination>" with the destination as location, "target: 90 precondition: yes" (English: Home Assistant has no Dutch language here) and lasts until "Back home at" | ✓ To Stationsplein 1, 1116 AA Centretown · target: 90 precondition: yes | ✓ To Stationsplein 1, 1116 AA Centretown · target: 90 precondition: yes | ✓ To Stationsplein 1, 1116 AA Centretown · target: 90 precondition: yes |
+| U2 | Added: written to the calendar once, and right away the departure on Plan and the next stop in Looking ahead, with the trip there and back (75 km by road each way) and back home at 17:30 | ✓ next stop To Stationsplein 1, 1116 AA Centretown · 75 km → 57.1% there and back · back 32.9% | ✓ next stop To Stationsplein 1, 1116 AA Centretown · 75 km → 46.4% there and back · back 43.6% | ✓ next stop To Stationsplein 1, 1116 AA Centretown · 75 km → 38.6% there and back · back 51.4% |
 | U3 | Added twice: the second time nothing is added (already in the calendar); the Plan tab lists the trip with its cost | ✓ | ✓ | ✓ |
 | U3b | Changing the trip language skips existing English and old Dutch events in preview and writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes | ✓ English ↔ Dutch, and upgrade to auto: zero extra calendar writes |
 | U4 | Calendar read by keyword ("EV"): a trip added by the app (with "doel: 90") still counts | ✓ | ✓ | ✓ |
 | U5 | Calendar not used for departures: Add trip is refused (the trip would never count), nothing written | ✓ | ✓ | ✓ |
 | U5b | Refresh on Home fetches the calendar again first: a trip added in Google Calendar shows up right away; the background refresh does not | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent | ✓ update_entity calendar.auto → departure Naar Gent |
-| U6 | More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 3511 ED Utrecht, To Utrecht |
+| U6 | More cars: a trip for the EV6 gets "car: EV6" and only counts for the EV6; "Every car" gets no car and counts for both | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 1116 AA Centretown, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 1116 AA Centretown, To Utrecht | ✓ car1: To Utrecht · EV6: To Stationsplein 1, 1116 AA Centretown, To Utrecht |
 
 ## X. More than one charger
 
@@ -341,6 +344,8 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | X5a | Charge now goes first, also while that car is below its minimum: the Laadpaal moves before the EV6, and back after Charge now ends (#35) | ✓ EV6 first → Laadpaal first (Charge now, below minimum) → EV6 first | – (not for this set-up) | – (not for this set-up) |
 | X5b | Both grid signs pause the first charger below minimum, even just after a manual start | ✓ 0/4/5 A pause; 6 A limit; import/export-positive meters | – (not for this set-up) | – (not for this set-up) |
 | X5c | The first start/stop-only charger pauses when 10 A cannot fit its 16 A request | ✓ | – (not for this set-up) | – (not for this set-up) |
+| X5d | Per phase (#29): two one-phase chargers on different phases both charge; same phase: the second waits; unknown phase: room kept on every phase; no fresh meter: one charger at 6 A | ✓ different phases: both 16 A · same phase: Laadpaal waits · unknown phase: limited by L2 · stale meter: one charger at 6 A | – (not for this set-up) | – (not for this set-up) |
+| X5e | Load balancer for one charger only (#29): the app still shares the connection for the other charger | ✓ Laadpaal: Waiting: not enough connection capacity for this charger | – (not for this set-up) | – (not for this set-up) |
 | X6 | Only the EV6 is home, at the Laadpaal (Garage empty): the Laadpaal plans for the EV6, the Garage for the other car | ✓ Laadpaal → EV6 · Garage → JLZ03X | – (not for this set-up) | – (not for this set-up) |
 | X7 | Sensors and messages say which charger: sensor.smart_charging_garage_status; the first charger keeps its names | ✓ | – (not for this set-up) | – (not for this set-up) |
 | X8 | Turned off: the first charger only, as before; the Garage stays saved | ✓ back to one charger | – (not for this set-up) | – (not for this set-up) |
@@ -366,7 +371,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 |---|---|---|
 | [batteryguard.test.js](#batteryguard) | Battery live bounds, original-setting snapshots, native reserves and site EV policies | 10 of 10 ✓ |
 | [batterysafety.test.js](#batterysafety) | Real app: exact battery restoration, failure/restart recovery, fresh SoC guards and secondary charger protection | 9 of 9 ✓ |
-| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 5 of 5 ✓ |
+| [diagnostics.test.js](#diagnostics) | Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior | 6 of 6 ✓ |
 | [releaseguard.test.js](#releaseguard) | Release safeguards: DST delivery intervals, missing prices, live current caps, durable control ownership and per-car session estimates | 21 of 21 ✓ |
 | [recovery.test.js](#recovery) | Real app failure and restart checks against fake HA: phase/current command order, zero limits, SoC after travel, battery release | 7 of 7 ✓ |
 | [brands.test.js](#brands) | Chargers per brand: detection, start/stop, current, phase switching, status texts | 351 of 351 ✓ |
@@ -376,16 +381,19 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [forecast.test.js](#forecast) | Price forecast: reading it and planning with it | 74 of 74 ✓ |
 | [reliability.test.js](#reliability) | Ready Guard: is the car ready in time, and what happens when it is not | 23 of 23 ✓ |
 | [chargestate.test.js](#chargestate) | The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange) | 16 of 16 ✓ |
+| [carplace.test.js](#carplace) | Where the car is when not plugged in: car location, then a person, then a trip home in the calendar, else not known (#46) | 7 of 7 ✓ |
 | [notify.test.js](#notify) | Notifications: a message that reached no phone is tried again | 4 of 4 ✓ |
 | [activecar.test.js](#activecar) | More than one car: connected car; calendar tags, trip language and duplicate prevention | 18 of 18 ✓ |
-| [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 18 of 18 ✓ |
+| [sharing.test.js](#sharing) | More than one charger: who charges first and how the connection is shared | 28 of 28 ✓ |
 | [tripcost.test.js](#tripcost) | Look ahead: which calendar locations are addresses, the use per km, learning from trips | 10 of 10 ✓ |
 | [pricebasis.test.js](#pricebasis) | Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26) | 4 of 4 ✓ |
-| [routing.test.js](#routing) | Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31) | 11 of 11 ✓ |
-| [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37) | 14 of 14 ✓ |
+| [routing.test.js](#routing) | Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31); addresses abroad: home country first, then every country (#49) | 12 of 12 ✓ |
+| [chargestops.test.js](#chargestops) | Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40); operators from the station data and the settings lists (#48); the route map settings and data (#47) | 21 of 21 ✓ |
 | [persistence.test.js](#persistence) | Saving settings safely (a crash while saving loses nothing) | 1 of 1 ✓ |
 | [precondition.test.js](#precondition) | Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44) | 13 of 13 ✓ |
-| [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 1 of 1 ✓ |
+| [compat.test.js](#compat) | Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28) | 4 of 4 ✓ |
+| [page.test.js](#page) | The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54) | 6 of 6 ✓ |
+| [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 6 of 6 ✓ |
 
 ## batteryguard
 
@@ -432,11 +440,12 @@ Real app: exact battery restoration, failure/restart recovery, fresh SoC guards 
 
 Public diagnostic allowlist, consistent pseudonyms and reviewed-download behavior.
 
-<details><summary>5 of 5 passed – show every check</summary>
+<details><summary>6 of 6 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
 | public diagnostics omit personal text across every exported branch | ✓ |
+| the route map (#47): no route line, positions or tile server in the public diagnostics; only whether a map is on | ✓ |
 | unknown schema keys and identity maps fail closed | ✓ |
 | identifier prefixes cannot retain a personal namespace | ✓ |
 | the diagnostic UI previews the same document before a separate download action | ✓ |
@@ -1222,6 +1231,24 @@ The charging status on Home: which state and colour (ready green, charging red, 
 
 </details>
 
+## carplace
+
+Where the car is when not plugged in: car location, then a person, then a trip home in the calendar, else not known (#46).
+
+<details><summary>7 of 7 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| plugged in is always at home; plug state not known changes nothing | ✓ |
+| the car location comes first | ✓ |
+| an unclear car location is skipped: then the person | ✓ |
+| then the calendar; away by car or person takes the time back from the calendar | ✓ |
+| nothing known: unknown, never "at home" | ✓ |
+| charging is "if plugged in" when not known, or away without a time back | ✓ |
+| Home says where the car is | ✓ |
+
+</details>
+
 ## notify
 
 Notifications: a message that reached no phone is tried again.
@@ -1270,7 +1297,7 @@ More than one car: connected car; calendar tags, trip language and duplicate pre
 
 More than one charger: who charges first and how the connection is shared.
 
-<details><summary>18 of 18 passed – show every check</summary>
+<details><summary>28 of 28 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1292,6 +1319,16 @@ More than one charger: who charges first and how the connection is shared.
 | a first start/stop-only charger waits when its full current does not fit | ✓ |
 | a first start/stop-only charger receives its full current when it fits | ✓ |
 | both grid sign conventions give the same allocation for import and export | ✓ |
+| two one-phase chargers on different phases both get their full current | ✓ |
+| two one-phase chargers on the same phase share it: the second gets what is left or waits | ✓ |
+| one phase with an unknown phase: the current is kept free on every phase | ✓ |
+| mixed: a three-phase charger and a one-phase charger | ✓ |
+| fair share per phase: chargers on other phases do not count | ✓ |
+| changes take time: a charger only goes up as far as the others have come down | ✓ |
+| a charger that stops wanting still counts with what it draws now | ✓ |
+| home battery: grid charging only with what the chargers leave, the cars go first | ✓ |
+| capacity per phase: main fuse minus the house on that phase (grid minus the chargers on it) minus 1 A | ✓ |
+| no fresh reading: one charger at 6 A, the others wait, no grid charging for the battery | ✓ |
 
 </details>
 
@@ -1310,7 +1347,7 @@ Look ahead: which calendar locations are addresses, the use per km, learning fro
 | learned from trips: the battery level when leaving and when back, after two trips it is used | ✓ |
 | implausible trips are not learned: back after 3 days, charged on the way, or 3 % per km | ✓ |
 | distance: home is 0 km, a word that is not an address is unknown, a new address is looked up (pending) | ✓ |
-| straight line: Springfield to Bergschenhoek is about 100 km | ✓ |
+| straight line: Springfield to Meadowtown is about 100 km | ✓ |
 | My places: "Werk" (location or title "Naar Werk") uses its address; a real address in the location wins; unknown names are suggested | ✓ |
 | Zones in Home Assistant: "Werk" (by name or by the title) is a point with GPS; the home zone is not a place; My places go first | ✓ |
 
@@ -1333,9 +1370,9 @@ Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast 
 
 ## routing
 
-Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31).
+Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31); addresses abroad: home country first, then every country (#49).
 
-<details><summary>11 of 11 passed – show every check</summary>
+<details><summary>12 of 12 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1344,6 +1381,7 @@ Trip distances and privacy: what is sent where for each choice, offline distance
 | offline: a zone gives the straight line × 1.3, nothing is sent | ✓ |
 | offline: an address is not looked up; a distance in My places is used | ✓ |
 | OpenStreetMap: the address goes to the address search, the coordinates to the router | ✓ |
+| an address abroad (#49): first in the home country, then without the country limit; an address at home is asked once | ✓ |
 | own servers: everything goes to your servers, nothing to the public ones | ✓ |
 | a place looked up before keeps its distance offline, without asking again | ✓ |
 | a lookup that was waiting is dropped when you switch to offline | ✓ |
@@ -1355,9 +1393,9 @@ Trip distances and privacy: what is sent where for each choice, offline distance
 
 ## chargestops
 
-Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37).
+Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40); operators from the station data and the settings lists (#48); the route map settings and data (#47).
 
-<details><summary>14 of 14 passed – show every check</summary>
+<details><summary>21 of 21 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1374,6 +1412,13 @@ Charging stops on the way: the route line, which stations count (country, power,
 | the route and then the stations: the key goes in a header, the route as a line; only reachable stations | ✓ |
 | the other side of the motorway (#41): its real detour by road counts; shown only when nothing else fits, marked as a longer detour | ✓ |
 | enough to get there, short on the way back (#41): the stop is on the way back, its detour asked from the destination | ✓ |
+| a route across a border (#40): stations in every country on the route count, unless you limit it to your countries | ✓ |
+| arrive at a charger with at least (#40): below the level for a stop the car may drive on to a station where it arrives nearly empty, which comes first | ✓ |
+| a stop as late as possible, at the best station (#50): never an early station with a lot left because its detour is smaller; the most power first; each alternative has its own level on arrival | ✓ |
+| the route on a map (#47): off by default; OpenStreetMap or your own tile server (checked); when on, the trip has the route line, home, the destination and every station position | ✓ |
+| a long trip (#40): more than eight stops, each in reach of the one before, as far along as the battery allows | ✓ |
+| operators from the station data (#48): remembered from the stations on your routes, by Open Charge Map number; one of them can be preferred | ✓ |
+| settings page (#48): countries and operators as lists that open and close, chosen operators as labels with a remove button, a search that does not count as a change | ✓ |
 | a key Open Charge Map does not accept: the trip says so | ✓ |
 
 </details>
@@ -1414,15 +1459,52 @@ Preconditioning before a departure: which drives (calendar first, then the way-b
 
 </details>
 
+## compat
+
+Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28).
+
+<details><summary>4 of 4 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| COMPATIBILITY.md is up to date (run: node tests/compat.js write) | ✓ |
+| every charger, car and home battery of the fixtures is listed | ✓ |
+| read-only devices are marked and never shown as steerable | ✓ |
+| physical test status only shows known states, and nothing personal | ✓ |
+
+</details>
+
+## page
+
+The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54).
+
+<details><summary>6 of 6 passed – show every check</summary>
+
+| Check | Result |
+|---|---|
+| a part that opens and closes keeps its state across a reload: closed by default, open after you open it, closed again after you close it | ✓ |
+| the days in Looking ahead, Plan details, the plan table and the next days on Plan keep their state | ✓ |
+| the route map (#47): the zoom fits every point, the tiles cover the map, the route line is decoded; nothing is drawn while the map is closed | ✓ |
+| the map icon in Looking ahead (#47): only for a trip with a route map; opens the big map in one click without opening the day; no map images before that | ✓ |
+| Leaflet (#54): shipped with the app unchanged (1.9.4, with its license), served by the app, loaded only when a map opens; the fixed map when it cannot load | ✓ |
+| the reload every minute leaves Home as it is when nothing changed | ✓ |
+
+</details>
+
 ## docs
 
 Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev.
 
-<details><summary>1 of 1 passed – show every check</summary>
+<details><summary>6 of 6 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.36.19-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.36.19-dev) | ✓ |
+| README: every issue since 0.35.0 is under "Implemented on dev" (#54, #47, #51, #50, #49, #48, #40, #29, #46, #28) | ✓ |
+| RELEASE: every issue since 0.35.0 is in the candidate scope | ✓ |
+| changelog: the newest heading is the version in config.yaml | ✓ |
 
 </details>
 

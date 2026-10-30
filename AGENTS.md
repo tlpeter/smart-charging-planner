@@ -40,7 +40,7 @@ Claude reads this file through `CLAUDE.md`; Codex reads it directly.
 - Extend a stale SoC only within the same observed vehicle/charger session, from a reading after that session began. Do not infer that the car stayed connected while the app was stopped.
 - Price delivery intervals need UTC, epoch or explicit-offset timestamps at a clock change. Never guess which repeated hour a price belongs to.
 - Every repaired failure scenario gets a regression check. Re-read the current issue before claiming it is fixed; distinguish a static concern, an automated reproduction and a physical hardware test.
-- Keep actual household configuration and diagnostics out of public issue comments. Use synthetic examples. Back up and read back any explicitly requested live configuration change.
+- **Everything public is anonymous, always.** This repository and its issues are public. Never put the owner's real data in issues, comments, commits, code, tests, fixtures, documentation, the changelog or release notes: no real addresses, streets, postcodes, towns or destinations from his trips or calendar, no coordinates of his home, work or other places, no names, entity ids, configuration or diagnostics from his house. Use made-up examples (towns such as "Rivertown" or "Exempelstad", postcodes such as "1234 AB", coordinates in the sea). This also applies when he shares a screenshot or a real address to explain a problem: describe the problem with a made-up example. Home checks in RELEASE.md say "an address abroad", not his destination. Back up and read back any explicitly requested live configuration change.
 - Do not describe the project as universally compatible or production-validated. State which capabilities are fixture-tested, Core-tested and physically verified.
 
 ## Branches and versions
@@ -98,6 +98,7 @@ On a release ("uitbrengen X.Y.Z"), on `main` and on `dev`:
 - `README.md`: move the items under "Implemented on dev" to "Available features" (short, plain words) and empty that list; set "stable is X.Y.Z"; on `main`, keep main's own wording.
 - `RELEASE.md`: the released scope becomes one line ("released in X.Y.Z"); start the next candidate section on `dev` when the next change comes.
 - `CHANGELOG.md`: on `main`, remove `-dev` from the headings (step 4 above) and add a short "Stable release of …" entry.
+- `CHANGELOG.md` on `dev`: add the heading `## X.Y.Z` with "Stable release of …" above the released `-dev` headings, then the next `-dev` version above it. `tests/docs.test.js` stops at that heading.
 - Remove the label `fixed in dev` from the released issues.
 
 ## Issues (bugs and wishes on GitHub)
@@ -138,6 +139,7 @@ How a GitHub issue is handled, from report to release:
   - `node tests/matrix.test.js` (several minutes), or `SCP_CHARGERS=Easee` in front of it for one charger.
   - `node tests/testplan.js all`: everything, and writes the test plan (about 15 minutes).
 - New behaviour gets a test, preferably in `tests/settings.test.js` against the real app.
+- `COMPATIBILITY.md` is generated: after changing `tests/fixtures.js` or `tests/physical.json`, run `node tests/compat.js write` (`tests/compat.test.js` checks it). Fill `tests/physical.json` only from Peter's home checks and anonymous beta reports (RELEASE.md › Physical beta validation).
 - `.github/workflows/ha-core-compat.yml` runs the app against a real Home Assistant Core.
 
 ## Style

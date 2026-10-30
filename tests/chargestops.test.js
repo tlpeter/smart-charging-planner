@@ -35,6 +35,7 @@ async function main() {
   let stations = [];
   let line = '';
   let extra = {};
+  let routeKm = 100;
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     hits.push({ path: u.pathname, params: Object.fromEntries(u.searchParams), key: req.headers['x-api-key'] || null });
@@ -44,7 +45,7 @@ async function main() {
       // by road (extra, by its latitude; default 0.2 km).
       const pts = u.pathname.split('/').pop().split(';');
       const mid = pts.length === 3 ? Number(pts[1].split(',')[1]).toFixed(4) : null;
-      const km = 100 + (mid ? extra[mid] ?? 0.2 : 0);
+      const km = routeKm + (mid ? extra[mid] ?? 0.2 : 0);
       return res.end(JSON.stringify({ routes: [{ distance: km * 1000, ...(mid ? {} : { geometry: line }) }] }));
     }
     if (ocmStatus) { res.statusCode = ocmStatus; return res.end('{}'); }
@@ -104,6 +105,20 @@ async function main() {
     assert.equal(cs.operatorOf('IONITY GmbH'), 'ionity');
     assert.equal(cs.operatorOf('Shell Recharge Solutions'), 'shell');
     assert.equal(cs.operatorOf('Vattenfall InCharge'), 'vattenfall');
+    // The rest of Europe (#40); a name that contains another one goes to the right operator.
+    assert.equal(cs.operatorOf('EnBW Energie Baden-Württemberg AG'), 'enbw');
+    assert.equal(cs.operatorOf('Aral pulse'), 'aral');
+    assert.equal(cs.operatorOf('IZIVIA'), 'izivia');
+    assert.equal(cs.operatorOf('Atlante S.r.l.'), 'atlante');
+    assert.equal(cs.operatorOf('Circle K Norge AS'), 'circlek');
+    assert.equal(cs.operatorOf('Recharge AS'), 'recharge');
+    assert.equal(cs.operatorOf('Shell Recharge'), 'shell');
+    assert.equal(cs.operatorOf('Mer Germany GmbH'), 'mer');
+    assert.equal(cs.operatorOf('E.ON Drive'), 'eon');
+    assert.equal(cs.operatorOf('Electra'), 'electra');
+    assert.equal(cs.operatorOf('Electrify America'), null);
+    // Every European country the issue names is there.
+    for (const code of ['NL', 'BE', 'DE', 'FR', 'LU', 'AT', 'CH', 'IT', 'ES', 'DK', 'NO', 'SE']) assert.ok(cs.COUNTRIES[code], code);
     assert.equal(cs.operatorOf('Unknown Operator'), null);
     assert.equal(cs.operatorOf(null), null);
     // Every operator is in a supported country, and ids are unique.
@@ -135,7 +150,21 @@ async function main() {
     assert.equal(kept.api_key, 'abc-12345');
     assert.equal(cs.clean({ enabled: false, clear_key: true, countries: ['NL'], connectors: ['ccs'] }, { api_key: 'abc-12345' }).api_key, '');
     assert.throws(() => cs.clean({ api_key: 'abc 123 ?&x=1', countries: ['NL'], connectors: ['ccs'] }, {}), /letters/);
-    assert.throws(() => cs.clean({ countries: ['FR'], connectors: ['ccs'] }, {}), /country/);
+    assert.throws(() => cs.clean({ countries: ['XX'], connectors: ['ccs'] }, {}), /country/);
+    // All of Europe, more than one at a time (#40).
+    assert.deepEqual(cs.clean({ countries: ['NL', 'DE', 'FR', 'CH'], connectors: ['ccs'] }, {}).countries, ['NL', 'DE', 'FR', 'CH']);
+    // Every country on the route counts unless you limit it; charge to 80 % at a stop.
+    const d = cs.clean({ countries: ['NL'], connectors: ['ccs'] }, {});
+    assert.equal(d.only_countries, false);
+    assert.equal(d.charge_to_pct, 80);
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], only_countries: true }, {}).only_countries, true);
+    assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], charge_to_pct: 101 }, {}), /between/);
+    assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], reserve_pct: 45, charge_to_pct: 60 }, {}), /20%/);
+    // The lowest level to arrive with at a charger: the same as the level for a stop by default, never above it.
+    assert.equal(d.arrive_min_pct, 10);
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], reserve_pct: 5 }, {}).arrive_min_pct, 5);
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], arrive_min_pct: 3 }, {}).arrive_min_pct, 3);
+    assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], reserve_pct: 10, arrive_min_pct: 15 }, {}), /not above/);
     assert.throws(() => cs.clean({ countries: ['NL'], connectors: [] }, {}), /connector/);
     assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], max_detour_km: 0 }, {}), /between/);
     const c = cs.clean({ countries: ['NL', 'BE', 'NL'], operators: ['fastned', 'nope'], connectors: ['ccs', 'type2'], min_power_kw: '22,5' }, {});
@@ -297,14 +326,37 @@ async function main() {
     assert.equal(r.reach_km, 91);
     assert.equal(r.need_pct, 30);
     assert.equal(r.need_kwh, 18);
-    assert.deepEqual(r.stops.map((x) => x.id), [1, 2]);
+    // One stop is enough when it is far enough along: station 1 (22 km) would
+    // leave too much of the trip after charging to 80 %; station 2 (67 km) not.
+    assert.deepEqual(r.stops.map((x) => x.id), [2]);
+    assert.equal(r.legs.length, 1);
+    // Station 2 is the last stop: charge only what the rest needs, not 80 %.
+    assert.ok(r.legs[0].charge_to_pct < 80 && r.legs[0].charge_to_pct > 10 + 133 * 0.44, JSON.stringify(r.legs[0]));
     const ocm = hits.find((h) => h.path === '/ocm/poi');
     assert.equal(ocm.key, 'abc-12345');
     assert.ok(!('key' in ocm.params) && ocm.params.polyline && ocm.params.distance === '2' && ocm.params.distanceunit === 'km');
+    // Only stations with enough power; no country in the request (#40).
+    assert.equal(ocm.params.minpowerkw, '50');
+    assert.equal(ocm.params.maxresults, '300');
+    assert.ok(!('countrycode' in ocm.params));
     const route = hits.find((h) => h.path.startsWith('/route/'));
     assert.equal(route.params.geometries, 'polyline');
-    // Less battery: the far station drops out.
-    assert.deepEqual(cs.suggest({ ...input, socLeave: 30 }).stops.map((x) => x.id), [1]);
+    // Less battery (#40): two stops. First the only station in reach, then
+    // from there one after which the rest of the trip fits.
+    const less = { ...input, socLeave: 30 };
+    for (let i = 0; i < 6 && cs.suggest(less).status === 'pending'; i++) await settle();
+    const two = cs.suggest(less);
+    assert.equal(two.status, 'ok', JSON.stringify(two));
+    assert.equal(two.legs.length, 2, JSON.stringify(two.legs));
+    assert.deepEqual(two.legs[0].stations.map((x) => x.id), [1]);
+    assert.equal(two.legs[0].charge_to_pct, 80);
+    assert.equal(two.legs[0].arrive_pct, 20); // 30 % - 22 km × 0.44
+    assert.ok(two.legs[1].km_on_trip > two.legs[0].km_on_trip);
+    assert.ok(two.legs[1].charge_to_pct <= 80);
+    // A station once per stop, also when it fits on the way there and back.
+    const ids = two.legs[1].stations.map((x) => x.id);
+    assert.equal(new Set(ids).size, ids.length, JSON.stringify(two.legs[1].stations));
+    assert.deepEqual(two.stops.map((x) => x.id), [1]); // the first stop, as before
     // Remembered: no new requests.
     const n = hits.length;
     cs.suggest(input);
@@ -342,13 +394,207 @@ async function main() {
     hits.length = 0;
     cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
     stations = [poi(12, 'Fastned', 51.2, 5.0005, [ccs(300)])];
-    const there = { ...input, socLeave: 95, socEnd: -0.5 }; // 95 % - 44 % = 51 % at the destination
+    const there = { ...input, socLeave: 95, socEnd: 7 }; // 95 % - 44 % = 51 % at the destination, 7 % back
     for (let i = 0; i < 4; i++) { cs.suggest(there); await settle(); }
     const r = cs.suggest(there);
     assert.equal(r.status, 'ok', JSON.stringify(r));
     assert.ok(r.on_way_back, JSON.stringify(r));
     const via = hits.find((h) => h.path.split(';').length === 3);
     assert.ok(via && via.path.split('/').pop().startsWith('5,51.9;'), via && via.path);
+  });
+
+  await check('a route across a border (#40): stations in every country on the route count, unless you limit it to your countries', async () => {
+    cs.reset();
+    hits.length = 0;
+    // Home in the Netherlands, the station 67 km along the route in Germany.
+    const station = (id, op, lat, country) => ({ ...poi(id, op, lat, 5.0, [ccs(300)]), AddressInfo: { Title: `S${id}`, Town: 'T', Latitude: lat, Longitude: 5.0, Country: { ISOCode: country } } });
+    stations = [station(20, 'Fastned', 51.2, 'NL'), station(21, 'EnBW Energie Baden-Württemberg AG', 51.6, 'DE')];
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    const run = async () => { for (let i = 0; i < 8; i++) { cs.suggest(input); await settle(); } return cs.suggest(input); };
+    let r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.deepEqual(r.legs.map((l) => l.stations.map((x) => [x.id, x.country])), [[[21, 'DE']]]);
+    // The stations are asked for along the whole line, not per country.
+    assert.ok(hits.filter((h) => h.path === '/ocm/poi').every((h) => !('countrycode' in h.params)));
+    // Only your countries: the German station drops out, so it takes two stops in the Netherlands.
+    cfg = { ...cfg, only_countries: true };
+    r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.ok(r.legs.length === 2 && r.legs.every((l) => l.stations.every((x) => x.country === 'NL')), JSON.stringify(r.legs));
+    assert.ok(!r.legs[0].on_way_back && r.legs[1].on_way_back, JSON.stringify(r.legs));
+    // Germany ticked too: one stop again.
+    cfg = { ...cfg, countries: ['NL', 'DE'] };
+    r = await run();
+    assert.deepEqual(r.legs.map((l) => l.stations.map((x) => x.id)), [[21]]);
+  });
+
+  await check('arrive at a charger with at least (#40): below the level for a stop the car may drive on to a station where it arrives nearly empty, which comes first', async () => {
+    cs.reset();
+    // Charge to 50 % at a stop, so one stop is not enough. A: 67 km, the
+    // smallest detour; B: 93 km, a bigger detour, beyond the reach down to 10 %.
+    extra = { '51.6000': 0.1, '51.8400': 1.0 };
+    stations = [poi(30, 'Fastned', 51.6, 5.0, [ccs(300)]), poi(31, 'IONITY GmbH', 51.84, 5.0, [ccs(350)])];
+    const base = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10, charge_to_pct: 50 };
+    const run = async () => { let r = cs.suggest(input); for (let i = 0; i < 8 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(input); } return r; };
+    // The same as the level for a stop (the default): only A is in reach.
+    cfg = { ...base };
+    let r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.equal(r.legs[0].stations[0].id, 30);
+    assert.ok(r.legs[0].arrive_pct >= 10, JSON.stringify(r.legs[0]));
+    // At least 5 %: B is in reach, and the car arrives there between 5 and 10 %, so B comes first.
+    cfg = { ...base, arrive_min_pct: 5 };
+    r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.equal(r.arrive_min_pct, 5);
+    assert.equal(r.reach_km, Math.round(45 / 0.44));
+    assert.deepEqual(r.legs[0].stations.map((x) => x.id), [31], JSON.stringify(r.legs[0]));
+    assert.ok(r.legs[0].arrive_pct >= 5 && r.legs[0].arrive_pct < 10, JSON.stringify(r.legs[0]));
+    // Back home the level stays above the level for a stop.
+    const l = r.legs[r.legs.length - 1];
+    assert.ok(l.charge_to_pct - (200 - l.km_on_trip) * 0.44 >= 10 - 1, JSON.stringify(r.legs));
+    extra = {};
+  });
+
+  await check('a stop as late as possible, at the best station (#50): never an early station with a lot left because its detour is smaller; the most power first; each alternative has its own level on arrival', async () => {
+    cs.reset();
+    // A: 22 km, 150 kW; B: 28 km, 300 kW; E: 50 km, 300 kW with the smallest detour.
+    extra = { '51.2000': 0.5, '51.2500': 1.0, '51.4500': 0.1 };
+    const two = (n) => ({ ...ccs(150), Quantity: n });
+    stations = [poi(50, 'Allego BV', 51.2, 5.0, [two(1)]), poi(51, 'IONITY GmbH', 51.25, 5.0, [ccs(300)]), poi(52, 'Fastned', 51.45, 5.0, [ccs(300)])];
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10, charge_to_pct: 80 };
+    const trip = { ...input, socLeave: 30 };
+    let r = cs.suggest(trip);
+    for (let i = 0; i < 10 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(trip); }
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.ok(r.legs.length >= 2, JSON.stringify(r.legs));
+    for (const l of r.legs) {
+      // The recommended station is reached nearly empty, never with a lot left.
+      assert.ok(l.stations[0].arrive_pct <= 25, JSON.stringify(l));
+      assert.notEqual(l.stations[0].id, 52, 'the early station with the smallest detour was chosen');
+      // Every alternative has its own level on arrival.
+      assert.ok(l.stations.every((x) => Number.isFinite(x.arrive_pct)), JSON.stringify(l.stations));
+    }
+    // More power before more points: B (300 kW) before A (150 kW) where both fit.
+    assert.equal(r.legs[0].stations[0].id, 51, JSON.stringify(r.legs[0]));
+    // After charging to 80 % the next stop is late again, on the way back.
+    const second = r.legs[1].stations[0];
+    assert.ok(second.on_way_back && second.km_on_trip > 150, JSON.stringify(second));
+    extra = {};
+  });
+
+  await check('the route on a map (#47): off by default; OpenStreetMap or your own tile server (checked); when on, the trip has the route line, home, the destination and every station position', async () => {
+    const d = cs.clean({ countries: ['NL'], connectors: ['ccs'] }, {});
+    assert.equal(d.map_tiles, 'off');
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'osm' }, {}).map_tiles, 'osm');
+    assert.equal(cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'nope' }, {}).map_tiles, 'off');
+    const own = cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'custom', map_tile_url: ' http://tiles.example.lan:8080/{z}/{x}/{y}.png ' }, {});
+    assert.equal(own.map_tile_url, 'http://tiles.example.lan:8080/{z}/{x}/{y}.png');
+    for (const bad of ['', 'https://tiles.example.lan/tile.png', 'ftp://tiles.example.lan/{z}/{x}/{y}', 'https://user:pw@tiles.example.lan/{z}/{x}/{y}.png', 'javascript:x//{z}{x}{y}']) {
+      assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], map_tiles: 'custom', map_tile_url: bad }, {}), /tile server/, bad);
+    }
+    cs.reset();
+    stations = [poi(60, 'Fastned', 51.6, 5.0, [ccs(300)])];
+    const base = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    const run = async () => { let r = cs.suggest(input); for (let i = 0; i < 8 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(input); } return r; };
+    cfg = { ...base };
+    let r = await run();
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.equal(r.map, undefined); // off: no map
+    cfg = { ...base, map_tiles: 'osm' };
+    r = await run();
+    assert.equal(r.map.tiles, cs.OSM_TILES);
+    assert.deepEqual(r.map.home, home);
+    assert.deepEqual(r.map.dest, dest);
+    assert.ok(cs.decodePolyline(r.map.line).length >= 2);
+    assert.ok(r.legs[0].stations.every((x) => Number.isFinite(x.lat) && Number.isFinite(x.lon)), JSON.stringify(r.legs[0].stations));
+    cfg = { ...base, map_tiles: 'custom', map_tile_url: 'https://tiles.example.lan/{z}/{x}/{y}.png' };
+    assert.equal((await run()).map.tiles, 'https://tiles.example.lan/{z}/{x}/{y}.png');
+    // A map shows nothing when the trip has no stop to show.
+    cfg = { ...base, map_tiles: 'osm' };
+    stations = [];
+    cs.reset();
+    r = await run();
+    assert.ok(r.status === 'none' && !r.map, JSON.stringify(r));
+  });
+
+  await check('a long trip (#40): more than eight stops, each in reach of the one before, as far along as the battery allows', async () => {
+    cs.reset();
+    hits.length = 0;
+    // 1000 km straight north, a station every 25 km; there and back 2000 km.
+    const far = { lat: 45.0, lon: 5.0 };
+    const end = { lat: 45.0 + 1000 / 110.57, lon: 5.0 };
+    const longLine = [];
+    for (let k = 0; k <= 400; k++) longLine.push({ lat: far.lat + (end.lat - far.lat) * (k / 400), lon: 5.0 });
+    const saved = line;
+    line = cs.encodePolyline(longLine);
+    routeKm = 1000;
+    stations = [];
+    for (let k = 1; k < 40; k++) stations.push(poi(100 + k, k % 2 ? 'IONITY GmbH' : 'Fastned', far.lat + (end.lat - far.lat) * (k / 40), 5.0, [ccs(300)]));
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10, charge_to_pct: 80 };
+    const trip = { home: far, dest: end, socLeave: 90, socEnd: -790, pctPerKm: 0.4, capacityKwh: 60 };
+    let r = cs.suggest(trip);
+    for (let i = 0; i < 40 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(trip); }
+    try {
+      assert.equal(r.status, 'ok', JSON.stringify({ ...r, legs: undefined }));
+      // 80 % - 10 % = 70 % per stop at 0.44 %/km: ~159 km between stops, so about 12 stops.
+      assert.ok(r.legs.length > 8 && r.legs.length < cs.MAX_STOPS, String(r.legs.length));
+      let x = 0;
+      let soc = 90;
+      for (const l of r.legs) {
+        // Every stop is reached before the reserve, and further along than the one before.
+        assert.ok(l.km_on_trip > x, JSON.stringify(l));
+        assert.ok(l.arrive_pct >= 10 - 1 && l.arrive_pct <= soc, JSON.stringify(l));
+        assert.ok(l.stations.length >= 1 && l.stations.length <= 3);
+        x = l.km_on_trip;
+        soc = l.charge_to_pct;
+      }
+      // After the last stop the rest of the trip fits.
+      assert.ok(soc - (2000 - x) * 0.44 >= 10 - 1, JSON.stringify(r.legs[r.legs.length - 1]));
+      assert.ok(r.legs.some((l) => l.on_way_back) && r.legs.some((l) => !l.on_way_back));
+      // A longer route asks Open Charge Map for more stations.
+      assert.equal(hits.find((h) => h.path === '/ocm/poi').params.maxresults, '3000');
+    } finally {
+      line = saved;
+      routeKm = 100;
+    }
+  });
+
+  await check('operators from the station data (#48): remembered from the stations on your routes, by Open Charge Map number; one of them can be preferred', async () => {
+    // The station keeps the Open Charge Map number of its operator; "unknown" is not an operator.
+    const own = { OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } };
+    assert.equal(cs.shortStation({ ...poi(40, 'x', 51.5, 5.0, [ccs(150)]), ...own }).operator_ocm, 9001);
+    assert.equal(cs.shortStation({ ...poi(41, 'x', 51.5, 5.0, [ccs(150)]), OperatorInfo: { ID: 1, Title: '(Unknown Operator)' } }).operator_ocm, undefined);
+    // Settings: numbers and names are checked, doubles dropped, at most 100.
+    const c = cs.clean({ countries: ['NL'], connectors: ['ccs'], ocm_operators: [{ id: 9001, name: ' Stadtwerke  Teststadt ' }, { id: 9001, name: 'again' }, { id: -3, name: 'x' }, { id: 'abc', name: 'y' }, { id: 5, name: '' }, 'z'] }, {});
+    assert.deepEqual(c.ocm_operators, [{ id: 9001, name: 'Stadtwerke Teststadt' }]);
+    const many = Array.from({ length: 101 }, (_, i) => ({ id: i + 1, name: `Op ${i}` }));
+    assert.throws(() => cs.clean({ countries: ['NL'], connectors: ['ccs'], ocm_operators: many }, {}), /at most 100/);
+    // After a lookup the page lists the operator, not the ones in the app's own list.
+    cs.reset();
+    stations = [{ ...poi(42, 'x', 51.6, 5.0, [ccs(150)]), ...own, AddressInfo: { Title: 'S42', Town: 'T', Latitude: 51.6, Longitude: 5.0, Country: { ISOCode: 'DE' } } }, poi(43, 'Fastned', 51.62, 5.0, [ccs(300)])];
+    cfg = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10 };
+    const run = async () => { let r = cs.suggest(input); for (let i = 0; i < 8 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(input); } return r; };
+    let r = await run();
+    const seen = cs.view().seen_operators;
+    assert.deepEqual(seen, [{ ocm_id: 9001, name: 'Stadtwerke Teststadt', countries: ['DE'], fast: true }], JSON.stringify(seen));
+    assert.equal(r.stops[0].id, 43); // more power first when nobody is preferred
+    // Preferred by its number: its station comes first.
+    cfg = { ...cfg, ocm_operators: [{ id: 9001, name: 'Stadtwerke Teststadt' }] };
+    r = await run();
+    assert.ok(r.stops[0].id === 42 && r.stops[0].preferred && !r.others_only, JSON.stringify(r.stops));
+    // A chosen operator that is no longer seen stays on the page.
+    cs.reset();
+    assert.deepEqual(cs.view().seen_operators.map((o) => o.ocm_id), [9001]);
+  });
+
+  await check('settings page (#48): countries and operators as lists that open and close, chosen operators as labels with a remove button, a search that does not count as a change', () => {
+    const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+    for (const id of ['cstops-countries-box', 'cstops-countries-sum', 'cstops-countries-search', 'cstops-operators-box', 'cstops-op-search', 'cstops-op-chips']) assert.ok(html.includes(`id="${id}"`), id);
+    // The search fields are not settings: the unsaved-changes guard ignores them.
+    for (const id of ['cstops-countries-search', 'cstops-op-search']) assert.match(html, new RegExp(`id="${id}"[^>]*data-guard-ignore`));
+    assert.match(html, /<details class="pick" id="cstops-countries-box">/);
+    assert.match(html, /<details class="pick" id="cstops-operators-box">/);
   });
 
   await check('a key Open Charge Map does not accept: the trip says so', async () => {

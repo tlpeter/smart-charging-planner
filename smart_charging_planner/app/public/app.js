@@ -107,6 +107,8 @@ function durationText(minutes) {
           { key: 'charging_entity', opt: 'charging', label: 'Charging' },
           { key: 'plugged_entity', opt: 'plugged', label: 'Plugged in' },
           { key: 'charge_limit_entity', opt: 'charge_limit', label: "Car's own charge limit (e.g. Target charge level)" },
+          { key: 'location_entity', opt: 'location', label: 'Car location (device tracker)' },
+          { key: 'person_entity', opt: 'person', label: 'Person who drives (when the car has no location)' },
         ],
         extraInputs: () => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
@@ -121,6 +123,7 @@ function durationText(minutes) {
           <div class="field"><label>Use per 100 km in kWh (optional, for trip estimates)</label>
             <input name="consumption_kwh_100km" type="number" min="8" max="40" step="0.5" placeholder="18">
             <div class="muted small">For how much battery a trip in your calendar costs. The app learns this from your own trips (battery level when you leave and when you are back); until then it uses the car's range sensor, or this value.</div></div>
+          <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
           ['Battery level from', { sensor: 'the car (sensor)', manual_soc: 'entered by you at plug-in', fixed_kwh: `fixed amount: ${esc(v.fixed_kwh)} kWh per session` }[v.mode || 'sensor']],
@@ -129,7 +132,7 @@ function durationText(minutes) {
         ],
         manual: (data) => ({
           intro: 'Pick any sensor that shows the battery level in %.',
-          options: { soc: data.percent_sensors },
+          options: { soc: data.percent_sensors, location: data.trackers || [], person: data.persons || [] },
         }),
       },
       charger: {
@@ -163,6 +166,9 @@ function durationText(minutes) {
             <div class="field"><label>Maximum current in A${follow.length ? '' : ' (optional)'}</label>
               <input name="max_current" type="number" min="6" max="80" step="1" value="${follow.length ? '' : ''}" placeholder="${c && c.suggested_max_current ? esc(c.suggested_max_current) : 'e.g. 16'}"></div>
           </div>
+          <div class="field"><label>Phase used when it charges on one phase</label>
+            <select name="phase"><option value="">Not known</option><option value="L1">L1</option><option value="L2">L2</option><option value="L3">L3</option></select>
+            <div class="muted small">For sharing the connection with more chargers. Not known: the app keeps room on all three phases, to be safe.</div></div>
           ${follow.length ? `<label class="check"><input type="checkbox" name="follow_limits" checked> Follow the charger's own limit (now ${esc(c.suggested_max_current)} A) live</label>
             <input type="hidden" name="max_current_entities" value="${esc(follow.join(','))}">` : ''}
           ${limitList}${disabledNote}
@@ -171,7 +177,7 @@ function durationText(minutes) {
             <div class="muted small">When this car says it is plugged in, it is on this charger; the app still notices when the cars are the other way round.</div></div>` : ''}`;
         },
         extraRows: (c) => [
-          ['Phases', String(c.phases)],
+          ['Phases', `${esc(c.phases)}${c.phase ? ` (one phase: ${esc(c.phase)})` : ''}`],
           ['Maximum current', c.live && c.live.max && c.live.max.amps
             ? `${esc(tidy(c.live.max.amps))} A<div class="muted small">${c.live.max.source === 'manual' ? 'set manually' : `live from ${esc(c.live.max.source)}`}</div>`
             : null],
@@ -221,12 +227,13 @@ function durationText(minutes) {
               <option value="" data-name="">No load balancer</option>
               <option value="other" data-name="">Built into the charger, or not in Home Assistant</option>
             </select></div>
+          ${lbScope(data)}
           <div class="note">With a load balancer, the main fuse is already protected and the app will work within its limits. Without one, the app will watch the main fuse itself using the grid meter.</div>`;
         },
         extraRows: (g) => [
           ['Main fuse', `${esc(g.main_fuse)} A`],
           ['Phases', String(g.phases)],
-          ['Load balancing', g.load_balancer ? esc(g.load_balancer.name) : 'None'],
+          ['Load balancing', g.load_balancer ? `${esc(g.load_balancer.name)}${Array.isArray(g.load_balancer.chargers) ? `<div class="muted small">protects ${g.load_balancer.chargers.length} charger${g.load_balancer.chargers.length === 1 ? '' : 's'}; the app shares the connection for the others</div>` : ''}` : 'None'],
         ],
         manual: (data) => ({
           intro: 'Pick your grid power sensor yourself: a net power sensor, or import and export sensors.',
@@ -236,6 +243,24 @@ function durationText(minutes) {
     };
 
     const lastDetect = {};
+
+    // Grid: which chargers the load balancer protects (more chargers, #29).
+    function lbScope(data) {
+      const list = (data && data.site_chargers) || [];
+      if (list.length < 2) return '';
+      return `<div class="field lb-scope"><label>Chargers the load balancer protects</label>
+        ${list.map((c) => `<label class="check"><input type="checkbox" name="lb_charger" value="${esc(c.id)}" checked> ${esc(c.name)}</label>`).join('')}
+        <div class="muted small">All ticked: the load balancer shares the connection and the app does not. Untick the chargers it does not protect: the app shares what is left for those.</div></div>`;
+    }
+    // The charger list only matters with a load balancer.
+    function syncLbScope(form) {
+      const sel = form.querySelector('select[name=load_balancer]');
+      const box = form.querySelector('.lb-scope');
+      if (sel && box) box.hidden = !sel.value;
+    }
+    document.addEventListener('change', (e) => {
+      if (e.target && e.target.name === 'load_balancer' && e.target.form) syncLbScope(e.target.form);
+    });
 
     // ---------- Rendering helpers ----------
     function optionLabel(o) {
@@ -647,13 +672,16 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
         const lb = saved.load_balancer;
         setValue(form, 'load_balancer', lb ? (lb.type === 'other' ? 'other' : lb.device_id) : '');
         if (!lb) form.querySelector('select[name=load_balancer]').value = '';
+        const scope = lb && Array.isArray(lb.chargers) ? lb.chargers : null;
+        form.querySelectorAll('input[name=lb_charger]').forEach((el) => { el.checked = !scope || scope.includes(el.value); });
+        syncLbScope(form);
       }
       form.dataset.mine = '1';
       const btn = form.querySelector('button[type=submit]');
@@ -696,6 +724,10 @@ function durationText(minutes) {
       $(`${kind}-error`).hidden = true;
       try {
         const data = await api('GET', `${cfg.api}/detect`);
+        if (kind === 'grid') {
+          const ch = await api('GET', 'api/chargers?charger=').catch(() => null);
+          data.site_chargers = ch && ch.multi_charger ? (ch.chargers || []).filter((c) => c.used !== false) : [];
+        }
         lastDetect[kind] = data;
         const n = data.candidates.length;
         const header = n
@@ -704,7 +736,7 @@ function durationText(minutes) {
         $(`${kind}-results`).innerHTML = header +
           data.candidates.map((c, i) => candidateCard(kind, c, i, data)).join('') +
           `<details class="card" ${n ? '' : 'open'}><summary>Not listed? Choose manually</summary>${manualCard(kind, data)}</details>`;
-        $(`${kind}-results`).querySelectorAll('form').forEach((f) => f.addEventListener('submit', save));
+        $(`${kind}-results`).querySelectorAll('form').forEach((f) => { f.addEventListener('submit', save); if (kind === 'grid') syncLbScope(f); });
         if (saved) {
           $(`${kind}-intro`).hidden = true;
           prefill(kind, saved);
@@ -731,6 +763,9 @@ function durationText(minutes) {
       }
       const lbSelect = form.querySelector('select[name=load_balancer]');
       if (lbSelect) data.load_balancer_name = lbSelect.selectedOptions[0].dataset.name || '';
+      const lbBoxes = [...form.querySelectorAll('input[name=lb_charger]')];
+      delete data.lb_charger;
+      if (lbBoxes.length) data.load_balancer_chargers = lbBoxes.every((el) => el.checked) ? 'all' : lbBoxes.filter((el) => el.checked).map((el) => el.value);
       if (form.dataset.index !== 'manual') {
         const c = lastDetect[kind].candidates[Number(form.dataset.index)];
         data.name = c.name;
@@ -1078,6 +1113,228 @@ function durationText(minutes) {
     // The server works out the state (chargestate.js) from the check every minute.
     let whyOpen = false; // keep "Why?" open across the one-minute reload
     document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('why')) whyOpen = e.target.open; }, true);
+    // Keep what you opened or closed (#51): a part that opens and closes gets
+    // a name (data-keep); the reload every minute builds it again with the
+    // same state, so a day in Looking ahead stays open.
+    const keptOpen = new Map();
+    document.addEventListener('toggle', (e) => { const k = e.target.dataset && e.target.dataset.keep; if (k) keptOpen.set(k, e.target.open); }, true);
+    const keep = (key, dflt = false) => ` data-keep="${esc(key)}"${(keptOpen.has(key) ? keptOpen.get(key) : dflt) ? ' open' : ''}`;
+
+    // ---------- The route on a map (#47) ----------
+    // Drawn by the page itself: map images (tiles) from the chosen tile server
+    // with the route and the charging stops on top. Nothing is loaded until
+    // you open a map.
+    // A route line as Open Charge Map and OSRM send it (Google polyline, 5 decimals).
+    function decodeLine(str) {
+      const out = [];
+      let i = 0;
+      let lat = 0;
+      let lon = 0;
+      const next = () => {
+        let shift = 0;
+        let result = 0;
+        let b;
+        do {
+          b = str.charCodeAt(i++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20 && i <= str.length);
+        return result & 1 ? ~(result >> 1) : result >> 1;
+      };
+      while (i < str.length) {
+        lat += next();
+        lon += next();
+        out.push({ lat: lat / 1e5, lon: lon / 1e5 });
+      }
+      return out;
+    }
+    // Where everything goes on a w × h map: the zoom level that fits all
+    // points, the offset in pixels and the tiles to load. Tiles only come in
+    // whole zoom levels (each twice the one before), so the map is enlarged
+    // (scale, at most 2×) until the route fills it.
+    function mapLayout(points, w, h, pad = 28) {
+      const merc = (p, z) => {
+        const size = 256 * 2 ** z;
+        const sin = Math.sin((Math.max(-85, Math.min(85, p.lat)) * Math.PI) / 180);
+        return { x: ((p.lon + 180) / 360) * size, y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * size };
+      };
+      let z = 14;
+      let box;
+      for (; z >= 1; z--) {
+        const xy = points.map((p) => merc(p, z));
+        box = { x0: Math.min(...xy.map((q) => q.x)), x1: Math.max(...xy.map((q) => q.x)), y0: Math.min(...xy.map((q) => q.y)), y1: Math.max(...xy.map((q) => q.y)) };
+        if (box.x1 - box.x0 <= w - 2 * pad && box.y1 - box.y0 <= h - 2 * pad) break;
+      }
+      z = Math.max(z, 1);
+      const bw = Math.max(1, box.x1 - box.x0);
+      const bh = Math.max(1, box.y1 - box.y0);
+      const scale = Math.max(1, Math.min(2, (w - 2 * pad) / bw, (h - 2 * pad) / bh));
+      // The tiles are laid out for the map before it is enlarged.
+      const vw = w / scale;
+      const vh = h / scale;
+      const ox = (box.x0 + box.x1) / 2 - vw / 2;
+      const oy = (box.y0 + box.y1) / 2 - vh / 2;
+      const n = 2 ** z;
+      const tiles = [];
+      for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + vh) / 256); ty++) {
+        if (ty < 0 || ty >= n) continue;
+        for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + vw) / 256); tx++) {
+          tiles.push({ z, x: ((tx % n) + n) % n, y: ty, left: Math.round(tx * 256 - ox), top: Math.round(ty * 256 - oy) });
+        }
+      }
+      // at(): where a point is on the map as you see it (after enlarging).
+      return { z, scale, tiles, at: (p) => { const q = merc(p, z); return { x: (q.x - ox) * scale, y: (q.y - oy) * scale }; } };
+    }
+    const tileSrc = (tpl, t) => tpl.replace('{z}', t.z).replace('{x}', t.x).replace('{y}', t.y).replace('{s}', 'a');
+    function renderMap(el) {
+      const box = el.querySelector('.map-box');
+      const w = box ? box.clientWidth : 0;
+      if (!w || !el.dataset.map) return; // not visible yet: drawn when it is opened
+      let m;
+      try { m = JSON.parse(el.dataset.map); } catch { return; }
+      drawMap(box, m, w, Math.round(Math.min(440, Math.max(260, w * 0.7))), { inline: true });
+    }
+    // Leaflet (#54): a map you can zoom and drag. Shipped with the app and only
+    // loaded when a map opens; when it cannot load, the fixed map is drawn.
+    let leafletLoad = null;
+    function loadLeaflet() {
+      if (window.L && window.L.map) return Promise.resolve(window.L);
+      if (!leafletLoad) {
+        leafletLoad = new Promise((resolve, reject) => {
+          const css = document.createElement('link');
+          css.rel = 'stylesheet';
+          css.href = 'vendor/leaflet/leaflet.css';
+          document.head.appendChild(css);
+          const js = document.createElement('script');
+          js.src = 'vendor/leaflet/leaflet.js';
+          js.onload = () => (window.L && window.L.map ? resolve(window.L) : reject(new Error('Leaflet did not load')));
+          js.onerror = () => reject(new Error('Leaflet did not load'));
+          document.head.appendChild(js);
+        }).catch((err) => { leafletLoad = null; throw err; });
+      }
+      return leafletLoad;
+    }
+    function leafletMap(L, box, m, inline) {
+      if (box._lmap) { box._lmap.remove(); box._lmap = null; }
+      box.innerHTML = '';
+      box.classList.add('map-live');
+      // In the page: no zoom with the mouse wheel and no drag with one finger,
+      // so the page itself still scrolls; in the big window: everything.
+      const touch = !!(L.Browser && L.Browser.mobile);
+      const map = L.map(box, { scrollWheelZoom: !inline, dragging: !inline || !touch, tap: false, zoomSnap: 0.25 });
+      box._lmap = map;
+      L.tileLayer(m.tiles, { maxZoom: 18, subdomains: 'abc', attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>' }).addTo(map);
+      const line = decodeLine(m.line || '').map((p) => [p.lat, p.lon]);
+      if (line.length > 1) L.polyline(line, { className: 'map-route', interactive: false }).addTo(map);
+      const icon = (cls, label, size) => L.divIcon({ className: `map-pin ${cls}`, html: label ? `<span>${esc(label)}</span>` : '', iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2] });
+      const info = (s, x, first) => `<strong>${first ? `Stop ${esc(s.n)}` : `Stop ${esc(s.n)}, or`}</strong><br>${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || 'Charging station')}</a>` : esc(x.name || 'Charging station')}${x.kw != null ? `<br>${esc(x.kw)} kW${x.points != null ? ` · ${esc(x.points)} ${x.points === 1 ? 'point' : 'points'}` : ''}` : ''}${x.arrive != null ? `<br>arrive with ~${esc(x.arrive)}%` : ''}${first && s.charge_to != null ? `, charge to ${esc(s.charge_to)}%` : ''}`;
+      for (const s of m.stops) {
+        s.stations.slice(1).forEach((x) => L.marker([x.lat, x.lon], { icon: icon('map-pin-alt', '', 12) }).bindPopup(info(s, x, false)).addTo(map));
+      }
+      L.marker([m.dest.lat, m.dest.lon], { icon: icon('map-pin-end', 'D', 24), title: 'Destination' }).addTo(map);
+      L.marker([m.home.lat, m.home.lon], { icon: icon('map-pin-end', 'H', 24), title: 'Home' }).addTo(map);
+      for (const s of m.stops) L.marker([s.stations[0].lat, s.stations[0].lon], { icon: icon('map-pin-stop', String(s.n), 24), zIndexOffset: 1000 }).bindPopup(info(s, s.stations[0], true)).addTo(map);
+      const all = [...line, [m.home.lat, m.home.lon], [m.dest.lat, m.dest.lon], ...m.stops.flatMap((s) => s.stations.map((x) => [x.lat, x.lon]))];
+      map.fitBounds(L.latLngBounds(all), { padding: [24, 24] });
+      return map;
+    }
+    // Draw a route map (tiles, the route, H, D and the stops) in a box of w × h:
+    // with Leaflet when it loads (zoom and drag), else as a fixed picture.
+    function drawMap(box, m, w, h, { inline = false } = {}) {
+      box.style.height = `${h}px`;
+      if (box._lmap) { box._lmap.invalidateSize(); return; }
+      // The fixed map only when Leaflet does not load (so no map images twice).
+      loadLeaflet().then((L) => { if (box.isConnected) leafletMap(L, box, m, inline); })
+        .catch(() => { if (box.isConnected && !box._lmap) drawStaticMap(box, m, box.clientWidth || w, h); });
+    }
+    function drawStaticMap(box, m, w, h) {
+      const line = decodeLine(m.line || '');
+      const stations = m.stops.flatMap((s) => s.stations);
+      const L = mapLayout([...line, m.home, m.dest, ...stations], w, h);
+      const pt = (p) => L.at(p);
+      const r1 = (v) => Math.round(v * 10) / 10;
+      const route = line.map((p) => { const q = pt(p); return `${r1(q.x)},${r1(q.y)}`; }).join(' ');
+      const dot = (p, label, cls, title) => { const q = pt(p); return `<g class="${cls}"><title>${esc(title)}</title><circle cx="${r1(q.x)}" cy="${r1(q.y)}" r="${cls === 'map-alt' ? 5 : 11}"></circle>${label ? `<text x="${r1(q.x)}" y="${r1(q.y) + 4}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`; };
+      const alts = m.stops.flatMap((s) => s.stations.slice(1).map((x) => dot(x, '', 'map-alt', `Stop ${s.n}, or: ${x.name || 'charging station'}`)));
+      const firsts = m.stops.map((s) => dot(s.stations[0], String(s.n), 'map-stop', `Stop ${s.n}: ${s.stations[0].name || 'charging station'}`));
+      box.style.height = `${h}px`;
+      // A tile that does not load is left out (no broken-image icon).
+      box.innerHTML = `<div class="map-tiles" style="transform:scale(${L.scale})">${L.tiles.map((t) => `<img class="map-tile" alt="" src="${esc(tileSrc(m.tiles, t))}" style="left:${t.left}px;top:${t.top}px" onerror="this.style.visibility='hidden'">`).join('')}</div>
+        <svg class="map-layer" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+          <polyline class="map-route" points="${route}"></polyline>
+          ${alts.join('')}${dot(m.dest, 'D', 'map-end', 'Destination')}${dot(m.home, 'H', 'map-end', 'Home')}${firsts.join('')}
+        </svg>`;
+    }
+    // What a route map needs from a trip's charging stops, or null (no map chosen).
+    function mapDataOf(c) {
+      const mp = c && c.map;
+      if (!mp || !Array.isArray(c.legs)) return null;
+      const stops = c.legs.map((l) => ({ n: l.n, charge_to: l.charge_to_pct, stations: (l.stations || []).filter((x) => x.lat != null).map((x) => ({ lat: x.lat, lon: x.lon, name: x.name, kw: x.power_kw, points: x.points, arrive: x.arrive_pct, url: x.url })) })).filter((l) => l.stations.length);
+      return stops.length ? { tiles: mp.tiles, line: mp.line, home: mp.home, dest: mp.dest, stops } : null;
+    }
+    // The map icon in Looking ahead (#47): the route map in a big window, in one
+    // click, without opening the day. Map images load only when it opens.
+    let mapDialogData = null;
+    function mapDialog() {
+      let d = document.getElementById('route-map-dialog');
+      if (d) return d;
+      d = document.createElement('dialog');
+      d.id = 'route-map-dialog';
+      d.className = 'map-dialog';
+      d.innerHTML = `<div class="map-dialog-head"><strong class="map-dialog-title"></strong><button type="button" class="map-dialog-close" aria-label="Close">✕</button></div>
+        <div class="map-box"></div>
+        <div class="muted small map-dialog-foot"></div>`;
+      document.body.appendChild(d);
+      d.querySelector('.map-dialog-close').addEventListener('click', () => d.close());
+      // A click next to the window (on the dark backdrop) closes it too.
+      d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+      d.addEventListener('close', () => {
+        mapDialogData = null;
+        const box = d.querySelector('.map-box');
+        if (box._lmap) { box._lmap.remove(); box._lmap = null; }
+        box.innerHTML = '';
+      });
+      return d;
+    }
+    function drawMapDialog() {
+      const d = document.getElementById('route-map-dialog');
+      if (!d || !d.open || !mapDialogData) return;
+      const box = d.querySelector('.map-box');
+      const w = box.clientWidth;
+      const h = Math.max(260, Math.min(Math.round(window.innerHeight * 0.72), Math.round(w * 0.75)));
+      if (w) drawMap(box, mapDialogData.map, w, h);
+    }
+    function openMapDialog(data, title) {
+      const d = mapDialog();
+      mapDialogData = { map: data };
+      const m = data;
+      d.querySelector('.map-dialog-title').textContent = title || 'Route';
+      d.querySelector('.map-dialog-foot').innerHTML = `Numbers: the stops; small dots: the other stations of a stop. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&amp;route=${esc(`${m.home.lat},${m.home.lon}`)}%3B${esc(`${m.dest.lat},${m.dest.lon}`)}" target="_blank" rel="noopener">Open on openstreetmap.org</a>`;
+      if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+      drawMapDialog();
+    }
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-route-map]');
+      if (!b) return;
+      // The icon sits in a day's line: do not open or close the day.
+      e.preventDefault();
+      e.stopPropagation();
+      let data;
+      try { data = JSON.parse(b.dataset.routeMap); } catch { return; }
+      openMapDialog(data, b.dataset.title);
+    });
+    window.addEventListener('resize', drawMapDialog);
+
+    // A map is drawn when you open it, and again when Home was built again.
+    // Also when the day around it is opened later.
+    const renderOpenMaps = (root) => root.querySelectorAll('details.cstops-map[open]').forEach(renderMap);
+    document.addEventListener('toggle', (e) => {
+      const el = e.target;
+      if (!el.open || !el.classList) return;
+      if (el.classList.contains('cstops-map')) renderMap(el);
+      else if (el.querySelector) renderOpenMaps(el);
+    }, true);
+    window.addEventListener('resize', () => renderOpenMaps(document));
     function chargeStatusHtml(d) {
       const c = d.charge_state;
       if (!c || (d.missing && d.missing.length)) return '';
@@ -1222,7 +1479,7 @@ function durationText(minutes) {
               <div class="chart-wrap" id="chart"></div>
               <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
-              ${p.periods.length ? `<details class="table-details"><summary>Show plan table</summary>
+              ${p.periods.length ? `<details class="table-details"${keep('plan-table')}><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
                 ${p.periods.map((x) => `<tr><td>${esc(dayHm(x.start))}–${esc(hm(x.end))}${x.forecast ? ' <span class="muted small">(forecast)</span>' : ''}</td><td class="n">${x.kwh.toFixed(1)} kWh</td><td class="n">${x.avg_price.toFixed(4)}</td></tr>`).join('')}
                 </table>
@@ -1231,7 +1488,7 @@ function durationText(minutes) {
 
         <div class="overview-grid">
           <div class="overview-main">
-            <details class="card plan-details">
+            <details class="card plan-details"${keep('plan-details')}>
               <summary><span><strong>Plan details</strong><small>${esc(headline)}</small></span><span class="details-chevron">⌄</span></summary>
               <div class="plan-detail-body">
                 <p class="plan-vehicle">${vehicleLine}</p>
@@ -1307,6 +1564,16 @@ function durationText(minutes) {
       }
     }
 
+    // Not plugged in (#46): where the car is, and what that means for the levels.
+    function placeNote(d) {
+      const pl = d.plan && d.plan.place;
+      if (!pl || !pl.conditional) return '';
+      const soc = d.vehicle && d.vehicle.soc != null ? `${esc(tidy(d.vehicle.soc))}%` : 'the level now';
+      const by = { car: 'car location', person: 'person' }[pl.source];
+      const where = pl.at === 'away' ? `The car is away (${esc(by || 'calendar')}) and it is not known when it is back.` : 'The car is not plugged in and the app does not know if it is at home.';
+      return `<p class="note small">${where} The levels start from ${soc}; planned charging counts only when the car is plugged in in time.${pl.at === 'unknown' ? ' Tip: set the car location or a person under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : ''}</p>`;
+    }
+
     // The coming days as one timeline: charging, leaving, back home, charging
     // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
@@ -1334,6 +1601,12 @@ function durationText(minutes) {
           if (x.unknown_prices) {
             return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main"><div class="tl-title">Charge ~${esc(tidy(x.needed_kwh))} kWh to ${pct(x.soc_to)}</div><div class="tl-sub">Expected · prices for then are not known yet</div></div>${level(null)}</li>`;
           }
+          // Not plugged in and not known to be at home (#46): only if plugged in in time.
+          if (x.if_plugged) {
+            return `<li class="tl-row tl-charge expected">${shape('bolt', 'orange', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.start))}</span>If plugged in by then: charging to ${pct(x.soc_to)}</div>
+            <div class="tl-sub">${span(x)} · ~${esc(tidy(x.kwh))} kWh${x.cost != null ? ` · ~${money(x.cost)}` : ''} · not counted in the levels below</div></div>${level(x.soc_to, 'exp')}</li>`;
+          }
           const short = x.expected && x.kwh < x.needed_kwh - 0.1 ? ' · the rest when more prices are known' : '';
           const what = x.minimum
             ? `${x.expected ? 'Expected: right away' : 'Right away'} to ${pct(x.soc_to)} <span class="muted">(your minimum)</span>`
@@ -1348,7 +1621,7 @@ function durationText(minutes) {
           const trip = x.trip ? tripText(x.trip) : '';
           return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
-            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
         if (x.type === 'precondition') {
           const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
@@ -1382,6 +1655,7 @@ function durationText(minutes) {
       };
 
       // Charging stops on the way (#37): the suggestions, or why there are none.
+      // A long trip can need more stops (#40): one block per stop.
       const cstopsDetour = () => (cstopsNow ? `${cstopsNow.max_detour_km} km` : 'see Plan');
       function chargeStopsHtml(c) {
         const where = 'Plan › Charging stops on the way';
@@ -1395,18 +1669,38 @@ function durationText(minutes) {
           failed: 'Charging stations could not be looked up. The app tries again later.',
           none: `No charging station on the way fits your settings (power, connector, detour, country)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
         };
-        // More than a full battery (from the reserve) short: one stop is not enough.
-        const more = c.need_pct > 100 - c.reserve_pct ? ' · more than one stop is needed' : '';
-        const need = `Charge on the way${c.on_way_back ? ' back' : ''}: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${more}`;
-        if (c.status !== 'ok') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
-        const items = c.stops.map((st) => `<li><a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}</span>` : ''}
-          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ~${esc(st.km_from_home)} km from home · +${esc(tidy(st.detour_km))} km detour</div></li>`).join('');
+        const legs = c.legs && c.legs.length ? c.legs : c.stops && c.stops.length ? [{ n: 1, on_way_back: c.on_way_back, stations: c.stops, longer_only: c.longer_only, others_only: c.others_only }] : [];
+        const count = legs.length > 1 ? ` · ${esc(legs.length)} stops` : '';
+        const need = `Charge on the way${legs.length === 1 && legs[0].on_way_back ? ' back' : ''}: about ${esc(Math.ceil(c.need_pct))}%${c.need_kwh != null ? ` (~${esc(tidy(c.need_kwh))} kWh)` : ''} in total to stay above ${esc(c.reserve_pct)}%${count}`;
+        if (c.status !== 'ok' && c.status !== 'partial') return `<div class="cstops"><div class="cstops-head">${need}</div><div class="muted small">${why[c.status] || why.failed}</div></div>`;
+        // One station: the best first, the others as alternatives (#50), each
+        // with its own level on arrival.
+        const station = (st) => `<a href="${esc(st.url)}" target="_blank" rel="noopener">${esc(st.name || 'Charging station')}</a>${st.town ? ` <span class="muted">· ${esc(st.town)}${st.country ? ` (${esc(st.country)})` : ''}</span>` : ''}
+          <div class="muted small">${st.operator ? `${esc(st.operator)}${st.preferred ? ' <span class="chip">preferred</span>' : ''} · ` : ''}${esc(st.power_kw)} kW ${esc(st.connectors.join(', '))} · ${esc(st.points)} ${st.points === 1 ? 'point' : 'points'}${st.arrive_pct != null ? ` · arrive with ~${esc(st.arrive_pct)}%` : ''} · ~${esc(st.km_from_home)} km from home${legs.length > 1 && st.on_way_back !== legs[0].on_way_back ? (st.on_way_back ? ' (way back)' : ' (way there)') : ''} · +${esc(tidy(st.detour_km))} km detour</div>`;
+        const choice = (list) => `<div class="cstops-best">${station(list[0])}</div>${list.length > 1 ? `<div class="muted small cstops-or">Or:</div><ul>${list.slice(1).map((st) => `<li>${station(st)}</li>`).join('')}</ul>` : ''}`;
+        const leg = (l) => {
+          const head = legs.length > 1
+            ? `<div class="cstops-leg">Stop ${esc(l.n)}${l.on_way_back ? ' (on the way back)' : ''}${l.km_on_trip != null ? ` · after ~${esc(l.km_on_trip)} km` : ''}${l.charge_to_pct != null ? ` · charge to ${esc(l.charge_to_pct)}%` : ''}</div>`
+            : l.charge_to_pct != null ? `<div class="muted small">Charge to ${esc(l.charge_to_pct)}%.</div>` : '';
+          return `${head}
+          ${legs.length === 1 && l.on_way_back ? '<div class="muted small">You get there with enough left: charge on the way back, so these stations are on the side of the road going home.</div>' : ''}
+          ${l.longer_only ? `<div class="muted small warn-text">No station within your maximum detour by road (${esc(cstopsDetour(c))}). These need a longer detour, for example on the other side of the motorway.</div>` : ''}
+          ${l.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
+          ${choice(l.stations)}`;
+        };
+        // The route on a map (#47), when a map is chosen under Plan.
+        const mp = c.map;
+        const mapData = mapDataOf(c);
+        const mapHtml = mapData ? `<details class="cstops-map"${keep(`map:${mp.dest.lat.toFixed(3)},${mp.dest.lon.toFixed(3)}`)} data-map="${esc(JSON.stringify(mapData))}">
+          <summary>Show the route on a map</summary>
+          <div class="map-box"></div>
+          <div class="muted small">Numbers: the stops; small dots: the other stations of a stop. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&amp;route=${esc(`${mp.home.lat},${mp.home.lon}`)}%3B${esc(`${mp.dest.lat},${mp.dest.lon}`)}" target="_blank" rel="noopener">Open on openstreetmap.org</a></div>
+        </details>` : '';
         return `<div class="cstops"><div class="cstops-head">${need}</div>
-          ${c.on_way_back ? '<div class="muted small">You get there with enough left: charge on the way back, so these stations are on the side of the road going home.</div>' : ''}
-          ${c.longer_only ? `<div class="muted small warn-text">No station within your maximum detour by road (${esc(cstopsDetour(c))}). These need a longer detour, for example on the other side of the motorway.</div>` : ''}
-          ${c.others_only ? '<div class="muted small">None of your preferred operators is on the way: these are other operators.</div>' : ''}
-          <ul>${items}</ul>
-          <div class="muted small">Stations from Open Charge Map, smallest detour by road first. Not live: check availability in your charging app.</div></div>`;
+          ${mapHtml}
+          ${legs.map(leg).join('')}
+          ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
+          <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
       }
 
       // One line per day; tap a day for all its details (the rows above).
@@ -1436,7 +1730,7 @@ function durationText(minutes) {
         day.rows.push(rowHtml(x, i));
         if (x.type === 'charge') {
           const cls = x.minimum ? 'min' : x.expected ? 'exp' : 'plan';
-          day.parts.push(`<span class="tl-p ${cls}">⚡ ${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
+          day.parts.push(`<span class="tl-p ${x.if_plugged ? 'exp' : cls}">⚡ ${x.if_plugged ? 'if plugged in: ' : ''}${x.unknown_prices ? '' : `${esc(hm(x.start))} `}to ${whole(x.soc_to)}${x.unknown_prices ? ' (prices not known yet)' : ''}</span>`);
           return;
         }
         if (x.type === 'leave') {
@@ -1448,7 +1742,11 @@ function durationText(minutes) {
           if (low || empty) day.warn = true;
           const lv = x.soc != null && sameDay && b.x.soc != null ? `${whole(x.soc)} → ${whole(b.x.soc)}` : x.soc != null ? whole(x.soc) : '';
           if (b && b.x.soc != null && b.x.soc < 10) day.warn = true;
-          const stopOnWay = b && b.x.charge_stops && b.x.charge_stops.status === 'ok' ? ' <span class="tl-p exp">charge on the way</span>' : '';
+          const cs = b && b.x.charge_stops;
+          const stopOk = cs && (cs.status === 'ok' || cs.status === 'partial');
+          const md = stopOk ? mapDataOf(cs) : null;
+          const mapBtn = md ? ` <button type="button" class="tl-map" data-route-map="${esc(JSON.stringify(md))}" data-title="${esc(`Route to ${shortName(x.title)}${cs.legs.length > 1 ? ` · ${cs.legs.length} stops` : ' · 1 stop'}`)}" title="Show the route on a map" aria-label="Show the route on a map">🗺</button>` : '';
+          const stopOnWay = stopOk ? ` <span class="tl-p exp">charge on the way${cs.legs && cs.legs.length > 1 ? ` (${esc(cs.legs.length)} stops)` : ''}</span>${mapBtn}` : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
@@ -1462,7 +1760,7 @@ function durationText(minutes) {
         if (x.type === 'stop') return; // shown with the trip it belongs to
         day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
       });
-      const rows = days.map((day, k) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${k === 0 ? '' : ''}>
+      const rows = days.map((day) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${keep(`day:${day.key}`)}>
           <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}${day.est ? ' <span class="chip tl-est">estimate</span>' : ''}</span></summary>
           <ul class="timeline">${day.rows.join('')}</ul>
         </details>`).join('');
@@ -1473,6 +1771,7 @@ function durationText(minutes) {
       return `<div class="card next-goal${lowSeen ? ' low' : ''}" id="next-goal-card">
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
         ${aheadButtonsHtml()}
+        ${placeNote(d)}
         <div class="tl-days">${rows || '<p class="muted small">No departures in this period.</p>'}</div>
         <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
         ${priceNote && days.some((x) => x.est) ? `<p class="muted small">${priceNote}</p>` : ''}
@@ -2033,9 +2332,15 @@ function durationText(minutes) {
           <span class="charger-row-state small">${esc(status)}${c.ready_guard ? `<br><span class="muted">${esc(c.ready_guard.label)}</span>` : ''}</span>
         </button>`;
       };
+      const perPhase = sh && sh.phases_a && sh.how === 'phase_currents' && Object.keys(sh.phases_a).length > 1
+        ? Object.entries(sh.phases_a).map(([l, a]) => `${esc(l)} ${esc(tidy(a))} A`).join(' · ') : null;
+      const lbNote = sh && sh.load_balancer ? ` ${esc(sh.load_balancer.name)} looks after ${sh.load_balancer.chargers.length === 1 ? 'one charger' : `${sh.load_balancer.chargers.length} chargers`}; the app shares for the others.` : '';
+      const batNote = sh && sh.battery && sh.battery.fits === false ? ' The home battery does not charge from the grid now: the chargers use the connection.' : '';
       const how = !sh ? '' : sh.how === 'load_balancer' ? 'Your load balancer shares the connection.'
-        : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A).`
-          : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
+        : sh.how === 'no_reading' ? `No fresh grid meter reading: to be safe, one charger at 6 A until it is back (main fuse ${esc(sh.main_fuse)} A).${lbNote}`
+          : perPhase ? `Free for the chargers now, per phase: ${perPhase} (main fuse ${esc(sh.main_fuse)} A).${lbNote}${batNote}`
+            : sh.available_a != null ? `${esc(tidy(sh.available_a))} A per phase is free for the chargers now (main fuse ${esc(sh.main_fuse)} A${sh.how === 'net_power_fallback' ? '; the phase currents are not fresh, estimated from net power' : ''}).${lbNote}${batNote}`
+              : 'Set up the grid meter and main fuse (Settings › Grid) so the chargers share the connection.';
       return `<div class="card chargers-card">
         <div class="ready-kicker">CHARGERS</div>
         ${o.chargers.map(row).join('')}
@@ -2048,6 +2353,7 @@ function durationText(minutes) {
     // A manual refresh is not overtaken by the automatic one-minute reload.
     let overviewSeq = 0;
     let refreshing = false;
+    let overviewHtmlNow = ''; // what Home shows now, to skip a reload that changes nothing (#51)
     async function loadOverview(force = false, auto = false) {
       if (auto && refreshing) return;
       const seq = ++overviewSeq;
@@ -2058,7 +2364,13 @@ function durationText(minutes) {
         lastPlan = d;
         const ov = multiCharger ? await api('GET', 'api/chargers/overview').catch(() => null) : null;
         if (seq !== overviewSeq) return;
-        $('overview-body').innerHTML = chargersOverviewHtml(ov) + overviewHtml(d);
+        const html = chargersOverviewHtml(ov) + overviewHtml(d);
+        // Nothing changed since the last reload: leave the page as it is (#51),
+        // so nothing jumps or closes while you read it.
+        if (auto && html === overviewHtmlNow && $('overview-body').innerHTML) return;
+        overviewHtmlNow = html;
+        $('overview-body').innerHTML = html;
+        renderOpenMaps($('overview-body'));
         $('overview-body').querySelectorAll('.chargers-card [data-bar]').forEach((b) => { b.onclick = () => selectCharger(b.dataset.bar); });
         enhanceRangeControls($('overview-body'));
         refreshRangeValues($('overview-body'));
@@ -2160,7 +2472,7 @@ function durationText(minutes) {
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${calendarMessagesHtml(d)}
           ${d.upcoming.length > 1 ? `
-          <details><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
+          <details${keep('dep-next-days')}><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
             ${aheadButtonsHtml()}
             <table class="periods">
               ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
@@ -2854,6 +3166,10 @@ function durationText(minutes) {
     // ---------- Charging stops on the way (#37) ----------
     let cstopsNow = null;
     let cstopsClearKey = false;
+    // The chosen operators (#48): ids from the app's list, and operators from
+    // the station data by Open Charge Map number (with their name).
+    let cstopsOps = new Set();
+    let cstopsOcm = new Map();
     function showCstopsKey() {
       const pending = $('cstops-key').value.trim() !== '';
       const saved = !!(cstopsNow && cstopsNow.has_key);
@@ -2869,23 +3185,73 @@ function durationText(minutes) {
     const ticks = (box, items, on, name) => {
       $(box).innerHTML = items.map((x) => `<label><input type="checkbox" name="${name}" value="${esc(x.id)}"${on.includes(x.id) ? ' checked' : ''}> ${esc(x.name)}</label>`).join('');
     };
-    const ticked = (box) => [...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value);
-    // The operators of the countries that are ticked (a chosen operator stays visible).
-    function cstopsOperators(chosen) {
+    const ticked = (box) => [...new Set([...document.querySelectorAll(`#${box} input:checked`)].map((x) => x.value))];
+    // One row per item in a list that opens and closes (#48).
+    const pickRow = (value, name, checked, tag, extra = '') => `<label class="pick-row" data-name="${esc(String(name).toLowerCase())}"><input type="checkbox" value="${esc(value)}"${checked ? ' checked' : ''}${extra}> <span>${esc(name)}</span>${tag ? `<span class="pick-tag">${esc(tag)}</span>` : ''}</label>`;
+    // Countries: the ticked ones first, then the rest by name.
+    function cstopsCountries(on) {
+      const list = cstopsNow.country_list;
+      const first = list.filter((x) => on.includes(x.code));
+      const rest = list.filter((x) => !on.includes(x.code));
+      $('cstops-countries').innerHTML = [...first, ...rest].map((x) => pickRow(x.code, x.name, on.includes(x.code), x.code)).join('');
+      cstopsCountrySum(on);
+    }
+    function cstopsCountrySum(on) {
+      const names = cstopsNow.country_list.filter((x) => on.includes(x.code)).map((x) => x.name);
+      $('cstops-countries-sum').textContent = !names.length ? 'None ticked' : names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+    }
+    // The operators: across Europe, then per ticked country, then the ones
+    // found in the station data on your routes. Chosen operators of countries
+    // that are not ticked stay visible in their own group.
+    function cstopsOperators() {
       const c = cstopsNow;
       if (!c) return;
       const countries = ticked('cstops-countries');
-      const list = c.operator_list.filter((o) => o.countries.some((x) => countries.includes(x)) || chosen.includes(o.id));
-      // Two groups: mainly fast charging, and mainly normal charging.
-      const box = $('cstops-operators');
-      box.innerHTML = '';
-      for (const [fast, label] of [[true, 'Fast charging'], [false, 'Normal charging']]) {
-        const part = list.filter((o) => !!o.fast === fast);
-        if (!part.length) continue;
-        const group = document.createElement('div');
-        group.innerHTML = `<p class="muted small cstops-group">${label}</p><div class="days"></div>`;
-        group.lastChild.innerHTML = part.map((o) => `<label><input type="checkbox" name="cstops_operator" value="${esc(o.id)}"${chosen.includes(o.id) ? ' checked' : ''}> ${esc(o.name)}</label>`).join('');
-        box.appendChild(group);
+      const names = Object.fromEntries(c.country_list.map((x) => [x.code, x.name]));
+      const byName = (a, b) => a.name.localeCompare(b.name);
+      const everywhere = (o) => o.countries.length >= 40;
+      const groups = [['Across Europe', c.operator_list.filter(everywhere)]];
+      for (const code of countries) groups.push([names[code] || code, c.operator_list.filter((o) => !everywhere(o) && o.countries.includes(code))]);
+      const shown = new Set(groups.flatMap((g) => g[1].map((o) => o.id)));
+      groups.push(['Chosen in other countries', c.operator_list.filter((o) => cstopsOps.has(o.id) && !shown.has(o.id))]);
+      const op = (o) => pickRow(o.id, o.name, cstopsOps.has(o.id), o.fast ? 'fast' : '');
+      let html = groups.filter((g) => g[1].length).map(([label, ops], i) => `<details class="pick-group"${i === 0 ? ' open' : ''}><summary>${esc(label)} <span class="muted">(${esc(ops.length)})</span></summary>
+        <div class="pick-list">${[...ops].sort(byName).map(op).join('')}</div></details>`).join('');
+      const seen = c.seen_operators || [];
+      html += `<details class="pick-group"><summary>Seen on your routes <span class="muted">(${esc(seen.length)})</span></summary>
+        ${seen.length ? `<div class="pick-list">${seen.map((o) => pickRow(`ocm:${o.ocm_id}`, o.name, cstopsOcm.has(o.ocm_id), [o.fast ? 'fast' : '', o.countries.slice(0, 3).join(' ')].filter(Boolean).join(' · '), ` data-label="${esc(o.name)}"`)).join('')}</div>`
+          : '<p class="muted small">Operators of the stations found along your trips appear here after the first lookup, also ones that are not in the lists above.</p>'}</details>`;
+      $('cstops-operators').innerHTML = html;
+      cstopsChips();
+    }
+    // The chosen operators as small labels with ✕, above the list.
+    function cstopsChips() {
+      const c = cstopsNow;
+      const names = Object.fromEntries(c.operator_list.map((o) => [o.id, o.name]));
+      const chosen = [...[...cstopsOps].map((id) => [id, names[id] || id]), ...[...cstopsOcm].map(([id, name]) => [`ocm:${id}`, name])];
+      $('cstops-op-chips').innerHTML = chosen.length
+        ? chosen.map(([v, name]) => `<span class="pick-chip">${esc(name)}<button type="button" data-cstops-remove="${esc(v)}" aria-label="Remove ${esc(name)}">✕</button></span>`).join('')
+        : '<span class="muted small">None: every operator counts the same.</span>';
+    }
+    // Tick or untick an operator: the same operator can be in more groups.
+    function cstopsSetOp(value, on, name) {
+      if (value.startsWith('ocm:')) {
+        const id = Number(value.slice(4));
+        if (on) cstopsOcm.set(id, name || cstopsOcm.get(id) || `Operator ${id}`);
+        else cstopsOcm.delete(id);
+      } else if (on) cstopsOps.add(value);
+      else cstopsOps.delete(value);
+      for (const x of document.querySelectorAll('#cstops-operators input[type="checkbox"]')) if (x.value === value) x.checked = on;
+      cstopsChips();
+    }
+    // Search: show the rows that match, and open the groups that have one.
+    function cstopsFilter(box, query) {
+      const q = String(query || '').trim().toLowerCase();
+      for (const row of document.querySelectorAll(`#${box} .pick-row`)) row.hidden = !!q && !row.dataset.name.includes(q);
+      for (const g of document.querySelectorAll(`#${box} .pick-group`)) {
+        const any = [...g.querySelectorAll('.pick-row')].some((r) => !r.hidden);
+        g.hidden = !!q && !any;
+        if (q && any) g.open = true;
       }
     }
     function showCstops(c) {
@@ -2895,12 +3261,22 @@ function durationText(minutes) {
       $('cstops-key').value = '';
       showCstopsKey();
       $('cstops-routing').hidden = !!c.routing_online;
-      ticks('cstops-countries', c.country_list.map((x) => ({ id: x.code, name: x.name })), c.countries, 'cstops_country');
+      cstopsOps = new Set(c.operators || []);
+      cstopsOcm = new Map((c.ocm_operators || []).map((o) => [o.id, o.name]));
+      $('cstops-countries-search').value = '';
+      $('cstops-op-search').value = '';
+      cstopsCountries(c.countries);
+      $('cstops-only-countries').checked = !!c.only_countries;
       ticks('cstops-connectors', c.connector_list, c.connectors, 'cstops_connector');
-      cstopsOperators(c.operators);
+      cstopsOperators();
       $('cstops-power').value = c.min_power_kw;
       $('cstops-detour').value = c.max_detour_km;
       $('cstops-reserve').value = c.reserve_pct;
+      $('cstops-charge-to').value = c.charge_to_pct;
+      $('cstops-arrive-min').value = c.arrive_min_pct;
+      $('cstops-map-tiles').value = c.map_tiles || 'off';
+      $('cstops-map-url').value = c.map_tile_url || '';
+      $('cstops-map-url').hidden = c.map_tiles !== 'custom';
     }
     async function loadCstops() {
       try {
@@ -2922,7 +3298,20 @@ function durationText(minutes) {
       showCstopsKey();
       unsavedGuard.markDirty($('cstops-card'));
     });
-    $('cstops-countries').addEventListener('change', () => cstopsOperators(ticked('cstops-operators')));
+    $('cstops-countries').addEventListener('change', () => { cstopsCountrySum(ticked('cstops-countries')); cstopsOperators(); cstopsFilter('cstops-operators', $('cstops-op-search').value); });
+    $('cstops-operators').addEventListener('change', (e) => {
+      const x = e.target;
+      if (x && x.type === 'checkbox') cstopsSetOp(x.value, x.checked, x.dataset && x.dataset.label);
+    });
+    $('cstops-op-chips').addEventListener('click', (e) => {
+      const b = e.target.closest && e.target.closest('[data-cstops-remove]');
+      if (!b) return;
+      cstopsSetOp(b.dataset.cstopsRemove, false);
+      unsavedGuard.markDirty($('cstops-card'));
+    });
+    $('cstops-map-tiles').addEventListener('change', () => { $('cstops-map-url').hidden = $('cstops-map-tiles').value !== 'custom'; });
+    $('cstops-countries-search').addEventListener('input', () => cstopsFilter('cstops-countries', $('cstops-countries-search').value));
+    $('cstops-op-search').addEventListener('input', () => cstopsFilter('cstops-operators', $('cstops-op-search').value));
     $('cstops-save').addEventListener('click', async () => {
       const err = $('cstops-error');
       err.hidden = true;
@@ -2932,11 +3321,17 @@ function durationText(minutes) {
           api_key: $('cstops-key').value.trim(),
           clear_key: cstopsClearKey,
           countries: ticked('cstops-countries'),
-          operators: ticked('cstops-operators'),
+          only_countries: $('cstops-only-countries').checked,
+          operators: [...cstopsOps],
+          ocm_operators: [...cstopsOcm].map(([id, name]) => ({ id, name })),
           connectors: ticked('cstops-connectors'),
           min_power_kw: $('cstops-power').value,
           max_detour_km: $('cstops-detour').value,
           reserve_pct: $('cstops-reserve').value,
+          charge_to_pct: $('cstops-charge-to').value,
+          arrive_min_pct: $('cstops-arrive-min').value,
+          map_tiles: $('cstops-map-tiles').value,
+          map_tile_url: $('cstops-map-url').value.trim(),
         });
         showCstops(r.charge_stops);
         $('cstops-result').innerHTML = `<p class="ok" style="margin-top:12px">Saved. Charging stops are ${r.charge_stops.enabled ? 'on' : 'off'}.</p>`;
@@ -3656,6 +4051,8 @@ function durationText(minutes) {
       if (!c.soc_entity && r.candidates[0]) f.battery.value = r.candidates[0].soc_entity;
       f.enabled.checked = !!c.enabled;
       for (const k of ['capacity_kwh', 'efficiency', 'charge_kw', 'discharge_kw', 'min_pct', 'max_pct', 'wear']) f[k].value = c[k];
+      f.phases.value = String(c.phases === 1 ? 1 : 3);
+      f.phase.value = c.phase || '';
       if (!c.soc_entity) {
         const cand = r.candidates.find((x) => x.soc_entity === f.battery.value);
         if (cand && cand.capacity_kwh) f.capacity_kwh.value = tidy(cand.capacity_kwh);
@@ -3697,6 +4094,7 @@ function durationText(minutes) {
           enabled: f.enabled.checked, capacity_kwh: f.capacity_kwh.value, efficiency: f.efficiency.value,
           charge_kw: f.charge_kw.value, discharge_kw: f.discharge_kw.value, min_pct: f.min_pct.value, max_pct: f.max_pct.value,
           wear: f.wear.value, power_sign: f.power_sign.value, arbitrage: f.arbitrage.checked,
+          phases: f.phases.value, phase: f.phase.value,
           ev_discharge: f.ev_discharge.value, solar_priority: f.solar_priority.value,
           ev_from_pct: f.ev_from_pct.value, ev_to_pct: f.ev_to_pct.value,
         });

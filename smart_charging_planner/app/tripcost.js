@@ -251,12 +251,19 @@ function distance(location, home = ha.state.home, country = ha.state.country) {
         // Not found: try again without the first part ("Northwind Labs,
         // Industrieweg 10, …" → "Industrieweg 10, …"): a company or place
         // name in front of the address.
+        // First in the home country (a short address finds the place at
+        // home, not one abroad); when nothing is found there, anywhere
+        // (#49): a trip abroad.
         const parts = text.split(',').map((x) => x.trim()).filter(Boolean);
-        for (let i = 0; i < parts.length && !p; i++) {
-          if (i > 0) await new Promise((r) => setTimeout(r, GAP_MS));
-          const q = parts.slice(i).join(', ');
-          if (i > 0 && !/\d/.test(q) && parts.length - i < 2) break; // only a country or town left
-          p = await geocode(q, country);
+        let asked = 0;
+        for (const limit of country ? [country, null] : [null]) {
+          for (let i = 0; i < parts.length && !p; i++) {
+            const q = parts.slice(i).join(', ');
+            if (i > 0 && !/\d/.test(q) && parts.length - i < 2) break; // only a country or town left
+            if (asked++) await new Promise((r) => setTimeout(r, GAP_MS));
+            p = await geocode(q, limit);
+          }
+          if (p) break;
         }
       } catch (err) {
         ha.debug('OpenStreetMap could not look up', text, '-', err.message);

@@ -33,7 +33,18 @@ const batKw = (w) => {
   return b.autoKw || 0;
 };
 // A second charger (more chargers test): w.ch2 = { plugged, charging, amps }.
-const ch2Kw = (w) => (w.ch2 && w.ch2.charging ? Math.round((w.ch2.amps ?? 16) * 3 * 230) / 1000 : 0);
+const ch2Kw = (w) => (w.ch2 && w.ch2.charging ? Math.round((w.ch2.amps ?? 16) * (w.ch2.phases ?? 3) * 230) / 1000 : 0);
+// Phase currents of the grid meter. Fixed (3/2/2 A) unless w.phaseHouse is
+// set: then the house per phase plus each charger on its own phases (#29).
+const phaseA = (w, line) => {
+  if (!w.phaseHouse) return { L1: 3, L2: 2, L3: 2 }[line];
+  const on = (phases, ln) => (phases ?? 3) !== 1 || (ln || 'L1') === line;
+  let a = w.phaseHouse[line] || 0;
+  if (w.charging && on(w.phases, w.line)) a += w.amps ?? 16;
+  if (w.ch2 && w.ch2.charging && on(w.ch2.phases, w.ch2.line)) a += w.ch2.amps ?? 16;
+  a += Math.max(0, batKw(w)) * 1000 / 230 / 3;
+  return Math.round(a * 10) / 10;
+};
 const gridW = (w) => Math.round((w.houseW ?? 850) + carKw(w) * 1000 + ch2Kw(w) * 1000 + batKw(w) * 1000 - (w.pvW ?? 0));
 const PCT = { unit_of_measurement: '%' };
 const KW = { unit_of_measurement: 'kW', device_class: 'power' };
@@ -253,6 +264,10 @@ function entityList(w) {
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   // A button of the car that starts the air conditioning (preconditioning, #44).
   car.push(['button.test_car_start_air_conditioner', 'unknown', { friendly_name: 'Car Start air conditioner' }, p.car.device]);
+  // Where the car is (#46): w.carLocation (the car's device tracker) and
+  // w.personLocation (a person), each 'home', 'not_home', a zone or 'unavailable'.
+  car.push(['device_tracker.test_car_location', w.carLocation ?? 'unknown', { friendly_name: 'Car Location', source_type: 'gps' }, p.car.device]);
+  car.push(['person.alex', w.personLocation ?? 'unknown', { friendly_name: 'Alex' }, null]);
   const charger = ch.states(w, status).map(([id, st, a]) => [id, String(st), a, ch.device]);
   // A second car (more cars test): w.car2 = { soc, plug, charging, noPlugSensor }.
   const car2 = w.car2 ? [
@@ -272,9 +287,9 @@ function entityList(w) {
     ...(w.liveLimit === undefined ? [] : [['sensor.laadpaal_live_limit', String(w.liveLimit), { unit_of_measurement: 'A', friendly_name: 'Live charger limit' }, 'ch']]),
     ...ch2,
     ['sensor.p1_power', String(gridW(w) * (w.gridExportPositive ? -1 : 1)), { friendly_name: 'P1 Power', unit_of_measurement: 'W', device_class: 'power' }, 'p1'],
-    ['sensor.p1_current_l1', '3', { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
-    ['sensor.p1_current_l2', '2', { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
-    ['sensor.p1_current_l3', '2', { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l1', String(phaseA(w, 'L1')), { friendly_name: 'P1 Current L1', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l2', String(phaseA(w, 'L2')), { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
+    ['sensor.p1_current_l3', String(phaseA(w, 'L3')), { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
@@ -298,7 +313,7 @@ function entityList(w) {
     ['input_datetime.ev_vertrek', w.helperTime || 'unknown', { friendly_name: 'EV vertrek', has_date: true, has_time: true }, null],
     ['input_number.ev_doel', '70', { friendly_name: 'EV doel', unit_of_measurement: '%' }, null],
     // Zones: home, and w.zones = [{ entity_id, name, lat, lon }].
-    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 5.19, radius: 100 }, null],
+    ['zone.home', '1', { friendly_name: 'Home', latitude: 51.37, longitude: 2.69, radius: 100 }, null],
     ...(w.zones || []).map((z) => [z.entity_id, '0', { friendly_name: z.name, latitude: z.lat, longitude: z.lon, radius: 100 }, null]),
   ];
 }
@@ -309,7 +324,8 @@ function states(w) {
   const ago = new Date(Date.now() - 600000).toISOString();
   // w.ages: { entity_id: ms } for an entity that Home Assistant has not read
   // for a while (a car whose cloud is down).
-  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : ago));
+  // A grid meter reports all the time: its sensors are fresh unless w.ages says otherwise.
+  const at = (id) => (w.ages && w.ages[id] ? new Date(Date.now() - w.ages[id]).toISOString() : (w.reportedAt && w.reportedAt[id] ? new Date(w.reportedAt[id]).toISOString() : id.startsWith('sensor.p1_') ? new Date().toISOString() : ago));
   return entityList(w).map(([entity_id, state, attributes]) => ({ entity_id, state: w.stateOverrides && w.stateOverrides[entity_id] !== undefined ? String(w.stateOverrides[entity_id]) : state, last_changed: at(entity_id), last_reported: at(entity_id), last_updated: at(entity_id), attributes }));
 }
 
@@ -354,7 +370,7 @@ function start(w, wsPort, restPort) {
       const fail = (message) => s.send(JSON.stringify({ id: m.id, type: 'result', success: false, error: { code: 'x', message } }));
       if (m.type === 'auth') return s.send(JSON.stringify({ type: 'auth_ok', ha_version: HA_VERSION }));
       switch (m.type) {
-        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 5.19, country: 'NL' });
+        case 'get_config': return ok({ time_zone: w.tz, currency: 'EUR', version: HA_VERSION, latitude: 51.37, longitude: 2.69, country: 'NL' });
         case 'get_states': return ok(states(w));
         case 'get_services': return ok(services);
         // Like Home Assistant: events of one type are sent with the id of the

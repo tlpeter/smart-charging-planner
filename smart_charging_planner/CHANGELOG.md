@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.36.0
+
+- Stable release of 0.36.0-dev through 0.36.19-dev.
+- **Where is the car:** when the car is not plugged in, the app no longer assumes it is at home; it uses the car location, a person or the calendar, else "not known" (#46).
+- **Sharing the connection per phase** across chargers and the home battery, with a fresh-reading check and step-by-step changes (#29).
+- **Charging stops in all of Europe:** more countries, routes across a border, more stops on a long trip, "Charge to at a stop" and "Arrive at a charger with at least" (#40); a stop as late as possible at the best station, alternatives marked (#50); addresses abroad are found (#49); easier country and operator lists (#48).
+- **Route map** (off by default): the route and the stops on a map, one click from Looking ahead, with zoom and drag (#47, #54).
+- **Fix:** what you opened on Home stays open across the reload every minute (#51).
+- **Compatibility overview** and a Beta test report form; the app image is built for amd64 and aarch64 and checked against Home Assistant Core 2026.4.2 and 2026.10.4 (#28).
+
+## 0.36.19
+
+- **Zoom and drag on the route map:** the map now uses Leaflet (the map library Home Assistant uses too), shipped with the app and only loaded when a map opens. Zoom in on a stop, drag the map, tap a stop for its station (power, points, level on arrival, link). In the page the mouse wheel and one finger still scroll the page; in the big window they move the map. When Leaflet cannot load, the fixed map is shown. (#54)
+
+## 0.36.18
+
+- **The route map in one click:** a trip with charging stops gets a map icon 🗺 in its line in Looking ahead. It opens the route map in a big window without opening the day (close with ✕, Esc or a click next to it). Needs Route map set to OpenStreetMap or your own tile server; map images load only when the window opens. (#47)
+
+## 0.36.17
+
+- **Removed again: charging stops on the Home Assistant map** (from 0.36.14 to 0.36.16). A Home Assistant map shows points but cannot draw the planned route, so the app's own route map is used instead. The option, the sensors `sensor.smart_charging_stop_*` and `sensor.smart_charging_trip_destination`, the Browser Mod popup and the Browser Mod requirement are gone. If you tried it: the sensors disappear when Home Assistant restarts. (#47)
+
+## 0.36.16
+
+- Test only: the Home Assistant map check in the settings test (removed again in 0.36.17, see issue 53).
+
+## 0.36.15
+
+- Charging stops on the Home Assistant map: switching the option off removes the points right away (removed again in 0.36.17, see issue 53).
+
+## 0.36.14
+
+- Charging stops on the Home Assistant map, with a popup via Browser Mod (removed again in 0.36.17, see issue 53).
+
+## 0.36.13
+
+- **The route on a map:** new **Route map** under Plan › Charging stops on the way (off by default): OpenStreetMap or your own tile server. A trip with charging stops then gets **Show the route on a map**, with the route, home, the destination, the stops (numbered) and their other stations, and a link to open the route on openstreetmap.org. Map images are only loaded when you open a map; the open map stays open when Home reloads. (#47)
+
+## 0.36.12
+
+- **Fix: what you opened on Home closed again every minute.** A day in Looking ahead, Plan details, the plan table and Next days on Plan now stay open (or closed) when the page reloads, and a reload that changes nothing leaves the page as it is. (#51)
+
+## 0.36.11
+
+- **Fix: charging stops were sometimes planned early, with a lot of battery left.** A stop is now as late as the battery allows, where the car arrives nearly empty (down to "Arrive at a charger with at least"), and at the best station there: your operators first, then the most power, then the most charging points. Each stop shows one recommended station and up to two others under "Or:", each with its own level on arrival and number of points. (#50)
+
+## 0.36.10
+
+- Test data and documentation only: every address, town, postcode and position in the tests is now made up (positions in the sea), and AGENTS.md says that everything public stays anonymous. No app changes.
+
+## 0.36.9
+
+- **Fix: addresses abroad were not found.** The address search only looked in the country of your Home Assistant, so a trip abroad said "The address was not found on OpenStreetMap" (and got no trip cost and no charging stops). Now the app searches in your own country first and, when nothing is found there, in every country. (#49)
+
+## 0.36.8
+
+- **Charging stops settings, easier to use:** Countries and Preferred operators are now lists that open and close, with a search field and one item per row, instead of rows of boxes. Your chosen operators show as small labels with ✕ above the list. The operators are grouped: across Europe, then per ticked country. New group **Seen on your routes**: the operators of the stations found along your trips, also ones that are not in the app's own list, so any operator can be preferred (recognised by its Open Charge Map number, not its name). (#48)
+
+## 0.36.7
+
+- **Charging stops in all of Europe, and more stops on a long trip:** the country list has every European country, and you can tick more than one. A route across a border gets stations in every country on it; "Only suggest stops in these countries" (off by default) limits it to your ticked countries. The operator list has the main networks per country (for example EnBW, Aral pulse, Izivia, Atlante, Ewiva, Circle K, Mer, Recharge). When one stop is not enough, the trip shows one block per stop: where, the level on arrival and how far to charge (new: "Charge to at a stop", default 80 %; at the last stop only what is needed). A station that would leave too much of the trip after charging is no longer suggested as the only stop. A longer route asks Open Charge Map for more stations, only with enough power. New: "Arrive at a charger with at least" (default 10 %, the same as the level for a stop): most cars charge fastest when nearly empty, so below the level for a stop the app looks for a station and may drive on to this level to reach one; a station where you arrive between the two comes first. (#40)
+
+## 0.36.6
+
+- Test only: the per-phase test checks how the connection is shared, not whether an Easee has already switched to one phase. No app changes. (#29)
+
+## 0.36.5
+
+- **Sharing the connection per phase** (more chargers): the app now keeps a budget for L1, L2 and L3 instead of one number. A one-phase charger only uses its own phase (new: "Phase used when it charges on one phase" in Settings › Charger); when that phase is not known, the app keeps room on all three, to be safe. With phase current sensors, each phase is checked on its own; with net power only, the house is spread over the phases as before. A grid reading older than 5 minutes is not used: without a fresh reading only the first charger charges, at 6 A. A charger goes up only as far as the others have already come down; chargers that go down are switched first. A load balancer can now protect only some chargers (Settings › Grid); the app shares for the others. The home battery (planning on) charges from the grid only with the room the chargers leave on its phases (new: battery phases in Settings › Home battery); the cars go first. One charger: nothing changes. (#29)
+
+## 0.36.4
+
+- **Where is the car?** When the car is not plugged in, the app no longer assumes it is at home. It checks, in this order: the car's own location (a device tracker, new in Settings › Vehicle), a person who drives (for example a phone with the Companion app, also new), a trip home in the calendar ("Naar huis"). When none of them knows, Home says so: Looking ahead counts from the battery level now and shows the planned charging as "if plugged in by then", with the level it would give next to it. A location that is unknown or unavailable is skipped, so a broken sensor never makes the plan worse. The status on Home shows "Car away (car location)" or "At home (person)". Both settings are empty by default. (#46)
+
+## 0.36.3
+
+- **Compatibility overview:** COMPATIBILITY.md lists per charger, car and home battery integration what the app can read and steer, marks read-only devices (Tesla Wall Connector, Zonneplan, Growatt, Anker, EcoFlow, Powerwall) and shows what was checked on real hardware. It is built from the tests, so it only claims what a test checks. A new issue form **Beta test report** collects anonymous real-hardware results. The tests now also build the app image for amd64 and aarch64 and run the real Home Assistant Core check on 2026.4.2 as well as 2026.10.4. No app changes. (#28)
+
+## 0.36.2
+
+- Release workflow: it uses the Home Assistant Core check of the newest commit that changed the app code, because that check does not run for a change to workflows or documentation only. No app changes.
+
+## 0.36.1
+
+- The GitHub release of a stable version is now made by GitHub itself after the tests on main pass (tag, notes, zip, milestone); nobody pushes a tag by hand. No app changes.
+
 ## 0.35.0
 
 - Stable release of 0.34.1 through 0.35.9.

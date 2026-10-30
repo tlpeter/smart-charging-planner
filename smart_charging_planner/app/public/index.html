@@ -104,13 +104,42 @@
             <button class="secondary" type="button" id="cstops-key-remove" hidden>Remove key</button></div>
           <input id="cstops-key" type="password" maxlength="80" autocomplete="off" placeholder="Paste your key" aria-describedby="cstops-key-state cstops-key-note">
           <p class="muted small" id="cstops-key-note"></p></div>
-        <div class="field"><label>Countries</label><div class="days" id="cstops-countries"></div></div>
-        <div class="field"><label>Preferred operators (optional)</label><div id="cstops-operators"></div>
+        <div class="field"><label>Countries</label>
+          <details class="pick" id="cstops-countries-box">
+            <summary><span class="pick-sum" id="cstops-countries-sum">Loading…</span></summary>
+            <div class="pick-body">
+              <input type="search" class="pick-search" id="cstops-countries-search" placeholder="Search a country" aria-label="Search a country" autocomplete="off" data-guard-ignore>
+              <div class="pick-scroll"><div class="pick-list" id="cstops-countries"></div></div>
+            </div>
+          </details>
+          <label class="check"><input type="checkbox" id="cstops-only-countries"> Only suggest stops in these countries</label>
+          <p class="muted small">Off: stations in every country the route passes through count. The countries you tick choose which operators are listed below.</p></div>
+        <div class="field"><label>Preferred operators (optional)</label>
+          <div class="pick-chips" id="cstops-op-chips"></div>
+          <details class="pick" id="cstops-operators-box">
+            <summary><span class="pick-sum">Choose operators</span></summary>
+            <div class="pick-body">
+              <input type="search" class="pick-search" id="cstops-op-search" placeholder="Search an operator" aria-label="Search an operator" autocomplete="off" data-guard-ignore>
+              <div class="pick-scroll" id="cstops-operators"></div>
+            </div>
+          </details>
           <p class="muted small">Stations of these operators come first. Other operators are only shown when none of yours is on the way.</p></div>
         <div class="field"><label>Connector</label><div class="days" id="cstops-connectors"></div></div>
         <div class="field"><label>Minimum power (kW)</label><input id="cstops-power" type="number" min="3" max="400" step="1"></div>
         <div class="field"><label>Maximum detour (km, there and back)</label><input id="cstops-detour" type="number" min="1" max="30" step="1"></div>
         <div class="field"><label>Suggest a stop when the level drops below (%)</label><input id="cstops-reserve" type="number" min="0" max="50" step="1"></div>
+        <div class="field"><label for="cstops-arrive-min">Arrive at a charger with at least (%)</label><input id="cstops-arrive-min" type="number" min="0" max="50" step="1">
+          <p class="muted small">Most cars charge fastest when the battery is nearly empty. Below the level above the app looks for a station, and it may drive on to this level to reach one. Not above the level above; the same value (default) means: arrive with at least that level.</p></div>
+        <div class="field"><label for="cstops-charge-to">Charge to at a stop (%)</label><input id="cstops-charge-to" type="number" min="50" max="100" step="1">
+          <p class="muted small">When the trip needs more stops: how far to charge at each one. At the last stop only what the rest of the trip needs.</p></div>
+        <div class="field"><label for="cstops-map-tiles">Route map</label>
+          <select id="cstops-map-tiles">
+            <option value="off">Off</option>
+            <option value="osm">OpenStreetMap (tile.openstreetmap.org)</option>
+            <option value="custom">My own tile server</option>
+          </select>
+          <input id="cstops-map-url" type="text" maxlength="200" autocomplete="off" placeholder="https://tiles.example.lan/{z}/{x}/{y}.png" hidden>
+          <p class="muted small">Shows the route and the stops on a map, below the charging stops of a trip. <strong>Sent:</strong> when you open a map, the page loads map images from the tile server; that shows it which area you look at, so roughly where the route goes. Nothing is loaded until you open a map. Off by default.</p></div>
         <div class="buttons"><button class="primary" type="button" id="cstops-save" data-guard-save>Save</button></div>
         <div class="error form-error" id="cstops-error" hidden></div>
         <div id="cstops-result"></div>
@@ -362,7 +391,12 @@
             <div class="field"><label>Wear per kWh discharged</label><input name="wear" type="number" min="0" max="0.5" step="0.005"></div>
             <div class="field"><label>Battery power sensor: positive means</label>
               <select name="power_sign"><option value="charge_positive">Charging</option><option value="discharge_positive">Discharging</option></select></div>
+            <div class="field"><label>Connected on</label>
+              <select name="phases"><option value="3">3 phases</option><option value="1">1 phase</option></select></div>
+            <div class="field"><label>Phase (one phase only)</label>
+              <select name="phase"><option value="">Not known</option><option value="L1">L1</option><option value="L2">L2</option><option value="L3">L3</option></select></div>
           </div>
+          <p class="muted small">Phases: with more chargers, the battery charges from the grid only with the room the chargers leave on its phases.</p>
           <p class="muted small">Wear: what a discharged kWh costs in battery life (price ÷ guaranteed kWh throughput, often 0.02–0.05). Charging from the grid only happens when the price difference covers losses and wear.</p>
         </div>
         <div class="card bat-on">

@@ -174,6 +174,9 @@ async function run() {
     const css = await api('GET', 'styles.css');
     const js = await api('GET', 'app.js');
     assert(css.status === 200 && typeof css.body === 'string' && css.body.length > 1000, 'styles.css not served');
+    // Leaflet for the route map (#54), served by the app itself.
+    const lf = await api('GET', 'vendor/leaflet/leaflet.js');
+    assert(lf.status === 200 && typeof lf.body === 'string' && lf.body.includes('Leaflet 1.9.4'), 'leaflet.js not served');
     assert(js.status === 200 && typeof js.body === 'string' && js.body.length > 10000, 'app.js not served');
     // The unsaved-changes guard (shared with the other apps) is served and loaded.
     const guard = await api('GET', 'unsaved.js');
@@ -1841,13 +1844,13 @@ async function run() {
   // ----- Y. Looking ahead: the next goal and what a trip costs --------------
   group = 'Y. Looking ahead: the next goal and what a trip costs';
   {
-    const ADDR = 'Hoofdweg 1 2661 AA Bergschenhoek';
-    const ADDR2 = 'Molenstraat 5, 4921 AA Hilltown';
-    const ADDR3 = 'Nieuwstraat 2, 3201 AA Harbourtown';
+    const ADDR = 'Hoofdweg 1 1111 AA Meadowtown';
+    const ADDR2 = 'Molenstraat 5, 1113 AA Hilltown';
+    const ADDR3 = 'Nieuwstraat 2, 1114 AA Harbourtown';
     world.places = {
-      [ADDR]: { lat: 51.98, lon: 4.49 },
-      [ADDR2]: { lat: 51.68, lon: 4.79 },
-      [ADDR3]: { lat: 51.85, lon: 4.33 },
+      [ADDR]: { lat: 51.98, lon: 1.99 },
+      [ADDR2]: { lat: 51.68, lon: 2.29 },
+      [ADDR3]: { lat: 51.85, lon: 1.83 },
     };
     world.routeKm = 60;
     const calBody = depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } });
@@ -1896,10 +1899,10 @@ async function run() {
       return `next stop ${n.current.title} ${n.current.target_soc}% · next goal ${n.goal.title} ${n.goal.soc}%`;
     });
     await test('Y2b', 'Lakeside on Sunday, then Naar Werk (company + address) and Naar Thuis (home address) on Monday: no trip home for Sunday, the next goal is Monday\'s Naar Werk, the company address is found without the company name', async () => {
-      world.places = { ...world.places, 'Industrieweg 10, 3316 AA Rivertown, Nederland': { lat: 51.80, lon: 4.70 }, 'Dorpsstraat 12, 1234 AB Springfield, Nederland': { lat: 51.3705, lon: 5.1905 } };
+      world.places = { ...world.places, 'Industrieweg 10, 1112 AA Rivertown, Nederland': { lat: 51.80, lon: 2.20 }, 'Dorpsstraat 12, 1234 AB Springfield, Nederland': { lat: 51.3705, lon: 2.6905 } };
       world.events = [
         ev('Naar Lakeside', 'doel: 100', ADDR, 1, 6, 20),
-        ev('Naar Werk', 'doel: 80', 'Northwind Labs, Industrieweg 10, 3316 AA Rivertown, Nederland', 2, 6, 7),
+        ev('Naar Werk', 'doel: 80', 'Northwind Labs, Industrieweg 10, 1112 AA Rivertown, Nederland', 2, 6, 7),
         ev('Naar Thuis', 'doel: 80 precondition: ja', 'Dorpsstraat 12, 1234 AB Springfield, Nederland', 2, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 4, 6, 7),
       ];
@@ -1939,8 +1942,8 @@ async function run() {
       return kinds;
     });
     await test('Y6', 'My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost', async () => {
-      const WORK = 'Industrieweg 10, 3316 AA Rivertown';
-      world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 4.70 } };
+      const WORK = 'Industrieweg 10, 1112 AA Rivertown';
+      world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 2.20 } };
       world.soc = 80;
       world.events = [
         ev('Naar Werk', 'doel: 80', 'Northwind Labs', 1, 6, 7),
@@ -1968,7 +1971,7 @@ async function run() {
       return `Werk → ${after[0].trip.km} km, ${after[0].trip.pct}% there and back`;
     });
     await test('Y7', 'Zones in Home Assistant: a zone "Werk" (GPS) is used without an address, for "Werk" and for "Naar Werk" with "Northwind Labs"; Plan lists the zone, not Home', async () => {
-      world.zones = [{ entity_id: 'zone.werk', name: 'Werk', lat: 51.80, lon: 4.70 }];
+      world.zones = [{ entity_id: 'zone.werk', name: 'Werk', lat: 51.80, lon: 2.20 }];
       world.soc = 80;
       world.events = [
         ev('Naar Werk', 'doel: 80', 'Northwind Labs', 1, 6, 7),
@@ -2017,19 +2020,25 @@ async function run() {
       world.soc = 100;
       return `Gym → 15.5 km (manual); unknown address offline: ${leaves[1].trip.reason}`;
     });
-    await test('Y7c', 'Charging stops on the way (#37): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first; offline sends nothing', async () => {
+    await test('Y7c', 'Charging stops on the way (#37, #40): off by default; needs a key that is never shown; a trip that needs more than the battery holds gets stations along the route (country, power, connector, detour, not private), preferred operators first, one block per stop; every country on the route counts unless limited; offline sends nothing', async () => {
       const r0 = await ok('GET', 'api/charge-stops');
-      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && r0.charge_stops.country_list.map((x) => x.code).join(',') === 'NL,BE', JSON.stringify(r0));
+      const codes = r0.charge_stops.country_list.map((x) => x.code);
+      assert(r0.charge_stops.enabled === false && !r0.charge_stops.has_key && codes.length >= 40 && ['NL', 'BE', 'DE', 'FR', 'CH', 'NO'].every((x) => codes.includes(x)), JSON.stringify(r0));
+      assert(r0.charge_stops.only_countries === false && r0.charge_stops.charge_to_pct === 80, JSON.stringify(r0));
       await refused('POST', 'api/charge-stops', { enabled: true, countries: ['NL'], connectors: ['ccs'] }, 'API key');
-      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['DE'], connectors: ['ccs'] }, 'country');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['XX'], connectors: ['ccs'] }, 'country');
       await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], min_power_kw: 1000 }, 'between');
-      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], charge_to_pct: 40 }, 'between');
+      await refused('POST', 'api/charge-stops', { enabled: false, countries: ['NL'], connectors: ['ccs'], reserve_pct: 10, arrive_min_pct: 15 }, 'not above');
+      assert(r0.charge_stops.arrive_min_pct === 10, JSON.stringify(r0));
+      // Only the Netherlands first, to check the country filter.
+      const body = { enabled: true, api_key: 'test-key-123', countries: ['NL'], only_countries: true, operators: [], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 5, reserve_pct: 10 };
       const on = await ok('POST', 'api/charge-stops', body);
       assert(on.charge_stops.enabled && on.charge_stops.has_key && !JSON.stringify(on).includes('test-key-123'), JSON.stringify(on));
-      // Stations along the straight line from home (fake: 51.37, 5.19) to the destination.
-      const home = { lat: 51.37, lon: 5.19 };
+      // Stations along the straight line from home (fake: 51.37, 2.69, a made-up place in the sea) to the destination.
+      const home = { lat: 51.37, lon: 2.69 };
       const FAR = 'Verreweg 9, 1234 AB Farville';
-      world.places[FAR] = { lat: 52.37, lon: 4.9 };
+      world.places[FAR] = { lat: 52.37, lon: 2.4 };
       const dest = world.places[FAR];
       // dLon: east of the route (the route runs roughly north).
       const along = (f, dLon = 0) => ({ lat: home.lat + (dest.lat - home.lat) * f, lon: home.lon + (dest.lon - home.lon) * f + dLon });
@@ -2037,10 +2046,12 @@ async function run() {
         AddressInfo: { Title: `Station ${id}`, Town: 'Testdorp', Latitude: p.lat, Longitude: p.lon, Country: { ISOCode: country } }, Connections: conns });
       const ccs = (kw) => ({ ConnectionTypeID: 33, ConnectionType: { Title: 'CCS (Type 2)' }, PowerKW: kw, Quantity: 2 });
       const t2 = (kw) => ({ ConnectionTypeID: 25, ConnectionType: { Title: 'Type 2 (Socket Only)' }, PowerKW: kw, Quantity: 2 });
+      // Close together halfway (200 of 400 km), so every test car reaches them
+      // and they all count as the same stop.
       world.stations = [
         poi(1, 'Fastned', along(0.5, 0.001), 'NL', [ccs(300)]),
-        poi(2, 'IONITY GmbH', along(0.4, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
-        poi(3, 'Shell Recharge', along(0.6), 'BE', [ccs(150)]), // another country
+        poi(2, 'IONITY GmbH', along(0.48, 0.01), 'NL', [ccs(350)]), // ~0.7 km off
+        poi(3, 'Shell Recharge', along(0.52), 'BE', [ccs(150)]), // another country
         poi(4, 'Allego BV', along(0.3), 'NL', [t2(22)]), // too slow, wrong connector
         poi(5, 'Fastned', along(0.7), 'NL', [ccs(300)], 'Private - Restricted Access'),
         poi(6, 'Fastned', along(0.5, 0.12), 'NL', [ccs(300)]), // ~8 km off: too far
@@ -2063,22 +2074,59 @@ async function run() {
       };
       let back = await stopsNow();
       let c = back && back.charge_stops;
-      assert(back.soc < 10 && c && c.status === 'ok' && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
-      assert(c.stops.map((x) => x.id).join(',') === '1,2' && c.stops[0].operator === 'Fastned' && c.stops[0].power_kw === 300 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      // 800 km there and back is more than one stop: after the stations halfway
+      // there is none further on, so the first stop is shown and where the gap is.
+      const fine = (x) => x && (x.status === 'ok' || x.status === 'partial');
+      assert(back.soc < 10 && fine(c) && c.need_pct > 10 && c.need_kwh > 0, JSON.stringify(back));
+      // The best station first (#50): IONITY 350 kW before Fastned 300 kW, although Fastned is closer to the road.
+      assert(c.stops.map((x) => x.id).join(',') === '2,1' && c.stops[0].operator === 'IONITY GmbH' && c.stops[0].power_kw === 350 && c.stops[0].connectors.join() === 'CCS', JSON.stringify(c.stops));
+      assert(c.legs.length >= 1 && c.legs[0].n === 1 && c.legs[0].charge_to_pct === 80 && c.legs[0].stations.map((x) => x.id).join(',') === '2,1', JSON.stringify(c.legs));
+      assert(c.legs[0].stations.every((x) => Number.isFinite(x.arrive_pct)), JSON.stringify(c.legs[0].stations));
+      assert(c.status === 'ok' || c.gap_km > 0, JSON.stringify(c));
       const call = world.ocmCalls[0];
-      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5', JSON.stringify(world.ocmCalls));
-      // IONITY preferred: only IONITY, although Fastned is closer to the route.
+      assert(call && call.key === 'test-key-123' && !('key' in call.params) && call.params.polyline && call.params.distance === '2.5' && call.params.minpowerkw === '50', JSON.stringify(world.ocmCalls));
+      // IONITY preferred: only IONITY.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
       c = (await stopsNow()).charge_stops;
-      assert(c.status === 'ok' && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
+      assert(fine(c) && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
       // A preferred operator that is not on the way: the others, marked as such.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
       c = (await stopsNow()).charge_stops;
-      assert(c.status === 'ok' && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      assert(fine(c) && c.others_only && c.stops.length === 2, JSON.stringify(c));
       // Belgium too: the Shell station counts.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
       c = (await stopsNow()).charge_stops;
       assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3', JSON.stringify(c.stops));
+      // Not limited to your countries (#40, the default): every country on the route counts.
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false });
+      c = (await stopsNow()).charge_stops;
+      assert(c.stops.map((x) => x.id).sort().join(',') === '1,2,3' && c.stops.some((x) => x.country === 'BE'), JSON.stringify(c.stops));
+      // More stops (#40): a station further on makes a second stop.
+      // (Another minimum power, so the stations are asked for again.)
+      world.stations.push(poi(7, 'Fastned', along(0.75), 'NL', [ccs(300)]));
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 49 });
+      c = (await stopsNow()).charge_stops;
+      assert(fine(c) && c.legs.length >= 2 && c.legs[1].stations.some((x) => x.id === 7) && c.legs[1].km_on_trip > c.legs[0].km_on_trip, JSON.stringify(c.legs));
+      world.stations.pop();
+      // The route on a map (#47): off by default, then OpenStreetMap: the trip gets the line and positions.
+      assert(!c.map, JSON.stringify(c.map));
+      const mapOn = await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, map_tiles: 'osm' });
+      assert(mapOn.charge_stops.map_tiles === 'osm', JSON.stringify(mapOn.charge_stops));
+      await refused('POST', 'api/charge-stops', { ...body, api_key: '', map_tiles: 'custom', map_tile_url: 'https://tiles.example.lan/tile.png' }, 'tile server');
+      c = (await stopsNow()).charge_stops;
+      assert(c.map && c.map.tiles.startsWith('https://tile.openstreetmap.org/') && c.map.line && c.map.dest.lat === dest.lat && c.legs[0].stations.every((x) => Number.isFinite(x.lat)), JSON.stringify(c.map));
+      // Operators from the station data (#48): one that is not in the app's
+      // list is offered after a lookup, and can be preferred by its number.
+      world.stations.push({ ...poi(8, 'x', along(0.5, 0.002), 'NL', [ccs(150)]), OperatorInfo: { ID: 9001, Title: 'Stadtwerke Teststadt' } });
+      await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 48 });
+      c = (await stopsNow()).charge_stops;
+      const seen = (await ok('GET', 'api/charge-stops')).charge_stops.seen_operators;
+      assert(seen.some((o) => o.ocm_id === 9001 && o.name === 'Stadtwerke Teststadt') && !seen.some((o) => /fastned|ionity/i.test(o.name)), JSON.stringify(seen));
+      const mine = await ok('POST', 'api/charge-stops', { ...body, api_key: '', only_countries: false, min_power_kw: 48, ocm_operators: [{ id: 9001, name: 'Stadtwerke Teststadt' }] });
+      assert(mine.charge_stops.ocm_operators.length === 1 && mine.charge_stops.ocm_operators[0].id === 9001, JSON.stringify(mine.charge_stops.ocm_operators));
+      c = (await stopsNow()).charge_stops;
+      assert(fine(c) && c.stops.map((x) => x.id).join(',') === '8' && c.stops[0].preferred, JSON.stringify(c.stops));
+      world.stations.pop();
       // Offline: nothing is sent, the trip says why.
       const calls = world.ocmCalls.length;
       await ok('POST', 'api/routing', { mode: 'offline' });
@@ -2204,6 +2252,94 @@ async function run() {
         world.events = [];
       }
     });
+    // Where is the car when it is not plugged in (#46): car location, then a
+    // person, then a trip home in the calendar; none of these: not known.
+    const placeEvents = () => [ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 18)];
+    const leaveOf = (p) => p.next && p.next.timeline.find((x) => x.type === 'leave');
+    await test('Y24', 'Car not plugged in, no car location, no person, no trip home (#46): the place is "unknown"; Looking ahead counts from the level now (50%), the planned charging is "if plugged in" and the level with it is shown next to it', async () => {
+      world.plugged = false;
+      world.soc = 50;
+      world.events = placeEvents();
+      try {
+        const p = await settle();
+        assert(p.plan.place && p.plan.place.at === 'unknown' && p.plan.place.conditional === true, JSON.stringify(p.plan.place));
+        assert(!p.plan.away, JSON.stringify(p.plan.away));
+        const lv = leaveOf(p);
+        assert(lv && lv.soc === 50, `leaves with ${lv && lv.soc}%, not the level now`);
+        assert(lv.soc_if_charged > 50, `with charging: ${lv.soc_if_charged}`);
+        const charges = p.next.timeline.filter((x) => x.type === 'charge' && !x.expected);
+        assert(charges.length && charges.every((x) => x.if_plugged === true), JSON.stringify(charges));
+        const back = p.next.timeline.find((x) => x.type === 'back');
+        assert(!back || back.soc == null || back.soc < 50, `back with ${back && back.soc}%`);
+        return `leaves with 50% (${lv.soc_if_charged}% if plugged in), charging shown as "if plugged in"`;
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y25', 'Car location first, then the person, then the calendar (#46): car "not_home" wins over person "home"; car "unavailable" is skipped and person "not_home" decides; both unknown and "Naar huis" in the calendar: away until the trip home; a wrong entity type is not saved', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'device_tracker.test_car_location', person_entity: 'person.alex' }));
+      world.plugged = false;
+      world.soc = 50;
+      world.events = placeEvents();
+      try {
+        const list = (await ok('GET', 'api/vehicles')).vehicles;
+        assert(list[0].location_entity === 'device_tracker.test_car_location' && list[0].person_entity === 'person.alex', JSON.stringify(list[0]));
+        world.carLocation = 'not_home';
+        world.personLocation = 'home';
+        let p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'car' && p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(leaveOf(p).soc === 50, `leaves with ${leaveOf(p).soc}%`);
+        world.carLocation = 'unavailable';
+        world.personLocation = 'not_home';
+        p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'person', JSON.stringify(p.plan.place));
+        world.carLocation = 'unknown';
+        world.personLocation = 'unknown';
+        world.events = [ev('Naar huis', 'doel: 80', '', 1, 16, 17), ...placeEvents()];
+        p = await settle();
+        assert(p.plan.place.at === 'away' && p.plan.place.source === 'calendar' && p.plan.place.until === at(1, 17) && !p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(p.plan.away && p.plan.away.until === at(1, 17), JSON.stringify(p.plan.away));
+        // Only a device tracker for the car, and a person or tracker for the person.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'sensor.test_car_location', person_entity: 'input_text.alex' }));
+        const after = (await ok('GET', 'api/vehicles')).vehicles[0];
+        assert(after.location_entity === null && after.person_entity === null, JSON.stringify(after));
+        return 'car → person → calendar; wrong entity types are not saved';
+      } finally {
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        delete world.carLocation;
+        delete world.personLocation;
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
+    await test('Y26', 'Car location "home" while not plugged in (#46): at home, so the plan counts on the charging as before, also with "Naar huis" in the calendar; plugged in: no place check at all', async () => {
+      await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, location_entity: 'device_tracker.test_car_location' }));
+      world.plugged = false;
+      world.soc = 50;
+      world.carLocation = 'home';
+      world.events = [ev('Naar huis', 'doel: 80', '', 1, 16, 17), ...placeEvents()];
+      try {
+        let p = await settle();
+        assert(p.plan.place.at === 'home' && p.plan.place.source === 'car' && !p.plan.place.conditional, JSON.stringify(p.plan.place));
+        assert(!p.plan.away, `away while the car is at home: ${JSON.stringify(p.plan.away)}`);
+        const lv = leaveOf(p);
+        assert(lv && lv.soc > 50 && lv.soc_if_charged == null, JSON.stringify(lv));
+        world.plugged = true;
+        world.carLocation = 'not_home';
+        p = await settle();
+        assert(!p.plan.place, JSON.stringify(p.plan.place));
+        return `at home: leaves with ${lv.soc}%`;
+      } finally {
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        delete world.carLocation;
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+      }
+    });
     await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
@@ -2321,7 +2457,7 @@ async function run() {
             .map((e) => (e.summary === 'Naar Werk' ? { ...e, location: place.work } : e.summary === 'Naar Sport' ? { ...e, location: place.sport } : e));
         };
         if (big > want) await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: Math.min(40, Math.round(30 * CAP_K)) }));
-        else move({ work: 'Kerkstraat 1, 2982 AA Ridderkerk', workAt: { lat: 51.87, lon: 4.6 }, sport: 'Markt 1, 3311 BA Rivertown', sportAt: { lat: 51.81, lon: 4.67 } }, 40);
+        else move({ work: 'Kerkstraat 1, 1115 AA Bridgetown', workAt: { lat: 51.87, lon: 2.1 }, sport: 'Markt 1, 1112 BA Rivertown', sportAt: { lat: 51.81, lon: 2.17 } }, 40);
         await settle();
         p = await settle();
         const less = Math.max(80, Math.min(100, Math.ceil(p.next.trip.pct + 10)));
@@ -2536,8 +2672,8 @@ async function run() {
   {
     await stopApp();
     await startApp({ allow_control: true, notify_start_stop: false, allow_calendar_write: true });
-    const ADDR = 'Stationsplein 1, 3511 ED Utrecht';
-    world.places = { ...(world.places || {}), [ADDR]: { lat: 52.09, lon: 5.11 } };
+    const ADDR = 'Stationsplein 1, 1116 AA Centretown';
+    world.places = { ...(world.places || {}), [ADDR]: { lat: 52.09, lon: 2.61 } };
     world.routeKm = 75;
     world.events = [];
     world.soc = 60;
@@ -2819,6 +2955,77 @@ async function run() {
         world.houseW = 850;
         await ok('POST', `api/control/settings?charger=${ch1}`, rules({ current_id: '', min_soc_enabled: true, min_soc: 50 }));
         await ok('DELETE', `api/boost?charger=${ch1}`);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+
+    await test('X5d', 'Per phase (#29): two one-phase chargers on different phases both charge; same phase: the second waits; unknown phase: room kept on every phase; no fresh meter: one charger at 6 A', async () => {
+      const saved = (await ok('GET', 'api/chargers')).chargers;
+      const [c1, c2] = [ch1, ch2].map((id) => saved.find((c) => c.id === id));
+      const body = (c, o) => ({ id: c.id, name: c.name, device_id: c.device_id, integration: c.integration, status_entity: c.status_entity, power_entity: c.power_entity,
+        current_entity: c.current_entity, switch_entity: c.switch_entity, phases: c.phases, phase: c.phase || '', max_current: c.max_current, max_current_entities: c.max_current_entities || [], vehicle_id: c.vehicle_id, ...o });
+      const grid = { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' };
+      const P1 = ['sensor.p1_power', 'sensor.p1_current_l1', 'sensor.p1_current_l2', 'sensor.p1_current_l3'];
+      const look = async () => {
+        for (let i = 0; i < 2; i++) { await planOf(ch1); await planOf(ch2); await sleep(250); } // twice: the measured currents settle
+        const o = await overview();
+        return { o, a: o.chargers.find((c) => c.id === ch1), b: o.chargers.find((c) => c.id === ch2) };
+      };
+      const place = async (l1, l2) => {
+        await ok('POST', 'api/chargers', body(c1, { phases: 1, phase: l1 }));
+        await ok('POST', 'api/chargers', body(c2, { phases: 1, phase: l2 }));
+        world.phases = 1; world.line = l1 || 'L1';
+        world.ch2.phases = 1; world.ch2.line = l2 || 'L2';
+        return look();
+      };
+      const say = (r) => JSON.stringify({ share: r.o.share, a: [r.a.want, r.a.code, r.a.amps, r.a.shared], b: [r.b.want, r.b.code, r.b.amps, r.b.shared] });
+      try {
+        world.phaseHouse = { L1: 3, L2: 2, L3: 2 };
+        await ok('POST', 'api/grid', { ...grid, current_l1_entity: 'sensor.p1_current_l1', current_l2_entity: 'sensor.p1_current_l2', current_l3_entity: 'sensor.p1_current_l3' });
+        let r = await place('L1', 'L2');
+        assert(r.o.share.how === 'phase_currents' && r.o.share.phases_a && r.o.share.phases_a.L1 != null, say(r));
+        // The share itself is checked: an Easee first switches to one phase (control_wait) before it charges.
+        const res = (r) => r.o.share.result || {};
+        assert(!res(r)[ch1] && !res(r)[ch2] && r.o.share.left_a.L1 === 5 && r.o.share.left_a.L2 === 6, `different phases: ${say(r)}`);
+        r = await place('L1', 'L1');
+        assert(r.o.share.order[0] === ch2 && !res(r)[ch2] && res(r)[ch1] && res(r)[ch1].pause === true, `same phase: ${say(r)}`);
+        r = await place('', 'L2');
+        // On L1 it would get 16 A; with an unknown phase only what is left on L2 (6 A, or a little more while it still draws on L1).
+        assert(!res(r)[ch2] && res(r)[ch1] && res(r)[ch1].amps >= 6 && res(r)[ch1].amps < 16, `unknown phase: ${say(r)}`);
+        world.ages = Object.fromEntries(P1.map((id) => [id, 10 * 60000]));
+        r = await look();
+        assert(r.o.share.how === 'no_reading' && res(r)[ch1] && res(r)[ch1].pause === true && (!res(r)[ch2] ? false : res(r)[ch2].pause || res(r)[ch2].amps === 6), `stale meter: ${say(r)}`);
+        return 'different phases: both 16 A · same phase: Laadpaal waits · unknown phase: limited by L2 · stale meter: one charger at 6 A';
+      } finally {
+        world.ages = undefined; world.phaseHouse = undefined; world.phases = null; world.line = undefined;
+        if (world.ch2) { world.ch2.phases = undefined; world.ch2.line = undefined; }
+        await ok('POST', 'api/chargers', body(c1, {}));
+        await ok('POST', 'api/chargers', body(c2, {}));
+        await ok('POST', 'api/grid', grid);
+        await planOf(ch1); await planOf(ch2);
+      }
+    });
+    await test('X5e', 'Load balancer for one charger only (#29): the app still shares the connection for the other charger', async () => {
+      try {
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: 'other', load_balancer_chargers: [ch2] });
+        const g = (await ok('GET', 'api/grid')).grid[0];
+        assert(g.load_balancer && JSON.stringify(g.load_balancer.chargers) === JSON.stringify([ch2]), JSON.stringify(g.load_balancer));
+        world.houseW = 4600;
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        const o = await overview();
+        const a = o.chargers.find((c) => c.id === ch1);
+        assert(o.share.how !== 'load_balancer' && o.share.load_balancer && o.share.order.length === 1 && o.share.order[0] === ch1, JSON.stringify(o.share));
+        assert(a.want === 'pause' && a.code === 'shared_wait', `the house and the Garage use the connection: ${JSON.stringify([a.want, a.code, a.reason])}`);
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: 'other', load_balancer_chargers: 'all' });
+        const all = (await ok('GET', 'api/grid')).grid[0];
+        assert(all.load_balancer.chargers === null, JSON.stringify(all.load_balancer));
+        await planOf(ch1); await planOf(ch2); await sleep(250);
+        assert((await overview()).share.how === 'load_balancer', 'all chargers behind the load balancer: the app does not share');
+        return `Laadpaal: ${a.reason}`;
+      } finally {
+        world.houseW = 850;
+        await ok('POST', 'api/grid', { name: 'P1 meter', device_id: 'p1', net_entity: 'sensor.p1_power', main_fuse: 25, phases: 3, load_balancer: '' });
         await planOf(ch1); await planOf(ch2);
       }
     });

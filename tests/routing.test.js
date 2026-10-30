@@ -35,7 +35,13 @@ async function main() {
   const serve = (who) => http.createServer((req, res) => {
     hits[who].push(req.url);
     res.setHeader('Content-Type', 'application/json');
-    if (req.url.includes('/search')) res.end(JSON.stringify([{ lat: '51.60', lon: '5.30' }]));
+    if (req.url.includes('/search')) {
+      // An address abroad (#49) is only found without the country limit.
+      const u = new URL(req.url, 'http://x');
+      const abroad = /Exempelgatan|Exempelstad/.test(u.searchParams.get('q') || '');
+      if (abroad) res.end(JSON.stringify(u.searchParams.get('countrycodes') ? [] : [{ lat: '57.70', lon: '11.97' }]));
+      else res.end(JSON.stringify([{ lat: '51.60', lon: '5.30' }]));
+    }
     else res.end(JSON.stringify({ routes: [{ distance: 42000 }] }));
   });
   const pub = serve('public');
@@ -119,6 +125,39 @@ async function main() {
     assert.ok(hits.public.some((u) => u.startsWith('/search') && u.includes('Markt')), 'address search was asked');
     assert.ok(hits.public.some((u) => u.startsWith('/route/') && u.includes('5.2,51.5')), 'router got home coordinates');
     assert.equal(hits.own.length, 0);
+  });
+
+  await check('an address abroad (#49): first in the home country, then without the country limit; an address at home is asked once', async () => {
+    reset();
+    routing = { mode: 'osm' };
+    const before = ha.state.country;
+    ha.state.country = 'NL';
+    try {
+      // At home: found in the home country, one request, with the limit.
+      cost('Markt 1, 5211 Dorp');
+      await settle();
+      const home = hits.public.filter((u) => u.startsWith('/search'));
+      assert.equal(home.length, 1, JSON.stringify(home));
+      assert.ok(home[0].includes('countrycodes=nl'), home[0]);
+      // Abroad: every try in the Netherlands finds nothing, then anywhere finds it.
+      hits.public.length = 0;
+      const where = 'Exempelgatan 7, 111 11 Exempelstad, Zweden';
+      assert.equal(cost(where).status, 'pending');
+      await settle();
+      const search = hits.public.filter((u) => u.startsWith('/search'));
+      const limited = search.filter((u) => u.includes('countrycodes=nl'));
+      const free = search.filter((u) => !u.includes('countrycodes'));
+      assert.ok(limited.length >= 1 && free.length === 1, JSON.stringify(search));
+      assert.ok(search.indexOf(free[0]) > search.indexOf(limited[limited.length - 1]), 'the home country is asked first');
+      assert.ok(decodeURIComponent(free[0].replace(/\+/g, ' ')).includes('Exempelgatan 7'), free[0]);
+      cost(where);
+      await settle();
+      const r = cost(where);
+      assert.equal(r.status, 'ok', JSON.stringify(r));
+      assert.equal(r.km, 42);
+    } finally {
+      ha.state.country = before;
+    }
   });
 
   await check('own servers: everything goes to your servers, nothing to the public ones', async () => {

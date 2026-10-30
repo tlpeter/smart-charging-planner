@@ -79,6 +79,9 @@ if (/-dev$/.test(version || '')) {
     for (const line of changelog.split('\n')) {
       const h = line.match(/^## (\d+\.\d+\.\d+)(-dev)?\b/);
       if (h) {
+        // The stable release heading (for example "## 0.35.0"): everything
+        // below it is in that release already (its -dev versions too).
+        if (!h[2] && h[1] === stable) break;
         current = h[1];
         continue;
       }

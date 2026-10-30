@@ -7,7 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
-const { detectVehicles, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
+const { detectVehicles, placeEntities, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
 const activecar = require('./activecar');
 const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
@@ -19,6 +19,7 @@ const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, peri
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
 const chargestops = require('./chargestops');
+const carplace = require('./carplace');
 const precondition = require('./precondition');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
@@ -56,6 +57,9 @@ const STATIC_FILES = new Map([
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
   ['/unsaved.js', ['unsaved.js', 'application/javascript; charset=utf-8']],
+  // Leaflet for the route map (#54): shipped with the app, loaded only when a map opens.
+  ['/vendor/leaflet/leaflet.js', ['vendor/leaflet/leaflet.js', 'application/javascript; charset=utf-8']],
+  ['/vendor/leaflet/leaflet.css', ['vendor/leaflet/leaflet.css', 'text/css; charset=utf-8']],
 ]);
 const APP_VERSION = require('./package.json').version;
 require('./tripcost').setUserAgent(APP_VERSION);
@@ -464,6 +468,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const share = neededKwh > 0 ? Math.min(1, (plan.planned_kwh || 0) / neededKwh) : 1;
     socAtDep = Math.round((socAtDep + (targetSoc - socAtDep) * share) * 10) / 10;
   }
+  // Not plugged in, and away without a time back or not known where (#46):
+  // the planned charging may not happen. The levels start from the level
+  // now; the level with that charging is shown next to it.
+  const ifPlugged = !!(plan.place && plan.place.conditional) && Number.isFinite(soc);
+  const socIfCharged = ifPlugged && socAtDep != null && socAtDep > soc + 0.05 ? socAtDep : null;
+  if (ifPlugged) socAtDep = Math.round(soc * 10) / 10;
   const curTrip = departure.source === 'calendar' ? trips.find((t) => t.time === departure.time) || departure : departure;
   const trip0 = tripOf(curTrip, Number.isFinite(soc) ? soc : socAtDep);
   // (The first trip's level after it follows the level when leaving.)
@@ -522,7 +532,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
-    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socAtDep }, plan.minimum || null, !!plan.care));
+    timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socIfCharged ?? socAtDep, ...(ifPlugged ? { if_plugged: true } : {}) }, plan.minimum || null, !!plan.care));
   }
   const leave = (x, t, tr, socLeave, target) => {
     timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
@@ -551,6 +561,10 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
   leave(departure, curTrip, trip0, socAtDep, departure.soc);
+  if (socIfCharged != null) {
+    const first = timeline.find((x) => x.type === 'leave');
+    if (first) first.soc_if_charged = socIfCharged;
+  }
 
   const out = {
     current: {
@@ -737,9 +751,13 @@ const routes = {
   // Look for vehicles in Home Assistant.
   'GET /api/vehicles/detect': async () => {
     const { entities, devices, states } = await loadRegistries();
+    // A person (the driver's phone) for every car: the fallback when the car has no location (#46).
+    const persons = placeEntities(entities, states, 'person');
     return {
-      candidates: detectVehicles(entities, devices, states),
+      candidates: detectVehicles(entities, devices, states).map((c) => ({ ...c, options: { ...c.options, person: persons }, suggested: { ...c.suggested, person: null } })),
       percent_sensors: percentSensors(entities, states),
+      trackers: placeEntities(entities, states, 'device_tracker'),
+      persons,
     };
   },
 
@@ -760,6 +778,8 @@ const routes = {
           charging: valueOf(states, v.charging_entity),
           plugged: valueOf(states, v.plugged_entity),
           charge_limit: valueOf(states, v.charge_limit_entity),
+          location: valueOf(states, v.location_entity),
+          person: valueOf(states, v.person_entity),
         },
       })),
     };
@@ -801,6 +821,9 @@ const routes = {
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
+      // Where the car is when not plugged in (#46): the car's tracker, then a person.
+      location_entity: String(body.location_entity || '').startsWith('device_tracker.') ? String(body.location_entity).slice(0, 255) : null,
+      person_entity: /^(person|device_tracker)\./.test(String(body.person_entity || '')) ? String(body.person_entity).slice(0, 255) : null,
       stale_hours: body.stale_hours === undefined || body.stale_hours === '' ? cardata.DEFAULT_STALE_HOURS : Number(body.stale_hours),
     };
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
@@ -940,6 +963,8 @@ const routes = {
       current_entity: pick('current_entity', ['number']),
       switch_entity: pick('switch_entity', ['switch']),
       phases: Number(body.phases) === 1 ? 1 : 3,
+      // The phase it uses when it charges on one phase; null: not known (#29).
+      phase: PHASE_NAMES.includes(body.phase) ? body.phase : null,
       max_current: body.max_current === '' || body.max_current == null ? null : Number(body.max_current),
       // Limit sensors to follow live; the lowest value counts.
       max_current_entities: (Array.isArray(body.max_current_entities) ? body.max_current_entities : String(body.max_current_entities || '').split(','))
@@ -1067,6 +1092,13 @@ const routes = {
       grid.load_balancer = { type: 'device', device_id: lb, name: String(body.load_balancer_name || 'Load balancer').slice(0, 60) };
     }
     const s = settings.load();
+    // Which chargers the load balancer protects (#29). Not given or "all": all
+    // of them, and the app does not share. A list: the app shares for the others.
+    if (grid.load_balancer) {
+      const raw = body.load_balancer_chargers;
+      const list = raw == null || raw === 'all' ? null : (Array.isArray(raw) ? raw : String(raw).split(',')).map((x) => String(x).trim()).filter(Boolean);
+      grid.load_balancer.chargers = list === null ? null : s.chargers.filter((c) => list.includes(c.id)).map((c) => c.id);
+    }
     s.grid = [grid];
     settings.save(s);
     ha.log('Saved grid meter', grid.name);
@@ -1379,13 +1411,22 @@ const routes = {
         care = { soc: careSoc, target: targetSoc, care_kwh: careKwh, refill_kwh: actualNow.charging === true ? 0 : energyNeededKwh(0, 5, vehicle.capacity_kwh, planning.loss_percent), window_start: departure.time - hours * 3600000 };
       }
     }
-    // The car is away and a trip home is in the calendar (for example "Naar
-    // huis" 16:30–17:30): charging can only start when it is back.
+    // Where is the car when it is not plugged in (#46)? The car's location,
+    // then a person, then a trip home in the calendar (for example "Naar
+    // huis" 16:30–17:30). Away with a time back: charging can only start
+    // then. Away without one, or not known: the charging is shown as "if
+    // plugged in in time", never as if it will happen (carplace.js).
     let away = null;
-    if (actualNow.plugged === false && dep.calendar.enabled && Array.isArray(events)) {
-      // Every event counts here (a trip home often has no target of its own).
-      const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
-      if (home) away = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+    let place = null;
+    if (vehicle && actualNow.plugged === false) {
+      let homeTrip = null;
+      if (dep.calendar.enabled && Array.isArray(events)) {
+        // Every event counts here (a trip home often has no target of its own).
+        const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
+        if (home) homeTrip = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+      }
+      place = carplace.where({ plugged: false, vehicle, states, homeTrip });
+      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
     }
     const planNow = away ? Math.max(now, away.until) : now;
     const plan = minNow && neededKwh > 0.01
@@ -1417,6 +1458,7 @@ const routes = {
         solarOnly,
       });
     if (away) plan.away = away;
+    if (place) plan.place = { ...place, conditional: carplace.conditional(place) };
     if (minNow && neededKwh > 0.01) {
       plan.minimum = { soc: minNow.soc, kwh: Math.round(minNow.kwh * 10) / 10, kind: 'always' };
       plan.notes.push('below_minimum');
@@ -1713,7 +1755,7 @@ const routes = {
     settings.save(s);
     for (const x of ST.all.values()) x.planCache = null;
     ST().planCache = null;
-    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.countries.join(', ')})` : 'off'}`);
+    ha.log(`Charging stops on the way: ${s.charge_stops.enabled ? `on (${s.charge_stops.only_countries ? `only ${s.charge_stops.countries.join(', ')}` : 'every country on the route'}, charge to ${s.charge_stops.charge_to_pct}%)` : 'off'}`);
     return { ok: true, charge_stops: chargestops.view() };
   },
 
@@ -2366,6 +2408,7 @@ routes['DELETE /api/chargefor'] = async () => {
 // Home battery (Settings › Battery)
 // ---------------------------------------------------------------------------
 
+const PHASE_NAMES = ['L1', 'L2', 'L3'];
 const BATTERY_DEFAULTS = {
   enabled: false,
   platform: null,
@@ -2386,6 +2429,8 @@ const BATTERY_DEFAULTS = {
   ev_from_pct: 80, // range: the battery starts charging the car from this level
   ev_to_pct: 40, // range: and stops at this level (kept for the house)
   solar_priority: 'smart',
+  phases: 3, // 1 or 3: how the battery is connected (#29)
+  phase: null, // one phase: 'L1' | 'L2' | 'L3', or null when not known
   saved: null, // values to put back (Tesla backup reserve, Sessy strategy)
 };
 
@@ -2611,7 +2656,7 @@ async function executeBattery(bcfg, control, states, commands, action, reason, k
   controller.logSent(line);
   return { sent: line.sent, action, error: line.error || null, commands: line.commands };
 }
-async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = null) {
+async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = null, site = null) {
   const cfg = batterySettings(s);
   if (!cfg.soc_entity) return null;
   const live = options.allow_control === true && options.allow_battery_control === true;
@@ -2630,7 +2675,11 @@ async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = 
     const ok = await releaseBatteryUnlocked(cfg);
     return { ...info, action: 'auto', sent: owned && ok, ...(ok ? {} : { error: lastBattery && lastBattery.error || 'Battery recovery failed' }) };
   }
-  const guarded = batteryguard.constrain(want, cfg, control, fresh);
+  let guarded = batteryguard.constrain(want, cfg, control, fresh);
+  // More chargers: grid charging only with what the chargers leave (#29).
+  if (guarded.action === 'charge' && !forcedAction && site && site.fits === false) {
+    guarded = { ...guarded, action: 'hold', code: 'battery_capacity', blocked: true, reason: site.reason || 'Not enough connection capacity for grid charging' };
+  }
   if (guarded.action === 'release') {
     const restored = await releaseBatteryUnlocked(cfg);
     return { ...info, code: guarded.code, blocked: true, error: guarded.reason + (restored ? '' : '; recovery is pending'), reason: guarded.reason };
@@ -2646,9 +2695,9 @@ async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = 
   const result = await executeBattery(cfg, control, fresh, commands, c.action, guarded.reason, bounds.length > 0, !!forcedAction);
   return { ...info, ...guarded, ...result, blocked };
 }
-function batteryStep(s, planResult, entry, states) {
+function batteryStep(s, planResult, entry, states, site = null) {
   return batteryLock(async () => {
-    try { lastBatteryInfo = await batteryStepUnlocked(s, planResult, entry, states); }
+    try { lastBatteryInfo = await batteryStepUnlocked(s, planResult, entry, states, null, site); }
     catch (err) { lastBatteryInfo = { action: 'none', blocked: true, sent: false, error: err.message, live: options.allow_control === true && options.allow_battery_control === true }; }
     return lastBatteryInfo;
   });
@@ -2712,6 +2761,9 @@ routes['POST /api/battery'] = async (req) => {
     ev_to_pct: b.ev_to_pct === undefined ? prev.ev_to_pct : num(b.ev_to_pct, 'Stop level for the car', 0, 99),
     solar_priority: b.solar_priority === 'battery' ? 'battery' : b.solar_priority === 'car' ? 'car' : 'smart',
     power_sign: b.power_sign === 'discharge_positive' ? 'discharge_positive' : 'charge_positive',
+    // How the battery is connected, for sharing the connection with more chargers (#29).
+    phases: b.phases === undefined ? prev.phases : Number(b.phases) === 1 ? 1 : 3,
+    phase: b.phase === undefined ? prev.phase : PHASE_NAMES.includes(b.phase) ? b.phase : null,
   };
   if (cfg.min_pct >= cfg.max_pct) throw badRequest('The minimum level must be below the maximum level');
   if (cfg.ev_discharge === 'range') {
@@ -2947,7 +2999,7 @@ routes['GET /api/checklist'] = async () => {
   if (chargersList(s).length > 1) {
     const g = s.grid[0];
     add('sharing', g && (g.main_fuse > 0 || g.load_balancer) ? 'ok' : 'warn', 'Sharing the connection',
-      g && g.load_balancer ? `${g.load_balancer.name} shares the connection`
+      g && g.load_balancer ? (Array.isArray(g.load_balancer.chargers) ? `${g.load_balancer.name} protects ${g.load_balancer.chargers.length} charger(s); the app shares the connection for the others, per phase` : `${g.load_balancer.name} shares the connection`)
         : g && g.main_fuse > 0 ? `Main fuse ${g.main_fuse} A: the car with the least room to spare goes first, the rest is shared`
           : 'Set up the grid meter and main fuse (Settings › Grid), so the chargers share the connection', 'grid');
   }
@@ -3727,7 +3779,7 @@ function controlSite() {
     }
     // One battery decision for the site, before any new charger is enabled.
     const primary = chargersList(s)[0];
-    if (primary) await scope.run(primary.id, async () => {
+    const batteryDecision = async () => { if (primary) await scope.run(primary.id, async () => {
       try {
         const cached = ST().planCache && ST().planCache.result;
         const cfg = batterySettings(s);
@@ -3737,16 +3789,28 @@ function controlSite() {
           cached.battery = await batteryPlanFor(s, cfg, { ...ST().batteryInputs, states, evBlocks });
           for (const { step } of steps) if (step.planResult) step.planResult.battery = cached.battery;
         }
-        const info = await batteryStep(s, cached, steps.map(({ id, step }) => ({ ...step.entry, charger_id: id })), []);
+        const info = await batteryStep(s, cached, steps.map(({ id, step }) => ({ ...step.entry, charger_id: id })), [], lastShare && lastShare.battery);
         for (const { step } of steps) step.entry.battery_now = info;
       } catch (err) { ha.warn('Site battery step failed:', err.message); }
-    });
-    for (const { id, step } of steps) {
-      await scope.run(id, () => actStep(step, { siteBattery: true }).catch((err) => ha.warn('Control step failed:', err.message)));
-    }
+    }); };
+    // Chargers that go down or pause first, then the battery, then the ones that go up (#29).
+    const act = ({ id, step }) => scope.run(id, () => actStep(step, { siteBattery: true }).catch((err) => ha.warn('Control step failed:', err.message)));
+    const down = steps.filter(({ step }) => goesDown(step));
+    for (const x of down) await act(x);
+    await batteryDecision();
+    for (const x of steps) if (!down.includes(x)) await act(x);
   });
   siteRunning = run.finally(() => { if (siteRunning === run) siteRunning = null; });
   return run;
+}
+
+// A charger step that lowers what the charger draws: pause, stop, or a lower current.
+function goesDown(step) {
+  const e = step.entry || {};
+  if (e.want !== 'charge') return true;
+  const phases = (step.charger && step.charger.phases === 1) || e.phases === 1 ? 1 : 3;
+  const now = sharing.ampsOf(e.power_w, phases);
+  return Number.isFinite(e.amps) && now > e.amps + 0.5;
 }
 
 // More chargers: every charger at a glance (Home), with how the connection is shared.
@@ -3781,22 +3845,37 @@ routes['GET /api/chargers/overview'] = async () => {
   return { multi_charger: list.length > 1, chargers: out, share: lastShare };
 };
 
-// What every charger may use of the connection (sharing.js).
+// What every charger may use of the connection (sharing.js), per phase (#29).
+// A grid reading older than this is not used: the safe side instead.
+const GRID_STALE_MS = 5 * 60000;
 function shareConnection(s, steps) {
   const grid = s.grid[0] || null;
   const states = steps.length ? steps[0].step.states : [];
+  const now = Date.now();
+  const fresh = (st) => {
+    const at = Date.parse(st.last_reported || st.last_updated || st.last_changed || '');
+    return !Number.isFinite(at) || now - at <= GRID_STALE_MS;
+  };
   const num = (id) => {
     const st = id ? states.find((x) => x.entity_id === id) : null;
     const n = st ? Number(st.state) : NaN;
-    if (!Number.isFinite(n)) return null;
+    if (!Number.isFinite(n) || String(st.state).trim() === '' || !fresh(st)) return null;
     const unit = (st.attributes && st.attributes.unit_of_measurement) || '';
     return /^kW$/i.test(unit) ? n * 1000 : n;
   };
-  const list = steps.map(({ id, step }, i) => {
+  const gridPhases = grid && grid.phases === 1 ? 1 : 3;
+  const lb = grid && grid.load_balancer;
+  // A load balancer protects all chargers (no list), or only the listed ones.
+  const lbScope = lb ? (Array.isArray(lb.chargers) ? lb.chargers : null) : [];
+  const byLb = (id) => lbScope === null || lbScope.includes(id);
+  const all = steps.map(({ id, step }, i) => {
     const e = step.entry;
     const r = step.planResult && step.planResult.reliability;
     const chosen = chosenMethods(step.methods, step.rules);
     const maxA = (step.planResult && step.planResult.charger && step.planResult.charger.max_current) ?? 16;
+    const ownPhases = step.charger.phases === 1 ? 1 : 3;
+    const phasesNow = ownPhases === 1 || e.phases === 1 ? 1 : 3; // solar may switch to one phase
+    const powerW = Number.isFinite(e.power_w) ? e.power_w : 0;
     return {
       id,
       name: (step.planResult && step.planResult.vehicle && step.planResult.vehicle.name) || step.charger.name,
@@ -3804,8 +3883,10 @@ function shareConnection(s, steps) {
       amps: e.amps ?? maxA,
       can_set_current: !!(chosen && chosen.current),
       solar: !!e.solar,
-      power_w: Number.isFinite(e.power_w) ? e.power_w : 0,
-      phases: step.charger.phases === 1 ? 1 : 3,
+      power_w: powerW,
+      phases: phasesNow,
+      lines: sharing.linesOf({ phases: phasesNow, phase: step.charger.phase || null, gridPhases }),
+      measured_a: sharing.ampsOf(powerW, phasesNow),
       priority: {
         // Charge now is the user's own choice and goes first, whichever rule
         // gives the charging reason (for example below the minimum) (#35).
@@ -3817,20 +3898,51 @@ function shareConnection(s, steps) {
       order: i,
     };
   });
-  let availableA = null;
-  let how = 'no_grid';
-  if (grid && grid.load_balancer) how = 'load_balancer';
-  else if (grid && grid.main_fuse > 0) {
-    const phaseA = [grid.current_l1_entity, grid.current_l2_entity, grid.current_l3_entity].map(num).filter((x) => x != null);
-    // Use the same import-positive net power as solar, even when solar control is off.
-    const net = solar.gridNetW(grid, states, s.solar && s.solar.grid_sign);
-    const chargersW = list.reduce((a, c) => a + c.power_w, 0);
-    const chargersA = list.reduce((a, c) => a + c.power_w / 230 / c.phases, 0);
-    availableA = sharing.available({ mainFuse: grid.main_fuse, phases: grid.phases, gridA: phaseA.length ? Math.max(...phaseA) : null, gridW: Number.isFinite(net) ? net : null, chargersW, chargersA });
-    how = phaseA.length ? 'phase_currents' : Number.isFinite(net) ? 'net_power' : 'main_fuse';
+  // Chargers behind the load balancer are left to it; what they draw counts as house load.
+  const list = all.filter((c) => !byLb(c.id));
+  // The home battery, when its planning is on: grid charging only with what is left.
+  const bcfg = batterySettings(s);
+  let bat = null;
+  if (bcfg.enabled && bcfg.soc_entity) {
+    const bPhases = Number(bcfg.phases) === 1 ? 1 : 3;
+    const kw = bcfg.power_entity ? battery.powerKw(bcfg, states) : null;
+    const needA = sharing.ampsOf((Number(bcfg.charge_kw) || 0) * 1000, bPhases);
+    const chargingW = Number.isFinite(kw) ? Math.max(0, kw * 1000)
+      : lastBattery && lastBattery.action === 'charge' ? (Number(bcfg.charge_kw) || 0) * 1000 : 0;
+    bat = { lines: sharing.linesOf({ phases: bPhases, phase: bcfg.phase || null, gridPhases }), need_a: needA, measured_a: sharing.ampsOf(chargingW, bPhases), power_w: chargingW };
   }
-  const { order, result } = sharing.share(list, availableA);
-  lastShare = { at: Date.now(), how, available_a: availableA == null ? null : Math.round(availableA * 10) / 10, order, result, main_fuse: grid ? grid.main_fuse : null };
+  let cap = null;
+  let how = 'no_grid';
+  if (lb && lbScope === null) how = 'load_balancer';
+  else if (grid && grid.main_fuse > 0) {
+    const lines = gridPhases === 1 ? ['L1'] : sharing.LINES;
+    const ids = { L1: grid.current_l1_entity, L2: grid.current_l2_entity, L3: grid.current_l3_entity };
+    const phaseA = Object.fromEntries(lines.map((l) => [l, num(ids[l])]));
+    const hasPhases = lines.every((l) => phaseA[l] != null);
+    const configured = lines.some((l) => ids[l]);
+    // Use the same import-positive net power as solar, even when solar control is off.
+    const netId = grid.net_entity || grid.import_entity;
+    const netSt = netId ? states.find((x) => x.entity_id === netId) : null;
+    const net = netSt && !fresh(netSt) ? null : solar.gridNetW(grid, states, s.solar && s.solar.grid_sign);
+    cap = sharing.capacity({ mainFuse: grid.main_fuse, phases: gridPhases, phaseA: hasPhases ? phaseA : null,
+      gridW: Number.isFinite(net) ? net : null, consumers: [...list, ...(bat ? [bat] : [])] });
+    how = hasPhases ? 'phase_currents' : Number.isFinite(net) ? 'net_power' : 'no_reading';
+    if (configured && !hasPhases && how === 'net_power') how = 'net_power_fallback';
+  }
+  const { order, result, battery: batteryFit, left } = sharing.share(list, cap, { battery: bat });
+  if (how === 'no_reading') {
+    for (const r of Object.values(result)) if (r.pause) r.reason = 'Waiting: no fresh grid meter reading; one charger at 6 A until it is back';
+    if (batteryFit && !batteryFit.fits) batteryFit.reason = 'Waiting: no fresh grid meter reading; the battery does not charge from the grid';
+  }
+  const round = (x) => (x == null ? null : Math.round(x * 10) / 10);
+  const capacityA = cap ? Object.fromEntries(Object.entries(cap).map(([l, v]) => [l, round(v)])) : null;
+  lastShare = {
+    at: now, how, order, result, main_fuse: grid ? grid.main_fuse : null,
+    available_a: cap ? round(Math.min(...Object.values(cap))) : null,
+    phases_a: capacityA, left_a: left,
+    load_balancer: lb && lbScope !== null ? { name: lb.name, chargers: all.filter((c) => byLb(c.id)).map((c) => c.id) } : null,
+    battery: bat ? { fits: batteryFit ? batteryFit.fits : true, reason: batteryFit ? batteryFit.reason : null } : null,
+  };
   return result;
 }
 

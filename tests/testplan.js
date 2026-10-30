@@ -31,15 +31,18 @@ const UNIT = [
   ['forecast', 'Price forecast: reading it and planning with it'],
   ['reliability', 'Ready Guard: is the car ready in time, and what happens when it is not'],
   ['chargestate', 'The charging status on Home: which state and colour (ready green, charging red, waiting yellow, problems orange)'],
+  ['carplace', 'Where the car is when not plugged in: car location, then a person, then a trip home in the calendar, else not known (#46)'],
   ['notify', 'Notifications: a message that reached no phone is tried again'],
   ['activecar', 'More than one car: connected car; calendar tags, trip language and duplicate prevention'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
   ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
   ['pricebasis', 'Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26)'],
-  ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31)'],
-  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37)'],
+  ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31); addresses abroad: home country first, then every country (#49)'],
+  ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40); operators from the station data and the settings lists (#48); the route map settings and data (#47)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
   ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
+  ['compat', 'Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28)'],
+  ['page', 'The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54)'],
   ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 
@@ -147,7 +150,7 @@ function settingsPart(sets) {
   md += '1. **Settings**: every setting, against a fake Home Assistant (`tests/fake-ha.js`). The real app starts with an empty data folder and is used through the same API as the page: what is saved, what is refused, what the plan does and what is sent to Home Assistant.\n';
   md += '2. **Unit tests**: one part of the app at a time, without Home Assistant (brands, solar, batteries, price forecast, Ready Guard, more cars, more chargers, look ahead, saving).\n';
   md += '3. **Matrix**: every charger brand with every home battery brand.\n\n';
-  md += 'A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core.\n\n';
+  md += 'A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a real Home Assistant Core: the current version and the oldest one checked (2026.4.2). The Tests workflow also builds the app image for amd64 and aarch64.\n\n';
   md += '## Summary\n\n| Test | Passed |\n|---|---|\n';
   for (const [i, s] of sets.entries()) {
     const p = s.results.filter((r) => r.ok).length;

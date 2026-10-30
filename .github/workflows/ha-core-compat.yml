@@ -17,14 +17,18 @@ on:
 permissions:
   contents: read
 
-env:
-  HA_CORE_VERSION: '2026.10.4'
-
 jobs:
   compatibility:
-    name: Core 2026.10.4
+    # The current Core and the oldest one the app is checked against (#28).
+    name: Core ${{ matrix.core }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        core: ['2026.10.4', '2026.4.2']
+    env:
+      HA_CORE_VERSION: ${{ matrix.core }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,7 +36,7 @@ jobs:
           node-version: 22
       - run: npm ci
         working-directory: smart_charging_planner/app
-      - name: Start Home Assistant Core 2026.10.4
+      - name: Start Home Assistant Core ${{ matrix.core }}
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/ha-core-config"

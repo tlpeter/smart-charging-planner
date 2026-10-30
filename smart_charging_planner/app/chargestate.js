@@ -110,7 +110,17 @@ function chargeStateOnly(d, n, fmt) {
   const carUnknown = v.car_data && v.car_data.ok === false;
 
   if (n.plugged === false) {
-    return st('not_connected', 'grey', 'plugOff', 'Car not connected', d.departure ? `Plug in to be ready by ${fmt.dayHm(d.departure.time)}.` : 'Plug in the car to charge.');
+    // Where the car is (#46): the car's location, a person or the calendar.
+    const place = p.place || null;
+    const by = place && { car: 'car location', person: 'person', calendar: 'calendar' }[place.source];
+    const plugIn = d.departure ? `Plug in to be ready by ${fmt.dayHm(d.departure.time)}.` : 'Plug in the car to charge.';
+    if (place && place.at === 'away') {
+      return st('not_connected', 'grey', 'plugOff', 'Car away', join([`Away (${by})`, place.until ? `back around ${fmt.dayHm(place.until)}` : 'not known when it is back']) + `. ${plugIn}`);
+    }
+    if (place && place.at === 'unknown') {
+      return st('not_connected', 'grey', 'plugOff', 'Car not connected', `${plugIn} The car's location is not known, so Looking ahead counts from the level now.`);
+    }
+    return st('not_connected', 'grey', 'plugOff', 'Car not connected', place && place.at === 'home' && by ? `At home (${by}). ${plugIn}` : plugIn);
   }
   // The charger itself reports a problem (an error, a fault, an update).
   const unreachable = !n.status || ['unavailable', 'unknown', 'offline', 'none'].includes(String(n.status).toLowerCase());
