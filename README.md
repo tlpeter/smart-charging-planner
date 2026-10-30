@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.36.19-dev** (stable is 0.35.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. On dev since 0.34.0: an explicit choice of what is sent to look up trip distances, an explicit forecast price basis, and charging-stop suggestions along long trips in the Netherlands and Belgium. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.37.0-dev** (stable is 0.36.0). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. Stable 0.36.0 added where the car is when not plugged in, sharing the connection per phase, charging stops in all of Europe and a route map. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 Changes on dev reach main after GitHub Actions and the owner's home check. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -14,7 +14,7 @@ Changes on dev reach main after GitHub Actions and the owner's home check. A gre
 
 | Capability | What to expect |
 | --- | --- |
-| Car and charger detection | Check the suggested sensors and control method. Some integrations can only read. The stable car-sensor fixes tracked in #21 are already on dev. |
+| Car and charger detection | Check the suggested sensors and control method. Some integrations can only read. The car-sensor fixes tracked in #21 are included. |
 | Solar phase switching | Requires supported hardware and current control. The app pauses, waits for the load to stop, applies the mode and allows settling before enabling again. Service-only phase methods acknowledge a requested mode; verify the real hardware during setup. |
 | Home battery | Control checks fresh SoC, available stop capabilities and all chargers. App-owned settings are restored from a persistent snapshot. Unsupported bounds can make control unavailable; native inverter protections remain necessary. Read-only models remain advice only. |
 | Multiple chargers | Live sharing is available, but site planning and physical phase allocation are not yet complete. Keep hardware load balancing in place. |
@@ -175,10 +175,18 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] Charging stops on the way (Netherlands and Belgium), on your side of the road (#37, #41, #42)
 - [x] Battery Care: a small refill after a short trip joins the planned session (#43)
 - [x] Preconditioning before a departure and on the way back, for every departure source (#44, #45)
+- [x] Where is the car when it is not plugged in: car location, person or calendar, else not known (#46)
+- [x] Sharing the connection per phase across chargers and the home battery, with load-balancer scope (#29)
+- [x] Compatibility overview per integration and a beta test report form (#28)
+- [x] Charging stops in all of Europe, across borders, more stops on a long trip, as late as possible at the best station (#40, #50)
+- [x] Addresses abroad are found (#49)
+- [x] Charging stops settings: country and operator lists that open and close, with search (#48)
+- [x] Route map with the route and the stops (off by default), zoom and drag (#47, #54)
+- [x] What you open on Home stays open across the reload every minute (#51)
 
 ### Before broader public promotion (P1)
 
-- No open P1 items: #29 is implemented on dev (below).
+No open items at the moment.
 
 ### Reliability and usability (P2)
 
@@ -186,24 +194,17 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [ ] Provide a supported week-price forecast path with freshness, schema and price-basis checks. [#27](https://github.com/tlpeter/smart-charging-planner/issues/27)
 - [ ] Plan all chargers against shared capacity before charging time, including realistic readiness estimates. [#30](https://github.com/tlpeter/smart-charging-planner/issues/30)
 - [ ] Add Pause until and a guided release/recovery action for app-owned device settings. [#33](https://github.com/tlpeter/smart-charging-planner/issues/33)
+- [ ] Battery care: an optional saving threshold to charge above the care level earlier, and care blocks in the chart. [#39](https://github.com/tlpeter/smart-charging-planner/issues/39)
 
 ### Later extensions (P3)
 
+- [ ] Looking ahead: a 24 hours range (7 days stays the default). [#52](https://github.com/tlpeter/smart-charging-planner/issues/52)
 
 ### Implemented on dev, awaiting a stable release
 
-These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.35.0.
+These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.36.0.
 
-- [x] Sharing the connection per phase (L1, L2, L3): one-phase chargers on their own phase, room kept on every phase when the phase is not known, a fresh-reading check, step-by-step changes, a load balancer for some chargers only, and the home battery charging from the grid only with what the chargers leave. [#29](https://github.com/tlpeter/smart-charging-planner/issues/29)
-- [x] Where is the car when it is not plugged in: car location, then a person, then a trip home in the calendar; when none knows, Home counts from the level now and shows planned charging as "if plugged in". [#46](https://github.com/tlpeter/smart-charging-planner/issues/46)
-- [x] A compatibility matrix per integration (generated from the tests, read-only devices marked), a beta test report form for real-hardware results, a container build for amd64 and aarch64 and a check against an older Home Assistant Core. [#28](https://github.com/tlpeter/smart-charging-planner/issues/28)
-- [x] Charging stops in all European countries, with operators per country; a route across a border gets stations in every country on it; a long trip gets more stops, each with the level on arrival and how far to charge; a separate lowest level to arrive with at a fast charger. [#40](https://github.com/tlpeter/smart-charging-planner/issues/40)
-- [x] Charging stops settings: countries and operators in lists that open and close, with search; chosen operators as labels; operators found in the station data on your routes can be preferred too. [#48](https://github.com/tlpeter/smart-charging-planner/issues/48)
-- [x] Fix: addresses abroad are found (the search tries your own country first, then every country). [#49](https://github.com/tlpeter/smart-charging-planner/issues/49)
-- [x] Fix: a charging stop is as late as the battery allows, at the best station (preferred operator, most power, most points), with alternatives marked as such. [#50](https://github.com/tlpeter/smart-charging-planner/issues/50)
-- [x] Fix: what you opened on Home (a day in Looking ahead, Plan details, the plan table) stays open when the page reloads every minute; a reload that changes nothing leaves the page as it is. [#51](https://github.com/tlpeter/smart-charging-planner/issues/51)
-- [x] The route and the charging stops on a map (an option, off by default; OpenStreetMap or your own tile server; map images only when you open the map), with a map icon in Looking ahead that opens it in a big window in one click. [#47](https://github.com/tlpeter/smart-charging-planner/issues/47)
-- [x] Zoom and drag on the route map with Leaflet (shipped with the app, loaded only when a map opens), a tap on a stop shows its station. [#54](https://github.com/tlpeter/smart-charging-planner/issues/54)
+None yet.
 
 ## Tests
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.37.0-dev
+
+- Released 0.36.0 on main. Dev continues as 0.37.0-dev; the documentation check stops at the stable release heading below.
+
+## 0.36.0
+
+- Stable release of 0.36.0-dev through 0.36.19-dev (see the GitHub release v0.36.0).
+
 ## 0.36.19-dev
 
 - **Zoom and drag on the route map:** the map now uses Leaflet (the map library Home Assistant uses too), shipped with the app and only loaded when a map opens. Zoom in on a stop, drag the map, tap a stop for its station (power, points, level on arrival, link). In the page the mouse wheel and one finger still scroll the page; in the big window they move the map. When Leaflet cannot load, the fixed map is shown. (#54)
