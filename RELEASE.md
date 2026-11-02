@@ -51,13 +51,15 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.37.2-dev
+## Current candidate: 0.37.3-dev
 
 Stable main is 0.36.0 (release v0.36.0: #28, #29, #40, #46, #47, #48, #49, #50, #51, #54). Earlier: 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.36.0: #33 (Pause until a time, until unplugged or until you resume; Hand back control with a list of what the app controls, restore of current, phases and home battery settings, and no commands until Resume control).
+Scope on dev since 0.36.0: #33 (Pause until a time, until unplugged or until you resume; Hand back control with a list of what the app controls, restore of current, phases and home battery settings, and no commands until Resume control), #55 (preconditioning: charger off again when the cable is unplugged, kept on for 15 minutes at most).
 
 Home check for #33: on Home › Quick choices, pause until a time an hour from now while the car charges: the charger should stop within a minute and stay off, also when the plan has a cheap block; Plan details should show the plan after the pause. Press Resume now. Pause until the car is unplugged, unplug and plug in again: the plan should take over. Then Activity › Log › Who controls the devices: open the list and check that it matches what you see in the charger's app (with solar charging, the current the app set). Confirm Hand back control: the charger's current should go back to its maximum, the Easee app (or your charger's app) should show it, and the app should send nothing (the Log shows "Control is handed back"). Press Resume control.
+
+Home check for #55: put a trip with `precondition: yes` in the calendar about 20 minutes ahead, car plugged in, Allow control on. When preconditioning starts, the charger should switch on; unplug the cable: within a minute or two the charger should switch off (the Log shows "Car unplugged during preconditioning"). With the cable left in, the charger should go back to the normal plan at the departure time at the latest.
 
 Not resolved: #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
 

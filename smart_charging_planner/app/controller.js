@@ -6,6 +6,7 @@
 //
 // Decision order (first match wins):
 //   1. car not plugged in                         -> nothing to do
+//      ... right after preconditioning kept the charger on -> pause (#55)
 //   2. charger status invalid for a short while   -> leave as it is
 //      ... and for longer than the grace period   -> pause
 //   3. battery below the minimum (and price ok)   -> charge
@@ -208,7 +209,12 @@ function decide(ctx) {
   if (ctx.handsOff) return { want: 'leave', reason: 'Control is handed back to you: the app sends nothing to the charger', code: 'released', clear_lock: true };
 
   // 1. Not plugged in (a plugged-in sensor that says "off" is trusted first).
-  if (actual.plugged === false) return { want: 'none', reason: 'Car is not plugged in', code: 'unplugged', clear_lock: true };
+  if (actual.plugged === false) {
+    // The app kept the charger on for preconditioning and the cable was
+    // unplugged (#55): turn the charger off again, once (one retry).
+    if (ctx.releasePreheat === true) return { want: 'pause', reason: 'Car unplugged during preconditioning: charger turned off again', code: 'preheat_unplugged', clear_lock: true };
+    return { want: 'none', reason: 'Car is not plugged in', code: 'unplugged', clear_lock: true };
+  }
   if (actual.status_invalid) {
     // 2. Status briefly invalid (restart, hiccup): keep things as they are.
     if (actual.invalid_for <= GRACE_MS) return { want: 'leave', reason: 'Charger status briefly invalid, waiting', code: 'status_grace', keep_lock: true };
@@ -406,6 +412,22 @@ function commandsFor(decision, actual, methods, deviceId) {
   return out;
 }
 
+// Turn the charger off after preconditioning (#55)? Yes when the last
+// decision kept it on for preconditioning, or when the stop after unplugging
+// failed once (one retry). The log is saved before a command is sent, so this
+// also holds after a restart.
+function releasePreheat(entries) {
+  const last = entries[entries.length - 1];
+  if (!last) return false;
+  if (last.code === 'preheat') return true;
+  if (last.code !== 'preheat_unplugged') return false;
+  let failed = 0;
+  for (let i = entries.length - 1; i >= 0 && entries[i].code === 'preheat_unplugged'; i--) {
+    if (entries[i].live && entries[i].error) failed++;
+  }
+  return last.live === true && !!last.error && failed < 2;
+}
+
 // One dry-run step. Logs only when something changes.
 // share (more chargers, sharing.js): { pause, amps, reason } – wait for
 // another charger, or charge with less current. record = false: only decide
@@ -415,7 +437,7 @@ function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now 
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning, paused, handsOff });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning, paused, handsOff, releasePreheat: releasePreheat(loadLog()) });
   if (share && decision.want === 'charge') {
     if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
     else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };
@@ -520,4 +542,4 @@ function minimumNow(rules, states, soc, priceNow) {
   return Number.isFinite(min) && soc < min && priceOk ? min : null;
 }
 
-module.exports = { minimumNow, dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };
+module.exports = { releasePreheat, minimumNow, dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };

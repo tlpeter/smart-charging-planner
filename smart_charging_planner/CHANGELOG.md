@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.37.3-dev
+
+- **Preconditioning and the charger:** when the cable is unplugged while the app keeps the charger on for preconditioning, the app now turns the charger off again (only with Allow control on, one retry when it fails). Before, the charger stayed on with no car. The charger is also kept on for preconditioning for 15 minutes at most and never after the departure time; before, it could stay on until 15 minutes after the departure. (#55)
+
 ## 0.37.2-dev
 
 - Test only: the pause test waits for one more control step on a slow test machine, and the hand-back test checks the app's own record while control is handed back (after Resume control the app may set the current again for solar charging). No app changes. (#33)

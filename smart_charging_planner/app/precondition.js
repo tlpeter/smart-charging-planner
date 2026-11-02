@@ -26,6 +26,7 @@ const DATA_DIR = process.env.DATA_DIR || '/data';
 const FILE = path.join(DATA_DIR, 'precondition.json');
 const KEEP_MS = 2 * 86400000;
 const RELEASE_AFTER_MS = 15 * 60000; // turn a switch off again 15 min after the departure (car still at home)
+const CHARGER_ON_MS = 15 * 60000; // the charger is kept on for preconditioning for 15 min at most (#55)
 const CHAIN_MS = 36 * 3600000; // a trip home in the calendar counts within 36 hours (as in Looking ahead)
 const DOMAINS = /^(switch|button)\./;
 
@@ -122,9 +123,10 @@ function upcoming(vehicleId, now = Date.now()) {
 }
 
 // Preconditioning the app asked for is running now (for this car, before a
-// drive from home): the charger stays on.
+// drive from home): the charger stays on. From the moment it was asked, for
+// 15 minutes at most and never after the departure (#55).
 function active(vehicleId, now = Date.now()) {
-  return Object.values(load().records).some((r) => r.vehicle_id === vehicleId && r.state === 'asked' && r.kind === 'out' && r.at <= now && now < r.until + RELEASE_AFTER_MS);
+  return Object.values(load().records).some((r) => r.vehicle_id === vehicleId && r.state === 'asked' && r.kind === 'out' && r.at <= now && now < Math.min(r.until, r.at + CHARGER_ON_MS));
 }
 
 function commandFor(entity, on) {
@@ -216,4 +218,4 @@ function reset() {
   cache = { records: {}, schedule: {} };
 }
 
-module.exports = { DEFAULTS, DOMAINS, config, clean, schedule, fromDepartures, setSchedule, upcoming, active, step, recover, commandFor, reset, RELEASE_AFTER_MS };
+module.exports = { DEFAULTS, DOMAINS, config, clean, schedule, fromDepartures, setSchedule, upcoming, active, step, recover, commandFor, reset, RELEASE_AFTER_MS, CHARGER_ON_MS };
