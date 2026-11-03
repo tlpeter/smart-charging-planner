@@ -110,7 +110,7 @@ function durationText(minutes) {
           { key: 'location_entity', opt: 'location', label: 'Car location (device tracker)' },
           { key: 'person_entity', opt: 'person', label: 'Person who drives (when the car has no location)' },
         ],
-        extraInputs: () => `
+        extraInputs: (c, data) => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
             <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
             <div class="muted small">A calendar event with "car: renault" (or "auto: renault") is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
@@ -123,6 +123,14 @@ function durationText(minutes) {
           <div class="field"><label>Use per 100 km in kWh (optional, for trip estimates)</label>
             <input name="consumption_kwh_100km" type="number" min="8" max="40" step="0.5" placeholder="18">
             <div class="muted small">For how much battery a trip in your calendar costs. The app learns this from your own trips (battery level when you leave and when you are back); until then it uses the car's range sensor, or this value.</div></div>
+          <div class="field"><label class="check"><input type="checkbox" name="cold_correction"> Use more in the cold (trip estimates)</label>
+            <div class="muted small">Below 15 °C a trip uses more battery: the app adds a percentage per degree colder, with the temperature from a weather forecast at the time of the trip. After trips at different temperatures it learns your car's own value. Not used with the car's range sensor (that already includes the weather of now).</div></div>
+          <div class="two">
+            <div class="field"><label>Weather forecast</label>
+              <select name="weather_entity"><option value="">— none —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+            <div class="field"><label>Extra use per degree below 15 °C (%)</label>
+              <input name="cold_extra_pct" type="number" min="0" max="5" step="0.1" placeholder="1.5"></div>
+          </div>
           <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
@@ -672,7 +680,9 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct']) setValue(form, name, saved[name]);
+      const cold = form.querySelector('input[name=cold_correction]');
+      if (cold) cold.checked = saved.cold_correction === true;
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -774,6 +784,7 @@ function durationText(minutes) {
       }
       const errBox = form.querySelector('.form-error');
       if (kind === 'vehicle') Object.assign(data, vehicleTarget());
+      if (form.querySelector('input[name=cold_correction]')) data.cold_correction = form.querySelector('input[name=cold_correction]').checked;
       if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
         const r = await api('POST', cfg.api, data);
@@ -1557,7 +1568,8 @@ function durationText(minutes) {
     function tripText(t) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : t.how === 'manual' ? ' (distance you entered)' : '';
-      const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
+      const cold = t.cold ? (t.cold.temp == null ? ', no temperature forecast' : t.cold.factor > 1.0005 ? `, ${tidy(t.cold.temp)} °C: +${Math.round((t.cold.factor - 1) * 100)}% for the cold` : `, ${tidy(t.cold.temp)} °C: no extra for the cold`) : '';
+      const use = (t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '') + cold;
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
         case 'ok': if (t.stops > 0 && t.total_km != null) return `~${esc(Math.round(t.km))} km to here${via}${how} · whole trip with ${esc(t.stops + 1)} places ~${esc(Math.round(t.total_km))} km ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;

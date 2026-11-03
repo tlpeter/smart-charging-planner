@@ -14,7 +14,12 @@
 // the car left and when it came back, and the distance of that trip), the
 // car's range sensor (range at the battery level now), or the consumption in
 // Settings › Vehicle (default 18 kWh/100 km) and the battery capacity.
-// Plus 10 % margin (cold, motorway).
+// Plus 10 % margin (motorway).
+//
+// Use more in the cold (#56, per car, off by default): below 15 °C the use
+// goes up by a percentage per degree colder (the setting, or learned from
+// trips at different temperatures). Not for the range sensor: the car's own
+// estimate already includes the weather of now.
 
 const path = require('path');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
@@ -52,6 +57,10 @@ const GAP_MS = Number(process.env.SCP_GEOCODE_GAP_MS) || 1100;
 const ROAD_FACTOR = 1.3;
 const MARGIN = 1.1;
 const DEFAULT_KWH_100KM = 18;
+const COLD_BASE_C = 15; // no correction at or above this temperature
+const COLD_DEFAULT_PCT = 1.5; // extra use per degree below COLD_BASE_C
+const COLD_MAX_FACTOR = 1.8; // at most +80 %
+const SAMPLES = 20; // learned trips kept with their temperature
 const RETRY_MS = 24 * 3600000; // a place that was not found is tried again after a day
 let userAgent = 'SmartChargingPlanner (Home Assistant app; https://github.com/tlpeter/smart-charging-planner)';
 
@@ -309,12 +318,60 @@ function toPoint(home, place, text) {
   return { status: 'ok', km: Math.round(straight * ROAD_FACTOR * 10) / 10, how: 'estimate', lat: place.lat, lon: place.lon };
 }
 
+// The cold correction of a car (#56): null when off. { extra, learned }:
+// extra = % more use per degree below 15 °C.
+function coldModel(vehicle) {
+  if (!vehicle || vehicle.cold_correction !== true) return null;
+  const set = Number(vehicle.cold_extra_pct);
+  const fit = vehicle.id ? fitCold(load().learned[vehicle.id]) : null;
+  if (fit) return { extra: fit.extra, learned: true, base: fit.base, trips: fit.trips };
+  return { extra: Number.isFinite(set) && set >= 0 ? set : COLD_DEFAULT_PCT, learned: false };
+}
+
+// How much more a car uses at a temperature: 1 = no correction.
+function coldFactor(extraPct, temp) {
+  if (!Number.isFinite(temp) || !(extraPct > 0)) return 1;
+  return Math.min(COLD_MAX_FACTOR, 1 + (extraPct / 100) * Math.max(0, COLD_BASE_C - temp));
+}
+
+// Learn the extra use per degree from trips with a known temperature: at
+// least 4, with at least 5 degrees between the coldest and the warmest (below
+// 15 °C). A straight line through use against degrees below 15 °C; null when
+// there is not enough spread or the line makes no sense.
+function fitCold(learnedRec) {
+  const pts = ((learnedRec && learnedRec.samples) || []).filter((x) => Number.isFinite(x.t) && x.v > 0)
+    .map((x) => ({ x: Math.max(0, COLD_BASE_C - x.t), y: x.v }));
+  if (pts.length < 4) return null;
+  const xs = pts.map((p) => p.x);
+  if (Math.max(...xs) - Math.min(...xs) < 5) return null;
+  const n = pts.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = pts.reduce((a, p) => a + p.y, 0) / n;
+  const sxx = pts.reduce((a, p) => a + (p.x - mx) ** 2, 0);
+  const sxy = pts.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0);
+  const slope = sxy / sxx;
+  const base = my - slope * mx;
+  if (!(base > 0)) return null;
+  const extra = Math.max(0, Math.min(5, (slope / base) * 100));
+  return { extra: Math.round(extra * 100) / 100, base, trips: n };
+}
+
 // Battery % per km: from the range sensor (range at the level now), or the
 // consumption and the battery capacity. null when neither is known.
-function pctPerKm(vehicle, states, soc) {
+// temp (°C): the temperature of the trip, for the cold correction (#56).
+function pctPerKm(vehicle, states, soc, temp = null) {
   if (!vehicle) return null;
+  const cold = coldModel(vehicle);
+  const withCold = (use) => {
+    if (!cold || use.how === 'range') return use;
+    if (!Number.isFinite(temp)) return { ...use, cold: { temp: null, factor: 1, extra: cold.extra, learned: cold.learned } };
+    const factor = coldFactor(cold.extra, temp);
+    // Learned at different temperatures: the use at 15 °C from the line.
+    const base = cold.learned && use.how === 'learned' ? cold.base : use.pct_per_km;
+    return { ...use, pct_per_km: base * factor, cold: { temp, factor: Math.round(factor * 1000) / 1000, extra: cold.extra, learned: cold.learned } };
+  };
   const learned = vehicle.id ? load().learned[vehicle.id] : null;
-  if (learned && learned.trips >= 2 && learned.pct_per_km > 0) return { pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips };
+  if (learned && learned.trips >= 2 && learned.pct_per_km > 0) return withCold({ pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips });
   const st = vehicle.range_entity ? states.find((x) => x.entity_id === vehicle.range_entity) : null;
   let range = st ? Number(st.state) : NaN;
   const unit = st && st.attributes ? String(st.attributes.unit_of_measurement || 'km') : 'km';
@@ -323,7 +380,7 @@ function pctPerKm(vehicle, states, soc) {
     return { pct_per_km: soc / range, how: 'range' };
   }
   const kwh100 = Number(vehicle.consumption_kwh_100km) > 0 ? Number(vehicle.consumption_kwh_100km) : DEFAULT_KWH_100KM;
-  if (vehicle.capacity_kwh > 0) return { pct_per_km: (kwh100 / 100 / vehicle.capacity_kwh) * 100, how: 'consumption', kwh_100km: kwh100 };
+  if (vehicle.capacity_kwh > 0) return withCold({ pct_per_km: (kwh100 / 100 / vehicle.capacity_kwh) * 100, how: 'consumption', kwh_100km: kwh100 });
   return null;
 }
 
@@ -342,8 +399,8 @@ function pointOf(given, title) {
 // stops: more places after the first one, without going home in between
 // (for example work, then sport, then home). Each part is the distance from
 // the place before; the way back starts at the last place.
-function tripCost({ location: given, title = null, returnLocation = undefined, stops = [], vehicle, states, soc }) {
-  if (stops && stops.length) return chainCost({ location: given, title, stops, vehicle, states, soc });
+function tripCost({ location: given, title = null, returnLocation = undefined, stops = [], vehicle, states, soc, temp = null }) {
+  if (stops && stops.length) return chainCost({ location: given, title, stops, vehicle, states, soc, temp });
   const { location, place, kind, point, manual_km: manualKm } = placeFor(given, title);
   const reach = manualKm ? { status: 'ok', km: manualKm, how: 'manual' } : point ? pointDistance(point) : distance(location);
   const there = { ...reach, ...(place ? { place, place_kind: kind } : {}) };
@@ -351,7 +408,7 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
     const ask = there.status === 'unknown' ? askName(given, title) : null;
     return { status: there.status, reason: there.reason || null, km: there.km ?? null, pct: there.status === 'home' ? 0 : null, ...(place ? { place, place_kind: kind } : {}), ...(ask ? { ask } : {}) };
   }
-  const use = pctPerKm(vehicle, states, soc);
+  const use = pctPerKm(vehicle, states, soc, temp);
   if (!use) return { status: 'no_consumption', km: there.km, how: there.how, pct: null, ...(place ? { place, place_kind: kind } : {}) };
   // Back: the return trip in the calendar when there is one (home: the same distance).
   const backKm = returnLocation === undefined ? there.km : (() => {
@@ -363,12 +420,12 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
   // lat/lon: where the destination is (for charging stops on the way, #37).
   const at = Number.isFinite(there.lat) && Number.isFinite(there.lon) ? { lat: there.lat, lon: there.lon } : {};
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...at, ...(place ? { place, place_kind: kind } : {}) };
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(use.cold ? { cold: use.cold } : {}), ...at, ...(place ? { place, place_kind: kind } : {}) };
 }
 
 // A trip with more places in a row: home → first place → next place → … → home.
-function chainCost({ location: given, title, stops, vehicle, states, soc }) {
-  const first = tripCost({ location: given, title, vehicle, states, soc });
+function chainCost({ location: given, title, stops, vehicle, states, soc, temp = null }) {
+  const first = tripCost({ location: given, title, vehicle, states, soc, temp });
   if (first.status !== 'ok') return first;
   let prev = pointOf(given, title);
   if (prev.status !== 'ok') return first;
@@ -400,13 +457,15 @@ function chainCost({ location: given, title, stops, vehicle, states, soc }) {
 // distance, the battery level is remembered; when it is plugged in again, the
 // drop divided by the distance there and back is one sample. Samples are
 // averaged (newer ones count more). Only plausible trips count.
-function tripStarted(vehicleId, soc, kmTotal, now = Date.now()) {
+// temp (°C, or null): the outside temperature when the car left / came back,
+// remembered with the sample for the cold correction (#56).
+function tripStarted(vehicleId, soc, kmTotal, now = Date.now(), temp = null) {
   if (!vehicleId || !Number.isFinite(soc) || !(kmTotal > 5)) return;
-  load().away[vehicleId] = { soc, km: kmTotal, at: now };
+  load().away[vehicleId] = { soc, km: kmTotal, at: now, temp: Number.isFinite(temp) ? temp : null };
   save();
 }
 
-function tripEnded(vehicleId, soc, now = Date.now()) {
+function tripEnded(vehicleId, soc, now = Date.now(), temp = null) {
   const c = load();
   const a = c.away[vehicleId];
   if (!a) return null;
@@ -419,9 +478,12 @@ function tripEnded(vehicleId, soc, now = Date.now()) {
     if (v >= 0.05 && v <= 1.5) {
       sample = v;
       const l = c.learned[vehicleId];
+      const temps = [a.temp, temp].filter(Number.isFinite);
+      const t = temps.length ? Math.round((temps.reduce((x, y) => x + y, 0) / temps.length) * 10) / 10 : null;
+      const samples = [...((l && l.samples) || []), { v, t, at: now }].slice(-SAMPLES);
       c.learned[vehicleId] = l
-        ? { pct_per_km: l.pct_per_km * 0.7 + v * 0.3, trips: l.trips + 1, at: now }
-        : { pct_per_km: v, trips: 1, at: now };
+        ? { pct_per_km: l.pct_per_km * 0.7 + v * 0.3, trips: l.trips + 1, at: now, samples }
+        : { pct_per_km: v, trips: 1, at: now, samples };
       ha.log(`Trip use learned: ${drop.toFixed(1)}% for ${a.km.toFixed(0)} km (${(v * 100).toFixed(1)}% per 100 km)`);
     }
   }
@@ -458,4 +520,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

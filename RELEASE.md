@@ -51,11 +51,11 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.37.5-dev
+## Current candidate: 0.37.6-dev
 
 Stable main is 0.36.0 (release v0.36.0: #28, #29, #40, #46, #47, #48, #49, #50, #51, #54). Earlier: 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.36.0: #33 (Pause until a time, until unplugged or until you resume; Hand back control with a list of what the app controls, restore of current, phases and home battery settings, and no commands until Resume control), #55 (preconditioning: charger off again when the cable is unplugged, kept on for 15 minutes at most), #25 (warning when a later departure drops an earlier one on the same day, all-day events listed as not used, departure priority explained), #39 (Battery care: the part above the care level in green in the chart, optional saving threshold to charge it earlier).
+Scope on dev since 0.36.0: #33 (Pause until a time, until unplugged or until you resume; Hand back control with a list of what the app controls, restore of current, phases and home battery settings, and no commands until Resume control), #55 (preconditioning: charger off again when the cable is unplugged, kept on for 15 minutes at most), #25 (warning when a later departure drops an earlier one on the same day, all-day events listed as not used, departure priority explained), #39 (Battery care: the part above the care level in green in the chart, optional saving threshold to charge it earlier), #56 (trip estimates use more battery in the cold, from a weather forecast, learned per car).
 
 Home check for #33: on Home › Quick choices, pause until a time an hour from now while the car charges: the charger should stop within a minute and stay off, also when the plan has a cheap block; Plan details should show the plan after the pause. Press Resume now. Pause until the car is unplugged, unplug and plug in again: the plan should take over. Then Activity › Log › Who controls the devices: open the list and check that it matches what you see in the charger's app (with solar charging, the current the app set). Confirm Hand back control: the charger's current should go back to its maximum, the Easee app (or your charger's app) should show it, and the app should send nothing (the Log shows "Control is handed back"). Press Resume control.
 
@@ -64,6 +64,8 @@ Home check for #55: put a trip with `precondition: yes` in the calendar about 20
 Home check for #25: with the weekly schedule on for tomorrow, add a calendar trip with a target for tomorrow evening. Home and Departures should show "Departure not used" with the schedule time and the trip time. Add an all-day event with a target: Departures › Trips from your calendar should list it under "Not used as a trip". Remove both again.
 
 Home check for #39: with Battery care on and a departure target above the care level, the chart should show the blocks above the level in green with "Battery care" in the legend, and the Battery care note should say what charging early would save. Set "Charge the rest earlier when that saves at least" to a small amount (for example 0.01): the green blocks should move to the cheapest hours and the car's charge limit should go up to the target. Empty the field again.
+
+Home check for #56: Settings › Vehicle › turn on "Use more in the cold", choose your weather forecast and save. A calendar trip with an address should show the forecast temperature and the extra ("… °C: +…% for the cold") in Looking ahead and under Trips from your calendar, and cost more than with the option off. With the car's range sensor as the source, nothing changes.
 
 Not resolved: #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
 

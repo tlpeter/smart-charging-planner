@@ -119,6 +119,7 @@ const READ_ONLY_ACTIONS = new Set([
   'tibber.get_prices',
   'nordpool.get_prices_for_date',
   'calendar.get_events',
+  'weather.get_forecasts', // the temperature of a trip (#56)
 ]);
 
 // Call an action (service) that returns data, e.g. energyzero.get_energy_prices.

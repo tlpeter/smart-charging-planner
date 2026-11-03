@@ -18,6 +18,7 @@ const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, i
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, markCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
+const weather = require('./weather');
 const chargestops = require('./chargestops');
 const carplace = require('./carplace');
 const precondition = require('./precondition');
@@ -450,7 +451,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const following = where && !tripcost.isHome(cur.location) ? nextCal(last) : null;
     const back = following && isReturnTrip(following) ? following : null;
     const trip = where && !fixed
-      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc() })
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc(), temp: tripTemp(vehicle, cur.time, states, tz, now) })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
     const returnAt = back ? endOf(back) : endOf(last);
     // soc_after (0 or more) is used to plan what comes next; soc_end can be
@@ -678,15 +679,23 @@ tripcost.onUpdate(tripLookupDone);
 chargestops.setConfig(() => settings.load().charge_stops || {});
 chargestops.onUpdate(tripLookupDone);
 
-function tripLearning(vehicle, plugged, soc, carData, next, now) {
+// The forecast temperature for a trip (#56), when the car uses the cold
+// correction. null when off or not known.
+function tripTemp(vehicle, at, states, tz, now = Date.now()) {
+  if (!vehicle || vehicle.cold_correction !== true || !vehicle.weather_entity) return null;
+  return weather.tempAt(vehicle.weather_entity, at, { states, tz, now });
+}
+
+function tripLearning(vehicle, plugged, soc, carData, next, now, states = []) {
+  const tempNow = vehicle && vehicle.weather_entity ? weather.currentTemp(vehicle.weather_entity, states) : null;
   if (!vehicle || !vehicle.id || plugged == null) return;
   const w = tripWatch.get(vehicle.id) || { plugged: null };
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
   if (w.plugged === true && plugged === false && live && next && next.trip && next.trip.status === 'ok'
     && Math.abs(next.current.time - now) < 3 * 3600000) {
-    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now);
+    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now, tempNow);
   }
-  if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now);
+  if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now, tempNow);
   tripWatch.set(vehicle.id, { plugged });
 }
 
@@ -759,6 +768,8 @@ const routes = {
       percent_sensors: percentSensors(entities, states),
       trackers: placeEntities(entities, states, 'device_tracker'),
       persons,
+      // Weather forecasts, for "Use more in the cold" (#56).
+      weathers: states.filter((x) => /^weather\./.test(x.entity_id)).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
     };
   },
 
@@ -820,6 +831,10 @@ const routes = {
       // More cars: the name used in calendar events ("auto: renault" / "car: kia").
       calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
+      // Use more in the cold (#56): off by default; extra % per degree below 15 °C, the forecast from a weather entity.
+      cold_correction: body.cold_correction === true,
+      cold_extra_pct: body.cold_extra_pct === undefined || body.cold_extra_pct === '' || body.cold_extra_pct == null ? tripcost.COLD_DEFAULT_PCT : Number(body.cold_extra_pct),
+      weather_entity: /^weather\.[a-z0-9_]+$/.test(String(body.weather_entity || '')) ? String(body.weather_entity) : null,
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
       // Where the car is when not plugged in (#46): the car's tracker, then a person.
@@ -829,6 +844,8 @@ const routes = {
     };
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
     if (vehicle.consumption_kwh_100km != null && !(vehicle.consumption_kwh_100km >= 8 && vehicle.consumption_kwh_100km <= 40)) throw badRequest('Use per 100 km must be between 8 and 40 kWh');
+    if (!(vehicle.cold_extra_pct >= 0 && vehicle.cold_extra_pct <= 5)) throw badRequest('Extra use per degree must be between 0 and 5 %');
+    if (vehicle.cold_correction && !vehicle.weather_entity) throw badRequest('Choose a weather forecast for "Use more in the cold", or turn it off');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -1556,6 +1573,7 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
+      if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
       next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
@@ -1569,7 +1587,7 @@ const routes = {
     }
     // Not while just turned on (Charge now "on"): the car on the charger may be
     // a visitor's, so plugging it in or out says nothing about your car's trips.
-    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
+    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now, states);
 
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
@@ -1913,14 +1931,15 @@ const routes = {
       // all-day events that look like a trip but are not used.
       departure_dropped: droppedView(droppedEarlier(days)),
       calendar_ignored: ignoredEvents(dep, events, tz, now),
-      calendar_trips: (() => {
+      calendar_trips: await (async () => {
+        if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
         return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
           ...raised(t),
-          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
+          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow, temp: tripTemp(vehicle, t.time, states, tz, now) }) : null,
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,

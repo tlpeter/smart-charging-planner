@@ -35,7 +35,7 @@ const UNIT = [
   ['notify', 'Notifications: a message that reached no phone is tried again'],
   ['activecar', 'More than one car: connected car; calendar tags, trip language and duplicate prevention'],
   ['sharing', 'More than one charger: who charges first and how the connection is shared'],
-  ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips'],
+  ['tripcost', 'Look ahead: which calendar locations are addresses, the use per km, learning from trips; using more in the cold with the temperature from a weather forecast, learned per car (#56)'],
   ['pricebasis', 'Price basis: how one price is built (fee, tax, VAT, margin), an all-in forecast is not taxed again (#26)'],
   ['routing', 'Trip distances and privacy: what is sent where for each choice, offline distances, the choice in settings and imports (#31); addresses abroad: home country first, then every country (#49)'],
   ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40); operators from the station data and the settings lists (#48); the route map settings and data (#47)'],

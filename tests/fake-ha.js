@@ -226,6 +226,7 @@ function createWorld(profileName = 'renault_easee') {
     charging: false,
     powerKw: 0,
     preheat: 'off',
+    weatherTemp: 10, // °C now and in every forecast (#56)
     events: [],
     calls: [], // call_service sent by the app
     rest: [], // REST requests (sensors)
@@ -293,6 +294,8 @@ function entityList(w) {
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
+    // A weather forecast (Met.no style), for "Use more in the cold" (#56).
+    ['weather.forecast_home', 'cloudy', { friendly_name: 'Forecast Home', temperature: w.weatherTemp ?? 10, temperature_unit: '°C' }, null],
     // An Apple iCloud calendar (Home Assistant 2026.10+): read only.
     ['calendar.icloud_alex', 'off', { friendly_name: 'iCloud Alex', supported_features: 0 }, null],
     // Inverter (Fronius): solar power now.
@@ -418,6 +421,15 @@ function start(w, wsPort, restPort) {
         }
         case 'call_service': {
           if (m.domain === 'energyzero') return ok({ context: {}, response: { prices: w.energyzero() } });
+          if (m.domain === 'weather' && m.service === 'get_forecasts') {
+            // Hourly for 48 hours, daily for 7 days, all at world.weatherTemp.
+            const ent = (m.target && [].concat(m.target.entity_id)[0]) || 'weather.forecast_home';
+            const hourly = (m.service_data || {}).type === 'hourly';
+            const step = hourly ? 3600000 : 86400000;
+            const start = hourly ? Math.floor(Date.now() / 3600000) * 3600000 : localMidnight(TZ, 0) + 12 * 3600000;
+            const forecast = Array.from({ length: hourly ? 48 : 7 }, (_, i) => ({ datetime: new Date(start + i * step).toISOString(), temperature: w.weatherTemp, ...(hourly ? {} : { templow: w.weatherTemp }) }));
+            return ok({ context: {}, response: { [ent]: { forecast } } });
+          }
           if (m.domain === 'calendar' && m.service === 'get_events') {
             if (w.calendarFail) return fail('Calendar temporarily unavailable');
             const cal = (m.target && [].concat(m.target.entity_id)[0]) || 'calendar.auto';

@@ -2054,6 +2054,32 @@ async function run() {
       assert(e && e.below_goal && e.needed_kwh > 5 && e.blocks.length && e.blocks.every((b) => b.expected && b.start >= at(1, 18)), JSON.stringify({ ...e, blocks: e && e.blocks.length }));
       return `trip ${n.trip.km} km → ${n.trip.pct}% · back ~${n.trip.soc_after}% · next: ${n.goal.title} ${n.goal.soc}% · expected ${e.needed_kwh} kWh, ${e.planned_kwh.toFixed(1)} kWh in known prices`;
     });
+    await test('Y1b', 'Use more in the cold (#56): with a weather forecast of 3 °C and 1.5 % per degree the same trip costs 18 % more; off again: as before', async () => {
+      try {
+        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true }), 'weather forecast');
+        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 9 }), 'between 0 and 5');
+        const det = await ok('GET', 'api/vehicles/detect');
+        assert((det.weathers || []).some((x) => x.entity_id === 'weather.forecast_home'), JSON.stringify(det.weathers));
+        world.weatherTemp = 3;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 1.5 }));
+        const n = (await settle()).next;
+        const pct = 120 * (18 / 100 / CAR.capacity) * 100 * 1.1 * 1.18;
+        assert(n.trip.status === 'ok' && n.trip.cold && n.trip.cold.temp === 3 && n.trip.cold.factor === 1.18, JSON.stringify(n.trip));
+        assert(Math.abs(n.trip.pct - pct) < 0.2, `pct ${n.trip.pct} (${pct.toFixed(1)})`);
+        const d = await ok('GET', 'api/departures');
+        const t = (d.calendar_trips || []).find((x) => x.title === 'Naar Lakeside');
+        assert(t && t.cost && t.cost.cold && t.cost.cold.temp === 3, JSON.stringify(t && t.cost));
+        const warmCalls = world.calls.filter((c) => c.domain === 'weather').length;
+        assert(warmCalls === 0, `weather actions are read only and not counted as control: ${warmCalls}`);
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        const m = (await settle()).next;
+        assert(!m.trip.cold && Math.abs(m.trip.pct - 120 * (18 / 100 / CAR.capacity) * 100 * 1.1) < 0.2, JSON.stringify(m.trip));
+        return `3 °C: ${n.trip.pct}% instead of ${m.trip.pct}%`;
+      } finally {
+        world.weatherTemp = 10;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      }
+    });
     await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
       world.events = [
         ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 10),
