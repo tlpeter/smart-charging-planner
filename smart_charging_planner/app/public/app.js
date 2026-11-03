@@ -958,12 +958,14 @@ function durationText(minutes) {
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
         // Charging for a minimum (always-minimum, Quick minimum, Ready-for minimum): purple.
         const forMin = blk && (blk.min_kwh || 0) >= blk.kwh / 2;
-        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : 'var(--accent)';
+        // Charging above the Battery care level (#39): green.
+        const forCare = blk && !forMin && !onSolar && (blk.care_kwh || 0) >= blk.kwh / 2;
+        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : forCare ? 'var(--care)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
         const expMin = isExp && expBlocks.some((b) => p.start <= b.start && b.start < p.end && (b.min_kwh || 0) >= b.kwh / 2);
         const didCharge = charged.has(p.start);
         const fill = didCharge ? 'var(--charged)' : p.forecast
-          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : forCare ? 'url(#fc-care)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
           : isPlanned ? planColor : expMin ? 'var(--minimum)' : isExp ? 'var(--expected)' : 'var(--bar)';
         const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
@@ -1070,6 +1072,7 @@ function durationText(minutes) {
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
             <pattern id="fc-min" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--minimum)"/></pattern>
+            <pattern id="fc-care" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--care)"/></pattern>
             <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
           ${grid}${away}${bars}${solarCurve}${batteryMarks}
@@ -1088,7 +1091,7 @@ function durationText(minutes) {
           const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
           const done = (d.charged || []).find((c) => c.start === p.start);
           const doneText = done ? `<br><span style="color:var(--charged)">■</span> Charged ${done.kwh.toFixed(1)} kWh` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : (blk.care_kwh || 0) >= blk.kwh / 2 ? 'var(--care)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.care_kwh ? `, ${blk.care_kwh.toFixed(1)} kWh of it above the battery care level` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -1471,7 +1474,7 @@ function durationText(minutes) {
       const notes = p.notes.map((n) => n === 'car_limit'
         ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
         : n === 'battery_care' && p.care
-          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : p.care.early ? `charged above ${esc(p.care.soc)}% early, at the cheapest time: saves ${esc(money(p.care.early_saving))} (at least ${esc(money(p.care.early_min_saving))} is set). The battery stands above ${esc(p.care.soc)}% longer.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.${p.care.early_saving > 0.005 ? ` Charging early would save only ${esc(money(p.care.early_saving))}${p.care.early_min_saving ? ` (less than the ${esc(money(p.care.early_min_saving))} you set)` : ''}.` : ''}`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
           : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `
@@ -1488,7 +1491,7 @@ function durationText(minutes) {
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               ${pastButtonsHtml()}
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}${d.plan.care && d.plan.blocks.some((b) => (b.care_kwh || 0) > 0.01) ? `<span><i style="background:var(--care)"></i>Battery care (above ${esc(tidy(d.plan.care.soc))}%)</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"${keep('plan-table')}><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1540,6 +1543,7 @@ function durationText(minutes) {
         const tags = [
           part ? `<span class="chip">partly: ${esc(hm(b.start))}–${esc(hm(b.end))}, ${mins(b.end - b.start)} of ${mins(be - bs)} min</span>` : '',
           (b.min_kwh || 0) > 0.01 ? '<span class="chip">minimum</span>' : '',
+          (b.care_kwh || 0) > 0.01 ? '<span class="chip">above battery care level</span>' : '',
           b.solar_kwh > 0.01 ? '<span class="chip">solar</span>' : '',
           b.forecast ? '<span class="muted small">(forecast)</span>' : '',
         ].filter(Boolean).join(' ');
@@ -2888,6 +2892,7 @@ function durationText(minutes) {
       f.battery_care_enabled.checked = r.battery_care_enabled !== false;
       f.battery_care_soc.value = r.battery_care_soc ?? 80;
       f.battery_care_hours.value = r.battery_care_hours ?? 4;
+      f.battery_care_early_saving.value = r.battery_care_early_saving ?? '';
       f.car_limit_off.checked = !!r.car_limit_off;
       f.car_limit_restart.checked = !!r.car_limit_restart;
       f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
@@ -2926,6 +2931,7 @@ function durationText(minutes) {
           battery_care_enabled: f.battery_care_enabled.checked,
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
+          battery_care_early_saving: f.battery_care_early_saving.value,
           car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
           trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
         });

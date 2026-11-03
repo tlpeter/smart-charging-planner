@@ -188,6 +188,10 @@ Settings › Rules, on by default. For every departure Ready Guard checks whethe
 
 Settings › Rules, on by default. For a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest, and the rest only in the last 4 hours before the departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be changed; when the rest needs more time than those hours, it starts earlier. The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and charging on solar (up to its own level) still go higher right away. Below your minimum (Always charge below a minimum) the minimum is charged first, and Battery care still holds for the rest. Home › Plan details shows when the last part is charged.
 
+In the price chart the part above the care level is **green** (legend "Battery care"), so a later block that costs a little more is clearly a Battery care choice, not a missed cheaper hour. The Battery care note on Home says how much charging that part early would save.
+
+**Charge the rest earlier when that saves at least** (empty = never, the default; an amount in your currency, 0.01–100): when charging the part above the care level at the cheapest time saves at least this amount for this charge, the app plans it there instead of in the last hours. The battery then stands above the care level longer; the note on Home says "charged above 80% early: saves …". The car's charge limit goes up right away. Example: 80 % now, target 90 % for a long trip, cheapest hour now at 0.13, the last hours at 0.15 per kWh, 6.6 kWh above 80 %: early saves about 0.13. With 0.10 set, it charges now; with 0.50 set, it waits for the last hours (#39).
+
 ## More than one car
 
 Settings › Vehicle › **I have more than one car** (off by default; with it off, the app works with one car as always). Add up to 6 cars with **+ Add a car**.

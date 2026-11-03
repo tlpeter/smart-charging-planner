@@ -15,7 +15,7 @@ const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
 const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, ignoredEvents, droppedEarlier } = require('./departures');
-const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
+const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, markCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
 const chargestops = require('./chargestops');
@@ -1438,7 +1438,7 @@ const routes = {
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
         prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
-        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh } : null,
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, earlyMinSaving: careRules.battery_care_early_saving } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1446,6 +1446,7 @@ const routes = {
       : care
       ? planCare({
         prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, neededKwh, powerKw,
+        earlyMinSaving: careRules.battery_care_early_saving,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1475,6 +1476,8 @@ const routes = {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
+      // The part above the care level, for the chart (#39).
+      markCare(plan.blocks, care.care_kwh);
     }
     if (solarInfo.forecast_error) plan.notes.push('solar_forecast_error');
     if (solarOnly) plan.notes.push('solar_only');
@@ -3364,7 +3367,7 @@ function limitGoal(planResult, b) {
   if (!Number.isFinite(wanted)) wanted = NaN;
   // Battery care: up to the care level until the last hours before departure.
   const care = planResult && planResult.plan && planResult.plan.care;
-  if (!b && care && Date.now() < care.window_start && Number.isFinite(wanted) && wanted > care.soc) {
+  if (!b && care && care.early !== true && Date.now() < care.window_start && Number.isFinite(wanted) && wanted > care.soc) {
     wanted = care.soc;
     reason = 'Battery care';
   }
@@ -3394,7 +3397,7 @@ function limitPreview(planResult, goalSoc) {
   const managed = !!planResult.manages_car_limit;
   let wantedPlan = Number(planResult.planning && planResult.planning.wanted_soc);
   const care = planResult.plan && planResult.plan.care;
-  if (care && Date.now() < care.window_start && wantedPlan > care.soc && !(goalSoc > care.soc && planResult.boost)) wantedPlan = care.soc;
+  if (care && care.early !== true && Date.now() < care.window_start && wantedPlan > care.soc && !(goalSoc > care.soc && planResult.boost)) wantedPlan = care.soc;
   const goal = Math.max(Number.isFinite(goalSoc) ? goalSoc : 0, Number.isFinite(wantedPlan) ? wantedPlan : 0);
   if (!lim.writable) return { supported: false, reason: 'read_only', now: lim.value, name: lim.name, goal };
   if (!managed) return { supported: true, managed: false, reason: options.allow_control ? 'off' : 'control_off', now: lim.value, name: lim.name, goal };
@@ -4875,6 +4878,7 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_enabled: b.battery_care_enabled !== false,
     battery_care_soc: num(b.battery_care_soc ?? 80, 'Battery care level', 50, 95),
     battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
+    battery_care_early_saving: num(b.battery_care_early_saving, 'Battery care: charge earlier when it saves at least', 0.01, 100, true),
     car_limit_off: b.car_limit_off === true,
     car_limit_restart: b.car_limit_restart === true,
     trip_topup_enabled: b.trip_topup_enabled === true,

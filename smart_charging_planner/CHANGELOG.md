@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.37.5-dev
+
+- **Battery care in the chart:** the part that charges above the care level is **green** in the price chart, with a legend entry "Battery care (above 80%)", a line in the tooltip and a chip in the plan table. Before, it looked like any other planned block, so a later, more expensive block looked like a mistake. (#39)
+- **Battery care: charge earlier when it saves enough** (Settings › Rules › Battery care, empty = never, the default): when charging the part above the care level at the cheapest time saves at least this amount, the app does that instead of waiting for the last hours; the car's charge limit then goes up right away. The Battery care note on Home says what charging early saves, or that it would save only a small amount. (#39)
+
 ## 0.37.4-dev
 
 - **Departure not used:** on each day one source counts (one-off, then calendar, then helper, then weekly schedule). When a later departure of a higher source drops an earlier one on the same day (a calendar trip at 18:00 and the weekly schedule at 07:00), Home and Departures now warn: "Departure not used", with both times. Before, the earlier departure was only crossed out in a folded list. The planning itself is unchanged. (#25)

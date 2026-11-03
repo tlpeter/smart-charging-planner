@@ -67,6 +67,7 @@ const DEFAULT_RULES = {
   battery_care_enabled: true, // above battery_care_soc only in the last battery_care_hours before departure
   battery_care_soc: 80,
   battery_care_hours: 4,
+  battery_care_early_saving: null, // #39: charge above the level earlier when that saves at least this much (null = never)
   car_limit_off: false, // true: never change the car's own charge limit
   car_limit_restart: false, // true: the car takes no power while it should: set its limit one step lower and back
   min_choice: 30, // default minimum (%) for the quick choices on Home
@@ -284,7 +285,7 @@ function decide(ctx) {
   // A previous small top-up must not keep a price lock or hysteresis alive
   // before Battery Care's final session. Explicit minimums and overrides above win.
   const care = p.care;
-  if (rules.battery_care_enabled !== false && care && Number.isFinite(care.window_start) && now < care.window_start
+  if (rules.battery_care_enabled !== false && care && care.early !== true && Number.isFinite(care.window_start) && now < care.window_start
     && (care.refill_deferred === true || (Number.isFinite(soc) && Number.isFinite(care.soc) && soc >= care.soc))) {
     const next = p.blocks.find((b) => b.start > now && !b.forecast);
     return pause(care.refill_deferred ? 'Small Battery Care top-up joins the planned session' : 'Battery Care holding level reached; waiting for the planned session',

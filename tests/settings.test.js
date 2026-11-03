@@ -1180,6 +1180,36 @@ async function run() {
       await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     }
   });
+  await test('J13c', 'Battery care (#39): the part above 80 % is marked for the chart; with "charge earlier when it saves at least" it moves to the cheap night when the saving is enough, and the car limit goes up', async () => {
+    try {
+      world.soc = 50;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 100 } }) }));
+      await refused('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 500 }), 'saves at least');
+      // A threshold that is never reached: as before, plus what early would save.
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 99 }));
+      const p = await plan();
+      const c = p.plan.care;
+      assert(c && c.early === false && c.early_saving > 0 && c.early_min_saving === 99, JSON.stringify(c));
+      const above = p.plan.blocks.reduce((a, b) => a + (b.care_kwh || 0), 0);
+      assert(Math.abs(above - (p.plan.needed_kwh - c.care_kwh)) < 0.1, `marked ${above}, needed ${p.plan.needed_kwh}, care ${c.care_kwh}`);
+      assert(p.plan.blocks.filter((b) => b.care_kwh > 0).every((b) => b.start >= c.window_start), 'marked part outside the window');
+      // A threshold below the saving: everything in the cheap night, limit up to 100 %.
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 0.01 }));
+      const q = await plan();
+      await sleep(800);
+      const e = q.plan.care;
+      assert(e && e.early === true && e.early_saving >= 0.01, JSON.stringify(e));
+      assert(q.plan.blocks.every((b) => b.start < at(1, 19)) && Math.abs(q.plan.planned_kwh - q.plan.needed_kwh) < 0.1, `blocks ${q.plan.blocks.map((b) => new Date(b.start).toISOString().slice(11, 16))}`);
+      assert(world.limit === lim(100), `limit ${world.limit}`);
+      const n = (await ok('GET', 'api/control')).now;
+      assert(n.code !== 'battery_care_wait', `decision ${n.code}`);
+      return `early would save ${c.early_saving}; with 0.01 set: charged early, limit 100 %`;
+    } finally {
+      await ok('POST', 'api/control/settings', rules());
+      world.soc = 20;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    }
+  });
   await test('J10', 'Car unplugged: Charge now is refused', async () => {
     world.plugged = false;
     await plan();

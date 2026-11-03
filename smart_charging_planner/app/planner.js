@@ -141,6 +141,7 @@ function placeBlocks(planned) {
 // level whenever it is cheapest, above it only in the window before the
 // departure (planCare). careKwh counts from the level now.
 function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false, immediateFirst = false, firstMaxPrice = null, immediateUntil = null, care = null }) {
+  const earlyMinSaving = care ? care.earlyMinSaving : null;
   const opts = { powerKw, continuous, minSplitSaving, solarOnly };
   const whole = planCharging({ prices, now, deadline, neededKwh, ...opts });
   if (!(minKwh > 0.01) || neededKwh == null || neededKwh <= 0.01) return whole;
@@ -164,7 +165,7 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
   });
   const restKwh = Math.max(0, neededKwh - first.planned_kwh);
   const second = care
-    ? planCare({ prices: rest, now, deadline, windowStart: care.windowStart, careKwh: Math.max(0, (care.careKwh || 0) - first.planned_kwh), refillKwh: care.refillKwh, neededKwh: restKwh, ...opts })
+    ? planCare({ prices: rest, now, deadline, windowStart: care.windowStart, careKwh: Math.max(0, (care.careKwh || 0) - first.planned_kwh), refillKwh: care.refillKwh, neededKwh: restKwh, earlyMinSaving, ...opts })
     : planCharging({ prices: rest, now, deadline, neededKwh: restKwh, ...opts });
   // Merge both stages per block.
   const byStart = new Map();
@@ -207,7 +208,26 @@ function planStaged({ prices, now, firstDeadline, minKwh, deadline, neededKwh, p
 // the part above it only in the hours before the departure (windowStart ..
 // deadline), so the battery does not stand full for days. careKwh: the energy
 // up to that level; neededKwh: up to the target.
-function planCare({ prices, now, deadline, windowStart, careKwh, refillKwh = 0, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
+// earlyMinSaving (#39, off = null): when charging above the care level at the
+// cheapest time (not only in the window) saves at least this amount, the
+// cheapest plan is used instead. Either way care.early_saving tells what
+// charging early would save.
+function planCare({ earlyMinSaving = null, ...args }) {
+  const inWindow = planCareWindow(args);
+  if (!inWindow.care) return inWindow;
+  const { prices, now, deadline, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false } = args;
+  const whole = planCharging({ prices, now, deadline, neededKwh, powerKw, continuous, minSplitSaving, solarOnly });
+  const complete = whole.planned_kwh >= (neededKwh || 0) - 0.01 && inWindow.planned_kwh >= (neededKwh || 0) - 0.01;
+  const saving = complete && Number.isFinite(whole.cost) && Number.isFinite(inWindow.cost) ? Math.max(0, inWindow.cost - whole.cost) : null;
+  const care = { ...inWindow.care, early_saving: saving == null ? null : Math.round(saving * 100) / 100 };
+  const limit = Number(earlyMinSaving);
+  if (earlyMinSaving != null && earlyMinSaving !== '' && Number.isFinite(limit) && limit > 0 && saving != null && saving >= limit) {
+    return { ...whole, care: { ...care, early: true, early_min_saving: limit } };
+  }
+  return { ...inWindow, care: { ...care, early: false, ...(earlyMinSaving != null && earlyMinSaving !== '' && Number.isFinite(limit) && limit > 0 ? { early_min_saving: limit } : {}) } };
+}
+
+function planCareWindow({ prices, now, deadline, windowStart, careKwh, refillKwh = 0, neededKwh, powerKw, continuous = false, minSplitSaving = 0, solarOnly = false }) {
   const opts = { powerKw, continuous, minSplitSaving, solarOnly };
   const topKwh = Math.max(0, (neededKwh || 0) - Math.max(0, careKwh || 0));
   if (!(topKwh > 0.01) || !(windowStart < deadline) || !(deadline > now)) {
@@ -395,4 +415,18 @@ function periods(blocks) {
   return out.map((p) => ({ start: p.start, end: p.end, kwh: p.kwh, avg_price: p.cost / p.kwh, ...(p.forecast ? { forecast: true } : {}), ...(p.solar_kwh > 0.001 ? { solar_kwh: p.solar_kwh } : {}) }));
 }
 
-module.exports = { planCare, chargePowerKw, energyNeededKwh, nextDeadline, planCharging, planStaged, placeBlocks, periods };
+// The part of each block that charges above the care level (#39), counted in
+// time order from the level now: careKwh is what is needed to reach the care
+// level. Sets care_kwh on the blocks, for the chart.
+function markCare(blocks, careKwh) {
+  let sum = 0;
+  for (const b of [...(blocks || [])].sort((x, y) => x.start - y.start)) {
+    const above = Math.max(0, Math.min(b.kwh, sum + b.kwh - Math.max(0, careKwh || 0)));
+    sum += b.kwh;
+    if (above > 0.001) b.care_kwh = Math.round(above * 1000) / 1000;
+    else delete b.care_kwh;
+  }
+  return blocks;
+}
+
+module.exports = { markCare, planCare, chargePowerKw, energyNeededKwh, nextDeadline, planCharging, planStaged, placeBlocks, periods };
