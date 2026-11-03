@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.38.1-dev
+
+- Released 0.38.0 on main. Dev continues as 0.38.1-dev; the documentation check stops at the stable release heading below.
+
+## 0.38.0
+
+- Stable release of 0.37.1-dev through 0.37.6-dev (see the GitHub release v0.38.0).
+
 ## 0.37.6-dev
 
 - **Use more in the cold** (Settings › Vehicle, off by default): below 15 °C a trip in your calendar is estimated to use more battery, a percentage per degree colder (default 1.5 %, at most +80 % in total), with the temperature from a weather forecast in Home Assistant at the time of the trip (read only, `weather.get_forecasts`). Learned trips now remember the outside temperature; after 4 trips with at least 5 degrees between the coldest and the warmest, the app uses your car's own extra use per degree. Not applied to the car's range sensor. Trips show the temperature and the extra, for example "3 °C: +18% for the cold". (#56)
