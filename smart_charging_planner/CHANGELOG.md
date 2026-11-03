@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.37.4-dev
+
+- **Departure not used:** on each day one source counts (one-off, then calendar, then helper, then weekly schedule). When a later departure of a higher source drops an earlier one on the same day (a calendar trip at 18:00 and the weekly schedule at 07:00), Home and Departures now warn: "Departure not used", with both times. Before, the earlier departure was only crossed out in a folded list. The planning itself is unchanged. (#25)
+- **All-day events:** an all-day event that looks like a trip (with a target or the keyword) is not used, because it has no time to leave. Departures › Trips from your calendar now lists it as "Not used as a trip". (#25)
+- **Manual:** Departure priority explains which departure counts on a day, two trips in one day, a trip after midnight, all-day events and car tags that match no car or more than one. (#25)
+
 ## 0.37.3-dev
 
 - **Preconditioning and the charger:** when the cable is unplugged while the app keeps the charger on for preconditioning, the app now turns the charger off again (only with Allow control on, one retry when it fails). Before, the charger stayed on with no car. The charger is also kept on for preconditioning for 15 minutes at most and never after the departure time; before, it could stay on until 15 minutes after the departure. (#55)

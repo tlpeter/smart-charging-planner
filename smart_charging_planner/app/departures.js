@@ -9,6 +9,9 @@
 //   4. Weekly schedule (lowest priority)
 // Rules: the earliest day with any departure is used. On that day the source
 // with the highest priority wins; within one source the earliest time counts.
+// A departure of a lower source that is earlier on the same day is dropped
+// then (a calendar trip at 18:00 replaces the schedule at 07:00): it is
+// marked "dropped_earlier" so the app can warn about it (#25).
 
 const { tzParts, localDateTime, localDate, parseLocal } = require('./prices');
 
@@ -249,10 +252,42 @@ function winnersPerDay(candidates, tz) {
       return {
         day,
         winner,
-        others: list.slice(1).filter((x) => x.source !== winner.source),
+        // An earlier departure that is dropped by a later one (#25).
+        others: list.slice(1).filter((x) => x.source !== winner.source).map((x) => (x.time < winner.time ? { ...x, dropped_earlier: true } : x)),
         later: list.slice(1).filter((x) => x.source === winner.source).sort((a, b) => a.time - b.time),
       };
     });
+}
+
+// Departures dropped by a later departure of a higher source on the same day
+// (#25), each with the departure that won: [{ ...dropped, by: winner }].
+function droppedEarlier(days) {
+  return (days || []).flatMap((d) => (d.others || []).filter((x) => x.dropped_earlier).map((x) => ({ ...x, by: d.winner })));
+}
+
+// Calendar events the app does not use as a trip although they look like
+// one (#25): an all-day event has no time to leave. [{ title, date, reason }]
+function ignoredEvents(dep, events, tz, now) {
+  const c = dep.calendar;
+  if (!c.enabled || !events) return [];
+  const keyword = String(c.keyword || '').trim().toLowerCase();
+  const out = [];
+  for (const e of events) {
+    const start = String(e.start || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+    const text = `${e.summary || ''}\n${e.description || ''}`;
+    const target = parseTarget(e.description) ?? parseTarget(e.summary);
+    const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
+    const looksLikeTrip = c.match === 'target' ? target != null
+      : c.match === 'keyword' ? ownFormat || (keyword ? text.toLowerCase().includes(keyword) : true)
+        : true;
+    if (!looksLikeTrip) continue;
+    const end = String(e.end || '');
+    // Still today or later (the end date of an all-day event is the day after).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end) && end <= localDate(now, tz)) continue;
+    out.push({ title: e.summary || '', date: start, reason: 'all_day' });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // skip(trip): calendar trips that are not a departure from home (the server
@@ -273,5 +308,5 @@ function nextDeparture(dep, ctx) {
 
 module.exports = {
   DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
-  calendarTrips, parseTarget, parsePrecondition, parseCar, matchCar,
+  calendarTrips, ignoredEvents, droppedEarlier, parseTarget, parsePrecondition, parseCar, matchCar,
 };

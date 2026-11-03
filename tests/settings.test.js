@@ -497,6 +497,31 @@ async function run() {
     assert(p.departure.source === 'calendar' && p.departure.soc === 90 && p.departure.time === at(1, 7, 30), `departure ${JSON.stringify(p.departure)}`);
     world.events = [];
   });
+  await test('F4b', 'A calendar trip at 18:00 drops the schedule at 06:30 that day: shown as "not used"; an all-day trip is listed as not used (#25)', async () => {
+    const date = (offset) => isoLocal(at(offset, 12, 0), tz).slice(0, 10);
+    world.events = [
+      { summary: 'Party in Rivertown', description: 'target: 90', start: isoLocal(at(1, 18, 0), tz), end: isoLocal(at(1, 23, 0), tz) },
+      { summary: 'Holiday to Exempelstad', description: 'target: 100', start: date(2), end: date(3) },
+    ];
+    try {
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '06:30', soc: 80 } }), calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+      const p = await plan();
+      assert(p.departure.source === 'calendar' && p.departure.time === at(1, 18, 0), `departure ${JSON.stringify(p.departure)}`);
+      const dr = p.departure_dropped || [];
+      assert(dr.length === 1 && dr[0].source === 'schedule' && dr[0].time === at(1, 6, 30) && dr[0].by.source === 'calendar' && dr[0].by.time === at(1, 18, 0), `dropped ${JSON.stringify(dr)}`);
+      const d = await ok('GET', 'api/departures');
+      assert((d.departure_dropped || []).length === 1, `departures page dropped ${JSON.stringify(d.departure_dropped)}`);
+      const day = d.upcoming.find((u) => u.winner.time === at(1, 18, 0));
+      assert(day && day.others.some((o) => o.dropped_earlier === true && o.time === at(1, 6, 30)), `upcoming ${JSON.stringify(day)}`);
+      assert(JSON.stringify(d.calendar_ignored) === JSON.stringify([{ title: 'Holiday to Exempelstad', date: date(2), reason: 'all_day' }]), `ignored ${JSON.stringify(d.calendar_ignored)}`);
+      // Without the calendar trip nothing is dropped.
+      world.events = [];
+      const q = await plan();
+      assert(q.departure.source === 'schedule' && (q.departure_dropped || []).length === 0, `without trip ${JSON.stringify(q.departure_dropped)}`);
+    } finally {
+      world.events = [];
+    }
+  });
   await test('F5', 'Helper: date/time and battery level helper', async () => {
     world.helperTime = isoLocal(at(2, 9, 15), tz).slice(0, 19).replace('T', ' ');
     await ok('POST', 'api/departures', depBody({ schedule_enabled: false, helper: { enabled: true, datetime_entity: 'input_datetime.ev_vertrek', soc_entity: 'input_number.ev_doel' } }));

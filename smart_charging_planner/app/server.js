@@ -14,7 +14,7 @@ const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
-const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
+const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, ignoredEvents, droppedEarlier } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
@@ -1291,6 +1291,8 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError, health: calendarHealth } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
+    // A departure today or tomorrow that a later one of a higher source drops (#25).
+    const departureDropped = droppedView(droppedEarlier(winnersPerDay(collect(dep, { states, events, tz, now, days: 2, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz)).filter((x) => x.time < now + 48 * 3600000));
     // You said yes to charging more for this trip: the higher target.
     if (vehicle && rulesFor(s).trip_topup_enabled) departure = topup.apply(vehicle.id, departure, now);
     // "Ready for" a later day: that becomes the departure; a departure before
@@ -1601,6 +1603,7 @@ const routes = {
       price_warnings: [...priceWarnings],
       calendar_error: calendarError,
       calendar_health: calendarHealth,
+      departure_dropped: departureDropped,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
       manages_car_limit: managesLimit,
@@ -1903,6 +1906,10 @@ const routes = {
       upcoming: days,
       calendar_error: error,
       calendar_health: health,
+      // #25: departures dropped by a later one of a higher source, and
+      // all-day events that look like a trip but are not used.
+      departure_dropped: droppedView(droppedEarlier(days)),
+      calendar_ignored: ignoredEvents(dep, events, tz, now),
       calendar_trips: (() => {
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
@@ -2546,6 +2553,14 @@ routes['DELETE /api/release'] = async () => {
   await refreshPlan('control resumed', { fresh: true });
   return { ok: true, was_released: !!was, ...lastStepSend() };
 };
+
+// For the page: a dropped departure and the departure that won its day (#25).
+function droppedView(list) {
+  return (list || []).map((x) => ({
+    time: x.time, soc: x.soc, source: x.source, title: x.title || null,
+    by: { time: x.by.time, soc: x.by.soc, source: x.by.source, title: x.by.title || null },
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // "Ready for": tomorrow or the day after tomorrow

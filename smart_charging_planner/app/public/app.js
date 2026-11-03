@@ -1416,6 +1416,15 @@ function durationText(minutes) {
       return `<div class="calendar-warning" role="status"><strong>Calendar temporarily unavailable</strong><p>${esc(detail)}</p></div>`;
     }
 
+    // A departure that a later one of a higher source drops on the same day
+    // (#25): the car is not planned for it, so say so.
+    const DROP_SOURCE = { override: 'one-off departure', calendar: 'calendar', helper: 'helper', schedule: 'weekly schedule' };
+    function droppedHtml(list) {
+      if (!list || !list.length) return '';
+      const line = (x) => `<li>${esc(dayHm(x.time))} (${esc(DROP_SOURCE[x.source] || x.source)}${x.title ? `: ${esc(x.title)}` : ''}, ${esc(x.soc)}%) is not used: ${x.by.source === 'calendar' ? `the calendar trip${x.by.title ? ` "${esc(x.by.title)}"` : ''}` : `the ${esc(DROP_SOURCE[x.by.source] || x.by.source)}`} at ${esc(dayHm(x.by.time).split(' ').pop())} wins that day.</li>`;
+      return `<div class="calendar-warning" role="status"><strong>Departure not used</strong><p>On each day one source counts: one-off, then calendar, then helper, then weekly schedule. The car is planned for the later departure only. To keep the earlier one, add it as a trip in the calendar too.</p><ul>${list.map(line).join('')}</ul></div>`;
+    }
+
     function priceMessagesHtml(d) {
       const error = d.price_error ? `<div class="error" role="alert">Prices could not be loaded: ${esc(d.price_error)}</div>` : '';
       const warnings = [...new Set(d.price_warnings || [])];
@@ -1472,6 +1481,7 @@ function durationText(minutes) {
         ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
         ${calendarMessagesHtml(d)}
+        ${droppedHtml(d.departure_dropped)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
@@ -2575,13 +2585,16 @@ function durationText(minutes) {
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${calendarMessagesHtml(d)}
+          ${droppedHtml(d.departure_dropped)}
           ${d.upcoming.length > 1 ? `
           <details${keep('dep-next-days')}><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
             ${aheadButtonsHtml()}
             <table class="periods">
-              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
+              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => o.dropped_earlier
+                ? `<div class="small warn-text">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])} · not used: a later ${esc((SOURCE_NAMES[u.winner.source] || '').toLowerCase())} departure wins this day</div>`
+                : `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
             </table>
-            <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
+            <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule). In orange: an earlier departure that a later one of a higher source drops.</p>
           </details>` : ''}`;
         $('dep-next').querySelectorAll('[data-depcar]').forEach((b) => {
           b.onclick = () => { depCar = b.dataset.depcar; $('dep-form').reset(); loadDepartures(); };
@@ -2617,7 +2630,8 @@ function durationText(minutes) {
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
-          </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
+          </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}
+          ${(d.calendar_ignored || []).length ? `<p class="small warn-text" style="margin-top:8px">Not used as a trip (an all-day event has no time to leave; give it a start time):</p><ul class="small">${d.calendar_ignored.map((x) => `<li>${esc(depFmt(Date.parse(x.date + 'T12:00:00Z'), { weekday: 'short', day: 'numeric', month: 'short' }))} · ${esc(x.title || 'untitled')}</li>`).join('')}</ul>` : ''}`;
 
         renderTripForm(d);
 

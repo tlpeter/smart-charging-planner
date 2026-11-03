@@ -383,6 +383,13 @@ A command the car's cloud accepts is not proof that the car started: check it in
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
 
+- **One source per day, the whole day.** The source that wins decides the day, also when its departure is later. Example: the weekly schedule says 07:00 and the calendar has a trip at 18:00 that day. The calendar wins, so the car is planned for 18:00 and **07:00 is not used**. Home and Departures then show **Departure not used** with both times (#25). To keep the earlier departure, add it as a trip in the calendar too (or as a one-off departure). A higher source with an *earlier* departure simply replaces the later one; that is shown crossed out under Departures › Next days.
+- **Two trips in one day** from the same source: the plan prepares for the first; the second is shown as "later that day".
+- **After midnight:** a departure counts for the day it leaves. A trip at 00:30 belongs to the next day, so it does not replace the departures of the evening before.
+- **All-day events** have no time to leave and are never a departure. When one looks like a trip (it has a target, or the keyword), Departures › Trips from your calendar lists it under **Not used as a trip**. Give the event a start time to use it.
+- **Which events count:** with **Events with a target** only events with "target: 80" (or "doel: 80") count; with **Events with a keyword** events with the keyword in the title or description, and always events in the app's own format; with **Every event** every event with a time. A trip home ("To home" / "Naar huis") is never a departure: the car comes back.
+- **Car tags** (more cars): "car: EV6" is matched to the **Name in the calendar**, the car's name, or its brand when only one car has that brand. A tag that matches no car, or more than one, counts for **every car** and is marked "not recognised" under Trips from your calendar.
+
 ## Charging power
 
 The plan uses the charger maximum (phases × 230 V × maximum current), unless the car really charges slower. With a charging power sensor in Settings › Charger, the app learns from the last 10 days at what power the car typically charges at full speed (at least 30 minutes of charging is needed), and uses the lower of the two. Home shows which power the plan uses and why.
