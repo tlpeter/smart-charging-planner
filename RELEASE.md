@@ -51,12 +51,12 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Released as 0.36.0 (candidate 0.36.19-dev)
+## Released as 0.38.0 (candidate 0.37.6-dev)
 
-Scope: #28 (compatibility matrix, beta test report form, multi-arch build, older Core check), #29 (sharing the connection per phase across chargers and the home battery), #40 (charging stops in all European countries, more stops on a long trip), #46 (where the car is when not plugged in), #47 and #54 (route map, zoom and drag), #48 (country and operator lists), #49 (addresses abroad), #50 (a stop as late as possible at the best station), #51 (what you opened on Home stays open).
+Scope: #33 (Pause until a time, until unplugged or until you resume; Hand back control), #55 (preconditioning: charger off again when the cable is unplugged, kept on for 15 minutes at most), #25 (warning when a later departure drops an earlier one on the same day, all-day events listed as not used, departure priority explained), #39 (Battery care in green in the chart, optional saving threshold to charge above the care level earlier), #56 (trip estimates use more battery in the cold, from a weather forecast, learned per car).
 
-Earlier: 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45); 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
+Earlier: 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54); 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45); 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
 
-Not resolved: #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
+Not resolved: the 0.38.0 scope (#33, #55, #25, #39, #56) was released before the owner's home check: it is fixture-tested and Core-tested only. #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
 
 The MIT license and third-party icon notice are retained. Contribution expectations are in CONTRIBUTING.md.

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.38.0
+
+- Stable release of 0.37.1-dev through 0.37.6-dev.
+- **Pause until** a time, until unplugged or until you resume, and **Hand back control** (#33).
+- **Preconditioning:** the charger is turned off again when the cable is unplugged, and kept on for 15 minutes at most (#55).
+- **Departure not used:** a warning when a later departure drops an earlier one on the same day; all-day events that look like a trip are listed as not used (#25).
+- **Battery care** in green in the chart, and an optional saving threshold to charge above the care level earlier (#39).
+- **Use more in the cold:** trip estimates with the temperature from a weather forecast, learned per car (#56).
+
+## 0.37.6
+
+- **Use more in the cold** (Settings › Vehicle, off by default): below 15 °C a trip in your calendar is estimated to use more battery, a percentage per degree colder (default 1.5 %, at most +80 % in total), with the temperature from a weather forecast in Home Assistant at the time of the trip (read only, `weather.get_forecasts`). Learned trips now remember the outside temperature; after 4 trips with at least 5 degrees between the coldest and the warmest, the app uses your car's own extra use per degree. Not applied to the car's range sensor. Trips show the temperature and the extra, for example "3 °C: +18% for the cold". (#56)
+
+## 0.37.5
+
+- **Battery care in the chart:** the part that charges above the care level is **green** in the price chart, with a legend entry "Battery care (above 80%)", a line in the tooltip and a chip in the plan table. Before, it looked like any other planned block, so a later, more expensive block looked like a mistake. (#39)
+- **Battery care: charge earlier when it saves enough** (Settings › Rules › Battery care, empty = never, the default): when charging the part above the care level at the cheapest time saves at least this amount, the app does that instead of waiting for the last hours; the car's charge limit then goes up right away. The Battery care note on Home says what charging early saves, or that it would save only a small amount. (#39)
+
+## 0.37.4
+
+- **Departure not used:** on each day one source counts (one-off, then calendar, then helper, then weekly schedule). When a later departure of a higher source drops an earlier one on the same day (a calendar trip at 18:00 and the weekly schedule at 07:00), Home and Departures now warn: "Departure not used", with both times. Before, the earlier departure was only crossed out in a folded list. The planning itself is unchanged. (#25)
+- **All-day events:** an all-day event that looks like a trip (with a target or the keyword) is not used, because it has no time to leave. Departures › Trips from your calendar now lists it as "Not used as a trip". (#25)
+- **Manual:** Departure priority explains which departure counts on a day, two trips in one day, a trip after midnight, all-day events and car tags that match no car or more than one. (#25)
+
+## 0.37.3
+
+- **Preconditioning and the charger:** when the cable is unplugged while the app keeps the charger on for preconditioning, the app now turns the charger off again (only with Allow control on, one retry when it fails). Before, the charger stayed on with no car. The charger is also kept on for preconditioning for 15 minutes at most and never after the departure time; before, it could stay on until 15 minutes after the departure. (#55)
+
+## 0.37.2
+
+- Test only: the pause test waits for one more control step on a slow test machine, and the hand-back test checks the app's own record while control is handed back (after Resume control the app may set the current again for solar charging). No app changes. (#33)
+
+## 0.37.1
+
+- **Pause until** (Home › Quick choices): no charging until a time, until the car is unplugged, or until you resume. It is sent right away and wins over the plan, the minimum, Ready Guard and preconditioning; a timed pause moves the plan to after it. Kept across a restart; Charge now ends it. Before, a stop by hand held for only 3 minutes. (#33)
+- **Hand back control** (Activity › Log › Who controls the devices): shows what the app controls and what it changed, then puts back a charging current and phases it changed and the home battery settings, checks what the devices report, and sends nothing to the chargers, the car and the battery until you press Resume control. Phases are never switched while the car charges. The start/stop switch and the car's charge limit are left as they are. (#33)
+
 ## 0.36.0
 
 - Stable release of 0.36.0-dev through 0.36.19-dev.

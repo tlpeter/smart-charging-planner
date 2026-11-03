@@ -6,7 +6,7 @@
 const path = require('path');
 const app = path.join(__dirname, '..', 'smart_charging_planner', 'app');
 const { pricesFromAttributes, localDateTime } = require(path.join(app, 'prices.js'));
-const { planCharging, planCare, periods } = require(path.join(app, 'planner.js'));
+const { planCharging, planCare, markCare, periods } = require(path.join(app, 'planner.js'));
 
 let failed = 0;
 const check = (name, ok) => { if (!ok) failed++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`); };
@@ -106,6 +106,33 @@ check('Battery Care final window already open: normal price planning', !inWindow
 const explicitMinimum = planStaged({ prices: refillPrices, now: t0, deadline: t0 + 16 * H, firstDeadline: t0, minKwh: 0.6, neededKwh: 6.6,
   powerKw: 10, immediateFirst: true, care: { windowStart: t0 + 12 * H, careKwh: 0.6, refillKwh: 3 } });
 check('Battery Care does not defer an explicit minimum', explicitMinimum.blocks.some((b) => b.start === t0 && b.min_kwh > 0.59));
+
+// Battery care: charge above the care level earlier when it saves enough
+// (#39), and the part above the level marked for the chart. Synthetic prices:
+// 0.13 early, 0.15 in the care window; 6.6 kWh above the care level.
+{
+  const cp = Array.from({ length: 16 }, (_, i) => ({ start: t0 + i * H, end: t0 + (i + 1) * H, total: i === 0 ? 0.13 : i >= 12 ? 0.15 : 0.40 }));
+  const care = (extra = {}) => planCare({ prices: cp, now: t0, deadline: t0 + 16 * H, windowStart: t0 + 12 * H, careKwh: 0, neededKwh: 6.6, powerKw: 11, ...extra });
+  const off = care();
+  check('Battery care early (#39) off: the part above the level stays in the window', off.blocks.every((b) => b.start >= t0 + 12 * H) && off.care.early === false);
+  check('Battery care early (#39): the plan says what charging early would save (6.6 kWh × 0.02 = 0.13)', Math.abs(off.care.early_saving - 0.13) < 0.006);
+  const small = care({ earlyMinSaving: 0.5 });
+  check('Battery care early (#39): saving below the threshold: kept in the window', small.care.early === false && small.blocks.every((b) => b.start >= t0 + 12 * H) && small.care.early_min_saving === 0.5);
+  const big = care({ earlyMinSaving: 0.10 });
+  check('Battery care early (#39): saving above the threshold: charged at the cheapest time', big.care.early === true && big.blocks.every((b) => b.start < t0 + H) && Math.abs(big.planned_kwh - 6.6) < 0.01);
+  check('Battery care early (#39): all energy and a lower cost', Math.abs(big.cost - off.cost + 0.132) < 0.001);
+  check('Battery care early (#39): empty threshold means never', care({ earlyMinSaving: '' }).care.early === false);
+  // Marking: 20 kWh to the care level, then 10 kWh above it, in time order.
+  const blocks = [{ start: t0 + 2 * H, kwh: 10 }, { start: t0, kwh: 15 }, { start: t0 + 5 * H, kwh: 5 }];
+  markCare(blocks, 20);
+  check('Battery care chart (#39): the part above the level is marked in time order', blocks[1].care_kwh === undefined && blocks[0].care_kwh === 5 && blocks[2].care_kwh === 5);
+  markCare(blocks, 0);
+  check('Battery care chart (#39): already above the level: everything is marked', blocks.every((b) => b.care_kwh === b.kwh));
+  // With a minimum first (planStaged), the threshold is passed on.
+  const staged = planStaged({ prices: cp, now: t0, deadline: t0 + 16 * H, firstDeadline: t0, minKwh: 1, neededKwh: 7.6, powerKw: 11, immediateFirst: true,
+    care: { windowStart: t0 + 12 * H, careKwh: 1, refillKwh: 0, earlyMinSaving: 0.05 } });
+  check('Battery care early (#39) with a minimum: passed on', staged.care && staged.care.early === true && staged.blocks.every((b) => b.start < t0 + H));
+}
 
 // Look ahead: the minimum after a trip never runs past the next departure.
 const until = t0 + H;

@@ -113,6 +113,7 @@ async function startApp(options = {}) {
       SUPERVISOR_TOKEN: 'test',
       HOSTNAME: 'a0b1c2d3-smart-charging-planner',
       SCP_CHECK_AFTER_MS: '2000',
+      SCP_RELEASE_CONFIRM_MS: '300',
       SCP_LIMIT_GAP_MS: '2000',
       SCP_PHASE_GAP_MS: '1000',
       SCP_CURRENT_GAP_MS: '1000',
@@ -495,6 +496,31 @@ async function run() {
     const p = await plan();
     assert(p.departure.source === 'calendar' && p.departure.soc === 90 && p.departure.time === at(1, 7, 30), `departure ${JSON.stringify(p.departure)}`);
     world.events = [];
+  });
+  await test('F4b', 'A calendar trip at 18:00 drops the schedule at 06:30 that day: shown as "not used"; an all-day trip is listed as not used (#25)', async () => {
+    const date = (offset) => isoLocal(at(offset, 12, 0), tz).slice(0, 10);
+    world.events = [
+      { summary: 'Party in Rivertown', description: 'target: 90', start: isoLocal(at(1, 18, 0), tz), end: isoLocal(at(1, 23, 0), tz) },
+      { summary: 'Holiday to Exempelstad', description: 'target: 100', start: date(2), end: date(3) },
+    ];
+    try {
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '06:30', soc: 80 } }), calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
+      const p = await plan();
+      assert(p.departure.source === 'calendar' && p.departure.time === at(1, 18, 0), `departure ${JSON.stringify(p.departure)}`);
+      const dr = p.departure_dropped || [];
+      assert(dr.length === 1 && dr[0].source === 'schedule' && dr[0].time === at(1, 6, 30) && dr[0].by.source === 'calendar' && dr[0].by.time === at(1, 18, 0), `dropped ${JSON.stringify(dr)}`);
+      const d = await ok('GET', 'api/departures');
+      assert((d.departure_dropped || []).length === 1, `departures page dropped ${JSON.stringify(d.departure_dropped)}`);
+      const day = d.upcoming.find((u) => u.winner.time === at(1, 18, 0));
+      assert(day && day.others.some((o) => o.dropped_earlier === true && o.time === at(1, 6, 30)), `upcoming ${JSON.stringify(day)}`);
+      assert(JSON.stringify(d.calendar_ignored) === JSON.stringify([{ title: 'Holiday to Exempelstad', date: date(2), reason: 'all_day' }]), `ignored ${JSON.stringify(d.calendar_ignored)}`);
+      // Without the calendar trip nothing is dropped.
+      world.events = [];
+      const q = await plan();
+      assert(q.departure.source === 'schedule' && (q.departure_dropped || []).length === 0, `without trip ${JSON.stringify(q.departure_dropped)}`);
+    } finally {
+      world.events = [];
+    }
   });
   await test('F5', 'Helper: date/time and battery level helper', async () => {
     world.helperTime = isoLocal(at(2, 9, 15), tz).slice(0, 19).replace('T', ' ');
@@ -986,6 +1012,91 @@ async function run() {
     assert(a.sent && b.sent && cmds.length === 2, `sent ${a.sent}/${b.sent}, commands ${cmds}`);
     return cmds.join(' → ');
   });
+  // Pause until (#33): a pause is a real, lasting stop, not the 3-minute grace.
+  const ctlNow = async () => (await ok('GET', 'api/control')).now;
+  const stopsSince = (n) => callsSince(n).filter((c) => CH.isControl(c) && !CH.isStart(c));
+  await test('J9c', 'Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause', async () => {
+    world.plugged = true;
+    world.charging = false;
+    await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    assert(world.charging === true, 'Charge now did not start');
+    await refused('POST', 'api/pause', { until: 'later' }, 'until when');
+    await refused('POST', 'api/pause', { until: 'time', at: Date.now() - 60000 }, 'future');
+    await refused('POST', 'api/pause', { until: 'time', at: Date.now() + 8 * 24 * H }, '7 days');
+    const until = Date.now() + 3 * H;
+    const n0 = world.calls.length;
+    const r = await ok('POST', 'api/pause', { until: 'time', at: until });
+    await sleep(800);
+    await plan();
+    await sleep(800);
+    const p = await plan();
+    const n = await ctlNow();
+    assert(stopsSince(n0).length >= 1 && world.charging === false, `charging ${world.charging}, decision ${n.code}, sent ${callsSince(n0).map((c) => `${c.domain}.${c.service} ${c.target ? c.target.entity_id : ''}`)}`);
+    assert(!p.boost, 'Charge now did not end');
+    assert(p.pause && p.pause.mode === 'time' && p.pause.until === until && /Paused by you until/.test(p.pause.text), JSON.stringify(p.pause));
+    assert(n.want === 'pause' && n.code === 'paused_by_you', `${n.want}/${n.code}`);
+    assert(p.plan.blocks.every((b) => b.end > until), `a block before the pause ends: ${JSON.stringify(p.plan.blocks.map((b) => [b.start, b.end]))}`);
+    return `${r.pause.text}; ${p.plan.blocks.length} blocks after it`;
+  });
+  await test('J9d', 'Paused: below the minimum the app still does not start the charger (the pause wins); Resume: the plan takes over again', async () => {
+    const soc0 = world.soc;
+    try {
+      await ok('POST', 'api/control/settings', rules({ min_soc_enabled: true, min_soc: 20 }));
+      world.soc = 10;
+      world.charging = false;
+      const n0 = world.calls.length;
+      await plan();
+      await sleep(800);
+      const n = await ctlNow();
+      assert(n.code === 'paused_by_you' && world.charging === false && !callsSince(n0).some((c) => CH.isStart(c)), `${n.code}, charging ${world.charging}`);
+      const r = await ok('DELETE', 'api/pause');
+      await sleep(800);
+      const p = await plan();
+      const n2 = await ctlNow();
+      assert(r.was_paused && !p.pause, `pause ${JSON.stringify(p.pause)}`);
+      assert(n2.code === 'below_minimum' && world.charging === true, `after resume ${n2.code}, charging ${world.charging}`);
+      return `paused at 10 % (minimum 20 %), after resume: ${n2.code}`;
+    } finally {
+      world.soc = soc0;
+      await ok('POST', 'api/control/settings', rules());
+      await plan();
+    }
+  });
+  await test('J9e', 'Pause until the car is unplugged: refused when not plugged in; ends when the car is unplugged', async () => {
+    world.plugged = false;
+    world.charging = false;
+    await plan();
+    await refused('POST', 'api/pause', { until: 'unplug' }, 'not plugged in');
+    world.plugged = true;
+    await plan();
+    await ok('POST', 'api/pause', { until: 'unplug' });
+    const p1 = await plan();
+    assert(p1.pause && p1.pause.mode === 'unplug' && (await ctlNow()).code === 'paused_by_you', JSON.stringify(p1.pause));
+    world.plugged = false;
+    await plan();
+    const p2 = await plan();
+    world.plugged = true;
+    await plan();
+    const n = await ctlNow();
+    assert(!p2.pause && n.code !== 'paused_by_you', `pause ${JSON.stringify(p2.pause)}, ${n.code}`);
+    return `ended on unplug, now ${n.code}`;
+  });
+  await test('J9f', 'Pause until I resume: kept after a restart; Charge now ends it', async () => {
+    world.charging = false;
+    await ok('POST', 'api/pause', { until: 'resume' });
+    await startApp({ allow_control: true, notify_start_stop: true });
+    const p = await plan();
+    const n = await ctlNow();
+    assert(p.pause && p.pause.mode === 'resume' && n.code === 'paused_by_you', `${JSON.stringify(p.pause)} ${n.code}`);
+    await ok('POST', 'api/boost', { mode: 'on' });
+    await sleep(800);
+    const q = await plan();
+    assert(!q.pause && world.charging === true, `pause ${JSON.stringify(q.pause)}, charging ${world.charging}`);
+    await ok('DELETE', 'api/boost');
+    await plan();
+    return 'kept after restart, ended by Charge now';
+  });
   await test('J12', 'Target 85 %: limit rounded up to a step the car accepts, the plan still stops at 85 %', async () => {
     // J8 changed the limit "in the car" (80) shortly after the app sent 90; the
     // app waits the retry gap (here 2 s, live 15 min) before sending 90 again.
@@ -1066,6 +1177,36 @@ async function run() {
       await ok('POST', 'api/control/settings', rules());
       world.soc = 20;
       world.charging = false;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
+    }
+  });
+  await test('J13c', 'Battery care (#39): the part above 80 % is marked for the chart; with "charge earlier when it saves at least" it moves to the cheap night when the saving is enough, and the car limit goes up', async () => {
+    try {
+      world.soc = 50;
+      await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '23:00', soc: 100 } }) }));
+      await refused('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 500 }), 'saves at least');
+      // A threshold that is never reached: as before, plus what early would save.
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 99 }));
+      const p = await plan();
+      const c = p.plan.care;
+      assert(c && c.early === false && c.early_saving > 0 && c.early_min_saving === 99, JSON.stringify(c));
+      const above = p.plan.blocks.reduce((a, b) => a + (b.care_kwh || 0), 0);
+      assert(Math.abs(above - (p.plan.needed_kwh - c.care_kwh)) < 0.1, `marked ${above}, needed ${p.plan.needed_kwh}, care ${c.care_kwh}`);
+      assert(p.plan.blocks.filter((b) => b.care_kwh > 0).every((b) => b.start >= c.window_start), 'marked part outside the window');
+      // A threshold below the saving: everything in the cheap night, limit up to 100 %.
+      await ok('POST', 'api/control/settings', rules({ battery_care_enabled: true, battery_care_soc: 80, battery_care_hours: 4, battery_care_early_saving: 0.01 }));
+      const q = await plan();
+      await sleep(800);
+      const e = q.plan.care;
+      assert(e && e.early === true && e.early_saving >= 0.01, JSON.stringify(e));
+      assert(q.plan.blocks.every((b) => b.start < at(1, 19)) && Math.abs(q.plan.planned_kwh - q.plan.needed_kwh) < 0.1, `blocks ${q.plan.blocks.map((b) => new Date(b.start).toISOString().slice(11, 16))}`);
+      assert(world.limit === lim(100), `limit ${world.limit}`);
+      const n = (await ok('GET', 'api/control')).now;
+      assert(n.code !== 'battery_care_wait', `decision ${n.code}`);
+      return `early would save ${c.early_saving}; with 0.01 set: charged early, limit 100 %`;
+    } finally {
+      await ok('POST', 'api/control/settings', rules());
+      world.soc = 20;
       await ok('POST', 'api/departures', depBody({ schedule: schedule({ [dayKey(1)]: { enabled: true, time: '07:00', soc: 90 }, [dayKey(2)]: { enabled: true, time: '06:00', soc: 80 } }) }));
     }
   });
@@ -1167,6 +1308,43 @@ async function run() {
     assert(n.code === 'solar' && world.charging === true, `decision ${n.code}, charging ${world.charging}, sent ${calls}`);
     assert(Number.isFinite(world.amps) && world.amps >= 6 && world.amps <= 8, `current ${world.amps}`);
     return `${world.amps} A, sent: ${calls.join(' · ')}`;
+  });
+  await test('S6b', 'Hand back control (#33): the list shows the current the app set; confirmed, it is put back and the app sends nothing until you resume', async () => {
+    const pre = await ok('GET', 'api/release');
+    const cur = pre.items.find((x) => x.kind === 'current');
+    assert(cur && cur.action === 'restore' && cur.to === '16 A', `items ${JSON.stringify(pre.items)}`);
+    assert(pre.items.some((x) => x.what === 'Start and stop' && x.action === 'leave'), 'start/stop not listed');
+    await refused('POST', 'api/release', {}, 'confirm');
+    const r = await ok('POST', 'api/release', { confirm: true });
+    const item = r.released.items.find((x) => x.kind === 'current');
+    assert(item && ['confirmed', 'sent'].includes(item.result) && world.amps === 16, `result ${JSON.stringify(item)}, current ${world.amps}`);
+    world.charging = false;
+    const n1 = world.calls.length;
+    await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    const sent = callsSince(n1).filter((c) => !['notify', 'calendar', 'homeassistant'].includes(c.domain));
+    const n = (await ok('GET', 'api/control')).now;
+    const p = await plan();
+    assert(!sent.length, `sent while handed back: ${sent.map((c) => CH.describe(c))}`);
+    assert(n.code === 'released' && p.released && world.charging === false, `${n.code}, released ${JSON.stringify(p.released)}`);
+    await refused('POST', 'api/boost', { mode: 'on' }, 'handed back');
+    await refused('POST', 'api/pause', { until: 'resume' }, 'handed back');
+    const still = await ok('GET', 'api/release');
+    assert(still.released && still.released.done, 'not shown as handed back');
+    // The app's own record of the current it set is gone (it is the write-ahead record).
+    const record = JSON.parse(fs.readFileSync(path.join(dataDir, 'device_control.json'), 'utf8'));
+    assert(record.current == null, `record not cleared: ${JSON.stringify(record)}`);
+    await ok('DELETE', 'api/release');
+    const after = await ok('GET', 'api/release');
+    assert(!after.released, 'still handed back after Resume control');
+    await plan();
+    await sleep(600);
+    await plan();
+    await sleep(600);
+    assert(world.charging === true, 'the app did not take over again after Resume control');
+    return `current ${item.result} at 16 A; nothing sent meanwhile; resumed: ${world.amps} A`;
   });
   await test('S7', 'Live: sun drops to 2.5 kW → one phase where the charger can, otherwise stop', async () => {
     world.pvW = 2500;
@@ -1875,6 +2053,32 @@ async function run() {
       const e = n.expected;
       assert(e && e.below_goal && e.needed_kwh > 5 && e.blocks.length && e.blocks.every((b) => b.expected && b.start >= at(1, 18)), JSON.stringify({ ...e, blocks: e && e.blocks.length }));
       return `trip ${n.trip.km} km → ${n.trip.pct}% · back ~${n.trip.soc_after}% · next: ${n.goal.title} ${n.goal.soc}% · expected ${e.needed_kwh} kWh, ${e.planned_kwh.toFixed(1)} kWh in known prices`;
+    });
+    await test('Y1b', 'Use more in the cold (#56): with a weather forecast of 3 °C and 1.5 % per degree the same trip costs 18 % more; off again: as before', async () => {
+      try {
+        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true }), 'weather forecast');
+        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 9 }), 'between 0 and 5');
+        const det = await ok('GET', 'api/vehicles/detect');
+        assert((det.weathers || []).some((x) => x.entity_id === 'weather.forecast_home'), JSON.stringify(det.weathers));
+        world.weatherTemp = 3;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 1.5 }));
+        const n = (await settle()).next;
+        const pct = 120 * (18 / 100 / CAR.capacity) * 100 * 1.1 * 1.18;
+        assert(n.trip.status === 'ok' && n.trip.cold && n.trip.cold.temp === 3 && n.trip.cold.factor === 1.18, JSON.stringify(n.trip));
+        assert(Math.abs(n.trip.pct - pct) < 0.2, `pct ${n.trip.pct} (${pct.toFixed(1)})`);
+        const d = await ok('GET', 'api/departures');
+        const t = (d.calendar_trips || []).find((x) => x.title === 'Naar Lakeside');
+        assert(t && t.cost && t.cost.cold && t.cost.cold.temp === 3, JSON.stringify(t && t.cost));
+        const warmCalls = world.calls.filter((c) => c.domain === 'weather').length;
+        assert(warmCalls === 0, `weather actions are read only and not counted as control: ${warmCalls}`);
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+        const m = (await settle()).next;
+        assert(!m.trip.cold && Math.abs(m.trip.pct - 120 * (18 / 100 / CAR.capacity) * 100 * 1.1) < 0.2, JSON.stringify(m.trip));
+        return `3 °C: ${n.trip.pct}% instead of ${m.trip.pct}%`;
+      } finally {
+        world.weatherTemp = 10;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      }
     });
     await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
       world.events = [

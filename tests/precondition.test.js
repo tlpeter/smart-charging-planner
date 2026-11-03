@@ -2,7 +2,8 @@
 
 // Preconditioning before a departure (#44): which drives get it, when, what
 // is sent, one attempt and one retry, write-ahead after a restart, and the
-// release of a switch when the car did not leave.
+// release of a switch when the car did not leave; the charger kept on for
+// 15 minutes at most and turned off again when the cable is unplugged (#55).
 // Run: node tests/precondition.test.js   (from the repository root)
 
 const os = require('os');
@@ -12,6 +13,7 @@ const path = require('path');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-precondition-'));
 const assert = require('assert/strict');
 const p = require(path.join(__dirname, '..', 'smart_charging_planner', 'app', 'precondition'));
+const controller = require(path.join(__dirname, '..', 'smart_charging_planner', 'app', 'controller'));
 
 let failures = 0;
 async function check(name, fn) {
@@ -168,6 +170,66 @@ async function main() {
     p.setSchedule('car1', p.schedule({ trips: [trip('Werk', 6, 16, null)], cfg: back, isReturn }));
     assert.deepEqual((await run(at(15, 45), { vehicles: [car(back)] })).sent, ['switch.turn_on switch.car_climate']);
     assert.deepEqual((await run(at(16, 30), { vehicles: [car(back)] })).sent, []);
+  });
+
+  await check('the charger is kept on for 15 minutes at most, not until after the departure (#55)', async () => {
+    p.reset();
+    // 30 minutes before: asked at 05:30, the charger stays on until 05:45.
+    p.setSchedule('car1', p.schedule({ trips: [trip('Werk', 6, 16, true)], cfg: on({ minutes: 30 }), isReturn }));
+    await run(at(5, 30), { vehicles: [{ id: 'car1', precondition: on({ minutes: 30 }) }] });
+    assert.equal(p.active('car1', at(5, 44)), true);
+    assert.equal(p.active('car1', at(5, 45)), false);
+    // 15 minutes before: on from 05:45, off at the departure, not until 06:15.
+    p.reset();
+    p.setSchedule('car1', p.schedule({ trips: [trip('Werk', 6, 16, true)], cfg: on(), isReturn }));
+    await run(at(5, 45));
+    assert.equal(p.active('car1', at(5, 59)), true);
+    assert.equal(p.active('car1', at(6, 0)), false);
+    assert.equal(p.active('car1', at(6, 10)), false);
+  });
+
+  await check('cable unplugged during preconditioning: the charger is turned off again, one retry, then left alone (#55)', () => {
+    controller.clearLog();
+    controller.clearLock();
+    const sw = { type: 'switch', entity_id: 'switch.charger_enabled' };
+    const methods = { start_stop: sw, current: null };
+    const charger = { status_entity: 'sensor.charger_status', phases: 3 };
+    const vehicle = { plugged_entity: 'binary_sensor.car_plugged_in' };
+    const plan = { plan: { blocks: [] }, prices: [], vehicle: { soc: 60 }, planning: { target_soc: 80 }, charger: { max_current: 16 } };
+    const states = (plugged, enabled) => [
+      { entity_id: 'binary_sensor.car_plugged_in', state: plugged ? 'on' : 'off' },
+      { entity_id: 'sensor.charger_status', state: plugged ? 'charging' : 'disconnected' },
+      { entity_id: 'switch.charger_enabled', state: enabled ? 'on' : 'off' },
+    ];
+    const step = (now, plugged, enabled, preconditioning) => controller.dryRun({ plan, vehicle, charger, states: states(plugged, enabled), methods, rules: {}, now, live: true, controlAllowed: true, preconditioning });
+    // 07:45 preconditioning, car plugged in: charger on.
+    const a = step(at(7, 45), true, false, true);
+    assert.equal(a.code, 'preheat');
+    assert.deepEqual(a.commands.map((c) => c.what), ['start charging']);
+    controller.logSent({ ...a, live: true, sent: true });
+    // 07:55 cable unplugged: the charger is turned off.
+    const b = step(at(7, 55), false, true, true);
+    assert.equal(b.code, 'preheat_unplugged');
+    assert.deepEqual(b.commands.map((c) => `${c.service} ${c.target.entity_id}`), ['switch.turn_off switch.charger_enabled']);
+    // The stop failed: tried once more, then not again.
+    controller.logSent({ ...b, live: true, sent: false, error: 'refused' });
+    const c = step(at(7, 56), false, true, true);
+    assert.equal(c.code, 'preheat_unplugged');
+    assert.equal(c.commands.length, 1);
+    controller.logSent({ ...c, live: true, sent: false, error: 'refused' });
+    const d = step(at(7, 57), false, true, true);
+    assert.equal(d.code, 'unplugged');
+    assert.deepEqual(d.commands, []);
+    // Accepted the first time: back to "not plugged in" the next minute.
+    controller.clearLog();
+    controller.logSent({ ...step(at(8, 45), true, false, true), live: true, sent: true });
+    controller.logSent({ ...step(at(8, 50), false, true, true), live: true, sent: true });
+    assert.equal(step(at(8, 51), false, false, false).code, 'unplugged');
+    // Unplugged without preconditioning before it: nothing is sent.
+    controller.clearLog();
+    const e = step(at(9, 0), false, true, false);
+    assert.equal(e.code, 'unplugged');
+    assert.deepEqual(e.commands, []);
   });
 
   console.log(failures ? `\n${failures} failed` : '\nAll preconditioning checks passed');

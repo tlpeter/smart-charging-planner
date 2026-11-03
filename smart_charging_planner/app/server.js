@@ -14,10 +14,11 @@ const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
-const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips } = require('./departures');
-const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, periods } = require('./planner');
+const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, ignoredEvents, droppedEarlier } = require('./departures');
+const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, markCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
+const weather = require('./weather');
 const chargestops = require('./chargestops');
 const carplace = require('./carplace');
 const precondition = require('./precondition');
@@ -32,6 +33,7 @@ const { learnedPower } = require('./chargepower');
 const { chargedBlocks } = require('./charged');
 const pricehistory = require('./pricehistory');
 const boost = require('./boost');
+const pause = require('./pause');
 const chargefor = require('./chargefor');
 const topup = require('./topup');
 const equalizer = require('./equalizer');
@@ -449,7 +451,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const following = where && !tripcost.isHome(cur.location) ? nextCal(last) : null;
     const back = following && isReturnTrip(following) ? following : null;
     const trip = where && !fixed
-      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc() })
+      ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc(), temp: tripTemp(vehicle, cur.time, states, tz, now) })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
     const returnAt = back ? endOf(back) : endOf(last);
     // soc_after (0 or more) is used to plan what comes next; soc_end can be
@@ -677,15 +679,23 @@ tripcost.onUpdate(tripLookupDone);
 chargestops.setConfig(() => settings.load().charge_stops || {});
 chargestops.onUpdate(tripLookupDone);
 
-function tripLearning(vehicle, plugged, soc, carData, next, now) {
+// The forecast temperature for a trip (#56), when the car uses the cold
+// correction. null when off or not known.
+function tripTemp(vehicle, at, states, tz, now = Date.now()) {
+  if (!vehicle || vehicle.cold_correction !== true || !vehicle.weather_entity) return null;
+  return weather.tempAt(vehicle.weather_entity, at, { states, tz, now });
+}
+
+function tripLearning(vehicle, plugged, soc, carData, next, now, states = []) {
+  const tempNow = vehicle && vehicle.weather_entity ? weather.currentTemp(vehicle.weather_entity, states) : null;
   if (!vehicle || !vehicle.id || plugged == null) return;
   const w = tripWatch.get(vehicle.id) || { plugged: null };
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
   if (w.plugged === true && plugged === false && live && next && next.trip && next.trip.status === 'ok'
     && Math.abs(next.current.time - now) < 3 * 3600000) {
-    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now);
+    tripcost.tripStarted(vehicle.id, soc, next.trip.total_km || (next.trip.km || 0) + (next.trip.back_km || 0), now, tempNow);
   }
-  if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now);
+  if (w.plugged === false && plugged === true && live) tripcost.tripEnded(vehicle.id, soc, now, tempNow);
   tripWatch.set(vehicle.id, { plugged });
 }
 
@@ -758,6 +768,8 @@ const routes = {
       percent_sensors: percentSensors(entities, states),
       trackers: placeEntities(entities, states, 'device_tracker'),
       persons,
+      // Weather forecasts, for "Use more in the cold" (#56).
+      weathers: states.filter((x) => /^weather\./.test(x.entity_id)).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
     };
   },
 
@@ -819,6 +831,10 @@ const routes = {
       // More cars: the name used in calendar events ("auto: renault" / "car: kia").
       calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
+      // Use more in the cold (#56): off by default; extra % per degree below 15 °C, the forecast from a weather entity.
+      cold_correction: body.cold_correction === true,
+      cold_extra_pct: body.cold_extra_pct === undefined || body.cold_extra_pct === '' || body.cold_extra_pct == null ? tripcost.COLD_DEFAULT_PCT : Number(body.cold_extra_pct),
+      weather_entity: /^weather\.[a-z0-9_]+$/.test(String(body.weather_entity || '')) ? String(body.weather_entity) : null,
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
       // Where the car is when not plugged in (#46): the car's tracker, then a person.
@@ -828,6 +844,8 @@ const routes = {
     };
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
     if (vehicle.consumption_kwh_100km != null && !(vehicle.consumption_kwh_100km >= 8 && vehicle.consumption_kwh_100km <= 40)) throw badRequest('Use per 100 km must be between 8 and 40 kWh');
+    if (!(vehicle.cold_extra_pct >= 0 && vehicle.cold_extra_pct <= 5)) throw badRequest('Extra use per degree must be between 0 and 5 %');
+    if (vehicle.cold_correction && !vehicle.weather_entity) throw badRequest('Choose a weather forecast for "Use more in the cold", or turn it off');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -1290,6 +1308,8 @@ const routes = {
     const dep = departuresFor(s, vehicle);
     const { events, error: calendarError, health: calendarHealth } = await calendarEvents(dep, tz, now);
     let departure = nextDeparture(dep, { states, events, tz, now, cars: carCtx(s, vehicle), skip: isReturnTrip });
+    // A departure today or tomorrow that a later one of a higher source drops (#25).
+    const departureDropped = droppedView(droppedEarlier(winnersPerDay(collect(dep, { states, events, tz, now, days: 2, cars: carCtx(s, vehicle), skip: isReturnTrip }), tz)).filter((x) => x.time < now + 48 * 3600000));
     // You said yes to charging more for this trip: the higher target.
     if (vehicle && rulesFor(s).trip_topup_enabled) departure = topup.apply(vehicle.id, departure, now);
     // "Ready for" a later day: that becomes the departure; a departure before
@@ -1428,11 +1448,14 @@ const routes = {
       place = carplace.where({ plugged: false, vehicle, states, homeTrip });
       if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
     }
-    const planNow = away ? Math.max(now, away.until) : now;
+    // Paused until a time (#33): the plan starts after the pause.
+    const pausedNow = pause.releasedNow() ? null : pause.current(now);
+    const pauseEnd = pausedNow && pausedNow.mode === 'time' ? pausedNow.until : null;
+    const planNow = Math.max(now, away ? away.until : now, pauseEnd || now);
     const plan = minNow && neededKwh > 0.01
       ? planStaged({
         prices, now: planNow, firstDeadline: planNow, minKwh: minNow.kwh, deadline, neededKwh, powerKw, immediateFirst: true, firstMaxPrice: minMaxPrice(careRules),
-        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh } : null,
+        care: care ? { windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, earlyMinSaving: careRules.battery_care_early_saving } : null,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1440,6 +1463,7 @@ const routes = {
       : care
       ? planCare({
         prices, now: planNow, deadline, windowStart: care.window_start, careKwh: care.care_kwh, refillKwh: care.refill_kwh, neededKwh, powerKw,
+        earlyMinSaving: careRules.battery_care_early_saving,
         continuous: planning.continuous !== false,
         minSplitSaving: Number(planning.min_split_saving) || 0,
         solarOnly,
@@ -1469,6 +1493,8 @@ const routes = {
       if (plan.care) care.window_start = plan.care.window_start;
       plan.care = { ...care, ...(plan.care || {}), soc: care.soc, target: care.target };
       plan.notes.push('battery_care');
+      // The part above the care level, for the chart (#39).
+      markCare(plan.blocks, care.care_kwh);
     }
     if (solarInfo.forecast_error) plan.notes.push('solar_forecast_error');
     if (solarOnly) plan.notes.push('solar_only');
@@ -1547,6 +1573,7 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
+      if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
       next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
@@ -1560,7 +1587,7 @@ const routes = {
     }
     // Not while just turned on (Charge now "on"): the car on the charger may be
     // a visitor's, so plugging it in or out says nothing about your car's trips.
-    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now);
+    if (!(b && b.mode === 'on')) tripLearning(vehicle, actualNow.plugged, soc, carData, next, now, states);
 
     // Home battery: its own plan next to the car's.
     let batteryInfo = null;
@@ -1597,6 +1624,7 @@ const routes = {
       price_warnings: [...priceWarnings],
       calendar_error: calendarError,
       calendar_health: calendarHealth,
+      departure_dropped: departureDropped,
       planning: { ...planning, target_soc: targetSoc, wanted_soc: wantedSoc },
       car_limit: carLimit,
       manages_car_limit: managesLimit,
@@ -1663,6 +1691,8 @@ const routes = {
       normal_plan: { ...plan, periods: periods(plan.blocks) },
       reliability,
       boost: boostInfo,
+      pause: pausedNow ? { ...pausedNow, text: pauseText(pausedNow) } : null,
+      released: pause.releasedNow() ? { since: pause.releasedNow().since } : null,
       plugged_now: actualNow.plugged,
       control_allowed: options.allow_control,
     };
@@ -1897,14 +1927,19 @@ const routes = {
       upcoming: days,
       calendar_error: error,
       calendar_health: health,
-      calendar_trips: (() => {
+      // #25: departures dropped by a later one of a higher source, and
+      // all-day events that look like a trip but are not used.
+      departure_dropped: droppedView(droppedEarlier(days)),
+      calendar_ignored: ignoredEvents(dep, events, tz, now),
+      calendar_trips: await (async () => {
+        if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
         return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
           ...raised(t),
-          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow }) : null,
+          cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow, temp: tripTemp(vehicle, t.time, states, tz, now) }) : null,
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,
@@ -2249,12 +2284,14 @@ routes['POST /api/boost'] = async (req) => {
   const body = await readBody(req);
   const cached = await freshPlan();
   const b = boostFromBody(body, cached, true);
+  if (pause.releasedNow()) throw badRequest('Control is handed back to you. Resume control first (Activity › Log › Who controls the devices)');
   if (cached.plugged_now === false) throw badRequest('The car is not plugged in');
   const s = settings.load();
   const states = await ha.call({ type: 'get_states' });
   const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), currentCharger(s)), charger: currentCharger(s), states });
   if (actual.plugged === false) throw badRequest('The car is not plugged in');
   const wasCharging = actual.charging === true;
+  pause.stop('Charge now started');
   boost.start(b);
   // Raise the car's limit first, so the car accepts the charge. Not for "on":
   // the car on the charger may be a visitor's, not your own car.
@@ -2281,6 +2318,271 @@ routes['DELETE /api/boost'] = async () => {
   const send = n && (n.sent || n.error) && c ? { sent: !!n.sent, error: n.error || null, command: c, at: n.sent_at || Date.now() } : null;
   return { ok: true, send, next: n ? { want: n.want, reason: n.reason } : null };
 };
+
+// ---------------------------------------------------------------------------
+// Pause until (#33): this charger does not charge until a time, until the car
+// is unplugged, or until you resume. The pause is sent right away.
+// ---------------------------------------------------------------------------
+
+// What the control step decided, for the page after a change.
+function lastStepSend() {
+  const n = ST().lastDryRun;
+  const c = n && n.commands[0];
+  const send = n && (n.sent || n.error) && c ? { sent: !!n.sent, error: n.error || null, command: c, at: n.sent_at || Date.now() } : null;
+  return { send, next: n ? { want: n.want, reason: n.reason } : null };
+}
+
+routes['GET /api/pause'] = async () => {
+  const p = pause.releasedNow() ? null : pause.current();
+  return { pause: p ? { ...p, text: pauseText(p) } : null, released: !!pause.releasedNow(), control_allowed: options.allow_control, modes: pause.MODES };
+};
+
+routes['POST /api/pause'] = async (req) => {
+  const body = await readBody(req);
+  if (pause.releasedNow()) throw badRequest('Control is handed back to you: the app already sends nothing. Resume control first');
+  // The page sends a local time ("2026-11-02T07:00") in Home Assistant's time zone.
+  if (body.until === 'time' && body.datetime != null && body.at == null) body.at = parseLocal(body.datetime, ha.state.timeZone);
+  const v = pause.validate(body);
+  if (v.error) throw badRequest(v.error);
+  const s = settings.load();
+  const charger = currentCharger(s);
+  if (!charger) throw badRequest('Set up a charger first');
+  if (v.mode === 'unplug') {
+    const states = await ha.call({ type: 'get_states' });
+    const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
+    if (actual.plugged !== true) throw badRequest('The car is not plugged in, so a pause until it is unplugged would end right away');
+  }
+  if (boost.current()) boost.stop('paused by you');
+  const p = pause.start(v);
+  // The pause is sent now, also when you started or stopped by hand a minute ago.
+  ST().lastManual = null;
+  ST().lastLiveSend = null;
+  ST().planCache = null;
+  await refreshPlan('paused by you', { fresh: true });
+  return { ok: true, pause: { ...p, text: pauseText(p) }, ...lastStepSend() };
+};
+
+routes['DELETE /api/pause'] = async () => {
+  const prev = pause.stop('resumed by you');
+  ST().lastLiveSend = null;
+  ST().planCache = null;
+  await refreshPlan('pause ended', { fresh: true });
+  return { ok: true, was_paused: !!prev, ...lastStepSend() };
+};
+
+// ---------------------------------------------------------------------------
+// Hand back control (#33): put back what the app changed on the chargers and
+// the home battery, then send nothing to them until you resume control.
+// Helpers, scripts and automations are never touched; the car's charge limit
+// is left as it is.
+// ---------------------------------------------------------------------------
+
+// The current the app puts back: the maximum set in Settings › Charger, else
+// the lowest maximum read from an entity that is not the one the app set,
+// else 16 A.
+function restoreAmps(charger, states, ownedEntity) {
+  if (charger.max_current > 0) return { amps: charger.max_current, from: 'the maximum in Settings › Charger' };
+  const info = effectiveMaxCurrent({ ...charger, max_current: null, max_current_entities: (charger.max_current_entities || []).filter((id) => id !== ownedEntity) }, states);
+  if (info.amps != null && info.amps >= 6) return { amps: info.amps, from: info.name || info.source };
+  return { amps: 16, from: 'the usual maximum (no maximum is set in Settings › Charger)' };
+}
+
+function stateOf(states, id) {
+  const st = id && states.find((x) => x.entity_id === id);
+  if (!st) return null;
+  const unit = st.attributes && st.attributes.unit_of_measurement;
+  return `${st.state}${unit ? ` ${unit}` : ''}`;
+}
+
+// The list of what a release would do (also used to carry it out).
+async function releasePlan() {
+  const s = settings.load();
+  const states = await ha.call({ type: 'get_states' });
+  const items = [];
+  const warnings = [];
+  const list = chargersList(s);
+  for (const charger of list) {
+    await scope.run(charger.id, async () => {
+      const methods = await currentControlMethods(charger).catch(() => null);
+      const chosen = chosenMethods(methods, rulesFor(s, charger));
+      const identity = methods && methods.device_id;
+      const owned = identity ? controlmemory.charger(identity) : { current: null, phases: null };
+      const device = list.length > 1 ? charger.name || charger.id : 'Charger';
+      const ss = chosen && chosen.start_stop;
+      const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
+      items.push({ charger_id: charger.id, device, what: 'Start and stop', entity_id: ss && ss.entity_id || null, now: actual.charging === true ? 'charging' : actual.charging === false ? 'not charging' : 'not known', action: 'leave', text: 'Left as it is now. The app no longer starts or pauses it.' });
+      if (boost.current()) items.push({ charger_id: charger.id, device, what: 'Charge now', action: 'end', text: 'Charge now ends.' });
+      const p = pause.current();
+      if (p) items.push({ charger_id: charger.id, device, what: 'Pause', action: 'end', text: `${pauseText(p)}: this ends. The charger is left as it is now.` });
+      if (owned.current) {
+        const m = owned.current.method || {};
+        const to = restoreAmps(charger, states, m.entity_id);
+        items.push({ charger_id: charger.id, device, what: 'Charging current', entity_id: m.entity_id || null, now: stateOf(states, m.entity_id) || `${owned.current.amps} A (set by the app)`, to: `${to.amps} A`, from: to.from, action: 'restore', kind: 'current', amps: to.amps, identity, text: `Set back to ${to.amps} A (${to.from}).` });
+      }
+      if (owned.phases && (owned.phases.pending || owned.phases.phases !== (charger.phases === 1 ? 1 : 3))) {
+        const m = owned.phases.method || {};
+        const want = charger.phases === 1 ? 1 : 3;
+        const live = actual.charging === true || (Number.isFinite(actual.power_w) && actual.power_w > 100);
+        items.push({ charger_id: charger.id, device, what: 'Phases', entity_id: m.entity_id || null, now: stateOf(states, m.entity_id) || `${owned.phases.phases === 1 ? 'one phase' : 'three phases'} (set by the app)`, to: want === 1 ? 'one phase' : 'three phases', action: live ? 'blocked' : 'restore', kind: 'phases', phases: want, identity,
+          text: live ? 'Not now: phases are never switched while the car charges. Stop charging first, then hand back control again.' : `Switched back to ${want === 1 ? 'one phase' : 'three phases'}.` });
+      } else if (owned.phases) {
+        items.push({ charger_id: charger.id, device, what: 'Phases', entity_id: (owned.phases.method || {}).entity_id || null, action: 'forget', kind: 'phases_forget', identity, text: 'Already back at the normal phases; the app forgets its record.' });
+      }
+    });
+  }
+  const bcfg = batterySettings(s);
+  if (lastBattery) {
+    if (!lastBattery.original) {
+      items.push({ device: 'Home battery', what: 'Battery settings', action: 'blocked', text: 'This older record has no original settings. Restore the battery in Home Assistant yourself, then confirm under Settings › Battery.' });
+    } else {
+      let commands = [];
+      try { commands = batteryguard.restore((await batteryControl(bcfg)).control, lastBattery.original); } catch (err) { commands = null; items.push({ device: 'Home battery', what: 'Battery settings', action: 'blocked', text: err.message }); }
+      if (commands) {
+        for (const c of commands) {
+          const id = c.target && c.target.entity_id;
+          const to = c.data && (c.data.value ?? c.data.option);
+          items.push({ device: 'Home battery', what: 'Battery setting', entity_id: id || null, now: stateOf(states, id), to: to != null ? String(to) : c.service, action: options.allow_battery_control === true ? 'restore' : 'blocked', kind: 'battery',
+            text: options.allow_battery_control === true ? 'Put back to the value from before the app changed it.' : 'Allow home battery control is off in the Configuration tab, so the app cannot put it back. Turn it on, or restore it in Home Assistant yourself.' });
+        }
+        if (!commands.length) items.push({ device: 'Home battery', what: 'Battery settings', action: 'forget', kind: 'battery', text: 'Nothing to put back; the app forgets its record.' });
+      }
+    }
+  } else if (bcfg.enabled && bcfg.soc_entity) {
+    items.push({ device: 'Home battery', what: 'Battery settings', action: 'leave', text: 'The app has nothing changed right now. It no longer steers the battery.' });
+  }
+  if (managingCarLimit(s)) items.push({ device: 'Car', what: 'Charge limit', action: 'leave', text: 'Left as it is now. The app no longer changes it.' });
+  if (list.length > 1 && !(s.grid && s.grid[0] && s.grid[0].load_balancer)) {
+    warnings.push('With more than one charger, the app no longer shares the connection while control is handed back. Make sure the chargers together cannot overload it (a load balancer, or lower limits on the chargers).');
+  }
+  if (!options.allow_control) warnings.push('Allow control is off: the app sends nothing, so it cannot put anything back. Turn Allow control on in the Configuration tab first.');
+  return { items, warnings };
+}
+
+routes['GET /api/release'] = async () => {
+  const r = pause.releasedNow();
+  if (r) return { released: r, items: r.items || [], warnings: [], control_allowed: options.allow_control };
+  const plan = await releasePlan();
+  return { released: null, ...plan, control_allowed: options.allow_control };
+};
+
+// Does the entity now report the value that was sent?
+function reported(states, command) {
+  const id = command.target && command.target.entity_id;
+  if (!id) return null; // an action without an entity: accepted is all we know
+  const st = states.find((x) => x.entity_id === id);
+  if (!st) return false;
+  if (command.service === 'number.set_value') return Math.abs(Number(st.state) - command.data.value) < 1e-6;
+  if (command.service === 'select.select_option') return st.state === command.data.option;
+  if (command.service === 'switch.turn_on') return st.state === 'on';
+  if (command.service === 'switch.turn_off') return st.state === 'off';
+  return null;
+}
+
+const RELEASE_CONFIRM_MS = Number(process.env.SCP_RELEASE_CONFIRM_MS) || 3000;
+let releaseRunning = null;
+async function releaseUnlocked() {
+  if (!options.allow_control) throw badRequest('Allow control is off: the app sends nothing, so it cannot put anything back. Turn Allow control on in the Configuration tab first');
+  const s = settings.load();
+  const plan = await releasePlan();
+  // First stop the control steps (write-ahead), then wait for one that runs.
+  pause.setReleased({ since: Date.now(), done: false, items: plan.items });
+  await (siteRunning || Promise.resolve()).catch(() => {});
+  for (const c of chargersList(s)) await scope.run(c.id, async () => { await (ST().planRunning || Promise.resolve()).catch(() => {}); });
+  const results = [];
+  const sent = [];
+  for (const item of plan.items) {
+    const out = { ...item };
+    if (item.action === 'end' && item.what === 'Charge now') scope.run(item.charger_id, () => boost.stop('control handed back'));
+    if (item.action === 'end' && item.what === 'Pause') scope.run(item.charger_id, () => pause.stop('control handed back'));
+    if (item.action === 'end') out.result = 'done';
+    if ((item.kind === 'current' || item.kind === 'phases' || item.kind === 'phases_forget') && item.action !== 'blocked') {
+      await scope.run(item.charger_id, async () => {
+        const owned = controlmemory.charger(item.identity);
+        try {
+          if (item.kind === 'phases_forget') {
+            controlmemory.setCharger(item.identity, { phases: null });
+            out.result = 'done';
+            return;
+          }
+          const field = item.kind === 'current' ? 'current' : 'phases';
+          const m = owned[field] && owned[field].method;
+          const command = item.kind === 'current' ? controller.currentCommand(m, item.amps, item.identity) : controller.phaseCommand(m, item.phases, item.identity);
+          if (!command) throw new Error('The control the app used is no longer available');
+          // Keep the record until Home Assistant has accepted the command.
+          controlmemory.setCharger(item.identity, { [field]: { ...owned[field], releasing: true } });
+          await ha.sendControl(command, controller.allowedFor(m));
+          controlmemory.setCharger(item.identity, { [field]: null });
+          if (field === 'current') ST().lastCurrent = null; else ST().lastPhases = null;
+          sent.push({ item: out, command });
+          controller.logSent({ time: Date.now(), live: true, want: 'release', code: 'released', reason: `Control handed back: ${item.what.toLowerCase()} ${item.text.replace(/\.$/, '').toLowerCase()}`, commands: [{ what: command.what, service: command.service, data: command.data, target: command.target }], sent: true, agrees: true });
+          out.result = 'sent';
+        } catch (err) {
+          controlmemory.setCharger(item.identity, { [item.kind === 'current' ? 'current' : 'phases']: owned[item.kind === 'current' ? 'current' : 'phases'] });
+          out.result = 'failed';
+          out.error = err.message;
+          controller.logSent({ time: Date.now(), live: true, want: 'release', code: 'release_failed', reason: `Control handed back: ${item.what.toLowerCase()} not put back`, commands: [], sent: false, error: err.message });
+        }
+      });
+    }
+    if (item.kind === 'battery' && item.action === 'blocked') out.result = 'not_done';
+    if (item.action === 'blocked' && !out.result) out.result = 'not_done';
+    if (item.action === 'leave') out.result = 'left';
+    results.push(out);
+  }
+  // The home battery: its own restore checks that the old values are reported.
+  const batteryItems = results.filter((x) => x.kind === 'battery' && x.action !== 'blocked');
+  if (batteryItems.length) {
+    const ok = await releaseBattery(batterySettings(s));
+    for (const x of batteryItems) {
+      x.result = ok ? 'confirmed' : 'failed';
+      if (!ok) x.error = (lastBattery && lastBattery.error) || 'The battery settings could not be put back; the record is kept';
+    }
+  }
+  // Check that the chargers report what was sent.
+  if (sent.length) {
+    await new Promise((r) => setTimeout(r, RELEASE_CONFIRM_MS));
+    const fresh = await ha.call({ type: 'get_states' });
+    for (const { item, command } of sent) {
+      const r = reported(fresh, command);
+      item.result = r === true ? 'confirmed' : 'sent';
+      if (r === false) item.note = 'Home Assistant accepted the command, but the charger does not report the new value yet. Check it in a few minutes.';
+      if (r === null) item.note = 'Home Assistant accepted the command; this charger does not report the value back.';
+    }
+  }
+  const failed = results.filter((x) => x.result === 'failed' || x.result === 'not_done').length;
+  const rec = pause.setReleased({ since: pause.releasedNow().since, done: true, at: Date.now(), items: results, failed });
+  ha.log(`Control handed back to you${failed ? ` (${failed} not put back)` : ''}`);
+  for (const c of chargersList(s)) await scope.run(c.id, async () => { ST().planCache = null; ST().lastLiveSend = null; });
+  return rec;
+}
+
+routes['POST /api/release'] = async (req) => {
+  const body = await readBody(req);
+  if (body.confirm !== true) throw badRequest('Check the list first, then confirm');
+  if (releaseRunning) throw badRequest('Control is already being handed back');
+  releaseRunning = releaseUnlocked();
+  try { return { ok: true, released: await releaseRunning }; } finally { releaseRunning = null; }
+};
+
+// Resume control: the app follows the plan again from the next step.
+routes['DELETE /api/release'] = async () => {
+  if (releaseRunning) throw badRequest('Wait until handing back control has finished');
+  const was = pause.releasedNow();
+  pause.setReleased(null);
+  if (was) ha.log('Control resumed by you');
+  const s = settings.load();
+  for (const c of chargersList(s)) await scope.run(c.id, async () => { ST().planCache = null; ST().lastLiveSend = null; });
+  await refreshPlan('control resumed', { fresh: true });
+  return { ok: true, was_released: !!was, ...lastStepSend() };
+};
+
+// For the page: a dropped departure and the departure that won its day (#25).
+function droppedView(list) {
+  return (list || []).map((x) => ({
+    time: x.time, soc: x.soc, source: x.source, title: x.title || null,
+    by: { time: x.by.time, soc: x.by.soc, source: x.by.source, title: x.by.title || null },
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // "Ready for": tomorrow or the day after tomorrow
@@ -2669,6 +2971,8 @@ async function batteryStepUnlocked(s, planResult, entry, states, forcedAction = 
   let want = cfg.enabled || forcedAction ? batteryWanted(cfg, planResult, entries, soc, forcedAction) : { action: 'auto', reason: 'Battery planning is off' };
   const info = { ...want, live, sent: false, ev_chargers: entries.filter((e) => e.charging === true || e.power_w > 100 || e.want === 'charge').length };
   if (!live) return info;
+  // Control handed back (#33): the battery is left as it is.
+  if (pause.releasedNow()) return { ...info, action: 'none', released: true, reason: 'Control is handed back to you: the app sends nothing to the battery' };
   if (!control.available) return { ...info, error: control.note || 'Battery control is unavailable' };
   if ((!cfg.enabled && !forcedAction) || forcedAction === 'auto' || (lastBattery && lastBattery.restoring)) {
     const owned = !!lastBattery;
@@ -3082,7 +3386,7 @@ function limitGoal(planResult, b) {
   if (!Number.isFinite(wanted)) wanted = NaN;
   // Battery care: up to the care level until the last hours before departure.
   const care = planResult && planResult.plan && planResult.plan.care;
-  if (!b && care && Date.now() < care.window_start && Number.isFinite(wanted) && wanted > care.soc) {
+  if (!b && care && care.early !== true && Date.now() < care.window_start && Number.isFinite(wanted) && wanted > care.soc) {
     wanted = care.soc;
     reason = 'Battery care';
   }
@@ -3112,7 +3416,7 @@ function limitPreview(planResult, goalSoc) {
   const managed = !!planResult.manages_car_limit;
   let wantedPlan = Number(planResult.planning && planResult.planning.wanted_soc);
   const care = planResult.plan && planResult.plan.care;
-  if (care && Date.now() < care.window_start && wantedPlan > care.soc && !(goalSoc > care.soc && planResult.boost)) wantedPlan = care.soc;
+  if (care && care.early !== true && Date.now() < care.window_start && wantedPlan > care.soc && !(goalSoc > care.soc && planResult.boost)) wantedPlan = care.soc;
   const goal = Math.max(Number.isFinite(goalSoc) ? goalSoc : 0, Number.isFinite(wantedPlan) ? wantedPlan : 0);
   if (!lim.writable) return { supported: false, reason: 'read_only', now: lim.value, name: lim.name, goal };
   if (!managed) return { supported: true, managed: false, reason: options.allow_control ? 'off' : 'control_off', now: lim.value, name: lim.name, goal };
@@ -3266,6 +3570,8 @@ routes['POST /api/vehicle/charge_limit'] = async (req) => {
 routes['POST /api/control/manual'] = async (req) => {
   const body = await readBody(req);
   if (body.action !== 'start' && body.action !== 'stop') throw badRequest('Choose start or stop');
+  // A manual start ends a pause: you want it to charge (#33).
+  if (body.action === 'start') pause.stop('started by you');
   const r = await manualControl(body.action === 'start', body.action === 'start' ? 'Manual test: start' : 'Manual test: stop');
   return r;
 };
@@ -3688,6 +3994,7 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
   const liveMax = charger ? effectiveMaxCurrent(charger, states) : null;
   if (liveMax && liveMax.amps != null) planResult = { ...planResult, charger: { ...planResult.charger, max_current: liveMax.amps } };
   const solarCtx = solarStep(s, planResult, states, methods, rules, charger);
+  const { paused, handsOff } = pauseNow(s, charger, states);
   // Charge now on this charger: its priority when sharing the connection,
   // also when another rule (below the minimum) gives the charging reason (#35).
   const boostActive = !!boost.current();
@@ -3706,17 +4013,40 @@ async function decideStep(planResult, { share = null, record = true } = {}) {
     share,
     record,
     preconditioning: (() => { const v = currentVehicle(s); return !!v && precondition.active(v.id); })(),
+    paused,
+    handsOff,
   });
   const entry = ST().lastDryRun;
   if (solarCtx) entry.solar_now = { available_w: solarCtx.available_w, grid_w: solarCtx.grid_w, mode: solarCtx.mode, reason: solarCtx.reason, equalizer: !!solarCtx.equalizer };
   entry.solar_equalizer = !!(solarCtx && solarCtx.equalizer);
-  return { s, charger, states, methods, rules, planResult, entry, boostActive };
+  return { s, charger, states, methods, rules, planResult, entry, boostActive, handsOff };
+}
+
+// Pause until and Hand back control (#33) for this charger now. A pause
+// until unplugged ends when the car is unplugged.
+function pauseText(p) {
+  if (p.mode === 'time') return `Paused by you until ${hmLocal(p.until)}`;
+  if (p.mode === 'unplug') return 'Paused by you until the car is unplugged';
+  return 'Paused by you until you resume';
+}
+function pauseNow(s, charger, states) {
+  if (pause.releasedNow()) return { paused: null, handsOff: true };
+  let p = pause.current();
+  if (p && p.mode === 'unplug' && charger) {
+    const actual = controller.readActual({ vehicle: plugView(s, currentVehicle(s), charger), charger, states });
+    if (actual.plugged === false) {
+      pause.stop('the car was unplugged');
+      p = null;
+    }
+  }
+  return { paused: p ? { ...p, reason: pauseText(p) } : null, handsOff: false };
 }
 
 // Send what was decided (after sharing the connection, with more chargers).
-async function actStep({ s, charger, states, methods, rules, planResult, entry }, { siteBattery = false } = {}) {
+async function actStep({ s, charger, states, methods, rules, planResult, entry, handsOff }, { siteBattery = false } = {}) {
   ha.debug('Control:', entry.want, entry.reason, entry.commands.map((c) => c.what).join(', ') || 'no commands');
-  if (options.allow_control === true) {
+  // Control handed back (#33): no charger, car, Equalizer or battery command.
+  if (options.allow_control === true && !handsOff) {
     await checkReaction(entry);
     const prepared = await sendCurrentAndPhases(entry, s, methods, rules, planResult);
     if (prepared) await sendLive(entry, chosenMethods(methods, rules));
@@ -4064,7 +4394,7 @@ const MANUAL_GRACE_MS = 3 * 60000;
 async function sendLive(entry, chosen) {
   const c = entry.commands.find((x) => x.what === 'start charging' || x.what === 'pause charging');
   if (!c) return;
-  if (entry.code !== 'shared_wait' && ST().lastManual && Date.now() - ST().lastManual.at < MANUAL_GRACE_MS && (c.what === 'start charging') !== ST().lastManual.on) {
+  if (entry.code !== 'shared_wait' && entry.code !== 'paused_by_you' && ST().lastManual && Date.now() - ST().lastManual.at < MANUAL_GRACE_MS && (c.what === 'start charging') !== ST().lastManual.on) {
     entry.held = true;
     ha.debug('Not sending', c.what, '- you', ST().lastManual.on ? 'started' : 'stopped', 'charging less than 3 minutes ago');
     return;
@@ -4567,6 +4897,7 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_enabled: b.battery_care_enabled !== false,
     battery_care_soc: num(b.battery_care_soc ?? 80, 'Battery care level', 50, 95),
     battery_care_hours: num(b.battery_care_hours ?? 4, 'Battery care hours', 1, 24),
+    battery_care_early_saving: num(b.battery_care_early_saving, 'Battery care: charge earlier when it saves at least', 0.01, 100, true),
     car_limit_off: b.car_limit_off === true,
     car_limit_restart: b.car_limit_restart === true,
     trip_topup_enabled: b.trip_topup_enabled === true,

@@ -6,6 +6,7 @@
 //
 // Decision order (first match wins):
 //   1. car not plugged in                         -> nothing to do
+//      ... right after preconditioning kept the charger on -> pause (#55)
 //   2. charger status invalid for a short while   -> leave as it is
 //      ... and for longer than the grace period   -> pause
 //   3. battery below the minimum (and price ok)   -> charge
@@ -66,6 +67,7 @@ const DEFAULT_RULES = {
   battery_care_enabled: true, // above battery_care_soc only in the last battery_care_hours before departure
   battery_care_soc: 80,
   battery_care_hours: 4,
+  battery_care_early_saving: null, // #39: charge above the level earlier when that saves at least this much (null = never)
   car_limit_off: false, // true: never change the car's own charge limit
   car_limit_restart: false, // true: the car takes no power while it should: set its limit one step lower and back
   min_choice: 30, // default minimum (%) for the quick choices on Home
@@ -204,14 +206,25 @@ function decide(ctx) {
   };
   const pause = (reason, code, extra = {}) => ({ want: 'pause', reason, code, ...extra });
 
+  // Control handed back to you (#33): nothing is sent to the charger.
+  if (ctx.handsOff) return { want: 'leave', reason: 'Control is handed back to you: the app sends nothing to the charger', code: 'released', clear_lock: true };
+
   // 1. Not plugged in (a plugged-in sensor that says "off" is trusted first).
-  if (actual.plugged === false) return { want: 'none', reason: 'Car is not plugged in', code: 'unplugged', clear_lock: true };
+  if (actual.plugged === false) {
+    // The app kept the charger on for preconditioning and the cable was
+    // unplugged (#55): turn the charger off again, once (one retry).
+    if (ctx.releasePreheat === true) return { want: 'pause', reason: 'Car unplugged during preconditioning: charger turned off again', code: 'preheat_unplugged', clear_lock: true };
+    return { want: 'none', reason: 'Car is not plugged in', code: 'unplugged', clear_lock: true };
+  }
   if (actual.status_invalid) {
     // 2. Status briefly invalid (restart, hiccup): keep things as they are.
     if (actual.invalid_for <= GRACE_MS) return { want: 'leave', reason: 'Charger status briefly invalid, waiting', code: 'status_grace', keep_lock: true };
     return pause('Charger status invalid for more than 2 minutes', 'status_invalid');
   }
   if (actual.plugged == null) return { want: 'none', reason: 'Cannot tell whether the car is plugged in', code: 'unknown_plug' };
+  // Paused by you (#33): wins over the plan, the minimum, Ready Guard and
+  // preconditioning. Charge now ends a pause.
+  if (ctx.paused) return pause(ctx.paused.reason || 'Paused by you', 'paused_by_you', { clear_lock: true });
   if (maxAmps < MIN_CURRENT) return pause('The available current is below 6 A', 'current_limit', { clear_lock: true });
   if (!p) return { want: 'leave', reason: 'No plan yet', code: 'no_plan' };
 
@@ -272,7 +285,7 @@ function decide(ctx) {
   // A previous small top-up must not keep a price lock or hysteresis alive
   // before Battery Care's final session. Explicit minimums and overrides above win.
   const care = p.care;
-  if (rules.battery_care_enabled !== false && care && Number.isFinite(care.window_start) && now < care.window_start
+  if (rules.battery_care_enabled !== false && care && care.early !== true && Number.isFinite(care.window_start) && now < care.window_start
     && (care.refill_deferred === true || (Number.isFinite(soc) && Number.isFinite(care.soc) && soc >= care.soc))) {
     const next = p.blocks.find((b) => b.start > now && !b.forecast);
     return pause(care.refill_deferred ? 'Small Battery Care top-up joins the planned session' : 'Battery Care holding level reached; waiting for the planned session',
@@ -400,16 +413,32 @@ function commandsFor(decision, actual, methods, deviceId) {
   return out;
 }
 
+// Turn the charger off after preconditioning (#55)? Yes when the last
+// decision kept it on for preconditioning, or when the stop after unplugging
+// failed once (one retry). The log is saved before a command is sent, so this
+// also holds after a restart.
+function releasePreheat(entries) {
+  const last = entries[entries.length - 1];
+  if (!last) return false;
+  if (last.code === 'preheat') return true;
+  if (last.code !== 'preheat_unplugged') return false;
+  let failed = 0;
+  for (let i = entries.length - 1; i >= 0 && entries[i].code === 'preheat_unplugged'; i--) {
+    if (entries[i].live && entries[i].error) failed++;
+  }
+  return last.live === true && !!last.error && failed < 2;
+}
+
 // One dry-run step. Logs only when something changes.
 // share (more chargers, sharing.js): { pause, amps, reason } – wait for
 // another charger, or charge with less current. record = false: only decide
 // (no lock change, no log line), for the first round of sharing.
-function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true, preconditioning = false }) {
+function dryRun({ plan, vehicle, charger, states, methods, deviceId, rules, now = Date.now(), controlAllowed, live = false, boostActive, solar, share = null, record = true, preconditioning = false, paused = null, handsOff = false }) {
   const r = { ...DEFAULT_RULES, ...(rules || {}) };
   const st = loadState();
   const actual = readActual({ vehicle, charger, states, now });
   const prev = loadLog().slice(-1)[0];
-  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning });
+  let decision = decide({ plan, actual, rules: r, now, phases: charger ? charger.phases : 3, states, lock: st.lock, boostActive, solar, prevCode: prev ? prev.code : null, preconditioning, paused, handsOff, releasePreheat: releasePreheat(loadLog()) });
   if (share && decision.want === 'charge') {
     if (share.pause) decision = { want: 'pause', code: 'shared_wait', reason: share.reason };
     else if (share.amps) decision = { ...decision, amps: share.amps, shared: true, reason: `${decision.reason} · ${share.reason}`, new_lock: null };
@@ -514,4 +543,4 @@ function minimumNow(rules, states, soc, priceNow) {
   return Number.isFinite(min) && soc < min && priceOk ? min : null;
 }
 
-module.exports = { minimumNow, dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };
+module.exports = { releasePreheat, minimumNow, dryRun, recentLog, readActual, decide, commandsFor, startStopCommand, allowedFor, currentCommand, phaseCommand, logSent, clearLog, clearLock, DEFAULT_RULES };

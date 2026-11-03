@@ -110,7 +110,7 @@ function durationText(minutes) {
           { key: 'location_entity', opt: 'location', label: 'Car location (device tracker)' },
           { key: 'person_entity', opt: 'person', label: 'Person who drives (when the car has no location)' },
         ],
-        extraInputs: () => `
+        extraInputs: (c, data) => `
           ${multiCar ? `<div class="field"><label>Name in the calendar (optional)</label>
             <input name="calendar_name" maxlength="30" placeholder="e.g. renault">
             <div class="muted small">A calendar event with "car: renault" (or "auto: renault") is then only for this car. The car's name and its brand (when no other car has it) also work.</div></div>` : ''}
@@ -123,6 +123,14 @@ function durationText(minutes) {
           <div class="field"><label>Use per 100 km in kWh (optional, for trip estimates)</label>
             <input name="consumption_kwh_100km" type="number" min="8" max="40" step="0.5" placeholder="18">
             <div class="muted small">For how much battery a trip in your calendar costs. The app learns this from your own trips (battery level when you leave and when you are back); until then it uses the car's range sensor, or this value.</div></div>
+          <div class="field"><label class="check"><input type="checkbox" name="cold_correction"> Use more in the cold (trip estimates)</label>
+            <div class="muted small">Below 15 °C a trip uses more battery: the app adds a percentage per degree colder, with the temperature from a weather forecast at the time of the trip. After trips at different temperatures it learns your car's own value. Not used with the car's range sensor (that already includes the weather of now).</div></div>
+          <div class="two">
+            <div class="field"><label>Weather forecast</label>
+              <select name="weather_entity"><option value="">— none —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+            <div class="field"><label>Extra use per degree below 15 °C (%)</label>
+              <input name="cold_extra_pct" type="number" min="0" max="5" step="0.1" placeholder="1.5"></div>
+          </div>
           <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
         extraRows: (v) => [
@@ -672,7 +680,9 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct']) setValue(form, name, saved[name]);
+      const cold = form.querySelector('input[name=cold_correction]');
+      if (cold) cold.checked = saved.cold_correction === true;
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -774,6 +784,7 @@ function durationText(minutes) {
       }
       const errBox = form.querySelector('.form-error');
       if (kind === 'vehicle') Object.assign(data, vehicleTarget());
+      if (form.querySelector('input[name=cold_correction]')) data.cold_correction = form.querySelector('input[name=cold_correction]').checked;
       if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
         const r = await api('POST', cfg.api, data);
@@ -958,12 +969,14 @@ function durationText(minutes) {
         const onSolar = blk && blk.solar_kwh > blk.kwh / 2;
         // Charging for a minimum (always-minimum, Quick minimum, Ready-for minimum): purple.
         const forMin = blk && (blk.min_kwh || 0) >= blk.kwh / 2;
-        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : 'var(--accent)';
+        // Charging above the Battery care level (#39): green.
+        const forCare = blk && !forMin && !onSolar && (blk.care_kwh || 0) >= blk.kwh / 2;
+        const planColor = forMin ? 'var(--minimum)' : onSolar ? 'var(--solar)' : forCare ? 'var(--care)' : 'var(--accent)';
         const isExp = !isPlanned && expected.has(p.start);
         const expMin = isExp && expBlocks.some((b) => p.start <= b.start && b.start < p.end && (b.min_kwh || 0) >= b.kwh / 2);
         const didCharge = charged.has(p.start);
         const fill = didCharge ? 'var(--charged)' : p.forecast
-          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
+          ? (isPlanned ? (forMin ? 'url(#fc-min)' : onSolar ? 'url(#fc-sol)' : forCare ? 'url(#fc-care)' : 'url(#fc-plan)') : expMin ? 'url(#fc-min)' : isExp ? 'url(#fc-exp)' : 'url(#fc-bar)')
           : isPlanned ? planColor : expMin ? 'var(--minimum)' : isExp ? 'var(--expected)' : 'var(--bar)';
         const past = p.end <= Date.now() && !didCharge ? ' opacity="0.45"' : '';
         const r = Math.min(4, bw / 2);
@@ -1070,6 +1083,7 @@ function durationText(minutes) {
             <pattern id="fc-plan" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--accent)"/></pattern>
             <pattern id="fc-sol" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--solar)"/></pattern>
             <pattern id="fc-min" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--minimum)"/></pattern>
+            <pattern id="fc-care" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--care)"/></pattern>
             <pattern id="fc-exp" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="var(--expected)"/></pattern>
           </defs>
           ${grid}${away}${bars}${solarCurve}${batteryMarks}
@@ -1088,7 +1102,7 @@ function durationText(minutes) {
           const fcText = p.forecast ? `<br><span class="src">Forecast: ${p.expected.toFixed(4)} expected + ${(p.total - p.expected).toFixed(2)} margin</span>` : '';
           const done = (d.charged || []).find((c) => c.start === p.start);
           const doneText = done ? `<br><span style="color:var(--charged)">■</span> Charged ${done.kwh.toFixed(1)} kWh` : '';
-          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
+          tip.innerHTML = `<strong>${dayHm(p.start)}–${hm(p.end)}</strong><br>${p.total.toFixed(4)} /kWh${fcText}${solText}${room}${doneText}${blk && !done ? `<br><span style="color:${(blk.min_kwh || 0) >= blk.kwh / 2 ? 'var(--minimum)' : blk.solar_kwh > blk.kwh / 2 ? 'var(--solar)' : (blk.care_kwh || 0) >= blk.kwh / 2 ? 'var(--care)' : 'var(--accent)'}">■</span> Charge ${blk.kwh.toFixed(1)} kWh${blk.min_kwh ? `, ${blk.min_kwh.toFixed(1)} kWh of it for the minimum` : ''}${blk.care_kwh ? `, ${blk.care_kwh.toFixed(1)} kWh of it above the battery care level` : ''}${blk.solar_kwh ? `, ${blk.solar_kwh.toFixed(1)} kWh from the sun` : ''}` : ''}`;
           const box = wrap.getBoundingClientRect();
           const r = el.getBoundingClientRect();
           tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 70), box.width - 70)}px`;
@@ -1416,6 +1430,15 @@ function durationText(minutes) {
       return `<div class="calendar-warning" role="status"><strong>Calendar temporarily unavailable</strong><p>${esc(detail)}</p></div>`;
     }
 
+    // A departure that a later one of a higher source drops on the same day
+    // (#25): the car is not planned for it, so say so.
+    const DROP_SOURCE = { override: 'one-off departure', calendar: 'calendar', helper: 'helper', schedule: 'weekly schedule' };
+    function droppedHtml(list) {
+      if (!list || !list.length) return '';
+      const line = (x) => `<li>${esc(dayHm(x.time))} (${esc(DROP_SOURCE[x.source] || x.source)}${x.title ? `: ${esc(x.title)}` : ''}, ${esc(x.soc)}%) is not used: ${x.by.source === 'calendar' ? `the calendar trip${x.by.title ? ` "${esc(x.by.title)}"` : ''}` : `the ${esc(DROP_SOURCE[x.by.source] || x.by.source)}`} at ${esc(dayHm(x.by.time).split(' ').pop())} wins that day.</li>`;
+      return `<div class="calendar-warning" role="status"><strong>Departure not used</strong><p>On each day one source counts: one-off, then calendar, then helper, then weekly schedule. The car is planned for the later departure only. To keep the earlier one, add it as a trip in the calendar too.</p><ul>${list.map(line).join('')}</ul></div>`;
+    }
+
     function priceMessagesHtml(d) {
       const error = d.price_error ? `<div class="error" role="alert">Prices could not be loaded: ${esc(d.price_error)}</div>` : '';
       const warnings = [...new Set(d.price_warnings || [])];
@@ -1462,22 +1485,24 @@ function durationText(minutes) {
       const notes = p.notes.map((n) => n === 'car_limit'
         ? carLimitNote(d.car_limit, d.planning.wanted_soc, d.control_allowed)
         : n === 'battery_care' && p.care
-          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
+          ? `<div class="note">${shape('battery', 'green', true)} <strong>Battery care:</strong> ${p.care.refill_deferred ? `the small top-up (within 5 percentage points of ${esc(p.care.soc)}%) joins the planned session to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}.` : p.care.early ? `charged above ${esc(p.care.soc)}% early, at the cheapest time: saves ${esc(money(p.care.early_saving))} (at least ${esc(money(p.care.early_min_saving))} is set). The battery stands above ${esc(p.care.soc)}% longer.` : `up to ${esc(p.care.soc)}% when it is cheapest; the last part to ${esc(p.care.target)}% from ${esc(dayHm(p.care.window_start))}, just before departure, so the battery does not stand full for long.${p.care.early_saving > 0.005 ? ` Charging early would save only ${esc(money(p.care.early_saving))}${p.care.early_min_saving ? ` (less than the ${esc(money(p.care.early_min_saving))} you set)` : ''}.` : ''}`} <a href="#" data-goto="ctlset">Settings › Rules</a></div>`
           : `<div class="note">${esc(NOTE_TEXT[n] || n)}</div>`).join('');
 
       return `
         ${connectedCarHtml(d)}
+        ${pauseCardHtml(d)}
         ${chargeStatusHtml(d)}
         ${tripTopupHtml(d)}
         ${readyGuardHtml(d)}
         ${calendarMessagesHtml(d)}
+        ${droppedHtml(d.departure_dropped)}
         ${nextGoalHtml(d)}
         <div class="card chart-card">
               <div class="card-title-row"><div><h2>Prices and plan</h2><p class="muted small">All-in price per kWh${d.prices.length > 1 ? ` · ${Math.round(blockMinutes(d.prices))} minute blocks` : ''}</p></div>
               <span class="chart-plan-chip">${p.planned_kwh != null ? `${tidy(p.planned_kwh)} kWh planned` : 'No plan'}</span></div>
               ${pastButtonsHtml()}
               <div class="chart-wrap" id="chart"></div>
-              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
+              <div class="legend">${d.charged && d.charged.length ? '<span><i style="background:var(--charged)"></i>Charged</span>' : ''}<span><i style="background:var(--accent)"></i>Planned</span>${d.plan.blocks.some((b) => (b.min_kwh || 0) > 0.01) || (d.next && (d.next.expected_blocks || []).some((b) => (b.min_kwh || 0) > 0.01)) ? `<span><i style="background:var(--minimum)"></i>Minimum${d.plan.minimum ? ` (${esc(tidy(d.plan.minimum.soc))}%)` : ''}</span>` : ''}${d.plan.care && d.plan.blocks.some((b) => (b.care_kwh || 0) > 0.01) ? `<span><i style="background:var(--care)"></i>Battery care (above ${esc(tidy(d.plan.care.soc))}%)</span>` : ''}<span><i style="background:var(--bar)"></i>Other prices</span>${d.battery && d.battery.actions && d.battery.actions.some((x) => x.action !== 'auto') ? '<span><i style="background:var(--battery)"></i>Home battery</span>' : ''}${d.prices.some((x) => Number.isFinite(x.solar_kw) && x.solar_kw > 0.05) ? '<span><i style="background:var(--solar)"></i>Solar</span>' : ''}${d.prices.some((x) => x.forecast) ? '<span><i class="striped"></i>Forecast</span>' : ''}${d.next && d.next.expected_blocks && d.next.expected_blocks.length ? '<span><i style="background:var(--expected)"></i>Expected after a trip</span>' : ''}${d.next && d.next.timeline && d.next.timeline.some((x) => x.type === 'back') ? '<span><i class="away"></i>Car away</span>' : ''}</div>
               ${houseLoadHtml(d)}
               ${p.periods.length ? `<details class="table-details"${keep('plan-table')}><summary>Show plan table</summary>
                 <table class="periods"><tr><th>Period</th><th class="n">Energy</th><th class="n">Avg price</th></tr>
@@ -1529,6 +1554,7 @@ function durationText(minutes) {
         const tags = [
           part ? `<span class="chip">partly: ${esc(hm(b.start))}–${esc(hm(b.end))}, ${mins(b.end - b.start)} of ${mins(be - bs)} min</span>` : '',
           (b.min_kwh || 0) > 0.01 ? '<span class="chip">minimum</span>' : '',
+          (b.care_kwh || 0) > 0.01 ? '<span class="chip">above battery care level</span>' : '',
           b.solar_kwh > 0.01 ? '<span class="chip">solar</span>' : '',
           b.forecast ? '<span class="muted small">(forecast)</span>' : '',
         ].filter(Boolean).join(' ');
@@ -1542,7 +1568,8 @@ function durationText(minutes) {
     function tripText(t) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : t.how === 'manual' ? ' (distance you entered)' : '';
-      const use = t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '';
+      const cold = t.cold ? (t.cold.temp == null ? ', no temperature forecast' : t.cold.factor > 1.0005 ? `, ${tidy(t.cold.temp)} °C: +${Math.round((t.cold.factor - 1) * 100)}% for the cold` : `, ${tidy(t.cold.temp)} °C: no extra for the cold`) : '';
+      const use = (t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '') + cold;
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {
         case 'ok': if (t.stops > 0 && t.total_km != null) return `~${esc(Math.round(t.km))} km to here${via}${how} · whole trip with ${esc(t.stops + 1)} places ~${esc(Math.round(t.total_km))} km ≈ <strong>${esc(Math.round(t.pct))}%</strong>${use ? ` <span class="muted">(${use}, +10%)</span>` : ''}`;
@@ -1945,11 +1972,113 @@ function durationText(minutes) {
             </form>
             <div id="min-check"></div>
           </div>` : ''}
+          ${!d.pause && !d.released ? pauseTileHtml(d) : ''}
           <div class="qsec action-tile">
             <div class="qhead">${shape('flag', d.charge_for ? 'blue' : 'grey', true)}<div><strong>Ready later</strong><div class="muted small">Move the goal to tomorrow or the day after when that is cheaper.</div></div></div>
             <div id="cf-box"><p class="muted small">Loading…</p></div>
           </div>
         </div>`;
+    }
+
+    // ---------- Pause until and Hand back control (#33) ----------
+    let pauseMessage = '';
+    let pauseDefaultAt = 0;
+
+    // "YYYY-MM-DDTHH:MM" in the plan's time zone, for a datetime-local input.
+    function inputInTz(ms, tz) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+      }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+      return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+    }
+
+    function pauseTileHtml(d) {
+      // The default stays the same between reloads, so the page does not change by itself.
+      if (!(pauseDefaultAt > Date.now() + 60000)) pauseDefaultAt = Math.ceil((Date.now() + 2 * 3600000) / 900000) * 900000;
+      const later = pauseDefaultAt;
+      return `
+          <div class="qsec action-tile">
+            <div class="qhead">${shape('pause', 'amber', true)}<div><strong>Pause</strong><div class="muted small">No charging until the moment you choose, whatever the plan says.</div></div></div>
+            <form id="pause-form" class="choice-form">
+              <select name="until" aria-label="Pause until">
+                <option value="time">Until a time</option>
+                <option value="unplug">Until the car is unplugged</option>
+                <option value="resume">Until I resume</option>
+              </select>
+              <div class="choice-value"><input name="datetime" type="datetime-local" aria-label="Pause until this time" value="${esc(inputInTz(later, d.time_zone))}"></div>
+              <button class="secondary" type="submit">Pause</button>
+            </form>
+            <div id="pause-check">${pauseMessage}</div>
+          </div>`;
+    }
+
+    function pauseCardHtml(d) {
+      if (d.released) {
+        return `
+        <div class="card pause-card">
+          <h2>${shape('control', 'grey', true)} Control handed back to you</h2>
+          <p>Since ${esc(dayHm(d.released.since))} the app sends nothing to the charger${d.battery ? ' and the home battery' : ''}. The plan below is only advice.</p>
+          <p class="muted small">What was put back is listed under <a href="#" data-goto="log">Activity › Log</a>.</p>
+          <div class="buttons"><button class="primary" type="button" id="release-resume">Resume control</button></div>
+          <div id="pause-result">${pauseMessage}</div>
+        </div>`;
+      }
+      const p = d.pause;
+      if (!p) return '';
+      const after = p.mode === 'time'
+        ? 'The plan below starts after the pause.'
+        : 'Charging in the plan below does not happen while the pause lasts.';
+      return `
+        <div class="card pause-card">
+          <h2>${shape('pause', 'amber', true)} ${esc(p.text)}</h2>
+          <p>The app does not start the charger, also not for the minimum, Ready Guard or preconditioning. ${after}</p>
+          ${!d.control_allowed ? '<p class="muted small">Allow control is off: nothing is sent; the Log shows what the app would do.</p>' : ''}
+          <div class="buttons"><button class="primary" type="button" id="pause-resume">Resume now</button></div>
+          <p class="muted small">Charge now also ends the pause.</p>
+          <div id="pause-result">${pauseMessage}</div>
+        </div>`;
+    }
+
+    function bindPause() {
+      const f = $('pause-form');
+      if (f) {
+        const sync = () => { f.datetime.parentElement.hidden = f.until.value !== 'time'; };
+        f.until.onchange = sync;
+        sync();
+        f.onsubmit = async (e) => {
+          e.preventDefault();
+          const btn = f.querySelector('button[type=submit]');
+          btn.disabled = true;
+          btn.textContent = 'Pausing…';
+          try {
+            const r = await api('POST', 'api/pause', { until: f.until.value, ...(f.until.value === 'time' ? { datetime: f.datetime.value } : {}) });
+            pauseMessage = sendHtml(r.send, 'Pause');
+            await loadOverview();
+            setTimeout(() => { pauseMessage = ''; }, 60000);
+          } catch (err) {
+            $('pause-check').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+            btn.disabled = false;
+            btn.textContent = 'Pause';
+          }
+        };
+      }
+      for (const [id, path] of [['pause-resume', 'api/pause'], ['release-resume', 'api/release']]) {
+        const btn = $(id);
+        if (btn) btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = 'Resuming…';
+          try {
+            const r = await api('DELETE', path);
+            pauseMessage = `<p class="muted small">Resumed.${r.next ? ` The plan takes over: ${esc(wantText(r.next).toLowerCase())} (${esc(r.next.reason)}).` : ''}</p>${sendHtml(r.send, r.send && r.send.command && r.send.command.what === 'start charging' ? 'Start' : 'Pause')}`;
+            await loadOverview();
+            setTimeout(() => { pauseMessage = ''; }, 60000);
+          } catch (err) {
+            $('pause-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+            btn.disabled = false;
+            btn.textContent = id === 'pause-resume' ? 'Resume now' : 'Resume control';
+          }
+        };
+      }
     }
 
     // How to charge: price plan, plan and solar, solar only.
@@ -2395,6 +2524,7 @@ function durationText(minutes) {
           loadOverview(true);
         };
         bindBoost();
+        bindPause();
         bindModes();
         bindCars();
         loadChargeFor();
@@ -2471,13 +2601,16 @@ function durationText(minutes) {
           ${d.charge_for ? `<div class="note">${shape('flag', 'blue', true)} <strong>The plan uses your choice on <a href="#" data-goto="overview">Home</a> instead:</strong> ready ${esc(depWhen(d.charge_for.until))} at ${esc(d.charge_for.soc)}%. Departures before then get at least ${esc(d.charge_for.min_soc)}%. ${cfOrigin(d.charge_for)} Ends by itself after that time.
             <div style="margin-top:8px"><button class="secondary" id="dep-cf-clear">Back to normal</button></div></div>` : ''}
           ${calendarMessagesHtml(d)}
+          ${droppedHtml(d.departure_dropped)}
           ${d.upcoming.length > 1 ? `
           <details${keep('dep-next-days')}><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
             ${aheadButtonsHtml()}
             <table class="periods">
-              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
+              ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => o.dropped_earlier
+                ? `<div class="small warn-text">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])} · not used: a later ${esc((SOURCE_NAMES[u.winner.source] || '').toLowerCase())} departure wins this day</div>`
+                : `<div class="small strike">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])}</div>`).join('')}</td></tr>`).join('')}
             </table>
-            <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule).</p>
+            <p class="muted small">The plan prepares the car for the first departure of each day. Crossed out: replaced by a source with higher priority on that day (one-off, then calendar, then helper, then schedule). In orange: an earlier departure that a later one of a higher source drops.</p>
           </details>` : ''}`;
         $('dep-next').querySelectorAll('[data-depcar]').forEach((b) => {
           b.onclick = () => { depCar = b.dataset.depcar; $('dep-form').reset(); loadDepartures(); };
@@ -2513,7 +2646,8 @@ function durationText(minutes) {
               <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
-          </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}`;
+          </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}
+          ${(d.calendar_ignored || []).length ? `<p class="small warn-text" style="margin-top:8px">Not used as a trip (an all-day event has no time to leave; give it a start time):</p><ul class="small">${d.calendar_ignored.map((x) => `<li>${esc(depFmt(Date.parse(x.date + 'T12:00:00Z'), { weekday: 'short', day: 'numeric', month: 'short' }))} · ${esc(x.title || 'untitled')}</li>`).join('')}</ul>` : ''}`;
 
         renderTripForm(d);
 
@@ -2770,6 +2904,7 @@ function durationText(minutes) {
       f.battery_care_enabled.checked = r.battery_care_enabled !== false;
       f.battery_care_soc.value = r.battery_care_soc ?? 80;
       f.battery_care_hours.value = r.battery_care_hours ?? 4;
+      f.battery_care_early_saving.value = r.battery_care_early_saving ?? '';
       f.car_limit_off.checked = !!r.car_limit_off;
       f.car_limit_restart.checked = !!r.car_limit_restart;
       f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
@@ -2808,6 +2943,7 @@ function durationText(minutes) {
           battery_care_enabled: f.battery_care_enabled.checked,
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
+          battery_care_early_saving: f.battery_care_early_saving.value,
           car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
           trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
         });
@@ -2908,9 +3044,102 @@ function durationText(minutes) {
       }
     });
 
+    // ---------- Who controls the devices; Hand back control (#33) ----------
+    const RELEASE_RESULT = {
+      confirmed: ['agree', 'Done, the device reports it'],
+      sent: ['agree', 'Sent'],
+      done: ['agree', 'Done'],
+      left: ['muted', 'Left as it is'],
+      failed: ['differ', 'Failed'],
+      not_done: ['differ', 'Not done'],
+    };
+
+    function releaseRowsHtml(items, done) {
+      if (!items.length) return '<p class="muted small">The app has changed nothing on your devices.</p>';
+      return `<table class="periods release-table">
+        <tr><th>Device</th><th>Now</th><th>${done ? 'Result' : 'When you hand back control'}</th></tr>
+        ${items.map((x) => {
+          const r = done && RELEASE_RESULT[x.result];
+          return `<tr>
+            <td><strong>${esc(x.device)}</strong> · ${esc(x.what)}${x.entity_id ? `<div class="src cmd">${esc(x.entity_id)}</div>` : ''}</td>
+            <td data-label="Now">${x.now != null ? esc(x.now) : '<span class="muted">–</span>'}${x.to ? `<div class="src">→ ${esc(x.to)}</div>` : ''}</td>
+            <td data-label="${done ? 'Result' : 'Then'}">${r && x.result !== 'left' ? `<span class="${r[0]}">${esc(r[1])}</span><div class="src">` : `<span class="${x.action === 'blocked' ? 'differ' : ''}">`}${esc(x.text)}${x.error ? ` <span class="differ">${esc(x.error)}</span>` : ''}${x.note ? ` ${esc(x.note)}` : ''}${r && x.result !== 'left' ? '</div>' : '</span>'}</td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+    }
+
+    async function loadOwner() {
+      const box = $('owner-body');
+      if (!box) return;
+      let d;
+      try { d = await api('GET', 'api/release'); } catch (err) { box.innerHTML = `<div class="card error">${esc(err.message)}</div>`; return; }
+      const r = d.released;
+      if (r) {
+        box.innerHTML = `
+          <div class="card" id="owner-card">
+            <h2>${shape('control', 'grey', true)} Who controls the devices: you</h2>
+            <p>Control was handed back at ${esc(dayHm(r.since))}. The app sends nothing to the chargers and the home battery until you resume control. Helpers, scripts and automations were never changed.</p>
+            ${r.done ? '' : '<div class="note">Handing back did not finish (the app was restarted?). The app still sends nothing; resume control and hand it back again to retry.</div>'}
+            ${r.failed ? `<div class="error">${r.failed === 1 ? 'One setting was' : `${esc(r.failed)} settings were`} not put back. Put ${r.failed === 1 ? 'it' : 'them'} back in Home Assistant yourself, or resume control and try again.</div>` : ''}
+            ${releaseRowsHtml(r.items || [], true)}
+            <div class="buttons"><button class="primary" type="button" id="owner-resume">Resume control</button></div>
+            <div id="owner-result"></div>
+          </div>`;
+      } else {
+        const owned = d.items.filter((x) => x.action === 'restore' || x.action === 'blocked').length;
+        box.innerHTML = `
+          <div class="card" id="owner-card">
+            <h2>${shape('control', d.control_allowed ? 'green' : 'grey', true)} Who controls the devices: ${d.control_allowed ? 'the app' : 'you (Allow control is off)'}</h2>
+            <p class="muted small">${d.control_allowed ? 'The app starts and pauses the charger and, when set up, steers the current, the phases and the home battery.' : 'Allow control is off: the app only gives advice and sends nothing.'} ${owned ? `It changed ${owned === 1 ? 'one setting' : `${owned} settings`} that it would put back.` : ''} <strong>Hand back control</strong> puts back what the app changed and then sends nothing until you resume. To stop charging for a while instead, use Pause on Home.</p>
+            ${d.warnings.map((w) => `<div class="note">${esc(w)}</div>`).join('')}
+            <details class="table-details" id="owner-details"><summary>Show what the app controls</summary>${releaseRowsHtml(d.items, false)}</details>
+            ${d.control_allowed ? `<div class="buttons"><button class="secondary" type="button" id="owner-release">Hand back control…</button></div>` : ''}
+            <div id="owner-result"></div>
+          </div>`;
+      }
+      const resume = $('owner-resume');
+      if (resume) resume.onclick = async () => {
+        resume.disabled = true;
+        resume.textContent = 'Resuming…';
+        try {
+          const x = await api('DELETE', 'api/release');
+          await loadOwner();
+          $('owner-result').innerHTML = `<p class="muted small">Control resumed.${x.next ? ` The plan takes over: ${esc(wantText(x.next).toLowerCase())} (${esc(x.next.reason)}).` : ''}</p>`;
+        } catch (err) {
+          $('owner-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          resume.disabled = false;
+          resume.textContent = 'Resume control';
+        }
+      };
+      const rel = $('owner-release');
+      if (rel) rel.onclick = async () => {
+        // First show the list, then confirm.
+        if (rel.dataset.confirm !== '1') {
+          $('owner-details').open = true;
+          rel.dataset.confirm = '1';
+          rel.className = 'primary';
+          rel.textContent = 'Confirm: hand back control';
+          $('owner-result').innerHTML = '<p class="muted small">Check the list above. Confirm to put these back; after that the app sends nothing until you resume.</p>';
+          return;
+        }
+        rel.disabled = true;
+        rel.textContent = 'Handing back…';
+        try {
+          await api('POST', 'api/release', { confirm: true });
+          await loadOwner();
+        } catch (err) {
+          $('owner-result').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+          rel.disabled = false;
+          rel.textContent = 'Confirm: hand back control';
+        }
+      };
+    }
+
     async function loadControl() {
       loadConflicts();
       loadPrecond();
+      if ($('tab-log') && !$('tab-log').hidden) loadOwner();
       const box = $('control-body');
       try {
         const d = await api('GET', 'api/control');

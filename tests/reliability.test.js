@@ -286,6 +286,17 @@ check('Battery Care refill never delays explicit Charge now or Ready Guard', () 
   assert.equal(controller.decide({ ...careCtx, plan: { ...carePlan, departure: { time: now + 0.5 * H } }, rules: { ...careCtx.rules, force_minutes: 60 } }).code, 'force_window');
   assert.equal(controller.decide({ ...careCtx, solar: { mode: 'plan_solar', charge: true, amps: 6 } }).code, 'solar');
 });
+check('Pause until (#33) wins over the minimum, Ready Guard and preconditioning; Hand back control sends nothing', () => {
+  const paused = { reason: 'Paused by you until you resume' };
+  const min = controller.decide({ ...careCtx, paused, rules: { ...careCtx.rules, min_soc_enabled: true, min_soc: 80 } });
+  assert.equal(min.code, 'paused_by_you');
+  assert.equal(min.want, 'pause');
+  assert.equal(controller.decide({ ...careCtx, paused, plan: { ...carePlan, reliability: { protect: true, guard_until: now + 10 * H } } }).code, 'paused_by_you');
+  assert.equal(controller.decide({ ...careCtx, paused, preconditioning: true }).code, 'paused_by_you');
+  const off = controller.decide({ ...careCtx, handsOff: true, boostActive: true });
+  assert.equal(off.code, 'released');
+  assert.equal(off.want, 'leave');
+});
 check('Battery Care charges normally in the selected final-window price slot', () => {
   const d = controller.decide({ ...careCtx, now: now + 8 * H, lock: null });
   assert.equal(d.code, 'planned');

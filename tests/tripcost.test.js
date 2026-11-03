@@ -1,7 +1,8 @@
 'use strict';
 
 // What a trip costs: which calendar locations are addresses, the use per km
-// (range sensor, consumption, learned from trips) and learning from trips.
+// (range sensor, consumption, learned from trips) and learning from trips;
+// using more in the cold, with the temperature from a weather forecast (#56).
 // Run: node tests/tripcost.test.js   (from the repository root)
 
 const os = require('os');
@@ -124,5 +125,100 @@ check('Zones in Home Assistant: "Werk" (by name or by the title) is a point with
   }
 });
 
-console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
-process.exit(failures ? 1 : 0);
+// Use more in the cold (#56). Made-up car: 60 kWh, 18 kWh/100 km → 0.3 % per km.
+const coldCar = (extra = {}) => ({ id: 'c', capacity_kwh: 60, consumption_kwh_100km: 18, cold_correction: true, cold_extra_pct: 1.5, weather_entity: 'weather.forecast_test', ...extra });
+check('cold (#56) off: no correction, as before', () => {
+  const r = t.pctPerKm(coldCar({ cold_correction: false }), [], 50, 0);
+  assert.ok(Math.abs(r.pct_per_km - 0.3) < 1e-9 && !r.cold);
+});
+check('cold (#56): 3 °C and 1.5 % per degree → 12 degrees × 1.5 % = +18 %', () => {
+  const r = t.pctPerKm(coldCar(), [], 50, 3);
+  assert.ok(Math.abs(r.pct_per_km - 0.3 * 1.18) < 1e-9, String(r.pct_per_km));
+  assert.deepStrictEqual(r.cold, { temp: 3, factor: 1.18, extra: 1.5, learned: false });
+});
+check('cold (#56): 15 °C or warmer, or no temperature: no extra; very cold is capped at +80 %', () => {
+  assert.ok(Math.abs(t.pctPerKm(coldCar(), [], 50, 22).pct_per_km - 0.3) < 1e-9);
+  const none = t.pctPerKm(coldCar(), [], 50, null);
+  assert.ok(Math.abs(none.pct_per_km - 0.3) < 1e-9 && none.cold.temp === null);
+  assert.strictEqual(t.coldFactor(5, -30), 1.8);
+});
+check('cold (#56): the range sensor is not corrected (it already includes the weather of now)', () => {
+  const states = [{ entity_id: 'sensor.range', state: '300', attributes: { unit_of_measurement: 'km' } }];
+  const r = t.pctPerKm(coldCar({ range_entity: 'sensor.range' }), states, 75, -5);
+  assert.strictEqual(r.how, 'range');
+  assert.ok(Math.abs(r.pct_per_km - 0.25) < 1e-9 && !r.cold);
+});
+check('cold (#56): a trip cost includes the correction', () => {
+  t.setSavedPlaces([{ name: 'Exempelstad', km: 50 }]);
+  try {
+    const warm = t.tripCost({ location: 'Exempelstad', vehicle: coldCar(), states: [], soc: 80, temp: 20 });
+    const cold = t.tripCost({ location: 'Exempelstad', vehicle: coldCar(), states: [], soc: 80, temp: 5 });
+    assert.strictEqual(warm.status, 'ok');
+    assert.ok(cold.pct > warm.pct && Math.abs(cold.pct / warm.pct - 1.15) < 0.02, `${warm.pct} → ${cold.pct}`);
+    assert.strictEqual(cold.cold.temp, 5);
+  } finally {
+    t.setSavedPlaces([]);
+  }
+});
+check('cold (#56): learning remembers the temperature; after 4 trips with 5+ degrees spread the extra use per degree is learned', () => {
+  const now = Date.now();
+  // 0.30 % per km at 15 °C, +2 % per degree colder: 10 °C → 0.33, 5 °C → 0.36, 0 °C → 0.39.
+  const trips = [[15, 0.30], [10, 0.33], [5, 0.36], [0, 0.39]];
+  trips.forEach(([temp, v], i) => {
+    t.tripStarted('c', 80, 100, now + i * 86400000, temp);
+    t.tripEnded('c', 80 - v * 100, now + i * 86400000 + 3600000, temp);
+  });
+  const l = t.learned('c');
+  assert.strictEqual(l.samples.length, 4);
+  assert.deepStrictEqual(l.samples.map((x) => x.t), [15, 10, 5, 0]);
+  const fit = t.fitCold(l);
+  assert.ok(fit && Math.abs(fit.extra - 2) < 0.01 && Math.abs(fit.base - 0.30) < 1e-6, JSON.stringify(fit));
+  const r = t.pctPerKm(coldCar(), [], 50, 0);
+  assert.ok(r.how === 'learned' && r.cold.learned === true && Math.abs(r.pct_per_km - 0.39) < 1e-6, JSON.stringify(r));
+});
+check('cold (#56): too little spread or too few trips: the setting is used', () => {
+  const now = Date.now();
+  [[10, 0.33], [9, 0.34], [8, 0.34], [11, 0.32]].forEach(([temp, v], i) => {
+    t.tripStarted('c', 80, 100, now + i * 86400000, temp);
+    t.tripEnded('c', 80 - v * 100, now + i * 86400000 + 3600000, temp);
+  });
+  assert.strictEqual(t.fitCold(t.learned('c')), null);
+  assert.strictEqual(t.coldModel(coldCar()).extra, 1.5);
+});
+
+// The weather forecast (#56): only read, hourly first, then daily, then now.
+(async () => {
+  const ha = require('../smart_charging_planner/app/ha');
+  const w = require('../smart_charging_planner/app/weather');
+  const original = ha.callAction;
+  const calls = [];
+  const base = Date.parse('2026-11-04T06:00:00Z');
+  ha.callAction = async (domain, service, data, target) => {
+    calls.push(`${domain}.${service} ${data.type} ${target.entity_id}`);
+    if (data.type === 'hourly') return { 'weather.forecast_test': { forecast: [0, 1, 2].map((h) => ({ datetime: new Date(base + h * 3600000).toISOString(), temperature: 2 + h })) } };
+    return { 'weather.forecast_test': { forecast: [{ datetime: '2026-11-06T11:00:00+00:00', temperature: 9, templow: 1 }] } };
+  };
+  try {
+    const states = [{ entity_id: 'weather.forecast_test', state: 'cloudy', attributes: { temperature: 7, temperature_unit: '°C' } }];
+    await w.refresh('weather.forecast_test', states, base);
+    await w.refresh('weather.forecast_test', states, base + 60000); // kept for 30 minutes
+    const r = [
+      ['hourly forecast at the time of the trip', w.tempAt('weather.forecast_test', base + 3600000, { states, tz: 'UTC', now: base }), 3],
+      ['daily forecast further ahead: the middle of high and low', w.tempAt('weather.forecast_test', Date.parse('2026-11-06T08:00:00Z'), { states, tz: 'UTC', now: base }), 5],
+      ['no forecast for that day: unknown', w.tempAt('weather.forecast_test', Date.parse('2026-11-09T08:00:00Z'), { states, tz: 'UTC', now: base }), null],
+      ['°F is converted', w.celsius(41, '°F'), 5],
+    ];
+    for (const [name, got, want] of r) {
+      if (got === want) console.log('  ok  ', `weather (#56): ${name}`);
+      else { failures++; console.log('  FAIL', `weather (#56): ${name} - ${got} ≠ ${want}`); }
+    }
+    const once = calls.length === 2 && calls.every((c) => c.startsWith('weather.get_forecasts'));
+    if (once) console.log('  ok  ', 'weather (#56): only weather.get_forecasts, fetched once per 30 minutes');
+    else { failures++; console.log('  FAIL', 'weather (#56): calls', calls); }
+  } finally {
+    ha.callAction = original;
+    w.reset();
+  }
+  console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
+  process.exit(failures ? 1 : 0);
+})();

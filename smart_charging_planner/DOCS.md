@@ -18,6 +18,7 @@ The app is split in two: what you **use** day to day, and **settings** you set o
   - **Quick minimum**: charge right away up to 20–45 % (the default comes from **Default minimum for the quick choices** in Settings › Rules), then the plan takes over. Shown in **purple** in the chart.
   - **How to charge** (with solar set up): **Price plan**, **Plan + solar** or **Solar only**. See Solar below.
   - **Ready later** (tomorrow / the day after tomorrow): see below.
+  - **Pause** (#33): no charging until **a time** (at most 7 days ahead), until **the car is unplugged**, or until **you resume**. The pause is sent right away, also when you started or stopped the charger by hand a minute ago, and it wins over the plan, your minimum, Ready Guard and preconditioning. A pause until a time moves the plan: it starts after the pause. With the other two, the plan stays as it is, but its charging does not happen while the pause lasts. Home shows "Paused by you until …" with **Resume now**; **Charge now** (or a manual start in Settings › Diagnostics › Manual test) also ends the pause. A pause is kept when the app restarts. With Allow control off, nothing is sent; the Log shows what the app would do. Before #33, a stop by hand only held for 3 minutes; then the plan could start the charger again.
   - **Connected car** (with more cars) and **Chargers** (with more chargers): see below.
 - **Reloading**: Home reloads every minute. What you opened or closed (a day in Looking ahead, Plan details, the plan table, Next days on Plan) stays that way, and a reload that changes nothing leaves the page as it is (#51).
 - **Charging status** (on top): what the charger does right now, checked every minute, in one line with a colour:
@@ -187,6 +188,10 @@ Settings › Rules, on by default. For every departure Ready Guard checks whethe
 
 Settings › Rules, on by default. For a target above 80 % (for example 100 % for a long trip), the app charges up to 80 % whenever it is cheapest, and the rest only in the last 4 hours before the departure, so the battery does not stand full for days. The level (50–95 %) and the hours (1–24) can be changed; when the rest needs more time than those hours, it starts earlier. The car's own charge limit follows: 80 % until the last hours, then the target. Charge now and charging on solar (up to its own level) still go higher right away. Below your minimum (Always charge below a minimum) the minimum is charged first, and Battery care still holds for the rest. Home › Plan details shows when the last part is charged.
 
+In the price chart the part above the care level is **green** (legend "Battery care"), so a later block that costs a little more is clearly a Battery care choice, not a missed cheaper hour. The Battery care note on Home says how much charging that part early would save.
+
+**Charge the rest earlier when that saves at least** (empty = never, the default; an amount in your currency, 0.01–100): when charging the part above the care level at the cheapest time saves at least this amount for this charge, the app plans it there instead of in the last hours. The battery then stands above the care level longer; the note on Home says "charged above 80% early: saves …". The car's charge limit goes up right away. Example: 80 % now, target 90 % for a long trip, cheapest hour now at 0.13, the last hours at 0.15 per kWh, 6.6 kWh above 80 %: early saves about 0.13. With 0.10 set, it charges now; with 0.50 set, it waits for the last hours (#39).
+
 ## More than one car
 
 Settings › Vehicle › **I have more than one car** (off by default; with it off, the app works with one car as always). Add up to 6 cars with **+ Add a car**.
@@ -301,6 +306,7 @@ When another trip is added to the calendar, it takes its place in the timeline r
   - **There and back**: twice the distance, or there plus a later trip home in the calendar (within 36 hours).
   - **More places in a row**: when the next calendar trip starts before or when this one ends (for example "To Work" 06:00–16:30, then "To Gym" 16:30–20:30, then "Home"), the car does not come home in between. The trip is home → work → sport → home: each part is the distance from the place before, and no charging is expected at home in between. So let a trip end when you leave there. A gap between two trips means the car is home first.
   - **Use per km**, best first: **learned from your own trips** (the battery level when the car was unplugged for a trip with a known distance and when it was plugged in again; after two trips), the car's **range sensor** (range at the battery level now), or **Use per 100 km** in Settings › Vehicle (default 18 kWh/100 km) and the battery capacity. Plus 10 % margin.
+  - **Use more in the cold** (Settings › Vehicle, per car, off by default, #56): choose a **Weather forecast** (a `weather.*` entity, for example the Met.no forecast that Home Assistant sets up; only read) and the **Extra use per degree below 15 °C** (0–5 %, default 1.5 %). The app takes the forecast temperature at the time of the trip (the hourly forecast, the daily forecast further ahead; no forecast: no correction) and adds the extra per degree below 15 °C, at most +80 % in total. Example: 18 kWh/100 km, trip at 3 °C → 12 degrees × 1.5 % = +18 % → 21.2 kWh/100 km. Learned trips remember the outside temperature (when the car left and came back); after **4 trips with at least 5 degrees between the coldest and the warmest**, the app uses your car's own extra per degree and its use at 15 °C instead of the setting. Until then the setting is added to the learned use, which can be a little high in winter (on the safe side). The car's **range sensor** is not corrected: the car's own estimate already includes the weather of now. Trips show the temperature and the extra ("3 °C: +18% for the cold").
 - **Back home**: the end of the calendar event, or of the trip home. When the trip costs more than the battery holds, the timeline says so.
 
 ### Where is the car?
@@ -370,7 +376,7 @@ Under **Settings › Rules › Preconditioning before a departure** (per car, of
   1. From home: a calendar trip with `precondition: yes` (or `ja`), and a departure from the **weekly schedule** (the **Precondition** tick of that day), the **helper** (its tick, or an on/off entity you choose that is only read: "on" means precondition) or a **one-off departure** (its tick). On a day where a calendar trip wins, the calendar rules count. A Ready-for choice follows the departure it is based on.
   2. The next drive of a trip (on to the next place, for example work and then sport) and a trip home in the calendar ("To home" / "Naar huis"): that event decides. With `precondition: yes` on, without it (or with `no`) off; the setting below does not count then.
   3. No event for the drive home (the car comes home at the end of the event): **Preconditioning on the way back** decides. When on, the app asks the set minutes before the event ends (for example "Work 06:30–16:30" → 16:15).
-- **Plugged in or not**: not needed. When the car is plugged in, the charger stays on during preconditioning, so the energy comes from the grid.
+- **Plugged in or not**: not needed. When the car is plugged in, the charger stays on during preconditioning, so the energy comes from the grid: from the moment the app asks, for 15 minutes at most and never after the departure time. Then the normal plan takes over. When the cable is unplugged during that time, the app turns the charger off again (with Allow control on; one retry when the command fails) (#55).
 - **Once**: one request per drive, tried once more when the command fails. The request is saved before it is sent, so after a restart it is not sent twice (a second button press could switch it off again).
 - **Switch off again**: a switch the app turned on for a drive from home is turned off 15 minutes after the departure time when the car is still plugged in (it did not leave). A button is never pressed again. On the way back nothing is turned off: the car is driving.
 - **Allow control off**: nothing is sent; Looking ahead shows the moment as advice.
@@ -381,6 +387,13 @@ A command the car's cloud accepts is not proof that the car started: check it in
 ## Departure priority
 
 When several sources give a departure on the same day, the one-off departure wins, then the calendar, then the helper, then the weekly schedule. The plan always prepares for the earliest day that has a departure.
+
+- **One source per day, the whole day.** The source that wins decides the day, also when its departure is later. Example: the weekly schedule says 07:00 and the calendar has a trip at 18:00 that day. The calendar wins, so the car is planned for 18:00 and **07:00 is not used**. Home and Departures then show **Departure not used** with both times (#25). To keep the earlier departure, add it as a trip in the calendar too (or as a one-off departure). A higher source with an *earlier* departure simply replaces the later one; that is shown crossed out under Departures › Next days.
+- **Two trips in one day** from the same source: the plan prepares for the first; the second is shown as "later that day".
+- **After midnight:** a departure counts for the day it leaves. A trip at 00:30 belongs to the next day, so it does not replace the departures of the evening before.
+- **All-day events** have no time to leave and are never a departure. When one looks like a trip (it has a target, or the keyword), Departures › Trips from your calendar lists it under **Not used as a trip**. Give the event a start time to use it.
+- **Which events count:** with **Events with a target** only events with "target: 80" (or "doel: 80") count; with **Events with a keyword** events with the keyword in the title or description, and always events in the app's own format; with **Every event** every event with a time. A trip home ("To home" / "Naar huis") is never a departure: the car comes back.
+- **Car tags** (more cars): "car: EV6" is matched to the **Name in the calendar**, the car's name, or its brand when only one car has that brand. A tag that matches no car, or more than one, counts for **every car** and is marked "not recognised" under Trips from your calendar.
 
 ## Charging power
 
@@ -460,9 +473,25 @@ Turn on **Publish sensors** to get these sensors for dashboards and automations:
 
 These sensors are not stored by Home Assistant between restarts; the app writes them again right after Home Assistant is back. The app writes no other entities.
 
+## Hand back control
+
+**Activity › Log › Who controls the devices** (#33) shows who controls the charger and the home battery now: the app (Allow control on) or you. **Show what the app controls** lists every device setting the app steers: the start/stop switch or button, a charging current or phase mode the app set (for solar charging or for sharing the connection), the home battery settings it changed, and the car's charge limit, each with its value now and what happens when you hand back control.
+
+**Hand back control…** first opens that list; **Confirm** then:
+
+1. stops the app's control steps (this is saved first, so a restart or a step that runs at the same moment also leaves the devices alone);
+2. sets a charging current the app lowered back to the maximum in Settings › Charger (or, without one, the lowest maximum from a sensor, else 16 A);
+3. switches phases the app changed back to the charger's normal phases. **Never while the car charges**: then this line says so and the app keeps its record; stop charging and hand back control again;
+4. puts the home battery settings back to the values from before the app changed them, and checks that the battery reports them (the same restore as when battery planning is turned off). This needs "Allow home battery control";
+5. ends Charge now and a pause.
+
+The start/stop switch and the car's charge limit are left as they are now. Helpers, scripts and automations are never changed. Each line then shows the result: **Done, the device reports it**, **Sent** (Home Assistant accepted it, but the device does not report the value, or not yet), **Failed** (with the reason; the app keeps its record so nothing is forgotten) or **Not done** (with what to do yourself). Afterwards the app sends nothing to the chargers, the car and the home battery: the plan on Home is only advice, and Charge now and Pause are refused. Home shows **Control handed back to you** with **Resume control**; then the app follows the plan again from the next step. With more than one charger and no load balancer in Settings › Grid, the list warns that the app no longer shares the connection while control is handed back. Hand back control needs Allow control on (otherwise the app sends nothing anyway).
+
+Use **Pause** on Home to stop charging for a while; use **Hand back control** to let your own automation or the charger's app take over, or before you change the charger set-up.
+
 ## Handing over from your own automation
 
-If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again.
+If you already control your charger with your own automation, keep it running while "Allow control" is off: the Log tab then compares the app with your automation. Before you turn on "Allow control", turn your own automation off (disable it in Settings → Automations), so the two do not fight. To go back, turn "Allow control" off and your automation on again. To go back for a while without changing the Configuration tab, use **Hand back control** (above): it also puts back the current, phases and battery settings the app changed.
 
 ## Backup and moving to another install
 
@@ -498,7 +527,7 @@ These are set in Home Assistant: Settings → Apps → Smart Charging Planner �
 
 The [project roadmap](https://github.com/tlpeter/smart-charging-planner/blob/main/README.md#roadmap) lists planned improvements by priority with their GitHub issues. It distinguishes stable features, improvements awaiting release and remaining work.
 
-## Recovery safeguards (0.32.8)
+## Recovery safeguards (0.32.8-dev)
 
 A followed numeric current limit of 0–5 A pauses charging. This also applies to Charge now, minimum charging, preconditioning and Ready Guard. The live limit is read on each control step, even when the price plan is cached. A missing/unavailable limit and a real zero are different.
 
@@ -517,14 +546,14 @@ For a combined actual/forecast sensor, check both price bases. A forecast alread
 Release gates, remaining public-beta limitations and physical verification are described in [RELEASE.md](https://github.com/tlpeter/smart-charging-planner/blob/main/RELEASE.md).
 
 
-## Price data warnings (0.32.12)
+## Price data warnings (0.32.12-dev)
 
 Home shows **Price data warning** when a price row was skipped or a forecast could not be loaded. Available prices remain in use. Identical warnings from a combined actual/forecast sensor appear once, with the source and affected time where available. A genuine failure to read the actual price source is still shown separately as an error.
 
 At a clock change, preserve UTC, epoch or explicit-offset timestamps in custom sensors. For example, both `2026-10-25T02:00:00+02:00` and `2026-10-25T02:00:00+01:00` are needed for the repeated Amsterdam hour. The app does not invent the missing hour or choose an offset for an ambiguous source row.
 
 
-## Battery level and temporary calendar outages (0.32.14)
+## Battery level and temporary calendar outages (0.32.14-dev)
 
 The Ready Guard battery bar uses the absolute 0–100% battery level for its color: red at empty, yellow in the middle and green at full. It does not turn green just because a lower target was reached. The target marker and Ready Guard status are separate. An unknown level does not appear as 0%.
 
@@ -533,14 +562,14 @@ When an enabled calendar temporarily fails, the app can use the last successfull
 A successful empty calendar response means the events were removed and clears the old set immediately. Rescheduled events replace old events. A malformed response counts as a read failure. With no recent matching cache, the app warns and uses other enabled departure sources. Check your next departure: changes or cancellations made during an outage cannot be known until the calendar recovers. Past departures are not resurrected. Disabling the calendar disables fallback too. Cached calendar events stay local and are not added to diagnostic exports.
 
 
-## Solar periods and declared price units (0.32.15)
+## Solar periods and declared price units (0.32.15-dev)
 
 Solar sensor lists are treated as alternative representations of the same installation: separate today/tomorrow lists are merged, while overlapping periods use the finest available duration and are not summed twice. Power is integrated over each period and split over real UTC hours, including 23/25-hour clock-change days when timestamps carry offsets. Explicit end times, duration_minutes and ISO periods such as PT30M are supported. Otherwise the next sample supplies the duration (up to an hour); the final sample uses the normal sampling cadence, or one hour for an isolated sample. Provide explicit durations when sampling is irregular. Separate physical solar arrays should be combined through the Energy dashboard's forecast integrations. Open-Meteo's watts-map handling is unchanged.
 
 Price sources must declare their unit, for example EUR/kWh, SEK/kWh, EUR/MWh or ct/kWh. A high kWh price stays high; its magnitude never triggers a division by 1,000. Unsupported/missing units produce an actionable source error: correct the sensor/integration metadata rather than accepting a guessed conversion. Explicit currency codes and EUR/GBP symbols must match the Home Assistant currency. The app does not perform foreign-exchange conversion; a bare kWh/MWh unit relies on the integration's configured currency. Ambiguous dollar symbols do not identify a specific dollar currency.
 
 
-## Battery live bounds, recovery and site protection (0.32.16)
+## Battery live bounds, recovery and site protection (0.32.16-dev)
 
 App-level minimum/maximum settings are checked against the latest valid 0–100% SoC. Data older than 15 minutes, missing timestamps and invalid readings do not authorize charging. The software allows for sample age and a two-minute response window using the configured power/capacity. Set these power values to the actual maximum expected device power when the integration cannot set power. Native SoC controls are used where the integration exposes compatible percentage controls; an existing higher reserve or lower ceiling is preserved.
 
@@ -550,7 +579,7 @@ Before changing a writable number, select or switch, the app records its origina
 
 The home battery uses one site-level decision across all enabled chargers. It includes desired and measured charging, even when the primary charger is idle or a secondary charger was started externally. All EV plans contribute to its forecast. Never/solar-only/range policies apply to the whole site. Energy with an unknown grid/solar origin is not credited as stored solar. With more chargers, grid charging also has to fit in the per-phase budget (see Sharing the connection, #29).
 
-## Public diagnostics (0.32.16)
+## Public diagnostics (0.32.16-dev)
 
 **Preview diagnostics** shows the exact public JSON before a separate download action. The report uses a field allowlist and consistent pseudonyms for identifiers within that export. Names, calendar aliases, destinations, free-form reasons/errors, original-setting snapshots and raw app logs are omitted. Structured decision codes, selected numeric settings and a log count remain for troubleshooting. The identifier reverse map is not exported. Numeric values and timestamps can still reveal usage patterns, so review the report before sharing.
 

@@ -209,6 +209,7 @@
     <section id="tab-savings" hidden><div id="savings-body"><div class="card muted">Loading…</div></div></section>
     <section id="tab-log" hidden>
       <div id="conflicts-log"></div>
+      <div id="owner-body"></div>
       <div id="control-body"><div class="card muted">Loading…</div></div>
     </section>
     <section id="tab-ctlset" hidden>
@@ -266,7 +267,8 @@
               <div class="field"><label>Charge up to this level any time</label><input name="battery_care_soc" type="number" min="50" max="95" step="5"></div>
               <div class="field"><label>The rest in the last hours before departure</label><input name="battery_care_hours" type="number" min="1" max="24" step="1"></div>
             </div>
-            <p class="muted small">For a target above this level (for example 100% for a long trip), the app charges up to the level whenever it is cheapest, and the rest only in the last hours before departure, so the battery does not stand full for days. The car's own charge limit follows. When the rest needs more time than these hours, it starts earlier.</p>
+            <div class="field"><label>Charge the rest earlier when that saves at least (empty = never)</label><input name="battery_care_early_saving" type="number" min="0.01" max="100" step="0.01" placeholder="for example 0.50"></div>
+            <p class="muted small">For a target above this level (for example 100% for a long trip), the app charges up to the level whenever it is cheapest, and the rest only in the last hours before departure, so the battery does not stand full for days. The car's own charge limit follows. When the rest needs more time than these hours, it starts earlier. With an amount (in your currency), the rest is charged at the cheapest time when that saves at least this much per charge; the battery then stands above the level longer. The chart shows the part above the level in green.</p>
           </div>
           <p class="muted small">Always on: once a planned period has started, it is finished even if a new calculation would move it, and a charger status that is briefly invalid (up to 2 minutes) is ignored.</p>
         </div>

@@ -12,6 +12,7 @@
       --solar: #d29a28;
       --battery: #1f9e98;
       --minimum: #8a63d9;
+      --care: #2f9e5b;
       --warning: #bd7c20;
       --rgb-accent: 86, 119, 232;
       --accent-text: #ffffff;
@@ -47,6 +48,7 @@
         --solar: #e1b34d;
         --battery: #5fd1cb;
         --minimum: #b49af2;
+        --care: #5fcf8a;
         --warning: #e1b34d;
         --accent-text: #17203d;
         --good: #72c6a1;
@@ -1041,3 +1043,13 @@
     .cstops-leg { font-weight: 600; font-size: 13px; margin-top: 8px; }
     .cstops ul { margin: 6px 0; padding-left: 18px; }
     .cstops li { margin: 4px 0; font-size: 13px; }
+
+    /* Pause until and Hand back control (#33) */
+    .pause-card { border-left: 4px solid var(--warning); }
+    .release-table td { vertical-align: top; overflow-wrap: break-word; }
+    @media (max-width: 600px) {
+      .release-table tr:first-child { display: none; }
+      .release-table tr { display: block; padding: 8px 0; border-bottom: 1px solid var(--border); }
+      .release-table td { display: block; padding: 2px 0; border: 0; }
+      .release-table td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+    }
