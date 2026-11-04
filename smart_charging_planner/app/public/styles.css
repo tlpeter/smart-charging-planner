@@ -494,15 +494,19 @@
       appearance: none; -webkit-appearance: none;
       width: 42px; height: 24px; min-height: 24px; flex: none;
       padding: 0; border-radius: 14px; background: var(--surface);
-      position: relative; cursor: pointer; transition: background .2s;
+      /* Off: a grey outline and a grey knob, so the switch also shows on a
+         dark background (#59). On: the accent colour with a white knob. */
+      box-shadow: inset 0 0 0 2px var(--muted);
+      position: relative; cursor: pointer; transition: background .2s, box-shadow .2s;
     }
     .check > input[type=checkbox]::after {
       content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
-      border-radius: 50%; background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.22);
-      transition: transform .2s;
+      border-radius: 50%; background: var(--muted); box-shadow: 0 1px 4px rgba(0,0,0,.22);
+      transition: transform .2s, background .2s;
     }
-    .check > input[type=checkbox]:checked { background: var(--accent); }
-    .check > input[type=checkbox]:checked::after { transform: translateX(18px); }
+    .check > input[type=checkbox]:checked { background: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+    .check > input[type=checkbox]:checked::after { transform: translateX(18px); background: #ffffff; }
+    .check > input[type=checkbox]:focus-visible { outline: 3px solid rgba(var(--rgb-accent), .35); outline-offset: 2px; }
 
     #dep-form, #control-form, #solar-form, #battery-form { gap: 16px; }
     #dep-form > .card, #control-form > .card, #solar-form > .card, #battery-form > .card {

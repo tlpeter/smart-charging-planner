@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.3-dev
+
+- **On/off switches easier to read:** a switch that is off now has a grey outline and a grey knob, so you can see it in the dark theme too; a switch that is on is the accent colour with a white knob. Before, an off switch was dark on dark and the knob was almost invisible. Only the look changed. (#59)
+
 ## 0.38.2-dev
 
 - **Preconditioning before a trip home:** a "Naar huis" / "To home" event with only "precondition: ja" (no target, no keyword) now starts preconditioning before it. Before, the calendar setting "events with a target" (the default) or "keyword" left it out, so nothing started for the drive home. The same goes for any event with a "precondition:" tag. This is only for preconditioning; which events count as trips for the charging plan is unchanged. (#58)
