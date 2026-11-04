@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.4-dev
+
+- **Charging stops: only your preferred operators.** When you choose preferred operators, only their stations are used for a stop, never another operator. The stop is at the latest of their stations the car can reach. Before, a preferred station a little earlier on the way was skipped for a later station of another operator, and when none of yours was on the way the app suggested other operators. Now the trip says that no station fits your settings. Without preferred operators nothing changes. (#60)
+
 ## 0.38.3-dev
 
 - **On/off switches easier to read:** a switch that is off now has a grey outline and a grey knob, so you can see it in the dark theme too; a switch that is on is the accent colour with a white knob. Before, an off switch was dark on dark and the knob was almost invisible. Only the look changed. (#59)

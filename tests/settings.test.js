@@ -2293,10 +2293,10 @@ async function run() {
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
       c = (await stopsNow()).charge_stops;
       assert(fine(c) && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
-      // A preferred operator that is not on the way: the others, marked as such.
+      // A preferred operator that is not on the way: no other operator instead (#60).
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
       c = (await stopsNow()).charge_stops;
-      assert(fine(c) && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      assert(c && c.status === 'none' && !c.stops.length && !c.others_only, JSON.stringify(c));
       // Belgium too: the Shell station counts.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
       c = (await stopsNow()).charge_stops;

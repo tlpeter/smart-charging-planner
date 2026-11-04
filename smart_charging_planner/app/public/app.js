@@ -1694,7 +1694,7 @@ function durationText(minutes) {
           no_route: 'No route was found to the destination.',
           bad_key: `Open Charge Map did not accept the API key (${where}).`,
           failed: 'Charging stations could not be looked up. The app tries again later.',
-          none: `No charging station on the way fits your settings (power, connector, detour, country)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
+          none: `No charging station on the way fits your settings (power, connector, detour, country, preferred operators)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
         };
         const legs = c.legs && c.legs.length ? c.legs : c.stops && c.stops.length ? [{ n: 1, on_way_back: c.on_way_back, stations: c.stops, longer_only: c.longer_only, others_only: c.others_only }] : [];
         const count = legs.length > 1 ? ` · ${esc(legs.length)} stops` : '';
@@ -1726,7 +1726,7 @@ function durationText(minutes) {
         return `<div class="cstops"><div class="cstops-head">${need}</div>
           ${mapHtml}
           ${legs.map(leg).join('')}
-          ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
+          ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country, preferred operators). Change them under ${where}.</div>` : ''}
           <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
       }
 
