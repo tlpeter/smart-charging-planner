@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.2-dev
+
+- **Preconditioning before a trip home:** a "Naar huis" / "To home" event with only "precondition: ja" (no target, no keyword) now starts preconditioning before it. Before, the calendar setting "events with a target" (the default) or "keyword" left it out, so nothing started for the drive home. The same goes for any event with a "precondition:" tag. This is only for preconditioning; which events count as trips for the charging plan is unchanged. (#58)
+
 ## 0.38.1-dev
 
 - Released 0.38.0 on main. Dev continues as 0.38.1-dev; the documentation check stops at the stable release heading below.

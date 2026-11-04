@@ -4302,7 +4302,15 @@ async function preconditionRefresh(now = Date.now()) {
     const { events, error } = await calendarEvents(dep, tz, now);
     if (error && !events.length) continue; // keep the last known moments
     // From two days back, so the event going on now counts (its end: the way back).
-    const trips = calendarTrips(dep, events, tz, now - 2 * 86400000, carCtx(s, v));
+    // Also counted for preconditioning (#58), whatever "Which events are
+    // trips" says: an event with a "precondition:" tag and a trip home ("Naar
+    // huis"), also without a target or the keyword. Before, "Naar huis" with
+    // only "precondition: ja" was left out, so nothing started before it.
+    const since = now - 2 * 86400000;
+    const keyOf = (t) => `${t.event_start}|${t.title}|${t.location || ''}`;
+    const counted = new Set(calendarTrips(dep, events, tz, since, carCtx(s, v)).map(keyOf));
+    const trips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, since, carCtx(s, v))
+      .filter((t) => counted.has(keyOf(t)) || t.precondition !== null || isReturnTrip(t));
     // The other sources (#45): the departure that counts on each day (a day
     // where a calendar trip wins is left to the calendar rules above).
     let states = [];

@@ -2812,6 +2812,26 @@ async function run() {
       world.events = [];
       return 'way back: one press; a trip home without "precondition": none';
     });
+    await test('Y22b', 'Preconditioning before a trip home with only "precondition: ja" (#58): no target, calendar set to events with a target: still one press 15 minutes before; a trip home without any tag turns the way back off', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // the car is away
+      world.events = [evp('Naar Werk', 'doel: 80 precondition: ja', now - 4 * 3600000, now + 10 * 60000), evp('Naar huis', 'precondition: ja', now + 10 * 60000, now + 70 * 60000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(saved.upcoming.length === 1 && saved.upcoming[0].kind === 'back' && saved.upcoming[0].title === 'Naar huis', JSON.stringify(saved.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await sleep(1500);
+      assert(presses(n0).length === 1, `pressed again: ${presses(n0).length}`);
+      // A trip home without any tag still turns the way back off (the setting on).
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 20 * 60000), evp('Naar huis', '', now + 20 * 60000, now + 80 * 60000)];
+      const s2 = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 30, way_back: true });
+      assert(s2.upcoming.length === 0, JSON.stringify(s2.upcoming));
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      world.plugged = true;
+      world.events = [];
+      return 'trip home with only "precondition: ja": one press; untagged trip home: none';
+    });
     await test('Y23', 'Preconditioning for the weekly schedule and a one-off departure (#45): the day\'s tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too', async () => {
       const car = (await ok('GET', 'api/precondition')).cars[0];
       const soon = Date.now() + 10 * 60000;
