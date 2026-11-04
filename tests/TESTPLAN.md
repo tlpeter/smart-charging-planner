@@ -21,7 +21,7 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.38.2-dev.
+Version: 0.38.3-dev.
 
 # Settings
 
@@ -98,8 +98,8 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 19 charged blocks, from 18.2 h back | ✓ 19 charged blocks, from 18.2 h back | ✓ 19 charged blocks, from 18.2 h back |
-| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks | ✓ 24 h: 6 blocks, 72 h: 54 blocks, 168 h: 150 blocks |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 22 charged blocks, from 21.0 h back | ✓ 22 charged blocks, from 21.0 h back | ✓ 22 charged blocks, from 21.0 h back |
+| E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 3 blocks, 72 h: 51 blocks, 168 h: 147 blocks | ✓ 24 h: 3 blocks, 72 h: 51 blocks, 168 h: 147 blocks | ✓ 24 h: 3 blocks, 72 h: 51 blocks, 168 h: 147 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
 | E13 | A genuinely missing price source remains an error | ✓ | ✓ | ✓ |
@@ -179,7 +179,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification |
 | J9 | Notification on start (notify every start and pause) | ✓ Car charge limit changed · Charging paused · Car charge limit changed · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you |
 | J9b | Manual test (Diagnostics): start and stop really sent | ✓ switch.turn_on switch.laadpaal_charger_enabled → switch.turn_off switch.laadpaal_charger_enabled | ✓ button.press button.zaptec_go_resume_charging → button.press button.zaptec_go_stop_charging | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Wed 21:13; 4 blocks after it | ✓ Paused by you until Wed 21:13; 5 blocks after it | ✓ Paused by you until Wed 21:13; 6 blocks after it |
+| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Thu 00:02; 4 blocks after it | ✓ Paused by you until Thu 00:02; 5 blocks after it | ✓ Paused by you until Thu 00:02; 6 blocks after it |
 | J9d | Paused: below the minimum the app still does not start the charger (the pause wins); Resume: the plan takes over again | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum |
 | J9e | Pause until the car is unplugged: refused when not plugged in; ends when the car is unplugged | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned |
 | J9f | Pause until I resume: kept after a restart; Charge now ends it | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now |
@@ -216,7 +216,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 |---|---|---|---|---|
 | T1 | Battery page finds the Sigenergy: level, power, capacity, what the app can do | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold | ✓ can: auto, charge, discharge, hold |
 | T2 | Refused: minimum above maximum, a battery that does not exist, capacity 0 | ✓ | ✓ | ✓ |
-| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.30 | ✓ charges in 3 block(s), saving €1.25 | ✓ charges in 3 block(s), saving €1.21 |
+| T3 | Plan: charges from the grid in the cheap night (0.05) for the 0.20 hours, with a saving | ✓ charges in 3 block(s), saving €1.16 | ✓ charges in 3 block(s), saving €1.11 | ✓ charges in 2 block(s), saving €1.07 |
 | T4 | Allow control on, home battery control off: nothing is sent to the battery | ✓ | ✓ | ✓ |
 | T5 | Car charges, "never into the car": the battery holds (Remote EMS on, Standby) | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby | ✓ turn_on · select_option Standby |
 | T6 | Car stops: the battery goes back to its plan | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off | ✓ now: auto · select_option Maximum Self Consumption · turn_off |
@@ -320,7 +320,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y21 | Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car's button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without |
 | Y22 | Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none |
 | Y22b | Preconditioning before a trip home with only "precondition: ja" (#58): no target, calendar set to events with a target: still one press 15 minutes before; a trip home without any tag turns the way back off | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none |
-| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule wed 18:25: one press with the tick, none without; one-off: one press | ✓ schedule wed 18:25: one press with the tick, none without; one-off: one press | ✓ schedule wed 18:25: one press with the tick, none without; one-off: one press |
+| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule wed 21:14: one press with the tick, none without; one-off: one press | ✓ schedule wed 21:14: one press with the tick, none without; one-off: one press | ✓ schedule wed 21:14: one press with the tick, none without; one-off: one press |
 
 ## Z. Apple iCloud calendar (read only)
 
@@ -1551,9 +1551,9 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.38.2-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.38.2-dev) | ✓ |
-| README: every issue since 0.38.0 is under "Implemented on dev" (#58) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.38.3-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.38.3-dev) | ✓ |
+| README: every issue since 0.38.0 is under "Implemented on dev" (#59, #58) | ✓ |
 | RELEASE: every issue since 0.38.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
 
