@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.7-dev
+
+- **Trip home ("Naar huis"):** the car is home at the start of the trip home plus the drive (the route's drive time, else 70 km/h), not at the end of the appointment. Home shows a row **Drive home** with the level when leaving, then **±Back home**; Looking ahead shows "Werk 06:30–16:30 · home ±17:35" instead of "Werk 06:30–18:00"; Plan › Trips from your calendar marks it **Trip home**, with when the car is home and when preconditioning starts. The plan, the expected charging and "the car is away now" use the same moment. Routes now also keep their drive time (looked up once more for routes saved before). (#62)
+
 ## 0.38.6-dev
 
 - **Trip log** (Settings › Vehicle, on by default; Activity › Trips): every drive with its real km from the car's odometer, the battery used (and kWh), the use per 100 km and the outside temperature. Built from Home Assistant's long-term statistics, so earlier drives (up to three years) show at once; new drives are added every hour and kept. Drives with charging on the way, shorter than 15 km or without a battery level are listed but not used. A chart shows the use against the outside temperature with the learned line. With enough drives the trip estimates and the cold correction use the log instead of the planned distances. The odometer and an outdoor temperature sensor are found by themselves, or can be chosen. Only reads statistics. (#61)

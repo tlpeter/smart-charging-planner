@@ -1668,6 +1668,11 @@ function durationText(minutes) {
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Preconditioning ${what}</div>
             <div class="tl-sub">Until ${esc(hm(x.until))}${st}</div></div></li>`;
         }
+        if (x.type === 'drive_home') {
+          return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Drive home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+            <div class="tl-sub">About ${esc(x.drive_min)} min ${x.how === 'route' ? 'by road' : '(estimated)'}${x.from_title ? ` from ${esc(shortName(x.from_title))}` : ''}</div></div>${level(x.soc)}</li>`;
+        }
         if (x.type === 'stop') {
           // The level on the right: when the car arrives here.
           const from = x.from_title ? shortName(x.from_title) : 'the place before';
@@ -1684,7 +1689,8 @@ function durationText(minutes) {
             <div class="tl-sub muted">The car is away now; charging is planned from when it is back</div></div></li>`;
         }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
-          <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          <div class="tl-title"><span class="tl-time">${x.estimated ? '±' : ''}${esc(dayHm(x.time))}</span>Back home${x.title && !x.estimated ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          ${x.estimated ? '<div class="tl-sub muted">When you leave for home plus the drive</div>' : ''}
           ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
@@ -1787,7 +1793,10 @@ function durationText(minutes) {
           const stopOnWay = stopOk ? ` <span class="tl-p exp">charge on the way${cs.legs && cs.legs.length > 1 ? ` (${esc(cs.legs.length)} stops)` : ''}</span>${mapBtn}` : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
-          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
+          // A trip home in the calendar (#62): there until it leaves for home, then home ±.
+          const dh = items.slice(i + 1, b ? b.i : items.length).find((y) => y.type === 'drive_home');
+          const span = dh && dayKey(dh.time) === key ? `–${esc(hm(dh.time))}${sameDay ? ` · home ±${esc(hm(b.x.time))}` : ''}` : sameDay ? `–${esc(hm(b.x.time))}` : '';
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${span}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
           return;
         }
         if (x.type === 'precondition') {
@@ -1795,7 +1804,7 @@ function durationText(minutes) {
           return;
         }
         if (used.has(i)) return;
-        if (x.type === 'stop') return; // shown with the trip it belongs to
+        if (x.type === 'stop' || x.type === 'drive_home') return; // shown with the trip it belongs to
         day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
       });
       const rows = days.map((day) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${keep(`day:${day.key}`)}>
@@ -2654,7 +2663,7 @@ function durationText(minutes) {
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
-              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
+              <td>${esc(t.title)}${t.trip_home ? ' <span class="chip">Trip home</span>' : ''}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? `<div class="src">Precondition: yes${t.precondition_at ? ` (${esc(hm(t.precondition_at))})` : ''}</div>` : ''}${t.trip_home && t.home ? `<div class="src">${t.home.drive_min ? `Home about ${esc(hm(t.home.at))} (${esc(t.home.drive_min)} min ${t.home.how === 'route' ? 'by road' : 'estimated'})` : `Home ${esc(hm(t.home.at))} (end of the appointment; the drive is not known)`}</div>` : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}

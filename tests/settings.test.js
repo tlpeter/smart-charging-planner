@@ -2128,14 +2128,25 @@ async function run() {
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
       }
     });
-    await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
+    await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car leaves for home at 16:00 and is back after the drive (60 km at 70 km/h: 51 min, #62), not at the end of the appointment; the way home is not the next goal', async () => {
       world.events = [
         ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 10),
         ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
       ];
       const n = (await settle()).next;
-      assert(n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis' && n.trip.return_at === at(1, 17), JSON.stringify(n.trip));
+      assert(n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis' && n.trip.return_trip.start === at(1, 16) && n.trip.return_trip.drive_min === 51 && n.trip.return_trip.drive_how === 'estimate' && n.trip.return_at === at(1, 16, 51), JSON.stringify(n.trip));
+      // The timeline: a row for the drive home, then back home (an estimate).
+      const tl = n.timeline;
+      const dh = tl.find((x) => x.type === 'drive_home');
+      const back = tl.find((x) => x.type === 'back');
+      assert(dh && dh.time === at(1, 16) && dh.drive_min === 51 && back && back.estimated && back.time === at(1, 16, 51) && tl.indexOf(dh) < tl.indexOf(back), JSON.stringify(tl.map((x) => [x.type, x.time])));
+      assert(dh.soc != null && back.soc != null && dh.soc > back.soc, JSON.stringify([dh, back]));
+      // Plan › Trips from your calendar: the trip home is marked, with when the car is home.
+      const d = await ok('GET', 'api/departures');
+      const th = (d.calendar_trips || []).find((x) => x.title === 'Naar Thuis');
+      assert(th && th.trip_home && th.home && th.home.at === at(1, 16, 51) && th.home.drive_min === 51, JSON.stringify(th));
+      assert(!(d.calendar_trips || []).find((x) => x.title === 'Naar Lakeside').trip_home);
       assert(n.goal.title === 'Naar Werk', JSON.stringify(n.goal));
       return `back ${new Date(n.trip.return_at).toISOString().slice(11, 16)} UTC · next ${n.goal.title}`;
     });
@@ -2183,9 +2194,11 @@ async function run() {
       const kinds = tl.map((x) => (x.type === 'charge' && x.expected ? 'expected' : x.type)).join(' ');
       const leaves = tl.filter((x) => x.type === 'leave');
       assert(leaves.length === 3 && leaves.map((x) => x.title).join() === 'Naar Lakeside,Naar Werk,Naar Werk', kinds);
-      assert(/^charge leave back expected leave back (expected )?leave/.test(kinds), kinds);
+      assert(/^charge leave back expected leave drive_home back (expected )?leave/.test(kinds), kinds);
       const backs = tl.filter((x) => x.type === 'back');
-      assert(backs[0].time === at(1, 18) && backs[1].time === at(2, 17) && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
+      // Naar Thuis 16:00: home after the drive (#62), not at 17:00.
+      const drive = tl.find((x) => x.type === 'drive_home');
+      assert(backs[0].time === at(1, 18) && drive && drive.time === at(2, 16) && backs[1].time === at(2, 16) + drive.drive_min * 60000 && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
       assert(backs.every((b) => b.soc != null && b.soc < 80) && leaves[1].soc >= 79.5, JSON.stringify(tl.map((x) => [x.type, x.soc])));
       const exp = tl.filter((x) => x.type === 'charge' && x.expected);
       assert(exp.length && exp[0].start >= at(1, 18) && exp[0].end <= at(2, 7) && p.next.expected_blocks.length, JSON.stringify(exp));
@@ -2592,7 +2605,7 @@ async function run() {
         world.events = [];
       }
     });
-    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
+    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, home after the drive from Sport (20:30 + 51 min, #62)', async () => {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
       world.events = [
@@ -2613,9 +2626,9 @@ async function run() {
         assert(stops.length === 1 && stops[0].title === 'Naar Sport' && stops[0].time === at(1, 16, 30) && stops[0].km === 60, JSON.stringify(stops));
         assert(n.trip.status === 'ok' && n.trip.total_km === 180 && n.trip.via.length === 1 && leaves[0].trip.stops === 1, JSON.stringify(n.trip));
         assert(Math.abs(n.trip.pct - 180 * n.trip.pct_per_km * 1.1) < 0.2, `pct ${n.trip.pct}`);
-        assert(n.trip.return_at === at(1, 22) && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
+        assert(n.trip.return_at === at(1, 20, 30) + 51 * 60000 && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
         const backs = tl.filter((x) => x.type === 'back');
-        assert(backs[0].time === at(1, 22), JSON.stringify(backs));
+        assert(backs[0].time === n.trip.return_at, JSON.stringify(backs));
         assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
         // Issue #1: a stop shows the level on arrival there, after its own drive
         // (60 km from Werk), and where it comes from.

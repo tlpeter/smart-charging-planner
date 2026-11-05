@@ -51,11 +51,11 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.38.6-dev
+## Current candidate: 0.38.7-dev
 
 Stable main is 0.38.0 (release v0.38.0: #25, #33, #39, #55, #56). Earlier: 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54), 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.38.0: #58 (preconditioning before a trip home with only "precondition: ja"), #59 (on/off switches visible when off), #60 (charging stops only at your preferred operators), #57 (Easee v2026.11.0: Equalizer actions are not charger methods), #61 (trip log from the odometer and history; "Use more in the cold" on by default). The Home Assistant Core check now runs on 2026.11.0 and 2026.4.2.
+Scope on dev since 0.38.0: #58 (preconditioning before a trip home with only "precondition: ja"), #59 (on/off switches visible when off), #60 (charging stops only at your preferred operators), #57 (Easee v2026.11.0: Equalizer actions are not charger methods), #61 (trip log from the odometer and history; "Use more in the cold" on by default), #62 (trip home: home at the start plus the drive). The Home Assistant Core check now runs on 2026.11.0 and 2026.4.2.
 
 Home check for #58: add a "Naar huis" event with only `precondition: ja` in the description, about 30 minutes ahead, with preconditioning on; the car's switch or button should be used the chosen minutes before it.
 
@@ -66,6 +66,8 @@ Home check for #60: with one preferred operator, look at a trip whose stop was a
 Home check for #57 (after updating the Easee integration to v2026.11.0 on Home Assistant 2026.10 or newer): Settings › Charger › control check still recommends the Charger enabled switch and `set_charger_dynamic_limit`; the Equalizer limit action is not in the list; start, pause and a current change work; the connection status follows plugging in and out, also after reloading the integration.
 
 Home check for #61: Activity › Trips lists earlier drives within a minute after the update, with the car's odometer and an outdoor temperature found; the km match the car's trip meter for a drive you know; a drive with a public charging stop is marked "charged on the way"; Settings › Vehicle shows "Use more in the cold" and "Keep a trip log" on.
+
+Home check for #62: with "Naar Werk" and "Naar huis" on one day, Home shows "Drive home" at the start of "Naar huis" and "±Back home" about the real drive time later; Looking ahead shows "Werk 06:30–16:30 · home ±…"; Plan › Trips from your calendar marks "Naar huis" as Trip home.
 
 Home checks still open from 0.38.0 (released before the owner's home check): #55 (charger off again when the cable is unplugged during preconditioning), #33 (Pause until, Hand back control), #25, #39 and #56. The steps are in the 0.38.0 issues.
 

@@ -321,6 +321,21 @@ function isReturnTrip(t) {
   return !!t.location && tripcost.distance(t.location).status === 'home';
 }
 
+// When the car is home after a trip home in the calendar (#62): the start of
+// "Naar huis" plus the drive from where the car is (the route's time, else
+// 70 km/h). The end of the appointment only when the drive is not known.
+// from: the trip before it (where the car is), or null.
+function homeArrival(home, from) {
+  const start = home.event_start || home.time;
+  const end = home.event_end || start + 3600000;
+  if (!from) return { at: end, drive_min: null, how: 'event_end' };
+  const p = tripcost.placeFor(from.location, from.title);
+  const d = p.manual_km ? { status: 'ok', km: p.manual_km } : p.point ? tripcost.pointDistance(p.point) : tripcost.distance(p.location);
+  const drive = d && d.status === 'ok' ? tripcost.driveMinutes(d.km, d.min) : null;
+  if (!drive) return { at: end, drive_min: null, how: 'event_end' };
+  return { at: start + drive.min * 60000, drive_min: drive.min, how: drive.how };
+}
+
 // The coming days (up to 30 days) as one timeline: charging, leaving, back
 // home, charging again, … Each later departure gets an expected charging plan
 // from the moment the car is back (orange, never steered). Home shows 7, 14 or
@@ -454,13 +469,16 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const trip = where && !fixed
       ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc(), temp: tripTemp(vehicle, cur.time, states, tz, now) })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
-    const returnAt = back ? endOf(back) : endOf(last);
+    // A trip home in the calendar (#62): home at its start plus the drive, not
+    // at the end of the appointment (that is often just its default length).
+    const drive = back && trip.back_min ? { min: trip.back_min, how: trip.back_min_how } : null;
+    const returnAt = back ? (drive ? startOf(back) + drive.min * 60000 : endOf(back)) : endOf(last);
     // soc_after (0 or more) is used to plan what comes next; soc_end can be
     // below 0: how much the battery falls short, shown in the timeline.
     const socEnd = socLeave != null && trip.pct != null ? Math.round((socLeave - trip.pct) * 10) / 10 : null;
     const socAfter = socEnd == null ? null : Math.max(0, socEnd);
     const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
-    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time, start: startOf(back), drive_min: drive ? drive.min : null, drive_how: drive ? drive.how : 'event_end', precondition: back.precondition === true } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -559,7 +577,11 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       const stops = tr.pct != null && socLeave != null && socBack != null && chargestops.enabled()
         ? chargestops.suggest({ home: ha.state.home, dest: tr.lat != null ? { lat: tr.lat, lon: tr.lon } : null, socLeave, socEnd: socBack, pctPerKm: tr.pct_per_km, capacityKwh: vehicle.capacity_kwh, now })
         : null;
-      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: tr.return_trip ? tr.return_trip.title : null, ...chain, ...(stops ? { charge_stops: stops } : {}) });
+      // The drive home of a trip home in the calendar (#62): its own row, with
+      // the level when the car leaves there.
+      const rt = tr.return_trip;
+      if (rt && rt.drive_min) timeline.push({ type: 'drive_home', time: rt.start, title: rt.title, drive_min: rt.drive_min, how: rt.drive_how, soc: round(lv), from_title: from });
+      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: rt ? rt.title : null, ...(rt && rt.drive_min ? { estimated: true, drive_min: rt.drive_min } : {}), ...chain, ...(stops ? { charge_stops: stops } : {}) });
     }
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
@@ -1463,8 +1485,11 @@ const routes = {
       let homeTrip = null;
       if (dep.calendar.enabled && Array.isArray(events)) {
         // Every event counts here (a trip home often has no target of its own).
-        const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
-        if (home) homeTrip = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+        // Since two days back, so the trip the car is on now gives where it drives home from.
+        const all = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now - 2 * 86400000, carCtx(s, vehicle));
+        const home = all.find((t) => t.time > now && isReturnTrip(t) && (!departure || t.time < departure.time));
+        const from = home ? [...all].reverse().find((t) => (t.event_start || t.time) < (home.event_start || home.time) && !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place)) : null;
+        if (home) homeTrip = { until: homeArrival(home, from).at, title: home.title || null };
       }
       place = carplace.where({ plugged: false, vehicle, states, homeTrip });
       if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
@@ -1988,9 +2013,20 @@ const routes = {
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
-        return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
+        // A trip home (#62): marked, with when the car is home (from the trip
+        // before it); and when preconditioning starts for a trip with it.
+        const pre = vehicle ? precondition.config(vehicle) : null;
+        const listed = calendarTrips(dep, events, tz, now, carCtx(s, vehicle));
+        const anyTrips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now - 2 * 86400000, carCtx(s, vehicle));
+        const homeOf = (t) => {
+          const from = [...anyTrips].reverse().find((x) => (x.event_start || x.time) < (t.event_start || t.time) && !isReturnTrip(x) && (x.location || tripcost.placeFor(null, x.title).place));
+          return homeArrival(t, from);
+        };
+        return listed.filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
           ...raised(t),
           cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow, temp: tripTemp(vehicle, t.time, states, tz, now) }) : null,
+          ...(isReturnTrip(t) ? { trip_home: true, home: homeOf(t) } : {}),
+          ...(pre && pre.enabled && t.precondition === true ? { precondition_at: t.time - pre.minutes * 60000 } : {}),
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,

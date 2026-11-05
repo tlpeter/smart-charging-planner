@@ -232,10 +232,23 @@ async function geocode(text, country) {
   return hit && Number.isFinite(Number(hit.lat)) ? { lat: Number(hit.lat), lon: Number(hit.lon) } : null;
 }
 
+// The route by road: { km, min } (min: the drive time, when the route service gives it).
 async function routeKm(from, to) {
   const r = await getJson(`${routing().route_url}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`);
-  const m = r && r.routes && r.routes[0] && r.routes[0].distance;
-  return Number.isFinite(m) ? m / 1000 : null;
+  const route = r && r.routes && r.routes[0];
+  const m = route && route.distance;
+  if (!Number.isFinite(m)) return null;
+  const sec = route.duration;
+  return { km: m / 1000, min: Number.isFinite(sec) && sec > 0 ? Math.round(sec / 60) : null };
+}
+
+// Drive time in minutes for a distance (#62): the route's own time when
+// known, else an average of 70 km/h. null without a distance.
+const AVG_KMH = 70;
+function driveMinutes(km, min = null) {
+  if (Number.isFinite(min) && min > 0) return { min, how: 'route' };
+  if (!(km > 0)) return null;
+  return { min: Math.max(1, Math.round((km / AVG_KMH) * 60)), how: 'estimate' };
 }
 
 // The distance from home to a place, from what is known now: { status, km, how }.
@@ -301,20 +314,24 @@ function toPoint(home, place, text) {
   if (straight < 1) return { status: 'home', km: 0 };
   const rkey = `${home.lat.toFixed(4)},${home.lon.toFixed(4)}|${place.lat.toFixed(4)},${place.lon.toFixed(4)}`;
   const route = c.routes[rkey];
-  if (route && route.km != null) return { status: 'ok', km: route.km, how: 'route', lat: place.lat, lon: place.lon };
-  if (routing().online && (!route || Date.now() - route.at > RETRY_MS)) {
+  // A route saved before the drive time was kept (#62): asked once more for its time.
+  const noTime = route && route.km != null && route.min === undefined;
+  if (routing().online && (!route || noTime || (route.km == null && Date.now() - route.at > RETRY_MS))) {
     enqueue(`route:${rkey}`, async () => {
-      let km = null;
+      let r = null;
       try {
-        km = await routeKm(home, place);
+        r = await routeKm(home, place);
       } catch (err) {
         ha.debug('OpenStreetMap route failed', text, '-', err.message);
       }
-      load().routes[rkey] = { km, at: Date.now() };
+      const old = load().routes[rkey];
+      // A failed time lookup keeps the km known before.
+      load().routes[rkey] = r ? { km: r.km, min: r.min, at: Date.now() } : old && old.km != null ? { ...old, min: null } : { km: null, at: Date.now() };
       save();
       changed();
     });
   }
+  if (route && route.km != null) return { status: 'ok', km: route.km, how: 'route', lat: place.lat, lon: place.lon, ...(Number.isFinite(route.min) ? { min: route.min } : {}) };
   return { status: 'ok', km: Math.round(straight * ROAD_FACTOR * 10) / 10, how: 'estimate', lat: place.lat, lon: place.lon };
 }
 
@@ -438,7 +455,8 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
   // lat/lon: where the destination is (for charging stops on the way, #37).
   const at = Number.isFinite(there.lat) && Number.isFinite(there.lon) ? { lat: there.lat, lon: there.lon } : {};
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(use.cold ? { cold: use.cold } : {}), ...at, ...(place ? { place, place_kind: kind } : {}) };
+  const drive = driveMinutes(backKm, backKm === there.km ? there.min : null);
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(drive ? { back_min: drive.min, back_min_how: drive.how } : {}), ...(use.cold ? { cold: use.cold } : {}), ...at, ...(place ? { place, place_kind: kind } : {}) };
 }
 
 // A trip with more places in a row: home → first place → next place → … → home.
@@ -468,7 +486,9 @@ function chainCost({ location: given, title, stops, vehicle, states, soc, temp =
   const backKm = prev.home_km || 0;
   const total = first.km + legs.reduce((a, l) => a + l.km, 0) + backKm;
   const pct = Math.round(total * first.pct_per_km * MARGIN * 10) / 10;
-  return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct };
+  // The drive home is from the last place (an estimate from its distance).
+  const drive = driveMinutes(backKm);
+  return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct, back_min: drive ? drive.min : null, back_min_how: drive ? drive.how : null };
 }
 
 // Learning from your trips. When the car is unplugged for a trip with a known
@@ -538,4 +558,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { driveMinutes, setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

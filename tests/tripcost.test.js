@@ -176,6 +176,13 @@ check('cold (#56): learning remembers the temperature; after 4 trips with 5+ deg
   const r = t.pctPerKm(coldCar(), [], 50, 0);
   assert.ok(r.how === 'learned' && r.cold.learned === true && Math.abs(r.pct_per_km - 0.39) < 1e-6, JSON.stringify(r));
 });
+check('drive home (#62): the route\'s own drive time when known, else 70 km/h; nothing without a distance', () => {
+  assert.deepStrictEqual(t.driveMinutes(60, 48), { min: 48, how: 'route' });
+  assert.deepStrictEqual(t.driveMinutes(60), { min: 51, how: 'estimate' });
+  assert.deepStrictEqual(t.driveMinutes(70, null), { min: 60, how: 'estimate' });
+  assert.strictEqual(t.driveMinutes(0), null);
+  assert.strictEqual(t.driveMinutes(null), null);
+});
 check('cold (#56): too little spread or too few trips: the setting is used', () => {
   const now = Date.now();
   [[10, 0.33], [9, 0.34], [8, 0.34], [11, 0.32]].forEach(([temp, v], i) => {
