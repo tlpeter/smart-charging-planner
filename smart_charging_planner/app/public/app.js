@@ -127,9 +127,17 @@ function durationText(minutes) {
             <div class="muted small">Below 15 °C a trip uses more battery: the app adds a percentage per degree colder, with the temperature from a weather forecast at the time of the trip. After trips at different temperatures it learns your car's own value. Not used with the car's range sensor (that already includes the weather of now).</div></div>
           <div class="two">
             <div class="field"><label>Weather forecast</label>
-              <select name="weather_entity"><option value="">— none —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+              <select name="weather_entity"><option value="">— automatic (the first forecast) —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
             <div class="field"><label>Extra use per degree below 15 °C (%)</label>
               <input name="cold_extra_pct" type="number" min="0" max="5" step="0.1" placeholder="1.5"></div>
+          </div>
+          <div class="field"><label class="check"><input type="checkbox" name="trip_log"> Keep a trip log (real use per drive)</label>
+            <div class="muted small">Every drive with its real km (from the car's odometer), the battery used and the outside temperature, also from the history Home Assistant already keeps. Shown under Activity › Trips. With enough drives the trip estimates and "Use more in the cold" use it. Only reads Home Assistant's statistics.</div></div>
+          <div class="two">
+            <div class="field"><label>Odometer</label>
+              <select name="odometer_entity"><option value="">— automatic (found on the car) —</option>${((data && data.odometers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+            <div class="field"><label>Outside temperature</label>
+              <select name="temperature_entity"><option value="">— automatic (the car's, else an outdoor sensor) —</option>${((data && data.temperatures) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
           </div>
           <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
@@ -680,9 +688,11 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct', 'odometer_entity', 'temperature_entity']) setValue(form, name, saved[name]);
       const cold = form.querySelector('input[name=cold_correction]');
-      if (cold) cold.checked = saved.cold_correction === true;
+      if (cold) cold.checked = saved.cold_correction !== false; // on by default (#61)
+      const tlog = form.querySelector('input[name=trip_log]');
+      if (tlog) tlog.checked = saved.trip_log !== false;
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -785,6 +795,7 @@ function durationText(minutes) {
       const errBox = form.querySelector('.form-error');
       if (kind === 'vehicle') Object.assign(data, vehicleTarget());
       if (form.querySelector('input[name=cold_correction]')) data.cold_correction = form.querySelector('input[name=cold_correction]').checked;
+      if (form.querySelector('input[name=trip_log]')) data.trip_log = form.querySelector('input[name=trip_log]').checked;
       if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
         const r = await api('POST', cfg.api, data);
@@ -2743,6 +2754,94 @@ function durationText(minutes) {
     });
 
     // ---------- Savings ----------
+    // Trip log (#61): the real use per drive, and use against the outside temperature.
+    let tripsCar = null;
+    async function loadTrips() {
+      const box = $('trips-body');
+      try {
+        const d = await api('GET', `api/triplog${tripsCar ? `?vehicle_id=${encodeURIComponent(tripsCar)}` : ''}`);
+        if (!d.available) { box.innerHTML = '<div class="card muted">Set up a car first under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.</div>'; return; }
+        const carPick = d.cars.length > 1 ? `<div class="field"><label>Car</label><select id="trips-car">${d.cars.map((c) => `<option value="${esc(c.id)}"${c.id === d.vehicle.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : '';
+        const fmt = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        // In the table: no year for this year's drives, the time on its own line.
+        const thisYear = new Date().getFullYear();
+        const day = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', day: 'numeric', month: 'short', ...(new Date(ms).getFullYear() !== thisYear ? { year: 'numeric' } : {}) }).format(new Date(ms));
+        const hm = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        const sensorLine = `Odometer: <strong>${esc((d.sensors && d.sensors.odometer) || 'not found')}</strong> · battery: <strong>${esc((d.sensors && d.sensors.soc) || 'not found')}</strong> · outside temperature: <strong>${esc((d.sensors && d.sensors.temp) || 'not found')}</strong>${d.chosen.odometer || d.chosen.temperature ? '' : ' (found automatically)'}. Change them under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.`;
+        if (!d.enabled) { box.innerHTML = `<div class="card">${carPick}<p class="muted">The trip log is off for this car. Turn on <strong>Keep a trip log</strong> under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.</p></div>`; bindTrips(); return; }
+        if (d.status === 'not_yet') { box.innerHTML = `<div class="card">${carPick}<p class="muted">Reading the history of the odometer and the battery… this takes a minute the first time. Open this page again in a moment.</p><p class="muted small">${sensorLine}</p></div>`; bindTrips(); return; }
+        if (d.status === 'no_odometer' || d.status === 'no_soc') {
+          box.innerHTML = `<div class="card">${carPick}<p>${d.status === 'no_odometer' ? 'No odometer found on the car. Choose the car\'s odometer (total km) under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : 'The trip log needs the car\'s battery level sensor (Settings › Vehicle).'}</p><p class="muted small">${sensorLine}</p></div>`;
+          bindTrips(); return;
+        }
+        const used = d.drives.filter((x) => x.used);
+        const withT = used.filter((x) => Number.isFinite(x.temp));
+        const cold = d.cold;
+        box.innerHTML = `
+          <div class="card">
+            ${carPick}
+            <span class="advice">${d.since ? `SINCE ${esc(fmt(d.since).toUpperCase())}` : 'NO DRIVES YET'}</span>
+            <div class="stats">
+              <div class="stat"><div class="v">${d.total}</div><div class="l">Drives</div></div>
+              <div class="stat"><div class="v">${d.km.toLocaleString('en-GB')} km</div><div class="l">Driven</div></div>
+              <div class="stat"><div class="v">${d.pct_100km != null ? `${d.pct_100km}%` : '–'}</div><div class="l">Battery per 100 km${d.vehicle.capacity_kwh && d.pct_100km != null ? ` (${(d.pct_100km * d.vehicle.capacity_kwh / 100).toFixed(1)} kWh)` : ''}</div></div>
+              <div class="stat"><div class="v">${cold ? `+${cold.extra_pct}%` : '–'}</div><div class="l">Extra per degree below ${d.cold_base_c} °C</div></div>
+            </div>
+            <p class="muted small">${cold ? `Learned from ${cold.drives} drives: at ${d.cold_base_c} °C or warmer about ${cold.base_pct_100km}% per 100 km, and ${cold.extra_pct}% more for every degree colder.${d.cold_on ? ' Trip estimates use this.' : ' Turn on "Use more in the cold" under Settings › Vehicle to use it for trip estimates.'}` : 'The cold is learned after at least 4 usable drives with 5 degrees or more between the coldest and the warmest.'}
+              ${d.used < d.total ? ` ${d.total - d.used} drive(s) are listed but not used: shorter than 15 km, charged on the way, or no battery level.` : ''}</p>
+            <p class="muted small">${sensorLine}</p>
+          </div>
+          ${withT.length ? `<div class="card"><h2>Use against the outside temperature</h2>${tripsChart(withT, cold, d.cold_base_c)}
+            <p class="muted small">Each dot is a drive of 15 km or more. Hover or tap a dot for the details.${cold ? ' The line is what the app learned.' : ''}</p></div>` : ''}
+          <div class="card">
+            <h2>Drives</h2>
+            ${d.drives.length ? `<div class="table-wrap"><table class="periods">
+              <tr><th>Drive</th><th class="n">km</th><th class="n">Battery</th><th class="n">/100 km</th><th class="n">Outside</th></tr>
+              ${d.drives.map((x) => `<tr${x.used ? '' : ' class="muted"'}>
+                <td>${esc(day(x.start))}<div class="src">${esc(hm(x.start))}–${esc(hm(x.end))}</div>${x.used ? '' : `<div class="src">${esc({ charged: 'charged on the way: not used', short: 'short drive: not used', no_soc: 'battery level not known', implausible: 'battery level not plausible: not used' }[x.why] || 'not used')}</div>`}</td>
+                <td class="n">${x.km}</td>
+                <td class="n">${x.pct != null ? `${x.soc_start}% → ${x.soc_end}%` : '–'}</td>
+                <td class="n">${x.pct_100km != null ? `${x.pct_100km}%${x.kwh_100km != null ? `<div class="src">${x.kwh_100km} kWh</div>` : ''}` : '–'}</td>
+                <td class="n">${Number.isFinite(x.temp) ? `${x.temp} °C` : '–'}</td></tr>`).join('')}
+            </table></div>` : '<p class="muted">No drives found yet. Each drive appears an hour or two after it ends.</p>'}
+            <p class="muted small">From Home Assistant's hourly statistics: the km from the odometer, the battery level from the highest value just before and the lowest just after the drive, so a short drive is rough.</p>
+          </div>`;
+        bindTrips();
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+    function bindTrips() {
+      const sel = $('trips-car');
+      if (sel) sel.addEventListener('change', () => { tripsCar = sel.value; loadTrips(); });
+    }
+    // Scatter: battery % per 100 km (y) against the outside temperature (x).
+    function tripsChart(drives, cold, baseC) {
+      // A narrower drawing on a phone, so the text stays readable.
+      const narrow = window.innerWidth < 600;
+      const W = narrow ? 360 : 640; const H = narrow ? 240 : 260; const L = 44; const R = 26; const T = 22; const B = 34;
+      const xs = drives.map((x) => x.temp); const ys = drives.map((x) => x.pct_100km);
+      const x0 = Math.floor(Math.min(...xs, baseC - 10) / 5) * 5; const x1 = Math.ceil(Math.max(...xs, baseC + 5) / 5) * 5;
+      const y0 = 0; const y1 = Math.ceil(Math.max(...ys) * 1.15 / 5) * 5 || 5;
+      const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
+      const sy = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+      const xt = []; for (let v = x0; v <= x1; v += 5) xt.push(v);
+      const yt = []; const ys5 = Math.max(5, Math.ceil(y1 / 4 / 5) * 5); for (let v = 0; v <= y1; v += ys5) yt.push(v);
+      const line = cold ? (() => {
+        const f = (t) => cold.base_pct_100km * (1 + (cold.extra_pct / 100) * Math.max(0, baseC - t));
+        const pts = []; for (let t = x0; t <= x1; t += 0.5) pts.push(`${sx(t).toFixed(1)},${sy(f(t)).toFixed(1)}`);
+        return `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>`;
+      })() : '';
+      return `<svg class="trips-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Battery use per 100 km against the outside temperature" style="width:100%;height:auto;max-height:340px">
+        ${yt.map((v) => `<line x1="${L}" x2="${W - R}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--border)" stroke-width="1"/><text x="${L - 6}" y="${sy(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}%</text>`).join('')}
+        ${xt.map((v) => `<text x="${sx(v)}" y="${H - B + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${v} °C</text>`).join('')}
+        <text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="var(--muted)">Outside temperature</text>
+        <text x="${L}" y="12" font-size="11" fill="var(--muted)">Battery per 100 km</text>
+        ${line}
+        ${drives.map((x) => `<circle cx="${sx(x.temp).toFixed(1)}" cy="${sy(x.pct_100km).toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--card)" stroke-width="2"><title>${esc(`${x.km} km · ${x.pct_100km}% per 100 km${x.kwh_100km != null ? ` (${x.kwh_100km} kWh)` : ''} · ${x.temp} °C`)}</title></circle>`).join('')}
+      </svg>`;
+    }
+
     async function loadSavings() {
       const box = $('savings-body');
       box.innerHTML = '<div class="card muted">Collecting charging sessions and prices… this can take a moment the first time.</div>';
@@ -4540,7 +4639,7 @@ function durationText(minutes) {
     // ---------- Tabs ----------
     // Use: Home, Planning, History. Set up once: Settings.
     const SETTINGS_SUBS = ['setup', 'vehicle', 'charger', 'grid', 'prices', 'solar', 'battery', 'ctlset', 'status', 'diag'];
-    const HISTORY_SUBS = ['savings', 'log'];
+    const HISTORY_SUBS = ['savings', 'log', 'trips'];
     let settingsSub = 'setup';
     let historySub = 'savings';
 
@@ -4549,6 +4648,7 @@ function durationText(minutes) {
       departures: ['PLAN', 'Plan departures', 'Choose when the car must be ready and which battery level you need.', 'departures', 'blue'],
       savings: ['ACTIVITY', 'Savings', 'See what smart charging changed compared with charging immediately.', 'savings', 'green'],
       log: ['ACTIVITY', 'Charging activity', 'Follow decisions, charger commands and conflicts in one place.', 'log', 'blue'],
+      trips: ['ACTIVITY', 'Trips', 'The real use of every drive, and what the cold does to it.', 'car', 'teal'],
       setup: ['SETTINGS', 'Settings overview', 'Check the complete setup and jump straight to anything that needs attention.', 'settings', 'blue'],
       vehicle: ['SETTINGS', 'Vehicle', 'Choose the battery and connection data the plan should use.', 'car', 'green'],
       charger: ['SETTINGS', 'Charger', 'Connect the charger and verify how it can be controlled.', 'charger', 'blue'],
@@ -4603,6 +4703,7 @@ function durationText(minutes) {
       if (show === 'overview') loadOverview();
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
+      if (show === 'trips') loadTrips();
       if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
       [0, 250, 1000].forEach((delay) => setTimeout(() => refreshRangeValues(), delay));
     }
@@ -4610,7 +4711,7 @@ function durationText(minutes) {
     document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
 
     // Icons on the tabs.
-    const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', settings: 'settings',
+    const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', trips: 'car', settings: 'settings',
       setup: 'check', vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', solar: 'sun', battery: 'battery', ctlset: 'control', status: 'bell', diag: 'status' };
     document.querySelectorAll('#main-nav .tab, #settings-nav .subtab, #history-nav .subtab').forEach((b) => {
       const label = b.textContent.replace('⚙', '').trim();

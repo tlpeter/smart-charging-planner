@@ -8,7 +8,7 @@
 
 const ha = require('./ha');
 
-const KEEP_MS = 30 * 60000;
+const KEEP_MS = Number(process.env.SCP_WEATHER_KEEP_MS) || 30 * 60000; // tests: shorter
 const RETRY_MS = 5 * 60000;
 const cache = new Map(); // entity -> { at, hourly: [{ time, temp }], daily: [{ date, temp }], error }
 

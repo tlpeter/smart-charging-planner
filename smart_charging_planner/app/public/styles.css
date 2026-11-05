@@ -490,6 +490,7 @@
     #solar-form input[type=range][data-mushroom-range] { --range-color: var(--solar); }
     #control-form input[type=range][data-mushroom-range] { --range-color: var(--good); }
 
+    .table-wrap { overflow-x: auto; }
     .check > input[type=checkbox] {
       appearance: none; -webkit-appearance: none;
       width: 42px; height: 24px; min-height: 24px; flex: none;

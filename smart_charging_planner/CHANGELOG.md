@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.38.6-dev
+
+- **Trip log** (Settings › Vehicle, on by default; Activity › Trips): every drive with its real km from the car's odometer, the battery used (and kWh), the use per 100 km and the outside temperature. Built from Home Assistant's long-term statistics, so earlier drives (up to three years) show at once; new drives are added every hour and kept. Drives with charging on the way, shorter than 15 km or without a battery level are listed but not used. A chart shows the use against the outside temperature with the learned line. With enough drives the trip estimates and the cold correction use the log instead of the planned distances. The odometer and an outdoor temperature sensor are found by themselves, or can be chosen. Only reads statistics. (#61)
+- **Use more in the cold** is now on by default, and turned on once for cars saved before; turn it off under Settings › Vehicle. Without a chosen weather forecast the first one in Home Assistant is used; without any, the correction does nothing (before, saving was refused). (#61)
+
 ## 0.38.5-dev
 
 - **Easee integration v2026.11.0:** its new Equalizer action "Set Equalizer max continuous limit" was offered as a way to set the charger's current, although it sets a limit for the whole house. Equalizer actions are now never a charger method, also when only the device choice asks for an Equalizer. "Set charger dynamic limit" stays the recommended method, and the Charger enabled switch stays the start/stop method. (#57)

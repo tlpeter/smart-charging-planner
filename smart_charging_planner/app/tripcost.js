@@ -320,10 +320,28 @@ function toPoint(home, place, text) {
 
 // The cold correction of a car (#56): null when off. { extra, learned }:
 // extra = % more use per degree below 15 °C.
+// The trip log (#61) gives the real use per drive (odometer); with enough
+// drives it replaces the learning from planned distances below.
+let logProvider = null;
+function setLogProvider(fn) {
+  logProvider = typeof fn === 'function' ? fn : null;
+}
+function learnedRec(vehicleId) {
+  if (!vehicleId) return null;
+  let fromLog = null;
+  try { fromLog = logProvider ? logProvider(vehicleId) : null; } catch { fromLog = null; }
+  return fromLog || load().learned[vehicleId] || null;
+}
+
+// On for the car (#56). On by default since #61 (settings.js turns it on once).
+function coldOn(vehicle) {
+  return !!vehicle && vehicle.cold_correction === true;
+}
+
 function coldModel(vehicle) {
-  if (!vehicle || vehicle.cold_correction !== true) return null;
+  if (!coldOn(vehicle)) return null;
   const set = Number(vehicle.cold_extra_pct);
-  const fit = vehicle.id ? fitCold(load().learned[vehicle.id]) : null;
+  const fit = vehicle.id ? fitCold(learnedRec(vehicle.id)) : null;
   if (fit) return { extra: fit.extra, learned: true, base: fit.base, trips: fit.trips };
   return { extra: Number.isFinite(set) && set >= 0 ? set : COLD_DEFAULT_PCT, learned: false };
 }
@@ -370,7 +388,7 @@ function pctPerKm(vehicle, states, soc, temp = null) {
     const base = cold.learned && use.how === 'learned' ? cold.base : use.pct_per_km;
     return { ...use, pct_per_km: base * factor, cold: { temp, factor: Math.round(factor * 1000) / 1000, extra: cold.extra, learned: cold.learned } };
   };
-  const learned = vehicle.id ? load().learned[vehicle.id] : null;
+  const learned = learnedRec(vehicle.id);
   if (learned && learned.trips >= 2 && learned.pct_per_km > 0) return withCold({ pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips });
   const st = vehicle.range_entity ? states.find((x) => x.entity_id === vehicle.range_entity) : null;
   let range = st ? Number(st.state) : NaN;
@@ -492,7 +510,7 @@ function tripEnded(vehicleId, soc, now = Date.now(), temp = null) {
 }
 
 function learned(vehicleId) {
-  return vehicleId ? load().learned[vehicleId] || null : null;
+  return learnedRec(vehicleId);
 }
 
 function setUserAgent(version) {
@@ -520,4 +538,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

@@ -125,6 +125,9 @@ async function startApp(options = {}) {
       SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
       SCP_OCM_GAP_MS: '50',
       SCP_PRECONDITION_MS: '500',
+      SCP_WEATHER_KEEP_MS: '200',
+      SCP_TRIPLOG_DELAY_MS: '300',
+      SCP_TRIPLOG_MS: '1000',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
     },
@@ -1596,7 +1599,7 @@ async function run() {
 
   // ----- V. Car not reachable (the car's cloud is down) ----------------------
   group = "V. Car not reachable (the car's cloud is down)";
-  const vehicleBody = (o = {}) => ({ name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity, ...o });
+  const vehicleBody = (o = {}) => ({ name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity, cold_correction: false, ...o }); // the cold (#56) is on by default since #61; off here unless a test turns it on
   const notesSince = (n0) => callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.data.title);
   await test('V1', 'Refused: car data old after 100 hours; 2 hours is saved', async () => {
     await refused('POST', 'api/vehicles', vehicleBody({ stale_hours: 100 }), 'between 0.5 and 48');
@@ -2054,9 +2057,54 @@ async function run() {
       assert(e && e.below_goal && e.needed_kwh > 5 && e.blocks.length && e.blocks.every((b) => b.expected && b.start >= at(1, 18)), JSON.stringify({ ...e, blocks: e && e.blocks.length }));
       return `trip ${n.trip.km} km → ${n.trip.pct}% · back ~${n.trip.soc_after}% · next: ${n.goal.title} ${n.goal.soc}% · expected ${e.needed_kwh} kWh, ${e.planned_kwh.toFixed(1)} kWh in known prices`;
     });
+    await test('Y1c', 'Trip log (#61): on by default; the odometer and an outdoor temperature are found by themselves; drives from the statistics history (real km, battery used, temperature), a drive with charging on the way not used; the vehicle form offers the sensors', async () => {
+      const H = 3600000;
+      const t0 = Math.floor(Date.now() / H) * H - 72 * H;
+      const odo = []; const soc = []; const temp = [];
+      let km = 20000; let level = 90;
+      for (let i = 0; i < 72; i++) {
+        const start = t0 + i * H; const before = level;
+        // Day 1 07:00 (60 km, -15 %), day 2 07:00 (60 km, -12 %), day 2 17:00–19:00 with charging on the way.
+        const step = { 7: [60, -15], 31: [60, -12], 41: [40, -8], 42: [40, 20], 43: [40, -9] }[i];
+        if (step) { km += step[0]; level += step[1]; }
+        if (i === 20) level = 90; // charged at home
+        odo.push({ start, end: start + H, state: km, sum: km - 20000 });
+        soc.push({ start, end: start + H, mean: (before + level) / 2, min: Math.min(before, level), max: Math.max(before, level) });
+        temp.push({ start, end: start + H, mean: i < 24 ? 4 : 8 });
+      }
+      world.odometerKm = km;
+      world.outdoorTemp = 8;
+      world.stats = { 'sensor.car_odometer': odo, [CAR.soc]: soc, 'sensor.garden_outdoor_temperature': temp };
+      try {
+        const det = await ok('GET', 'api/vehicles/detect');
+        assert((det.odometers || []).some((x) => x.entity_id === 'sensor.car_odometer') && (det.temperatures || []).some((x) => x.entity_id === 'sensor.garden_outdoor_temperature'), JSON.stringify({ o: det.odometers, t: det.temperatures }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, trip_log: undefined }));
+        let d = null;
+        for (let i = 0; i < 60; i++) { d = await ok('GET', 'api/triplog'); if (d.status === 'ok') break; await sleep(200); }
+        assert(d && d.enabled && d.status === 'ok', JSON.stringify(d && { ...d, drives: undefined }));
+        assert(d.sensors.odometer === 'sensor.car_odometer' && d.sensors.temp === 'sensor.garden_outdoor_temperature' && d.sensors.soc === CAR.soc, JSON.stringify(d.sensors));
+        assert(d.total === 3 && d.used === 2, JSON.stringify(d.drives));
+        const first = d.drives[d.drives.length - 1];
+        assert(first.km === 60 && first.pct === 15 && first.temp === 4 && first.used, JSON.stringify(first));
+        assert(d.drives[0].charged && !d.drives[0].used && d.drives[0].km === 120, JSON.stringify(d.drives[0]));
+        // Off for the car: the page says so.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, trip_log: false }));
+        assert((await ok('GET', 'api/triplog')).enabled === false);
+        return `${d.total} drives, ${d.used} used, ${d.pct_100km}% per 100 km`;
+      } finally {
+        delete world.odometerKm; delete world.outdoorTemp; delete world.stats;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      }
+    });
     await test('Y1b', 'Use more in the cold (#56): with a weather forecast of 3 °C and 1.5 % per degree the same trip costs 18 % more; off again: as before', async () => {
       try {
-        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true }), 'weather forecast');
+        // On by default (#61), also without a chosen forecast: the first forecast in Home Assistant is used.
+        world.weatherTemp = 3;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: undefined, cold_extra_pct: 1.5 }));
+        const v0 = (await ok('GET', 'api/vehicles')).vehicles[0];
+        assert(v0.cold_correction === true && v0.weather_entity === null && v0.trip_log === true, JSON.stringify(v0));
+        const a = (await settle()).next;
+        assert(a.trip.cold && a.trip.cold.temp === 3 && a.trip.cold.factor === 1.18, JSON.stringify(a.trip));
         await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 9 }), 'between 0 and 5');
         const det = await ok('GET', 'api/vehicles/detect');
         assert((det.weathers || []).some((x) => x.entity_id === 'weather.forecast_home'), JSON.stringify(det.weathers));

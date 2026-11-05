@@ -50,6 +50,7 @@ const { planBattery } = require('./batteryplan');
 const { chargeState } = require('./chargestate');
 const notifier = require('./notify');
 const { validateImportSettings } = require('./importschema');
+const triplog = require('./triplog');
 
 const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -682,12 +683,24 @@ chargestops.onUpdate(tripLookupDone);
 // The forecast temperature for a trip (#56), when the car uses the cold
 // correction. null when off or not known.
 function tripTemp(vehicle, at, states, tz, now = Date.now()) {
-  if (!vehicle || vehicle.cold_correction !== true || !vehicle.weather_entity) return null;
-  return weather.tempAt(vehicle.weather_entity, at, { states, tz, now });
+  const w = weatherOf(vehicle, states);
+  if (!vehicle || vehicle.cold_correction !== true || !w) return null;
+  return weather.tempAt(w, at, { states, tz, now });
+}
+
+// The weather forecast of a car: the one chosen in Settings › Vehicle, else
+// (#61) the first weather entity in Home Assistant, "weather.forecast_home"
+// first. null when there is none: then the cold correction does nothing.
+function weatherOf(vehicle, states) {
+  if (!vehicle) return null;
+  if (vehicle.weather_entity) return vehicle.weather_entity;
+  const list = (states || []).filter((s) => /^weather\./.test(s.entity_id) && s.state !== 'unavailable').map((s) => s.entity_id).sort();
+  return list.includes('weather.forecast_home') ? 'weather.forecast_home' : list[0] || null;
 }
 
 function tripLearning(vehicle, plugged, soc, carData, next, now, states = []) {
-  const tempNow = vehicle && vehicle.weather_entity ? weather.currentTemp(vehicle.weather_entity, states) : null;
+  const wx = weatherOf(vehicle, states);
+  const tempNow = wx ? weather.currentTemp(wx, states) : null;
   if (!vehicle || !vehicle.id || plugged == null) return;
   const w = tripWatch.get(vehicle.id) || { plugged: null };
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
@@ -770,6 +783,9 @@ const routes = {
       persons,
       // Weather forecasts, for "Use more in the cold" (#56).
       weathers: states.filter((x) => /^weather\./.test(x.entity_id)).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
+      // Trip log (#61): sensors that can be the odometer or the outside temperature.
+      odometers: states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.state_class && (x.attributes.device_class === 'distance' || /^(km|mi)$/.test(String(x.attributes.unit_of_measurement || '')))).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
+      temperatures: states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.device_class === 'temperature' && x.attributes.state_class === 'measurement').map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
     };
   },
 
@@ -832,9 +848,15 @@ const routes = {
       calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
       // Use more in the cold (#56): off by default; extra % per degree below 15 °C, the forecast from a weather entity.
-      cold_correction: body.cold_correction === true,
+      // On by default (#61): a form or setup without the choice turns it on.
+      cold_correction: body.cold_correction === undefined ? true : body.cold_correction === true,
       cold_extra_pct: body.cold_extra_pct === undefined || body.cold_extra_pct === '' || body.cold_extra_pct == null ? tripcost.COLD_DEFAULT_PCT : Number(body.cold_extra_pct),
       weather_entity: /^weather\.[a-z0-9_]+$/.test(String(body.weather_entity || '')) ? String(body.weather_entity) : null,
+      // Trip log (#61): on by default; the odometer and the outside
+      // temperature are found on the car when not chosen.
+      trip_log: body.trip_log !== false,
+      odometer_entity: /^sensor\.[a-z0-9_]+$/.test(String(body.odometer_entity || '')) ? String(body.odometer_entity) : null,
+      temperature_entity: /^sensor\.[a-z0-9_]+$/.test(String(body.temperature_entity || '')) ? String(body.temperature_entity) : null,
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
       // Where the car is when not plugged in (#46): the car's tracker, then a person.
@@ -845,7 +867,6 @@ const routes = {
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
     if (vehicle.consumption_kwh_100km != null && !(vehicle.consumption_kwh_100km >= 8 && vehicle.consumption_kwh_100km <= 40)) throw badRequest('Use per 100 km must be between 8 and 40 kWh');
     if (!(vehicle.cold_extra_pct >= 0 && vehicle.cold_extra_pct <= 5)) throw badRequest('Extra use per degree must be between 0 and 5 %');
-    if (vehicle.cold_correction && !vehicle.weather_entity) throw badRequest('Choose a weather forecast for "Use more in the cold", or turn it off');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -1573,7 +1594,7 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
-      if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
+      if (vehicle && vehicle.cold_correction && weatherOf(vehicle, states)) await weather.refresh(weatherOf(vehicle, states), states, now);
       next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
@@ -1721,6 +1742,36 @@ const routes = {
       }
     }
     return { hours, from: prices.length ? prices[0].start : before, before, prices, charged };
+  },
+
+  // Trip log (#61) of a car (or the car shown): the drives, the sensors and
+  // what the app learned about the cold.
+  'GET /api/triplog': async (req) => {
+    const s = settings.load();
+    const q = new URL(req.url, 'http://x').searchParams;
+    const v = cars(s).find((x) => x.id === q.get('vehicle_id')) || currentVehicle(s) || cars(s)[0] || null;
+    if (!v) return { available: false, reason: 'no_vehicle' };
+    const { entities, states } = await loadRegistries();
+    const found = triplog.sensorsFor(v, entities, states);
+    const label = (id) => { const st = states.find((x) => x.entity_id === id); return { entity_id: id, name: (st && st.attributes && st.attributes.friendly_name) || id }; };
+    const distance = states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && (x.attributes.device_class === 'distance' || /km|mi/.test(String(x.attributes.unit_of_measurement || ''))) && x.attributes.state_class).map((x) => label(x.entity_id));
+    const temps = states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.device_class === 'temperature' && x.attributes.state_class === 'measurement').map((x) => label(x.entity_id));
+    const model = triplog.model(v.id);
+    const fit = model ? tripcost.fitCold(model) : null;
+    return {
+      available: true,
+      vehicle: { id: v.id, name: v.name, capacity_kwh: v.capacity_kwh || null },
+      enabled: triplog.enabled(v),
+      cold_on: v.cold_correction === true,
+      chosen: { odometer: v.odometer_entity || null, temperature: v.temperature_entity || null },
+      sensors: found,
+      options: { odometer: distance, temperature: temps },
+      cars: cars(s).map((x) => ({ id: x.id, name: x.name })),
+      cold: fit ? { extra_pct: fit.extra, base_pct_100km: Math.round(fit.base * 1000) / 10, drives: fit.trips } : null,
+      cold_base_c: tripcost.COLD_BASE_C,
+      time_zone: ha.state.timeZone,
+      ...triplog.view(v.id),
+    };
   },
 
   'GET /api/savings': async () => {
@@ -1932,7 +1983,7 @@ const routes = {
       departure_dropped: droppedView(droppedEarlier(days)),
       calendar_ignored: ignoredEvents(dep, events, tz, now),
       calendar_trips: await (async () => {
-        if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
+        if (vehicle && vehicle.cold_correction && weatherOf(vehicle, states)) await weather.refresh(weatherOf(vehicle, states), states, now);
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
@@ -4918,6 +4969,32 @@ routes['POST /api/control/settings'] = async (req) => {
   return { ok: true, control: rulesFor(s) };
 };
 
+// Trip log (#61): the real use per drive from Home Assistant's statistics.
+// With enough drives the trip estimate and the cold correction use it.
+tripcost.setLogProvider((vehicleId) => {
+  const v = cars(settings.load()).find((x) => x.id === vehicleId);
+  return triplog.enabled(v) ? triplog.model(vehicleId) : null;
+});
+let triplogBusy = false;
+async function triplogRefresh() {
+  if (triplogBusy || !ha.state.connected) return;
+  triplogBusy = true;
+  try {
+    const list = cars(settings.load()).filter((v) => triplog.enabled(v));
+    if (!list.length) return;
+    const { entities, states } = await loadRegistries();
+    for (const v of list) {
+      try {
+        await triplog.refresh(v, { call: (m) => ha.call(m, 120000), entities, states, log: (m) => ha.log(m) });
+      } catch (err) {
+        ha.warn(`Trip log (${v.name || v.id}) failed:`, err.message);
+      }
+    }
+  } finally {
+    triplogBusy = false;
+  }
+}
+
 function startBackgroundRefresh() {
   const reconnect = !!refreshTimer;
   // onConnect runs after every HA reconnect. Recalculate immediately before
@@ -4929,6 +5006,9 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshAll('timer').catch(() => {});
   }, every);
+  // Trip log (#61): from the history at the start, then every hour.
+  setTimeout(() => { triplogRefresh().catch(() => {}); }, Number(process.env.SCP_TRIPLOG_DELAY_MS) || 30000);
+  setInterval(() => { triplogRefresh().catch(() => {}); }, Number(process.env.SCP_TRIPLOG_MS) || 3600000);
   // Preconditioning (#44): checked every minute, also when the car is away.
   precondition.recover();
   setInterval(() => { preconditionStep().catch(() => {}); }, Number(process.env.SCP_PRECONDITION_MS) || 60000);

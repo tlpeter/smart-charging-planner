@@ -294,6 +294,9 @@ function entityList(w) {
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
     ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
+    // Trip log (#61): the car's odometer and an outdoor temperature, when a test sets them.
+    ...(w.odometerKm === undefined ? [] : [['sensor.car_odometer', String(w.odometerKm), { friendly_name: 'Car Odometer', device_class: 'distance', state_class: 'total_increasing', unit_of_measurement: 'km' }, 'car']]),
+    ...(w.outdoorTemp === undefined ? [] : [['sensor.garden_outdoor_temperature', String(w.outdoorTemp), { friendly_name: 'Garden outdoor temperature', device_class: 'temperature', state_class: 'measurement', unit_of_measurement: '°C' }, null]]),
     // A weather forecast (Met.no style), for "Use more in the cold" (#56).
     ['weather.forecast_home', 'cloudy', { friendly_name: 'Forecast Home', temperature: w.weatherTemp ?? 10, temperature_unit: '°C' }, null],
     // An Apple iCloud calendar (Home Assistant 2026.10+): read only.
@@ -402,6 +405,12 @@ function start(w, wsPort, restPort) {
         case 'recorder/statistics_during_period': {
           const out = {};
           for (const id of m.statistic_ids) out[id] = [];
+          // w.stats: hourly rows per statistic id (trip log, #61).
+          if (w.stats) {
+            const from = Date.parse(m.start_time); const to = Date.parse(m.end_time);
+            for (const id of m.statistic_ids) if (w.stats[id]) out[id] = w.stats[id].filter((r) => r.start >= from && r.start < to);
+            w.statsCalls = (w.statsCalls || 0) + 1;
+          }
           // w.chargedKw: the charger delivered this power the whole period (5-minute means in W).
           if (w.chargedKw && m.statistic_ids.includes(w.profile.charger.power)) {
             const rows = [];
