@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.38.5-dev
+
+- **Easee integration v2026.11.0:** its new Equalizer action "Set Equalizer max continuous limit" was offered as a way to set the charger's current, although it sets a limit for the whole house. Equalizer actions are now never a charger method, also when only the device choice asks for an Equalizer. "Set charger dynamic limit" stays the recommended method, and the Charger enabled switch stays the start/stop method. (#57)
+- Tests: the real Home Assistant Core check now runs on 2026.11.0 (and still on 2026.4.2), and the fake Home Assistant reports 2026.11.0.
+
 ## 0.38.4-dev
 
 - **Charging stops: only your preferred operators.** When you choose preferred operators, only their stations are used for a stop, never another operator. The stop is at the latest of their stations the car can reach. Before, a preferred station a little earlier on the way was skipped for a later station of another operator, and when none of yours was on the way the app suggested other operators. Now the trip says that no station fits your settings. Without preferred operators nothing changes. (#60)

@@ -39,6 +39,17 @@ function numberRange(field) {
   return n ? { min: n.min ?? null, max: n.max ?? null, unit: n.unit_of_measurement || null } : null;
 }
 
+// The action's device selector only takes an Easee Equalizer (model or
+// integration filter), for example { device: { filter: { model: 'Equalizer' } } }.
+function selectsEqualizer(svc) {
+  const sel = [];
+  const t = svc.target && svc.target.device;
+  if (t) sel.push(t);
+  for (const f of flatFields(svc.fields)) if (f.selector && f.selector.device) sel.push(f.selector.device);
+  const text = JSON.stringify(sel.map((d) => d.filter || d)).toLowerCase();
+  return /equali[sz]er/.test(text);
+}
+
 function targetKind(service) {
   const t = service.target || {};
   if (t.device) return 'device';
@@ -59,6 +70,10 @@ function actionMethods(domains, services) {
   for (const domain of domains) {
     const svcs = services[domain] || {};
     for (const [name, svc] of Object.entries(svcs)) {
+      // Equalizer actions (Easee v2026.11.0 set_equalizer_max_continuous_limit,
+      // #57) set a limit for the whole site, not for this charger: never a
+      // charger method. Also when only the device selector asks for an Equalizer.
+      if (/equali[sz]er/.test(words(name, svc.name, svc.description)) || selectsEqualizer(svc)) continue;
       const fields = flatFields(svc.fields);
       const label = svc.name || name;
       // The device as a field of the action (Easee: device_id must be a text
