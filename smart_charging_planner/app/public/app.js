@@ -1616,6 +1616,28 @@ function durationText(minutes) {
       return `<p class="note small">${where} The levels start from ${soc}; planned charging counts only when the car is plugged in in time.${pl.at === 'unknown' ? ' Tip: set the car location or a person under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : ''}</p>`;
     }
 
+    // Preconditioning per drive (#64): which row of the timeline each moment
+    // belongs to. A moment ends when its drive starts: "out" → leaving home,
+    // "next" → the next place of a trip, "back" → the trip home. The way back
+    // without an event ("back_auto") has no drive row; it keeps its own row.
+    // Only moments the app will really ask for are in the list.
+    function preconditionDrives(items) {
+      const map = new Map(); // index of the drive row → the moment
+      items.forEach((p) => {
+        if (p.type !== 'precondition') return;
+        const want = { out: ['leave'], next: ['stop', 'leave'], back: ['drive_home', 'leave'] }[p.kind];
+        if (!want) return;
+        let best = -1;
+        items.forEach((y, k) => {
+          if (!want.includes(y.type) || map.has(k)) return;
+          const gap = Math.abs(y.time - p.until);
+          if (gap <= 2 * 3600000 && (best < 0 || gap < Math.abs(items[best].time - p.until))) best = k;
+        });
+        if (best >= 0) map.set(best, p);
+      });
+      return map;
+    }
+
     // The coming days as one timeline: charging, leaving, back home, charging
     // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
@@ -1638,6 +1660,10 @@ function durationText(minutes) {
         ? `${x.periods.length} blocks between ${esc(dayHm(x.periods[0].start))} and ${esc(dayHm(x.periods[x.periods.length - 1].end))}`
         : x.periods.map((p) => `${esc(dayHm(p.start))}–${esc(hm(p.end))}`).join(', '));
       let lowSeen = false;
+      const preOf = preconditionDrives(items);
+      const preState = (p) => (p.state === 'asked' ? ' · asked' : p.state === 'would' ? ' · advice only ("Allow control" is off)' : p.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '');
+      // On the drive row: "❄ Preconditioning from 07:15" (#64).
+      const preTag = (i) => { const p = preOf.get(i); return p ? `<div class="tl-sub">❄ Preconditioning from ${esc(hm(p.time))}${preState(p)}</div>` : ''; };
       const rowHtml = (x, i) => {
         if (x.type === 'charge') {
           if (x.unknown_prices) {
@@ -1663,26 +1689,25 @@ function durationText(minutes) {
           const trip = x.trip ? tripText(x.trip) : '';
           return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
-            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+            ${preTag(i)}${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
         if (x.type === 'precondition') {
           const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
-          const st = x.state === 'asked' ? ' · asked' : x.state === 'would' ? ' · advice only ("Allow control" is off)' : x.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '';
           return `<li class="tl-row tl-leave">${shape('clock', 'orange', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Preconditioning ${what}</div>
-            <div class="tl-sub">Until ${esc(hm(x.until))}${st}</div></div></li>`;
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>❄ Preconditioning ${what}</div>
+            <div class="tl-sub">Until ${esc(hm(x.until))}${preState(x)}</div></div></li>`;
         }
         if (x.type === 'drive_home') {
           return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Drive home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-            <div class="tl-sub">About ${esc(x.drive_min)} min ${x.how === 'route' ? 'by road' : '(estimated)'}${x.from_title ? ` from ${esc(shortName(x.from_title))}` : ''}</div></div>${level(x.soc)}</li>`;
+            ${preTag(i)}<div class="tl-sub">About ${esc(x.drive_min)} min ${x.how === 'route' ? 'by road' : '(estimated)'}${x.from_title ? ` from ${esc(shortName(x.from_title))}` : ''}</div></div>${level(x.soc)}</li>`;
         }
         if (x.type === 'stop') {
           // The level on the right: when the car arrives here.
           const from = x.from_title ? shortName(x.from_title) : 'the place before';
           return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from ${esc(from)}</span></div>
-            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
+            ${preTag(i)}<div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
         }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
@@ -1799,11 +1824,21 @@ function durationText(minutes) {
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
           // A trip home in the calendar (#62): there until it leaves for home, then home ±.
           const dh = items.slice(i + 1, b ? b.i : items.length).find((y) => y.type === 'drive_home');
-          const span = dh && dayKey(dh.time) === key ? `–${esc(hm(dh.time))}${sameDay ? ` · home ±${esc(hm(b.x.time))}` : ''}` : sameDay ? `–${esc(hm(b.x.time))}` : '';
+          // Preconditioning during this trip (#64): for the next place, the trip
+          // home or the way back, in the line of the trip: "Office 07:30–17:00 · ❄ 16:45".
+          let tripEnd = items.findIndex((y, k) => k > i && (y.type === 'leave' || y.type === 'back'));
+          if (tripEnd < 0) tripEnd = items.length;
+          const preIn = [];
+          for (let k = i + 1; k < tripEnd; k++) {
+            if (items[k].type === 'precondition' && items[k].kind !== 'out' && dayKey(items[k].time) === key) { preIn.push(items[k]); used.add(k); }
+          }
+          const preTxt = preIn.map((y) => ` · ❄ ${esc(hm(y.time))}`).join('');
+          const span = dh && dayKey(dh.time) === key ? `–${esc(hm(dh.time))}${preTxt}${sameDay ? ` · home ±${esc(hm(b.x.time))}` : ''}` : sameDay ? `–${esc(hm(b.x.time))}${preTxt}` : preTxt;
           day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${span}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
           return;
         }
         if (x.type === 'precondition') {
+          if (used.has(i)) return; // shown in the line of its trip
           day.parts.push(`<span class="tl-p">❄ ${esc(hm(x.time))}</span>`);
           return;
         }

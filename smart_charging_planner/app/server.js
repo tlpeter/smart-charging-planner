@@ -4404,7 +4404,8 @@ async function preconditionRefresh(now = Date.now()) {
     // where a calendar trip wins is left to the calendar rules above).
     let states = [];
     try { states = await ha.call({ type: 'get_states' }); } catch { /* the helper is skipped */ }
-    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: 7, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
+    // The whole Looking ahead range (30 days), not only a week (#64).
+    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: AHEAD_MAX_DAYS + 1, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
     precondition.setSchedule(v.id, [...precondition.schedule({ trips, cfg, isReturn: isReturnTrip }), ...precondition.fromDepartures({ departures: others, cfg })].sort((a, b) => a.at - b.at));
   }
 }

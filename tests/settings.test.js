@@ -2923,6 +2923,8 @@ async function run() {
       n0 = world.calls.length;
       r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
       assert(r.upcoming.length >= 1 && r.upcoming.every((m) => m.source === 'schedule') && r.upcoming[0].until - Date.now() < 11 * 60000, JSON.stringify(r.upcoming));
+      // The whole Looking ahead range, not only a week (#64): the same day next weeks too.
+      assert(r.upcoming.some((m) => m.until > Date.now() + 20 * 86400000), `only until ${new Date(Math.max(...r.upcoming.map((m) => m.until))).toISOString()}`);
       assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
       // A one-off departure with its tick.
       await ok('POST', 'api/departures', sched(false));

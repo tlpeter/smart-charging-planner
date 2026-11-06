@@ -383,7 +383,7 @@ Under **Settings › Rules › Preconditioning before a departure** (per car, of
 - **Once**: one request per drive, tried once more when the command fails. The request is saved before it is sent, so after a restart it is not sent twice (a second button press could switch it off again).
 - **Switch off again**: a switch the app turned on for a drive from home is turned off 15 minutes after the departure time when the car is still plugged in (it did not leave). A button is never pressed again. On the way back nothing is turned off: the car is driving.
 - **Allow control off**: nothing is sent; Looking ahead shows the moment as advice.
-- **Visible**: Looking ahead shows "Preconditioning for …" with the time, and whether it was asked. Only calendar events have an end time, so the way back only follows calendar trips.
+- **Visible** (#64): Looking ahead shows it in the whole schedule (7, 14 or 30 days). The day's line has the ❄ time: before the trip ("❄ 07:15 · Office 07:30–17:00") and, for the next place, the trip home or the way back, in the line of the trip ("Office 07:30–17:00 · ❄ 16:45 · home ±17:45"). In the day details there is a row "❄ Preconditioning for …" with the time and whether it was asked, and the drive itself says "❄ Preconditioning from 07:15". Only what the app will really ask for is shown: a drive without preconditioning, or with preconditioning off or no switch or button chosen for the car, shows nothing. Only calendar events have an end time, so the way back only follows calendar trips.
 
 A command the car's cloud accepts is not proof that the car started: check it in the car's app the first times.
 

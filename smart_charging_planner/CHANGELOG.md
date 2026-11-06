@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.9-dev
+
+- **Preconditioning in the whole Looking ahead schedule:** each drive with preconditioning shows it. A day's line has the ❄ time in the line of its trip ("Office 07:30–17:00 · ❄ 16:45 · home ±17:45"), and in the day details the drive itself says "❄ Preconditioning from 07:15", next to the preconditioning row. Only what the app will really ask for is shown: a drive without preconditioning, or with preconditioning off for the car, shows nothing. The weekly schedule, the helper and the one-off departure now give preconditioning for the whole range (30 days), not only the first week. Only the display changed, not when the app asks the car. (#64)
+
 ## 0.38.8-dev
 
 - **The look of Home Assistant, in your own theme:** the app now uses the theme that is active in Home Assistant, for every user and for every part of the app: the primary colour, background, cards, text, the energy colours for solar and battery, the success, warning and error colours, and the font. Light or dark follows Home Assistant, not the phone or computer, and a theme change shows right away. Tabs, filter chips, buttons, text fields and switches look like those in Home Assistant. The battery bar goes from the theme's error colour (empty) through its warning colour to its success colour (full), still by the battery level only. When the Home Assistant page cannot be read (for example when the app is opened on its own), the app uses Home Assistant's default theme. Only the look changed. (#63)

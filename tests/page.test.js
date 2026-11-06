@@ -146,5 +146,37 @@ check('the reload every minute leaves Home as it is when nothing changed', () =>
   assert.ok(body.indexOf('drawChart(d)') > write, 'the chart is only drawn again when the page was rebuilt');
 });
 
+check('preconditioning goes with its drive in Looking ahead (#64): leaving home, the next place and the trip home; the way back keeps its own row; a drive without it gets nothing', () => {
+  const from = src.indexOf('    function preconditionDrives(items)');
+  const to = src.indexOf('    // The coming days as one timeline');
+  assert.ok(from > 0 && to > from, 'preconditionDrives() not found');
+  const ctx = vm.createContext({});
+  vm.runInContext(src.slice(from, to) + '\nthis.f = preconditionDrives;', ctx);
+  const m = 60000;
+  const t0 = Date.UTC(2026, 10, 10, 6, 30); // Tue 07:30 local, any day works
+  const items = [
+    { type: 'precondition', kind: 'out', time: t0 - 15 * m, until: t0 },
+    { type: 'leave', time: t0, title: 'To Office' },
+    { type: 'stop', time: t0 + 600 * m, title: 'To Gym' }, // precondition: no → nothing
+    { type: 'precondition', kind: 'back', time: t0 + 675 * m, until: t0 + 690 * m },
+    { type: 'drive_home', time: t0 + 690 * m },
+    { type: 'back', time: t0 + 730 * m },
+    { type: 'leave', time: t0 + 1440 * m, title: 'To Office' },
+    { type: 'precondition', kind: 'back_auto', time: t0 + 1440 * m + 555 * m, until: t0 + 1440 * m + 570 * m },
+    { type: 'back', time: t0 + 1440 * m + 615 * m },
+  ];
+  const map = ctx.f(items);
+  assert.deepEqual([...map.keys()].sort((a, b) => a - b), [1, 4]);
+  assert.equal(map.get(1).kind, 'out');
+  assert.equal(map.get(4).kind, 'back');
+  // The next place of a trip.
+  const next = ctx.f([{ type: 'leave', time: t0 }, { type: 'precondition', kind: 'next', time: t0 + 585 * m, until: t0 + 600 * m }, { type: 'stop', time: t0 + 600 * m }]);
+  assert.deepEqual([...next.keys()], [2]);
+  // Nothing planned: no tags.
+  assert.equal(ctx.f(items.filter((x) => x.type !== 'precondition')).size, 0);
+  // The summary line puts the moments of a trip in its line, not at the end.
+  assert.ok(src.includes("if (used.has(i)) return; // shown in the line of its trip"), 'summary: moments of a trip not taken out');
+});
+
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exitCode = failures ? 1 : 0;
