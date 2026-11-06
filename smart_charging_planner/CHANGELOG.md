@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.8-dev
+
+- **The look of Home Assistant, in your own theme:** the app now uses the theme that is active in Home Assistant, for every user and for every part of the app: the primary colour, background, cards, text, the energy colours for solar and battery, the success, warning and error colours, and the font. Light or dark follows Home Assistant, not the phone or computer, and a theme change shows right away. Tabs, filter chips, buttons, text fields and switches look like those in Home Assistant. The battery bar goes from the theme's error colour (empty) through its warning colour to its success colour (full), still by the battery level only. When the Home Assistant page cannot be read (for example when the app is opened on its own), the app uses Home Assistant's default theme. Only the look changed. (#63)
+
 ## 0.38.7-dev
 
 - **Trip home ("Naar huis"):** the car is home at the start of the trip home plus the drive (the route's drive time, else 70 km/h), not at the end of the appointment. Home shows a row **Drive home** with the level when leaving, then **±Back home**; Looking ahead shows "Werk 06:30–16:30 · home ±17:35" instead of "Werk 06:30–18:00"; Plan › Trips from your calendar marks it **Trip home**, with when the car is home and when preconditioning starts. The plan, the expected charging and "the car is away now" use the same moment. Routes now also keep their drive time (looked up once more for routes saved before). (#62)

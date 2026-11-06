@@ -188,6 +188,10 @@ async function run() {
     assert(guard.status === 200 && typeof guard.body === 'string' && guard.body.includes('window.unsavedGuard'), 'unsaved.js not served');
     assert(String(page.body).includes('<script src="unsaved.js"></script>'), 'unsaved.js not on the page');
     assert(js.body.includes('unsavedGuard.writeDone') && js.body.includes('unsavedGuard.isDirty'), 'app.js does not use the guard');
+    // The Home Assistant theme (#63): theme.js is served and loaded in the head.
+    const theme = await api('GET', 'theme.js');
+    assert(theme.status === 200 && typeof theme.body === 'string' && theme.body.includes('--primary-color'), 'theme.js not served');
+    assert(String(page.body).split('</head>')[0].includes('<script src="theme.js"></script>'), 'theme.js not in the head of the page');
     return `${Math.round(css.body.length / 1024)} kB CSS, ${Math.round(js.body.length / 1024)} kB JS`;
   });
   await test('A3', 'Fresh install: Allow control is off by default', async () => {

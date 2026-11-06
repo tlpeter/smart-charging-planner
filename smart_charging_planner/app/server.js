@@ -60,6 +60,8 @@ const STATIC_FILES = new Map([
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
   ['/unsaved.js', ['unsaved.js', 'application/javascript; charset=utf-8']],
+  // Copies the active Home Assistant theme onto the page (#63).
+  ['/theme.js', ['theme.js', 'application/javascript; charset=utf-8']],
   // Leaflet for the route map (#54): shipped with the app, loaded only when a map opens.
   ['/vendor/leaflet/leaflet.js', ['vendor/leaflet/leaflet.js', 'application/javascript; charset=utf-8']],
   ['/vendor/leaflet/leaflet.css', ['vendor/leaflet/leaflet.css', 'text/css; charset=utf-8']],

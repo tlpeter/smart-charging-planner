@@ -1381,7 +1381,11 @@ function durationText(minutes) {
       const n = Number(value);
       if (!Number.isFinite(n)) return null;
       const level = Math.max(0, Math.min(100, n));
-      return { level, color: `hsl(${Math.round(level * 1.2)} 70% var(--soc-lightness, 42%))` };
+      // Theme colours: empty = error, half = warning, full = success.
+      const color = level <= 50
+        ? `color-mix(in srgb, var(--soc-mid) ${level * 2}%, var(--soc-low))`
+        : `color-mix(in srgb, var(--soc-high) ${(level - 50) * 2}%, var(--soc-mid))`;
+      return { level, color };
     }
 
     function readyGuardHtml(d) {
@@ -4364,10 +4368,10 @@ function durationText(minutes) {
           <div class="levelbar">${seg('lv-off', 0, minP)}${seg('lv-house', minP, toP)}${seg('lv-car', toP, fromP)}${seg('lv-start', fromP, 100)}</div>
         </div>
         <div class="levellegend">
-          <span><i style="background:rgba(var(--rgb-grey),.35)"></i>never used (below ${minP}%)</span>
-          <span><i style="background:rgba(var(--rgb-amber),.55)"></i>only for the house</span>
-          <span><i style="background:rgba(var(--rgb-teal),.45)"></i>for the car, once started</span>
-          <span><i style="background:rgba(var(--rgb-teal),.85)"></i>starts charging the car</span>
+          <span><i style="background:color-mix(in srgb, var(--c-grey) 35%, transparent)"></i>never used (below ${minP}%)</span>
+          <span><i style="background:color-mix(in srgb, var(--c-amber) 55%, transparent)"></i>only for the house</span>
+          <span><i style="background:color-mix(in srgb, var(--c-teal) 45%, transparent)"></i>for the car, once started</span>
+          <span><i style="background:color-mix(in srgb, var(--c-teal) 85%, transparent)"></i>starts charging the car</span>
         </div>
         <p class="muted small">While the car charges, the battery helps from ${fromP}% until it is at ${toP}%. It starts again only when it is back at ${fromP}%.</p>`;
     }
