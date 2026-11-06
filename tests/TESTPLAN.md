@@ -17,11 +17,11 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 | Settings A: Renault Megane E-Tech + Easee Charge | 204 of 204 ✓ |
 | Settings B: Kia Niro EV (Kia Uvo) + Zaptec Go | 189 of 189 ✓ |
 | Settings 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 190 of 190 ✓ |
-| Unit tests (28 files) | 892 of 892 ✓ |
+| Unit tests (28 files) | 893 of 893 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.38.8-dev.
+Version: 0.38.9-dev.
 
 # Settings
 
@@ -46,7 +46,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | # | What is tested | A: Renault Megane E-Tech + Easee Charge | B: Kia Niro EV (Kia Uvo) + Zaptec Go | 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus |
 |---|---|---|---|---|
 | A1 | Fresh install: checklist says vehicle, charger and prices are missing | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices | ✓ missing: vehicle, charger, prices |
-| A2 | Frontend assets are served separately | ✓ 61 kB CSS, 311 kB JS | ✓ 61 kB CSS, 311 kB JS | ✓ 61 kB CSS, 311 kB JS |
+| A2 | Frontend assets are served separately | ✓ 61 kB CSS, 314 kB JS | ✓ 61 kB CSS, 314 kB JS | ✓ 61 kB CSS, 314 kB JS |
 | A3 | Fresh install: Allow control is off by default | ✓ | ✓ | ✓ |
 
 ## B. Vehicle
@@ -98,7 +98,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 6 | ✓ planned hours 6 | ✓ planned hours 6 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.2 h back | ✓ 13 charged blocks, from 12.2 h back | ✓ 13 charged blocks, from 12.2 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.4 h back | ✓ 13 charged blocks, from 12.4 h back | ✓ 13 charged blocks, from 12.4 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
@@ -179,7 +179,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification |
 | J9 | Notification on start (notify every start and pause) | ✓ Car charge limit changed · Charging paused · Car charge limit changed · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you |
 | J9b | Manual test (Diagnostics): start and stop really sent | ✓ switch.turn_on switch.laadpaal_charger_enabled → switch.turn_off switch.laadpaal_charger_enabled | ✓ button.press button.zaptec_go_resume_charging → button.press button.zaptec_go_stop_charging | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Fri 09:13; 4 blocks after it | ✓ Paused by you until Fri 09:13; 5 blocks after it | ✓ Paused by you until Fri 09:13; 6 blocks after it |
+| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Fri 09:26; 4 blocks after it | ✓ Paused by you until Fri 09:25; 5 blocks after it | ✓ Paused by you until Fri 09:26; 6 blocks after it |
 | J9d | Paused: below the minimum the app still does not start the charger (the pause wins); Resume: the plan takes over again | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum |
 | J9e | Pause until the car is unplugged: refused when not plugged in; ends when the car is unplugged | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned |
 | J9f | Pause until I resume: kept after a restart; Charge now ends it | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now |
@@ -321,7 +321,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y21 | Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car's button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without |
 | Y22 | Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none |
 | Y22b | Preconditioning before a trip home with only "precondition: ja" (#58): no target, calendar set to events with a target: still one press 15 minutes before; a trip home without any tag turns the way back off | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none |
-| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule fri 06:25: one press with the tick, none without; one-off: one press | ✓ schedule fri 06:25: one press with the tick, none without; one-off: one press | ✓ schedule fri 06:25: one press with the tick, none without; one-off: one press |
+| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule fri 06:38: one press with the tick, none without; one-off: one press | ✓ schedule fri 06:38: one press with the tick, none without; one-off: one press | ✓ schedule fri 06:38: one press with the tick, none without; one-off: one press |
 
 ## Z. Apple iCloud calendar (read only)
 
@@ -404,7 +404,7 @@ Each file runs on its own without Home Assistant: `node tests/<name>.test.js`.
 | [triplog.test.js](#triplog) | Trip log: drives from the hourly statistics (odometer, battery, outside temperature), charged-on-the-way and short drives not used, kept up to date, sensors found on the car, the use per km and the cold learned from the log (#61) | 8 of 8 ✓ |
 | [precondition.test.js](#precondition) | Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44) | 15 of 15 ✓ |
 | [compat.test.js](#compat) | Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28) | 4 of 4 ✓ |
-| [page.test.js](#page) | The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54) | 6 of 6 ✓ |
+| [page.test.js](#page) | The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54) | 7 of 7 ✓ |
 | [theme.test.js](#theme) | The Home Assistant theme: the active theme of each user is copied onto the page (colours, cards, fonts), light or dark follows Home Assistant, theme changes apply right away, the default theme when Home Assistant cannot be read, and no fixed colours of the app itself (#63) | 9 of 9 ✓ |
 | [docs.test.js](#docs) | Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev | 6 of 6 ✓ |
 
@@ -1558,7 +1558,7 @@ Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical tes
 
 The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54).
 
-<details><summary>6 of 6 passed – show every check</summary>
+<details><summary>7 of 7 passed – show every check</summary>
 
 | Check | Result |
 |---|---|
@@ -1568,6 +1568,7 @@ The page: what you opened stays open when Home reloads every minute, and a reloa
 | the map icon in Looking ahead (#47): only for a trip with a route map; opens the big map in one click without opening the day; no map images before that | ✓ |
 | Leaflet (#54): shipped with the app unchanged (1.9.4, with its license), served by the app, loaded only when a map opens; the fixed map when it cannot load | ✓ |
 | the reload every minute leaves Home as it is when nothing changed | ✓ |
+| preconditioning goes with its drive in Looking ahead (#64): leaving home, the next place and the trip home; the way back keeps its own row; a drive without it gets nothing | ✓ |
 
 </details>
 
@@ -1600,9 +1601,9 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.38.8-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.38.8-dev) | ✓ |
-| README: every issue since 0.38.0 is under "Implemented on dev" (#63, #62, #61, #57, #60, #59, #58) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.38.9-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.38.9-dev) | ✓ |
+| README: every issue since 0.38.0 is under "Implemented on dev" (#64, #63, #62, #61, #57, #60, #59, #58) | ✓ |
 | RELEASE: every issue since 0.38.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
 
