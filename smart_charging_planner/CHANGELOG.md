@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.10-dev
+
+- **Arrival percentage stays visible:** Looking ahead keeps the expected battery level at Back home while the car is away, in the day summary and the expanded row. The estimate belongs to the same vehicle, calendar and trip, survives a restart and expires at arrival or after 48 hours. Zero and a battery shortage remain visible; missing data is shown as unknown. The live battery at the top of Home and charging decisions are unchanged. (#65)
+
 ## 0.38.9-dev
 
 - **Preconditioning in the whole Looking ahead schedule:** each drive with preconditioning shows it. A day's line has the ❄ time in the line of its trip ("Office 07:30–17:00 · ❄ 16:45 · home ±17:45"), and in the day details the drive itself says "❄ Preconditioning from 07:15", next to the preconditioning row. Only what the app will really ask for is shown: a drive without preconditioning, or with preconditioning off for the car, shows nothing. The weekly schedule, the helper and the one-off departure now give preconditioning for the whole range (30 days), not only the first week. Only the display changed, not when the app asks the car. (#64)

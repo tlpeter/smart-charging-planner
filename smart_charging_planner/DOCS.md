@@ -590,3 +590,11 @@ Settings export/import is a private backup and intentionally retains configurati
 
 
 Timed-control references: [Huawei's service schema](https://github.com/wlcrs/huawei_solar/blob/main/services.py) accepts duration in minutes and validates requested power against the current maximum. [SolarEdge's timeout control](https://github.com/WillCodeForCats/solaredge-modbus-multi/blob/main/custom_components/solaredge_modbus_multi/number.py) and [Marstek's passive-mode service](https://github.com/jaapp/ha-marstek-local-api#passive-mode-control) use seconds. The app uses two-minute leases for these timed controls and renews them at the control cadence.
+
+## Expected arrival level while away
+
+Looking ahead keeps the predicted battery percentage on **Back home** while the car is away, in the day summary and the expanded row. **~** marks an estimate; the battery reading at the top of Home is still the actual reading. Preconditioning and the return time remain visible.
+
+The last trip forecast is retained only for the same car, charger, calendar, time zone and trip inputs. It survives a restart, expires when the expected arrival is reached and is never kept for more than 48 hours. A changed/cancelled trip or different vehicle cannot reuse it. Without an earlier forecast, a fresh reading taken after the expected outward drive can seed an estimate for the remaining drive home. During the return drive the full return distance is not subtracted again from each new reading.
+
+With no valid estimate the row shows **?** and the summary says **arrival level unknown**. A real 0% and an expected shortfall remain visible. This is a display forecast; it does not change the charging plan. (#65)

@@ -1712,19 +1712,14 @@ function durationText(minutes) {
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
         const short = x.soc != null && (x.soc < 0 || (nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5));
-        if (x.away_now) {
-          return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-            <div class="tl-sub muted">The car is away now; charging is planned from when it is back</div></div></li>`;
-        }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
           <div class="tl-title"><span class="tl-time">${x.estimated ? '±' : ''}${esc(dayHm(x.time))}</span>Back home${x.title && !x.estimated ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-          ${x.estimated ? '<div class="tl-sub muted">When you leave for home plus the drive</div>' : ''}
+          ${x.away_now ? '<div class="tl-sub muted">The car is away now; charging is planned from when it is back. Arrival level is an estimate.</div>' : x.estimated ? '<div class="tl-sub muted">When you leave for home plus the drive</div>' : ''}
           ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.charge_stops ? chargeStopsHtml(x.charge_stops) : ''}
-          ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
+          ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${x.away_now && x.soc != null ? `<span class="tl-level ${short ? 'exp' : ''}" title="Estimated battery on arrival">~${pct(x.soc)}</span>` : level(x.soc, short ? 'exp' : '')}</li>`;
       };
 
       // Charging stops on the way (#37): the suggestions, or why there are none.
@@ -1844,7 +1839,8 @@ function durationText(minutes) {
         }
         if (used.has(i)) return;
         if (x.type === 'stop' || x.type === 'drive_home') return; // shown with the trip it belongs to
-        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
+        if (x.soc != null && x.soc < 10) day.warn = true;
+        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${x.away_now ? '~' : ''}${whole(x.soc)}` : ' · arrival level unknown'}</span>`);
       });
       const rows = days.map((day) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${keep(`day:${day.key}`)}>
           <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}${day.est ? ' <span class="chip tl-est">estimate</span>' : ''}</span></summary>

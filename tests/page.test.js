@@ -178,5 +178,40 @@ check('preconditioning goes with its drive in Looking ahead (#64): leaving home,
   assert.ok(src.includes("if (used.has(i)) return; // shown in the line of its trip"), 'summary: moments of a trip not taken out');
 });
 
+
+check('arrival percentage remains in the away row and collapsed day, including zero, a shortage and unknown (#65)', () => {
+  const from = src.indexOf('    function nextGoalHtml(d)');
+  const to = src.indexOf('    // ---------- More than one car:', from);
+  assert.ok(from > 0 && to > from);
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ctx = vm.createContext({
+    esc, aheadDays: 7, tidy: (v) => String(v), preconditionDrives: () => new Map(),
+    shape: () => '', dayHm: () => 'Tue 18:10', hm: () => '18:10',
+    tzFmt: (ms, opts) => new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(ms),
+    tripText: () => '', aheadButtonsHtml: () => '', placeNote: () => '', keep: () => '',
+  });
+  vm.runInContext(src.slice(from, to) + '\nthis.render = nextGoalHtml;', ctx);
+  const now = Date.now();
+  const render = (soc) => ctx.render({ next: {
+    trip: { pct: 10 }, timeline: [
+      { type: 'back', away_now: true, time: now + 3600000, title: 'To home', soc },
+      { type: 'leave', time: now + 86400000, title: 'Office', soc: 80, target_soc: 80 },
+      { type: 'leave', time: now + 2 * 86400000, title: 'Gym', soc: 70, target_soc: 70 },
+    ], preconditioning: [{ kind: 'back', at: now + 1800000, until: now + 2400000, title: 'To home', state: 'asked' }],
+  } });
+  const normal = render(42);
+  assert.match(normal, /title="Estimated battery on arrival">~42%<\/span>/);
+  assert.match(normal, /Car away · back 18:10 · ~42%/);
+  assert.match(normal, /Arrival level is an estimate/);
+  assert.match(normal, /Preconditioning for To home/);
+  assert.match(render(0), /Estimated battery on arrival">~0%/);
+  assert.match(render(0), /battery may not be enough/);
+  assert.match(render(-4), /about 4% short/);
+  assert.match(render(5), /Low when you are back/);
+  const unknown = render(null);
+  assert.match(unknown, /tl-level muted">\?<\/span>/);
+  assert.match(unknown, /arrival level unknown/);
+});
+
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exitCode = failures ? 1 : 0;

@@ -22,6 +22,7 @@
 // estimate already includes the weather of now.
 
 const path = require('path');
+const { createHash } = require('crypto');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
 
@@ -71,6 +72,7 @@ function load() {
   cache.routes = cache.routes || {};
   cache.learned = cache.learned || {}; // vehicle id -> { pct_per_km, trips, at }
   cache.away = cache.away || {}; // vehicle id -> { soc, km, at } while the car is on a trip
+  if (!cache.arrivals || typeof cache.arrivals !== 'object' || Array.isArray(cache.arrivals)) cache.arrivals = {}; // hashed vehicle/calendar/trip context -> expected arrival
   return cache;
 }
 function save() {
@@ -491,6 +493,33 @@ function chainCost({ location: given, title, stops, vehicle, states, soc, temp =
   return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct, back_min: drive ? drive.min : null, back_min_how: drive ? drive.how : null };
 }
 
+
+const ARRIVAL_KEEP_MS = 48 * 3600000;
+// The signature includes the vehicle, calendar, time zone and trip inputs.
+// Only its hash and the estimate are saved; no second copy of the calendar.
+function arrivalKey(context) {
+  return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function arrivalLevel(key, now = Date.now()) {
+  const r = load().arrivals[key];
+  return r && Number.isFinite(r.soc) && r.soc <= 100 && Number.isFinite(r.at)
+    && now >= r.at && now - r.at < ARRIVAL_KEEP_MS && Number.isFinite(r.until) && now < r.until
+    ? r.soc : null;
+}
+function rememberArrival(key, soc, until, now = Date.now()) {
+  const c = load();
+  for (const [k, r] of Object.entries(c.arrivals)) {
+    if (!r || !Number.isFinite(r.at) || !Number.isFinite(r.until) || r.until <= now || now - r.at >= ARRIVAL_KEEP_MS) delete c.arrivals[k];
+  }
+  if (!key || !Number.isFinite(soc) || soc > 100 || !Number.isFinite(until) || until <= now || until - now > ARRIVAL_KEEP_MS) return;
+  const old = c.arrivals[key];
+  if (old && old.soc === soc && old.until === until) return; // do not extend the original confirmation time
+  c.arrivals[key] = { soc, until, at: now };
+  const keys = Object.keys(c.arrivals).sort((a, b) => c.arrivals[b].at - c.arrivals[a].at);
+  for (const k of keys.slice(128)) delete c.arrivals[k];
+  save();
+}
+
 // Learning from your trips. When the car is unplugged for a trip with a known
 // distance, the battery level is remembered; when it is plugged in again, the
 // drop divided by the distance there and back is one sample. Samples are
@@ -558,4 +587,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { driveMinutes, setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { arrivalKey, arrivalLevel, rememberArrival, driveMinutes, setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

@@ -338,6 +338,17 @@ function homeArrival(home, from) {
   return { at: start + drive.min * 60000, drive_min: drive.min, how: drive.how };
 }
 
+
+function arrivalContext(dep, events, tz, vehicle, home, carsNow) {
+  const start = home.event_start || home.time;
+  const trips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, start - 36 * 3600000, carsNow)
+    .filter((t) => t.time <= home.time && t.time >= start - 36 * 3600000)
+    .map((t) => [t.time, t.event_start, t.event_end, t.title, t.location, t.soc]);
+  const s = settings.load();
+  return tripcost.arrivalKey({ charger: scope.id(), calendar: dep.calendar.entity, tz, vehicle, trips,
+    home: ha.state.home, places: s.places || [], routing: s.routing || {} });
+}
+
 // The coming days (up to 30 days) as one timeline: charging, leaving, back
 // home, charging again, … Each later departure gets an expected charging plan
 // from the moment the car is back (orange, never steered). Home shows 7, 14 or
@@ -480,7 +491,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const socEnd = socLeave != null && trip.pct != null ? Math.round((socLeave - trip.pct) * 10) / 10 : null;
     const socAfter = socEnd == null ? null : Math.max(0, socEnd);
     const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
-    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time, start: startOf(back), drive_min: drive ? drive.min : null, drive_how: drive ? drive.how : 'event_end', precondition: back.precondition === true } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time, arrival_key: arrivalContext(dep, events, tz, vehicle, back, carCtxNow), start: startOf(back), drive_min: drive ? drive.min : null, drive_how: drive ? drive.how : 'event_end', precondition: back.precondition === true } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -552,7 +563,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   };
   // The car is away now and comes back with a trip home (plan.away): first in
   // the timeline, so it is clear why charging starts only then.
-  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
+  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: plan.away.soc ?? null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socIfCharged ?? socAtDep, ...(ifPlugged ? { if_plugged: true } : {}) }, plan.minimum || null, !!plan.care));
@@ -582,6 +593,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       // The drive home of a trip home in the calendar (#62): its own row, with
       // the level when the car leaves there.
       const rt = tr.return_trip;
+      if (rt && x.time > now) tripcost.rememberArrival(rt.arrival_key, socBack, tr.return_at, now);
       if (rt && rt.drive_min) timeline.push({ type: 'drive_home', time: rt.start, title: rt.title, drive_min: rt.drive_min, how: rt.drive_how, soc: round(lv), from_title: from });
       timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: rt ? rt.title : null, ...(rt && rt.drive_min ? { estimated: true, drive_min: rt.drive_min } : {}), ...chain, ...(stops ? { charge_stops: stops } : {}) });
     }
@@ -1489,12 +1501,37 @@ const routes = {
         // Every event counts here (a trip home often has no target of its own).
         // Since two days back, so the trip the car is on now gives where it drives home from.
         const all = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now - 2 * 86400000, carCtx(s, vehicle));
-        const home = all.find((t) => t.time > now && isReturnTrip(t) && (!departure || t.time < departure.time));
-        const from = home ? [...all].reverse().find((t) => (t.event_start || t.time) < (home.event_start || home.time) && !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place)) : null;
-        if (home) homeTrip = { until: homeArrival(home, from).at, title: home.title || null };
+        // Keep the same trip home while its drive is in progress too (#65).
+        const returning = all.filter((t) => isReturnTrip(t) && (!departure || t.time < departure.time)).map((home) => {
+          const from = [...all].reverse().find((t) => (t.event_start || t.time) < (home.event_start || home.time) && !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place));
+          return { home, from, arrival: homeArrival(home, from) };
+        }).find((r) => r.arrival.at > now);
+        if (returning) {
+          const { home, from, arrival } = returning;
+          const key = arrivalContext(dep, events, tz, vehicle, home, carCtx(s, vehicle));
+          let expected = tripcost.arrivalLevel(key, now);
+          // On first use while away, a fresh reading taken after reaching the
+          // previous calendar place can seed the estimate for its drive home.
+          // Once driving home, keep that estimate: do not subtract the full
+          // return distance again from a battery level already part-way home.
+          const reading = states.find((x) => x.entity_id === vehicle.soc_entity);
+          const readAt = reading ? Date.parse(reading.last_updated || reading.last_changed) : NaN;
+          const fromAt = from && (from.event_start || from.time);
+          if (expected == null && from && arrival.drive_min && now < (home.event_start || home.time)
+            && mode === 'sensor' && carData && carData.ok && Number.isFinite(soc)
+            && Number.isFinite(readAt) && readAt >= fromAt + arrival.drive_min * 60000 && readAt <= now + 60000) {
+            const tr = tripcost.tripCost({ location: from.location, title: from.title, vehicle, states, soc,
+              temp: tripTemp(vehicle, home.time, states, tz, now) });
+            if (tr.status === 'ok' && Number.isFinite(tr.back_km) && Number.isFinite(tr.pct_per_km)) {
+              expected = Math.round((soc - tr.back_km * tr.pct_per_km * tripcost.MARGIN) * 10) / 10;
+              tripcost.rememberArrival(key, expected, arrival.at, now);
+            }
+          }
+          homeTrip = { until: arrival.at, title: home.title || null, soc: expected };
+        }
       }
       place = carplace.where({ plugged: false, vehicle, states, homeTrip });
-      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
+      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null, soc: homeTrip ? homeTrip.soc ?? null : null };
     }
     // Paused until a time (#33): the plan starts after the pause.
     const pausedNow = pause.releasedNow() ? null : pause.current(now);

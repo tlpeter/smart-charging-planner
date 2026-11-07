@@ -2521,6 +2521,46 @@ async function run() {
         world.events = [];
       }
     });
+    await test('Y11b', 'Looking ahead keeps the estimated arrival percentage while away, independent of the live battery, and does not reuse it for a changed/cancelled trip (#65)', async () => {
+      const now = Date.now();
+      const homeAt = now + 2 * 3600000;
+      const savedVehicle = (await ok('GET', 'api/vehicles')).vehicles[0];
+      const event = (summary, description, location, start, end) => ({ summary, description, location, start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+      await ok('POST', 'api/vehicles', vehicleBody({ range_entity: '', consumption_kwh_100km: 18, cold_correction: false }));
+      world.plugged = false;
+      world.soc = 65;
+      world.events = [
+        event('To Office', 'target: 80', ADDR3, now - 6 * 3600000, homeAt),
+        event('To home', 'precondition: yes', 'Home', homeAt, homeAt + 2 * 3600000),
+        ev('To Office', 'target: 80', ADDR3, 2, 7, 18),
+      ];
+      try {
+        const first = await settle();
+        const row = first.next.timeline.find((x) => x.type === 'back' && x.away_now);
+        const wanted = Math.round((65 - 60 * 18 / CAR.capacity * 1.1) * 10) / 10;
+        assert(row && Number.isFinite(row.soc) && Math.abs(row.soc - wanted) < 0.2, JSON.stringify({ row, wanted }));
+        world.soc = 60; // live reading changes: do not subtract the entire return drive twice
+        const second = await settle();
+        assert(second.next.timeline.find((x) => x.away_now).soc === row.soc, 'arrival estimate disappeared or used the live level as arrival');
+        assert(second.vehicle.soc === 60, 'the actual battery level must remain separate');
+        await startApp({ allow_control: true, notify_start_stop: true });
+        const restarted = await settle();
+        assert(restarted.next.timeline.find((x) => x.away_now).soc === row.soc, 'arrival estimate lost on restart');
+        world.events[0] = { ...world.events[0], location: ADDR };
+        const changed = await settle();
+        const changedRow = changed.next.timeline.find((x) => x.away_now);
+        assert(changedRow && changedRow.soc !== row.soc, 'changed trip reused the old arrival estimate');
+        world.events = [ev('To Office', 'target: 80', ADDR3, 2, 7, 18)];
+        const cancelled = await settle();
+        assert(!cancelled.plan.away && !cancelled.next.timeline.some((x) => x.away_now), 'cancelled return kept an unrelated arrival estimate');
+        return 'arrival percentage retained across refresh/restart; actual battery separate; changed/cancelled trip invalidates it';
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+        await ok('POST', 'api/vehicles', savedVehicle);
+      }
+    });
     // Where is the car when it is not plugged in (#46): car location, then a
     // person, then a trip home in the calendar; none of these: not known.
     const placeEvents = () => [ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 18)];

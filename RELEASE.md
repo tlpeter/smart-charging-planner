@@ -51,11 +51,11 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.38.9-dev
+## Current candidate: 0.38.10-dev
 
 Stable main is 0.38.0 (release v0.38.0: #25, #33, #39, #55, #56). Earlier: 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54), 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.38.0: #58 (preconditioning before a trip home with only "precondition: ja"), #59 (on/off switches visible when off), #60 (charging stops only at your preferred operators), #57 (Easee v2026.11.0: Equalizer actions are not charger methods), #61 (trip log from the odometer and history; "Use more in the cold" on by default), #62 (trip home: home at the start plus the drive), #63 (the active Home Assistant theme for everything), #64 (preconditioning in the whole Looking ahead schedule). The Home Assistant Core check now runs on 2026.11.0 and 2026.4.2.
+Scope on dev since 0.38.0: #58 (preconditioning before a trip home with only "precondition: ja"), #59 (on/off switches visible when off), #60 (charging stops only at your preferred operators), #57 (Easee v2026.11.0: Equalizer actions are not charger methods), #61 (trip log from the odometer and history; "Use more in the cold" on by default), #62 (trip home: home at the start plus the drive), #63 (the active Home Assistant theme for everything), #64 (preconditioning in the whole Looking ahead schedule), #65 (arrival percentage remains visible while away). The Home Assistant Core check now runs on 2026.11.0 and 2026.4.2.
 
 Home check for #58: add a "Naar huis" event with only `precondition: ja` in the description, about 30 minutes ahead, with preconditioning on; the car's switch or button should be used the chosen minutes before it.
 
@@ -72,6 +72,8 @@ Home check for #62: with "Naar Werk" and "Naar huis" on one day, Home shows "Dri
 Home check for #63: open the app in Home Assistant with the default theme, light and dark (also with Home Assistant dark and the phone light), then with a custom theme with another primary colour; the app follows each time, also right after switching the theme, on the computer and in the phone app. Check that switches that are off, the battery bar and the chart colours are easy to see.
 
 Home check for #64: with preconditioning on, a "Naar Werk" event with `precondition: ja` and a "Naar huis" event with `precondition: ja`: the day's line in Looking ahead shows "❄ 06:15 · Werk … · ❄ … · home ±…"; open the day: the drive rows say "❄ Preconditioning from …". Turn preconditioning off for the car: all ❄ times and tags are gone.
+
+Home check for #65: before a trip, note the predicted Back home percentage. While away and during the drive home it remains visible with ~ in both the row and day summary, with preconditioning still visible. The measured battery above stays separate. Refresh/restart the app; change or cancel the trip and check it does not reuse an unrelated estimate. Check phone and desktop layouts.
 
 Home checks still open from 0.38.0 (released before the owner's home check): #55 (charger off again when the cable is unplugged during preconditioning), #33 (Pause until, Hand back control), #25, #39 and #56. The steps are in the 0.38.0 issues.
 
