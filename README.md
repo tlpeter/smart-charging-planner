@@ -6,7 +6,7 @@ A Home Assistant app that plans EV and home battery charging around dynamic elec
 
 ## Recovery candidate and compatibility
 
-The current development candidate is **0.38.10-dev** (stable is 0.38.0). Stable 0.38.0 added Pause until and Hand back control (#33), turning the charger off again when the cable is unplugged during preconditioning (#55), a warning when a departure is not used (#25), Battery care in the chart with an optional early-charge threshold (#39) and trip estimates that use more battery in the cold (#56). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. Stable 0.36.0 added where the car is when not plugged in, sharing the connection per phase, charging stops in all of Europe and a route map. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
+The current development candidate is **0.39.1-dev** (stable is 0.39.0). Stable 0.39.0 added a trip log from the car's odometer with "Use more in the cold" on by default (#61), the trip home ending at the start plus the drive (#62), the active Home Assistant theme (#63), preconditioning and the arrival level in Looking ahead (#64, #65), visible off switches (#59), preconditioning before a trip home with only "precondition: ja" (#58), charging stops only at preferred operators (#60) and Easee v2026.11.0 support (#57). Stable 0.38.0 added Pause until and Hand back control (#33), turning the charger off again when the cable is unplugged during preconditioning (#55), a warning when a departure is not used (#25), Battery care in the chart with an optional early-charge threshold (#39) and trip estimates that use more battery in the cold (#56). It repairs clock-change price input, zero/low current limits, charger command ordering, restart recovery and stale-car estimates. It also rejects missing prices instead of treating them as free energy. Connection sharing now pauses the first charger when it cannot fit and respects the configured grid sign. Partial price warnings are shown separately from source failures. The battery bar follows the actual SoC from red to green, and temporary calendar failures retain confirmed events for at most 24 hours with an explicit warning. Solar sensor periods are integrated without overlap, and price conversions use declared units instead of guessing from their magnitude. The latest candidate also checks live battery bounds, restores original battery settings, includes every charger in battery protection and previews anonymized public diagnostics. Trips can be written in English or Dutch; switching language skips an equivalent existing trip instead of creating it again. Stable 0.36.0 added where the car is when not plugged in, sharing the connection per phase, charging stops in all of Europe and a route map. See [CHANGELOG.md](smart_charging_planner/CHANGELOG.md) and the [release checklist](RELEASE.md).
 
 Changes on dev reach main after GitHub Actions and the owner's home check. A green test matrix means the expected commands work against the test fixtures; it does not mean every car, charger, firmware or battery has been physically verified.
 
@@ -188,6 +188,15 @@ GitHub issues track the scope, acceptance checks and current status. P1 comes be
 - [x] Departure priority explained, with a warning when a departure is not used and all-day events listed as not used (#25)
 - [x] Battery care in green in the chart, and an optional saving threshold to charge above the care level earlier (#39)
 - [x] Trip estimates use more battery in the cold, from a weather forecast, learned per car (#56)
+- [x] Preconditioning before a trip home with only "precondition: ja" (no target or keyword) (#58)
+- [x] On/off switches are clearly visible when off, also in the dark theme (#59)
+- [x] Charging stops: with preferred operators, only their stations are used (#60)
+- [x] Easee v2026.11.0: the Equalizer's own limit action is never offered as a charger current method (#57)
+- [x] Trip log: the real use of every drive from the odometer, also from history, with use against the outside temperature; "Use more in the cold" on by default (#61)
+- [x] Trip home ("Naar huis"): its own "Drive home" row, home at the start plus the drive (not the end of the appointment), marked "Trip home" in the calendar list (#62)
+- [x] The look of Home Assistant: the app uses each user's active Home Assistant theme for everything (colours, cards, font, light or dark) (#63)
+- [x] Preconditioning in the whole Looking ahead schedule: the ❄ time in the line of each trip and on the drive itself, for 7, 14 and 30 days; only what the app will really ask for (#64)
+- [x] Arrival percentage remains visible while the car is away, on Back home and the day summary; a trip-specific estimate, separate from the live battery level (#65)
 
 ### Before broader public promotion (P1)
 
@@ -204,17 +213,9 @@ No open items at the moment.
 
 ### Implemented on dev, awaiting a stable release
 
-These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.38.0.
+These enhancements are implemented on the [dev branch](https://github.com/tlpeter/smart-charging-planner/tree/dev), with the label `fixed in dev`. They are not yet part of stable main 0.39.0.
 
-- Preconditioning before a trip home with only "precondition: ja" (no target or keyword) (#58)
-- On/off switches are clearly visible when off, also in the dark theme (#59)
-- Charging stops: with preferred operators, only their stations are used (#60)
-- Easee v2026.11.0: the Equalizer's own limit action is never offered as a charger current method (#57)
-- Trip log: the real use of every drive from the odometer, also from history, with use against the outside temperature; "Use more in the cold" on by default (#61)
-- Trip home ("Naar huis"): its own "Drive home" row, home at the start plus the drive (not the end of the appointment), marked "Trip home" in the calendar list (#62)
-- The look of Home Assistant: the app uses each user's active Home Assistant theme for everything (colours, cards, font, light or dark) (#63)
-- Preconditioning in the whole Looking ahead schedule: the ❄ time in the line of each trip and on the drive itself, for 7, 14 and 30 days; only what the app will really ask for (#64)
-- Arrival percentage remains visible while the car is away, on Back home and the day summary; a trip-specific estimate, separate from the live battery level (#65)
+No changes since 0.39.0 yet.
 
 ## Tests
 

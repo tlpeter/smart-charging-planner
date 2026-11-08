@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.1-dev
+
+- Released 0.39.0 on main. Dev continues as 0.39.1-dev; the documentation check stops at the stable release heading below.
+
+## 0.39.0
+
+- Stable release of 0.38.1-dev through 0.38.10-dev (see the GitHub release v0.39.0).
+
 ## 0.38.10-dev
 
 - **Arrival percentage stays visible:** Looking ahead keeps the expected battery level at Back home while the car is away, in the day summary and the expanded row. The estimate belongs to the same vehicle, calendar and trip, survives a restart and expires at arrival or after 48 hours. Zero and a battery shortage remain visible; missing data is shown as unknown. The live battery at the top of Home and charging decisions are unchanged. (#65)
