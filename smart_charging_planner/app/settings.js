@@ -27,6 +27,8 @@ const DEFAULTS = {
   routing: { mode: null, geocode_url: null, route_url: null, confirmed: false },
   // Charging stops on the way (#37): off until you turn it on (Plan).
   charge_stops: null,
+  // "Use more in the cold" is on by default (#61); a new install starts so.
+  cold_default_on: true,
 };
 
 // The planning settings come from the app's Configuration tab in Home
@@ -42,12 +44,20 @@ function planningOptions() {
 
 function load() {
   let s;
+  let migrated = false;
   try {
     const saved = JSON.parse(fs.readFileSync(FILE, 'utf8'));
     s = { ...DEFAULTS, ...saved, planning: { ...DEFAULTS.planning, ...(saved.planning || {}) } };
     // Settings from before the routing choice (#31): those installs already
     // used OpenStreetMap, so they keep it until you confirm or change it.
     if (!saved.routing) s.routing = { mode: 'osm', geocode_url: null, route_url: null, confirmed: false };
+    // "Use more in the cold" on by default (#61): turned on once for the cars
+    // saved before (it was off by default then). It can be turned off again.
+    if (saved.cold_default_on !== true && Array.isArray(s.vehicles)) {
+      for (const v of s.vehicles) if (v) v.cold_correction = true;
+      s.cold_default_on = true;
+      migrated = true;
+    }
   } catch {
     s = JSON.parse(JSON.stringify(DEFAULTS));
   }
@@ -55,7 +65,7 @@ function load() {
   // Every vehicle has a stable id (settings from before more cars had none).
   const a = Array.isArray(s.vehicles) && vehicleIds(s.vehicles);
   const b = Array.isArray(s.chargers) && chargerIds(s.chargers);
-  if (a || b) {
+  if (a || b || migrated) {
     try { save(s); } catch { /* read-only: ids again next time, the same ones */ }
   }
   return s;
@@ -92,6 +102,9 @@ function assignIds(list, prefix) {
 }
 
 function save(settings) {
+  // Every saved file has had the one-time turn-on of the cold (#61), also an
+  // imported one: a car you turned off stays off.
+  if (settings && typeof settings === 'object') settings.cold_default_on = true;
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2));

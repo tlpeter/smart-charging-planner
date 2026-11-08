@@ -53,16 +53,25 @@ try {
   });
 
 
-  check('SoC color follows the absolute level: empty red, middle yellow, full green', () => {
+  check('SoC color follows the absolute level in the theme colours: empty error, middle warning, full success (#63)', () => {
     const vm = require('vm');
     const source = fs.readFileSync(path.join(app, 'public', 'app.js'), 'utf8');
     const begin = source.indexOf('    function socBar(value)');
     const end = source.indexOf('    function readyGuardHtml(d)', begin);
     const bar = (value) => vm.runInNewContext(source.slice(begin, end) + '\n socBar(value)', { value });
-    for (const level of [0, 20, 50, 80, 100]) {
-      assert.equal(bar(level).level, level);
-      assert(bar(level).color.startsWith('hsl(' + Math.round(level * 1.2) + ' '));
-    }
+    for (const level of [0, 20, 50, 80, 100]) assert.equal(bar(level).level, level);
+    assert.equal(bar(0).color, 'color-mix(in srgb, var(--soc-mid) 0%, var(--soc-low))');
+    assert.equal(bar(20).color, 'color-mix(in srgb, var(--soc-mid) 40%, var(--soc-low))');
+    assert.equal(bar(50).color, 'color-mix(in srgb, var(--soc-mid) 100%, var(--soc-low))');
+    assert.equal(bar(80).color, 'color-mix(in srgb, var(--soc-high) 60%, var(--soc-mid))');
+    assert.equal(bar(100).color, 'color-mix(in srgb, var(--soc-high) 100%, var(--soc-mid))');
+    // Only the level counts: the same level always has the same colour.
+    assert.equal(bar('80').color, bar(80).color);
+    // The three colours come from the Home Assistant theme.
+    const css = fs.readFileSync(path.join(app, 'public', 'styles.css'), 'utf8');
+    assert.match(css, /--soc-low: var\(--error-color\);/);
+    assert.match(css, /--soc-mid: var\(--warning-color\);/);
+    assert.match(css, /--soc-high: var\(--success-color\);/);
     assert.equal(bar(-10).level, 0);
     assert.equal(bar(120).level, 100);
     for (const value of [null, undefined, '', ' ', false, NaN, 'unavailable']) assert.equal(bar(value), null);

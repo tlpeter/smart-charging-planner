@@ -22,6 +22,7 @@
 // estimate already includes the weather of now.
 
 const path = require('path');
+const { createHash } = require('crypto');
 const { readJson, writeJsonAtomic } = require('./jsonstore');
 const ha = require('./ha');
 
@@ -71,6 +72,7 @@ function load() {
   cache.routes = cache.routes || {};
   cache.learned = cache.learned || {}; // vehicle id -> { pct_per_km, trips, at }
   cache.away = cache.away || {}; // vehicle id -> { soc, km, at } while the car is on a trip
+  if (!cache.arrivals || typeof cache.arrivals !== 'object' || Array.isArray(cache.arrivals)) cache.arrivals = {}; // hashed vehicle/calendar/trip context -> expected arrival
   return cache;
 }
 function save() {
@@ -232,10 +234,23 @@ async function geocode(text, country) {
   return hit && Number.isFinite(Number(hit.lat)) ? { lat: Number(hit.lat), lon: Number(hit.lon) } : null;
 }
 
+// The route by road: { km, min } (min: the drive time, when the route service gives it).
 async function routeKm(from, to) {
   const r = await getJson(`${routing().route_url}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`);
-  const m = r && r.routes && r.routes[0] && r.routes[0].distance;
-  return Number.isFinite(m) ? m / 1000 : null;
+  const route = r && r.routes && r.routes[0];
+  const m = route && route.distance;
+  if (!Number.isFinite(m)) return null;
+  const sec = route.duration;
+  return { km: m / 1000, min: Number.isFinite(sec) && sec > 0 ? Math.round(sec / 60) : null };
+}
+
+// Drive time in minutes for a distance (#62): the route's own time when
+// known, else an average of 70 km/h. null without a distance.
+const AVG_KMH = 70;
+function driveMinutes(km, min = null) {
+  if (Number.isFinite(min) && min > 0) return { min, how: 'route' };
+  if (!(km > 0)) return null;
+  return { min: Math.max(1, Math.round((km / AVG_KMH) * 60)), how: 'estimate' };
 }
 
 // The distance from home to a place, from what is known now: { status, km, how }.
@@ -301,29 +316,51 @@ function toPoint(home, place, text) {
   if (straight < 1) return { status: 'home', km: 0 };
   const rkey = `${home.lat.toFixed(4)},${home.lon.toFixed(4)}|${place.lat.toFixed(4)},${place.lon.toFixed(4)}`;
   const route = c.routes[rkey];
-  if (route && route.km != null) return { status: 'ok', km: route.km, how: 'route', lat: place.lat, lon: place.lon };
-  if (routing().online && (!route || Date.now() - route.at > RETRY_MS)) {
+  // A route saved before the drive time was kept (#62): asked once more for its time.
+  const noTime = route && route.km != null && route.min === undefined;
+  if (routing().online && (!route || noTime || (route.km == null && Date.now() - route.at > RETRY_MS))) {
     enqueue(`route:${rkey}`, async () => {
-      let km = null;
+      let r = null;
       try {
-        km = await routeKm(home, place);
+        r = await routeKm(home, place);
       } catch (err) {
         ha.debug('OpenStreetMap route failed', text, '-', err.message);
       }
-      load().routes[rkey] = { km, at: Date.now() };
+      const old = load().routes[rkey];
+      // A failed time lookup keeps the km known before.
+      load().routes[rkey] = r ? { km: r.km, min: r.min, at: Date.now() } : old && old.km != null ? { ...old, min: null } : { km: null, at: Date.now() };
       save();
       changed();
     });
   }
+  if (route && route.km != null) return { status: 'ok', km: route.km, how: 'route', lat: place.lat, lon: place.lon, ...(Number.isFinite(route.min) ? { min: route.min } : {}) };
   return { status: 'ok', km: Math.round(straight * ROAD_FACTOR * 10) / 10, how: 'estimate', lat: place.lat, lon: place.lon };
 }
 
 // The cold correction of a car (#56): null when off. { extra, learned }:
 // extra = % more use per degree below 15 °C.
+// The trip log (#61) gives the real use per drive (odometer); with enough
+// drives it replaces the learning from planned distances below.
+let logProvider = null;
+function setLogProvider(fn) {
+  logProvider = typeof fn === 'function' ? fn : null;
+}
+function learnedRec(vehicleId) {
+  if (!vehicleId) return null;
+  let fromLog = null;
+  try { fromLog = logProvider ? logProvider(vehicleId) : null; } catch { fromLog = null; }
+  return fromLog || load().learned[vehicleId] || null;
+}
+
+// On for the car (#56). On by default since #61 (settings.js turns it on once).
+function coldOn(vehicle) {
+  return !!vehicle && vehicle.cold_correction === true;
+}
+
 function coldModel(vehicle) {
-  if (!vehicle || vehicle.cold_correction !== true) return null;
+  if (!coldOn(vehicle)) return null;
   const set = Number(vehicle.cold_extra_pct);
-  const fit = vehicle.id ? fitCold(load().learned[vehicle.id]) : null;
+  const fit = vehicle.id ? fitCold(learnedRec(vehicle.id)) : null;
   if (fit) return { extra: fit.extra, learned: true, base: fit.base, trips: fit.trips };
   return { extra: Number.isFinite(set) && set >= 0 ? set : COLD_DEFAULT_PCT, learned: false };
 }
@@ -370,7 +407,7 @@ function pctPerKm(vehicle, states, soc, temp = null) {
     const base = cold.learned && use.how === 'learned' ? cold.base : use.pct_per_km;
     return { ...use, pct_per_km: base * factor, cold: { temp, factor: Math.round(factor * 1000) / 1000, extra: cold.extra, learned: cold.learned } };
   };
-  const learned = vehicle.id ? load().learned[vehicle.id] : null;
+  const learned = learnedRec(vehicle.id);
   if (learned && learned.trips >= 2 && learned.pct_per_km > 0) return withCold({ pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips });
   const st = vehicle.range_entity ? states.find((x) => x.entity_id === vehicle.range_entity) : null;
   let range = st ? Number(st.state) : NaN;
@@ -420,7 +457,8 @@ function tripCost({ location: given, title = null, returnLocation = undefined, s
   const pct = Math.round((there.km + backKm) * use.pct_per_km * MARGIN * 10) / 10;
   // lat/lon: where the destination is (for charging stops on the way, #37).
   const at = Number.isFinite(there.lat) && Number.isFinite(there.lon) ? { lat: there.lat, lon: there.lon } : {};
-  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(use.cold ? { cold: use.cold } : {}), ...at, ...(place ? { place, place_kind: kind } : {}) };
+  const drive = driveMinutes(backKm, backKm === there.km ? there.min : null);
+  return { status: 'ok', km: there.km, back_km: backKm, how: there.how, use: use.how, pct_per_km: use.pct_per_km, pct, ...(drive ? { back_min: drive.min, back_min_how: drive.how } : {}), ...(use.cold ? { cold: use.cold } : {}), ...at, ...(place ? { place, place_kind: kind } : {}) };
 }
 
 // A trip with more places in a row: home → first place → next place → … → home.
@@ -450,7 +488,36 @@ function chainCost({ location: given, title, stops, vehicle, states, soc, temp =
   const backKm = prev.home_km || 0;
   const total = first.km + legs.reduce((a, l) => a + l.km, 0) + backKm;
   const pct = Math.round(total * first.pct_per_km * MARGIN * 10) / 10;
-  return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct };
+  // The drive home is from the last place (an estimate from its distance).
+  const drive = driveMinutes(backKm);
+  return { ...first, legs, back_km: backKm, total_km: Math.round(total * 10) / 10, pct, back_min: drive ? drive.min : null, back_min_how: drive ? drive.how : null };
+}
+
+
+const ARRIVAL_KEEP_MS = 48 * 3600000;
+// The signature includes the vehicle, calendar, time zone and trip inputs.
+// Only its hash and the estimate are saved; no second copy of the calendar.
+function arrivalKey(context) {
+  return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function arrivalLevel(key, now = Date.now()) {
+  const r = load().arrivals[key];
+  return r && Number.isFinite(r.soc) && r.soc <= 100 && Number.isFinite(r.at)
+    && now >= r.at && now - r.at < ARRIVAL_KEEP_MS && Number.isFinite(r.until) && now < r.until
+    ? r.soc : null;
+}
+function rememberArrival(key, soc, until, now = Date.now()) {
+  const c = load();
+  for (const [k, r] of Object.entries(c.arrivals)) {
+    if (!r || !Number.isFinite(r.at) || !Number.isFinite(r.until) || r.until <= now || now - r.at >= ARRIVAL_KEEP_MS) delete c.arrivals[k];
+  }
+  if (!key || !Number.isFinite(soc) || soc > 100 || !Number.isFinite(until) || until <= now || until - now > ARRIVAL_KEEP_MS) return;
+  const old = c.arrivals[key];
+  if (old && old.soc === soc && old.until === until) return; // do not extend the original confirmation time
+  c.arrivals[key] = { soc, until, at: now };
+  const keys = Object.keys(c.arrivals).sort((a, b) => c.arrivals[b].at - c.arrivals[a].at);
+  for (const k of keys.slice(128)) delete c.arrivals[k];
+  save();
 }
 
 // Learning from your trips. When the car is unplugged for a trip with a known
@@ -492,7 +559,7 @@ function tripEnded(vehicleId, soc, now = Date.now(), temp = null) {
 }
 
 function learned(vehicleId) {
-  return vehicleId ? load().learned[vehicleId] || null : null;
+  return learnedRec(vehicleId);
 }
 
 function setUserAgent(version) {
@@ -520,4 +587,4 @@ function idle() {
   return !running && !queue.length;
 }
 
-module.exports = { ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };
+module.exports = { arrivalKey, arrivalLevel, rememberArrival, driveMinutes, setLogProvider, coldOn, ROUTING_MODES, setRouting, routing, distance, pointDistance, placeFor, askName, setZones, zoneList, setSavedPlaces, onUpdate, tripCost, pctPerKm, coldModel, coldFactor, fitCold, COLD_BASE_C, COLD_DEFAULT_PCT, tripStarted, tripEnded, learned, isHome, looksLikePlace, haversineKm, setUserAgent, reset, idle, ROAD_FACTOR, MARGIN, DEFAULT_KWH_100KM };

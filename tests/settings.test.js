@@ -125,6 +125,9 @@ async function startApp(options = {}) {
       SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
       SCP_OCM_GAP_MS: '50',
       SCP_PRECONDITION_MS: '500',
+      SCP_WEATHER_KEEP_MS: '200',
+      SCP_TRIPLOG_DELAY_MS: '300',
+      SCP_TRIPLOG_MS: '1000',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
     },
@@ -185,6 +188,10 @@ async function run() {
     assert(guard.status === 200 && typeof guard.body === 'string' && guard.body.includes('window.unsavedGuard'), 'unsaved.js not served');
     assert(String(page.body).includes('<script src="unsaved.js"></script>'), 'unsaved.js not on the page');
     assert(js.body.includes('unsavedGuard.writeDone') && js.body.includes('unsavedGuard.isDirty'), 'app.js does not use the guard');
+    // The Home Assistant theme (#63): theme.js is served and loaded in the head.
+    const theme = await api('GET', 'theme.js');
+    assert(theme.status === 200 && typeof theme.body === 'string' && theme.body.includes('--primary-color'), 'theme.js not served');
+    assert(String(page.body).split('</head>')[0].includes('<script src="theme.js"></script>'), 'theme.js not in the head of the page');
     return `${Math.round(css.body.length / 1024)} kB CSS, ${Math.round(js.body.length / 1024)} kB JS`;
   });
   await test('A3', 'Fresh install: Allow control is off by default', async () => {
@@ -1596,7 +1603,7 @@ async function run() {
 
   // ----- V. Car not reachable (the car's cloud is down) ----------------------
   group = "V. Car not reachable (the car's cloud is down)";
-  const vehicleBody = (o = {}) => ({ name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity, ...o });
+  const vehicleBody = (o = {}) => ({ name: CAR.name, device_id: 'car', integration: CAR.platform, soc_entity: CAR.soc, plugged_entity: CAR.plugged, charge_limit_entity: CAR.limit, capacity_kwh: CAR.capacity, cold_correction: false, ...o }); // the cold (#56) is on by default since #61; off here unless a test turns it on
   const notesSince = (n0) => callsSince(n0).filter((c) => c.domain === 'notify').map((c) => c.data.title);
   await test('V1', 'Refused: car data old after 100 hours; 2 hours is saved', async () => {
     await refused('POST', 'api/vehicles', vehicleBody({ stale_hours: 100 }), 'between 0.5 and 48');
@@ -2054,9 +2061,54 @@ async function run() {
       assert(e && e.below_goal && e.needed_kwh > 5 && e.blocks.length && e.blocks.every((b) => b.expected && b.start >= at(1, 18)), JSON.stringify({ ...e, blocks: e && e.blocks.length }));
       return `trip ${n.trip.km} km → ${n.trip.pct}% · back ~${n.trip.soc_after}% · next: ${n.goal.title} ${n.goal.soc}% · expected ${e.needed_kwh} kWh, ${e.planned_kwh.toFixed(1)} kWh in known prices`;
     });
+    await test('Y1c', 'Trip log (#61): on by default; the odometer and an outdoor temperature are found by themselves; drives from the statistics history (real km, battery used, temperature), a drive with charging on the way not used; the vehicle form offers the sensors', async () => {
+      const H = 3600000;
+      const t0 = Math.floor(Date.now() / H) * H - 72 * H;
+      const odo = []; const soc = []; const temp = [];
+      let km = 20000; let level = 90;
+      for (let i = 0; i < 72; i++) {
+        const start = t0 + i * H; const before = level;
+        // Day 1 07:00 (60 km, -15 %), day 2 07:00 (60 km, -12 %), day 2 17:00–19:00 with charging on the way.
+        const step = { 7: [60, -15], 31: [60, -12], 41: [40, -8], 42: [40, 20], 43: [40, -9] }[i];
+        if (step) { km += step[0]; level += step[1]; }
+        if (i === 20) level = 90; // charged at home
+        odo.push({ start, end: start + H, state: km, sum: km - 20000 });
+        soc.push({ start, end: start + H, mean: (before + level) / 2, min: Math.min(before, level), max: Math.max(before, level) });
+        temp.push({ start, end: start + H, mean: i < 24 ? 4 : 8 });
+      }
+      world.odometerKm = km;
+      world.outdoorTemp = 8;
+      world.stats = { 'sensor.car_odometer': odo, [CAR.soc]: soc, 'sensor.garden_outdoor_temperature': temp };
+      try {
+        const det = await ok('GET', 'api/vehicles/detect');
+        assert((det.odometers || []).some((x) => x.entity_id === 'sensor.car_odometer') && (det.temperatures || []).some((x) => x.entity_id === 'sensor.garden_outdoor_temperature'), JSON.stringify({ o: det.odometers, t: det.temperatures }));
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, trip_log: undefined }));
+        let d = null;
+        for (let i = 0; i < 60; i++) { d = await ok('GET', 'api/triplog'); if (d.status === 'ok') break; await sleep(200); }
+        assert(d && d.enabled && d.status === 'ok', JSON.stringify(d && { ...d, drives: undefined }));
+        assert(d.sensors.odometer === 'sensor.car_odometer' && d.sensors.temp === 'sensor.garden_outdoor_temperature' && d.sensors.soc === CAR.soc, JSON.stringify(d.sensors));
+        assert(d.total === 3 && d.used === 2, JSON.stringify(d.drives));
+        const first = d.drives[d.drives.length - 1];
+        assert(first.km === 60 && first.pct === 15 && first.temp === 4 && first.used, JSON.stringify(first));
+        assert(d.drives[0].charged && !d.drives[0].used && d.drives[0].km === 120, JSON.stringify(d.drives[0]));
+        // Off for the car: the page says so.
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, trip_log: false }));
+        assert((await ok('GET', 'api/triplog')).enabled === false);
+        return `${d.total} drives, ${d.used} used, ${d.pct_100km}% per 100 km`;
+      } finally {
+        delete world.odometerKm; delete world.outdoorTemp; delete world.stats;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
+      }
+    });
     await test('Y1b', 'Use more in the cold (#56): with a weather forecast of 3 °C and 1.5 % per degree the same trip costs 18 % more; off again: as before', async () => {
       try {
-        await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true }), 'weather forecast');
+        // On by default (#61), also without a chosen forecast: the first forecast in Home Assistant is used.
+        world.weatherTemp = 3;
+        await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: undefined, cold_extra_pct: 1.5 }));
+        const v0 = (await ok('GET', 'api/vehicles')).vehicles[0];
+        assert(v0.cold_correction === true && v0.weather_entity === null && v0.trip_log === true, JSON.stringify(v0));
+        const a = (await settle()).next;
+        assert(a.trip.cold && a.trip.cold.temp === 3 && a.trip.cold.factor === 1.18, JSON.stringify(a.trip));
         await refused('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18, cold_correction: true, weather_entity: 'weather.forecast_home', cold_extra_pct: 9 }), 'between 0 and 5');
         const det = await ok('GET', 'api/vehicles/detect');
         assert((det.weathers || []).some((x) => x.entity_id === 'weather.forecast_home'), JSON.stringify(det.weathers));
@@ -2080,14 +2132,25 @@ async function run() {
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
       }
     });
-    await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car is back at 17:00 and the way home is not the next goal', async () => {
+    await test('Y2', 'A return trip in the calendar ("Naar Thuis", 16:00–17:00): the car leaves for home at 16:00 and is back after the drive (60 km at 70 km/h: 51 min, #62), not at the end of the appointment; the way home is not the next goal', async () => {
       world.events = [
         ev('Naar Lakeside', 'doel: 100', ADDR, 1, 8, 10),
         ev('Naar Thuis', 'doel: 80', 'Thuis', 1, 16, 17),
         ev('Naar Werk', 'doel: 80', 'Werk', 3, 7, 8),
       ];
       const n = (await settle()).next;
-      assert(n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis' && n.trip.return_at === at(1, 17), JSON.stringify(n.trip));
+      assert(n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis' && n.trip.return_trip.start === at(1, 16) && n.trip.return_trip.drive_min === 51 && n.trip.return_trip.drive_how === 'estimate' && n.trip.return_at === at(1, 16, 51), JSON.stringify(n.trip));
+      // The timeline: a row for the drive home, then back home (an estimate).
+      const tl = n.timeline;
+      const dh = tl.find((x) => x.type === 'drive_home');
+      const back = tl.find((x) => x.type === 'back');
+      assert(dh && dh.time === at(1, 16) && dh.drive_min === 51 && back && back.estimated && back.time === at(1, 16, 51) && tl.indexOf(dh) < tl.indexOf(back), JSON.stringify(tl.map((x) => [x.type, x.time])));
+      assert(dh.soc != null && back.soc != null && dh.soc > back.soc, JSON.stringify([dh, back]));
+      // Plan › Trips from your calendar: the trip home is marked, with when the car is home.
+      const d = await ok('GET', 'api/departures');
+      const th = (d.calendar_trips || []).find((x) => x.title === 'Naar Thuis');
+      assert(th && th.trip_home && th.home && th.home.at === at(1, 16, 51) && th.home.drive_min === 51, JSON.stringify(th));
+      assert(!(d.calendar_trips || []).find((x) => x.title === 'Naar Lakeside').trip_home);
       assert(n.goal.title === 'Naar Werk', JSON.stringify(n.goal));
       return `back ${new Date(n.trip.return_at).toISOString().slice(11, 16)} UTC · next ${n.goal.title}`;
     });
@@ -2135,9 +2198,11 @@ async function run() {
       const kinds = tl.map((x) => (x.type === 'charge' && x.expected ? 'expected' : x.type)).join(' ');
       const leaves = tl.filter((x) => x.type === 'leave');
       assert(leaves.length === 3 && leaves.map((x) => x.title).join() === 'Naar Lakeside,Naar Werk,Naar Werk', kinds);
-      assert(/^charge leave back expected leave back (expected )?leave/.test(kinds), kinds);
+      assert(/^charge leave back expected leave drive_home back (expected )?leave/.test(kinds), kinds);
       const backs = tl.filter((x) => x.type === 'back');
-      assert(backs[0].time === at(1, 18) && backs[1].time === at(2, 17) && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
+      // Naar Thuis 16:00: home after the drive (#62), not at 17:00.
+      const drive = tl.find((x) => x.type === 'drive_home');
+      assert(backs[0].time === at(1, 18) && drive && drive.time === at(2, 16) && backs[1].time === at(2, 16) + drive.drive_min * 60000 && backs[1].title === 'Naar Thuis', JSON.stringify(backs));
       assert(backs.every((b) => b.soc != null && b.soc < 80) && leaves[1].soc >= 79.5, JSON.stringify(tl.map((x) => [x.type, x.soc])));
       const exp = tl.filter((x) => x.type === 'charge' && x.expected);
       assert(exp.length && exp[0].start >= at(1, 18) && exp[0].end <= at(2, 7) && p.next.expected_blocks.length, JSON.stringify(exp));
@@ -2293,10 +2358,10 @@ async function run() {
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['ionity'] });
       c = (await stopsNow()).charge_stops;
       assert(fine(c) && c.stops.map((x) => x.id).join(',') === '2' && c.stops[0].preferred && !c.others_only, JSON.stringify(c));
-      // A preferred operator that is not on the way: the others, marked as such.
+      // A preferred operator that is not on the way: no other operator instead (#60).
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', operators: ['tesla'] });
       c = (await stopsNow()).charge_stops;
-      assert(fine(c) && c.others_only && c.stops.length === 2, JSON.stringify(c));
+      assert(c && c.status === 'none' && !c.stops.length && !c.others_only, JSON.stringify(c));
       // Belgium too: the Shell station counts.
       await ok('POST', 'api/charge-stops', { ...body, api_key: '', countries: ['NL', 'BE'] });
       c = (await stopsNow()).charge_stops;
@@ -2456,6 +2521,46 @@ async function run() {
         world.events = [];
       }
     });
+    await test('Y11b', 'Looking ahead keeps the estimated arrival percentage while away, independent of the live battery, and does not reuse it for a changed/cancelled trip (#65)', async () => {
+      const now = Date.now();
+      const homeAt = now + 2 * 3600000;
+      const savedVehicle = (await ok('GET', 'api/vehicles')).vehicles[0];
+      const event = (summary, description, location, start, end) => ({ summary, description, location, start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+      await ok('POST', 'api/vehicles', vehicleBody({ range_entity: '', consumption_kwh_100km: 18, cold_correction: false }));
+      world.plugged = false;
+      world.soc = 65;
+      world.events = [
+        event('To Office', 'target: 80', ADDR3, now - 6 * 3600000, homeAt),
+        event('To home', 'precondition: yes', 'Home', homeAt, homeAt + 2 * 3600000),
+        ev('To Office', 'target: 80', ADDR3, 2, 7, 18),
+      ];
+      try {
+        const first = await settle();
+        const row = first.next.timeline.find((x) => x.type === 'back' && x.away_now);
+        const wanted = Math.round((65 - 60 * 18 / CAR.capacity * 1.1) * 10) / 10;
+        assert(row && Number.isFinite(row.soc) && Math.abs(row.soc - wanted) < 0.2, JSON.stringify({ row, wanted }));
+        world.soc = 60; // live reading changes: do not subtract the entire return drive twice
+        const second = await settle();
+        assert(second.next.timeline.find((x) => x.away_now).soc === row.soc, 'arrival estimate disappeared or used the live level as arrival');
+        assert(second.vehicle.soc === 60, 'the actual battery level must remain separate');
+        await startApp({ allow_control: true, notify_start_stop: true });
+        const restarted = await settle();
+        assert(restarted.next.timeline.find((x) => x.away_now).soc === row.soc, 'arrival estimate lost on restart');
+        world.events[0] = { ...world.events[0], location: ADDR };
+        const changed = await settle();
+        const changedRow = changed.next.timeline.find((x) => x.away_now);
+        assert(changedRow && changedRow.soc !== row.soc, 'changed trip reused the old arrival estimate');
+        world.events = [ev('To Office', 'target: 80', ADDR3, 2, 7, 18)];
+        const cancelled = await settle();
+        assert(!cancelled.plan.away && !cancelled.next.timeline.some((x) => x.away_now), 'cancelled return kept an unrelated arrival estimate');
+        return 'arrival percentage retained across refresh/restart; actual battery separate; changed/cancelled trip invalidates it';
+      } finally {
+        world.plugged = true;
+        world.soc = 100;
+        world.events = [];
+        await ok('POST', 'api/vehicles', savedVehicle);
+      }
+    });
     // Where is the car when it is not plugged in (#46): car location, then a
     // person, then a trip home in the calendar; none of these: not known.
     const placeEvents = () => [ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 18)];
@@ -2544,7 +2649,7 @@ async function run() {
         world.events = [];
       }
     });
-    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, back at 22:00', async () => {
+    await test('Y12', 'More places in a row: Werk 06:00–16:30, then Sport 16:30–20:30, then Naar Thuis 20:30–22:00: one trip home → Werk → Sport → home (60 km each part), no charging at home in between, home after the drive from Sport (20:30 + 51 min, #62)', async () => {
       world.soc = 80;
       const evm = (title, desc, location, d, h, m, eh, em) => ({ summary: title, description: desc, location, start: isoLocal(at(d, h, m), tz), end: isoLocal(at(d, eh, em), tz) });
       world.events = [
@@ -2565,9 +2670,9 @@ async function run() {
         assert(stops.length === 1 && stops[0].title === 'Naar Sport' && stops[0].time === at(1, 16, 30) && stops[0].km === 60, JSON.stringify(stops));
         assert(n.trip.status === 'ok' && n.trip.total_km === 180 && n.trip.via.length === 1 && leaves[0].trip.stops === 1, JSON.stringify(n.trip));
         assert(Math.abs(n.trip.pct - 180 * n.trip.pct_per_km * 1.1) < 0.2, `pct ${n.trip.pct}`);
-        assert(n.trip.return_at === at(1, 22) && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
+        assert(n.trip.return_at === at(1, 20, 30) + 51 * 60000 && n.trip.return_trip && n.trip.return_trip.title === 'Naar Thuis', JSON.stringify({ at: new Date(n.trip.return_at).toISOString(), back: n.trip.return_trip }));
         const backs = tl.filter((x) => x.type === 'back');
-        assert(backs[0].time === at(1, 22), JSON.stringify(backs));
+        assert(backs[0].time === n.trip.return_at, JSON.stringify(backs));
         assert(stops[0].soc != null && stops[0].soc < leaves[0].soc && backs[0].soc < stops[0].soc, JSON.stringify(tl.map((x) => [x.type, x.soc])));
         // Issue #1: a stop shows the level on arrival there, after its own drive
         // (60 km from Werk), and where it comes from.
@@ -2812,6 +2917,26 @@ async function run() {
       world.events = [];
       return 'way back: one press; a trip home without "precondition": none';
     });
+    await test('Y22b', 'Preconditioning before a trip home with only "precondition: ja" (#58): no target, calendar set to events with a target: still one press 15 minutes before; a trip home without any tag turns the way back off', async () => {
+      const car = (await ok('GET', 'api/precondition')).cars[0];
+      const now = Date.now();
+      world.plugged = false; // the car is away
+      world.events = [evp('Naar Werk', 'doel: 80 precondition: ja', now - 4 * 3600000, now + 10 * 60000), evp('Naar huis', 'precondition: ja', now + 10 * 60000, now + 70 * 60000)];
+      const n0 = world.calls.length;
+      const saved = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
+      assert(saved.upcoming.length === 1 && saved.upcoming[0].kind === 'back' && saved.upcoming[0].title === 'Naar huis', JSON.stringify(saved.upcoming));
+      assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
+      await sleep(1500);
+      assert(presses(n0).length === 1, `pressed again: ${presses(n0).length}`);
+      // A trip home without any tag still turns the way back off (the setting on).
+      world.events = [evp('Naar Werk', 'doel: 80', now - 4 * 3600000, now + 20 * 60000), evp('Naar huis', '', now + 20 * 60000, now + 80 * 60000)];
+      const s2 = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 30, way_back: true });
+      assert(s2.upcoming.length === 0, JSON.stringify(s2.upcoming));
+      await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
+      world.plugged = true;
+      world.events = [];
+      return 'trip home with only "precondition: ja": one press; untagged trip home: none';
+    });
     await test('Y23', 'Preconditioning for the weekly schedule and a one-off departure (#45): the day\'s tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too', async () => {
       const car = (await ok('GET', 'api/precondition')).cars[0];
       const soon = Date.now() + 10 * 60000;
@@ -2838,6 +2963,8 @@ async function run() {
       n0 = world.calls.length;
       r = await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: true, entity_id: BTN, minutes: 15, way_back: false });
       assert(r.upcoming.length >= 1 && r.upcoming.every((m) => m.source === 'schedule') && r.upcoming[0].until - Date.now() < 11 * 60000, JSON.stringify(r.upcoming));
+      // The whole Looking ahead range, not only a week (#64): the same day next weeks too.
+      assert(r.upcoming.some((m) => m.until > Date.now() + 20 * 86400000), `only until ${new Date(Math.max(...r.upcoming.map((m) => m.until))).toISOString()}`);
       assert(await wait(() => presses(n0).length === 1), `presses: ${presses(n0).length}`);
       // A one-off departure with its tick.
       await ok('POST', 'api/departures', sched(false));

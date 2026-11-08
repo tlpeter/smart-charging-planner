@@ -51,12 +51,12 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Released as 0.38.0 (candidate 0.37.6-dev)
+## Released as 0.39.0 (candidate 0.38.10-dev)
 
-Scope: #33 (Pause until a time, until unplugged or until you resume; Hand back control), #55 (preconditioning: charger off again when the cable is unplugged, kept on for 15 minutes at most), #25 (warning when a later departure drops an earlier one on the same day, all-day events listed as not used, departure priority explained), #39 (Battery care in green in the chart, optional saving threshold to charge above the care level earlier), #56 (trip estimates use more battery in the cold, from a weather forecast, learned per car).
+Scope: #58 (preconditioning before a trip home with only "precondition: ja"), #59 (on/off switches visible when off), #60 (charging stops only at your preferred operators), #57 (Easee v2026.11.0: Equalizer actions are not charger methods), #61 (trip log from the odometer and history; "Use more in the cold" on by default), #62 (trip home: home at the start plus the drive), #63 (the active Home Assistant theme for everything), #64 (preconditioning in the whole Looking ahead schedule), #65 (arrival percentage remains visible while away). The Home Assistant Core check runs on 2026.11.0 and 2026.4.2.
 
-Earlier: 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54); 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45); 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
+Earlier: 0.38.0 (#25, #33, #39, #55, #56); 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54); 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45); 0.34.0 (#4, #16, #17, #35); 0.33.0 (#18, #14, #6, #7, #8, #10, #13, #5, #22, #34, #24, #36, #12, #15, #19, #9, #11, #20, #38, #32).
 
-Not resolved: the 0.38.0 scope (#33, #55, #25, #39, #56) was released before the owner's home check: it is fixture-tested and Core-tested only. #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
+Not resolved: the 0.39.0 scope (#57–#65) and the 0.38.0 scope (#33, #55, #25, #39, #56) were released before the owner's home check: they are fixture-tested and Core-tested only. #29 is fixture-tested only, not yet checked on real hardware. The operator name variants for #40 follow brand names and are not checked against live Open Charge Map data. Native inverter limits and physical hardware verification remain necessary.
 
 The MIT license and third-party icon notice are retained. Contribution expectations are in CONTRIBUTING.md.

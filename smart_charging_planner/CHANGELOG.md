@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.39.0
+
+- Stable release of 0.38.1-dev through 0.38.10-dev.
+- **Trip log:** the real use of every drive from the car's odometer, also from history, with use against the outside temperature; **Use more in the cold** is now on by default (#61).
+- **Trip home ("Naar huis"):** the car is home at the start of the trip home plus the drive, with a Drive home row (#62).
+- **Looking ahead:** preconditioning in the whole schedule (#64), and the expected battery level at Back home stays visible while the car is away (#65).
+- **The look of Home Assistant:** the app uses the active Home Assistant theme for everything (#63); on/off switches are easy to see when off (#59).
+- **Preconditioning** before a trip home with only "precondition: ja" (#58).
+- **Charging stops:** with preferred operators, only their stations are used (#60).
+- **Easee v2026.11.0:** Equalizer actions are never a charger method (#57).
+
+## 0.38.10
+
+- **Arrival percentage stays visible:** Looking ahead keeps the expected battery level at Back home while the car is away, in the day summary and the expanded row. The estimate belongs to the same vehicle, calendar and trip, survives a restart and expires at arrival or after 48 hours. Zero and a battery shortage remain visible; missing data is shown as unknown. The live battery at the top of Home and charging decisions are unchanged. (#65)
+
+## 0.38.9
+
+- **Preconditioning in the whole Looking ahead schedule:** each drive with preconditioning shows it. A day's line has the ❄ time in the line of its trip ("Office 07:30–17:00 · ❄ 16:45 · home ±17:45"), and in the day details the drive itself says "❄ Preconditioning from 07:15", next to the preconditioning row. Only what the app will really ask for is shown: a drive without preconditioning, or with preconditioning off for the car, shows nothing. The weekly schedule, the helper and the one-off departure now give preconditioning for the whole range (30 days), not only the first week. Only the display changed, not when the app asks the car. (#64)
+
+## 0.38.8
+
+- **The look of Home Assistant, in your own theme:** the app now uses the theme that is active in Home Assistant, for every user and for every part of the app: the primary colour, background, cards, text, the energy colours for solar and battery, the success, warning and error colours, and the font. Light or dark follows Home Assistant, not the phone or computer, and a theme change shows right away. Tabs, filter chips, buttons, text fields and switches look like those in Home Assistant. The battery bar goes from the theme's error colour (empty) through its warning colour to its success colour (full), still by the battery level only. When the Home Assistant page cannot be read (for example when the app is opened on its own), the app uses Home Assistant's default theme. Only the look changed. (#63)
+
+## 0.38.7
+
+- **Trip home ("Naar huis"):** the car is home at the start of the trip home plus the drive (the route's drive time, else 70 km/h), not at the end of the appointment. Home shows a row **Drive home** with the level when leaving, then **±Back home**; Looking ahead shows "Werk 06:30–16:30 · home ±17:35" instead of "Werk 06:30–18:00"; Plan › Trips from your calendar marks it **Trip home**, with when the car is home and when preconditioning starts. The plan, the expected charging and "the car is away now" use the same moment. Routes now also keep their drive time (looked up once more for routes saved before). (#62)
+
+## 0.38.6
+
+- **Trip log** (Settings › Vehicle, on by default; Activity › Trips): every drive with its real km from the car's odometer, the battery used (and kWh), the use per 100 km and the outside temperature. Built from Home Assistant's long-term statistics, so earlier drives (up to three years) show at once; new drives are added every hour and kept. Drives with charging on the way, shorter than 15 km or without a battery level are listed but not used. A chart shows the use against the outside temperature with the learned line. With enough drives the trip estimates and the cold correction use the log instead of the planned distances. The odometer and an outdoor temperature sensor are found by themselves, or can be chosen. Only reads statistics. (#61)
+- **Use more in the cold** is now on by default, and turned on once for cars saved before; turn it off under Settings › Vehicle. Without a chosen weather forecast the first one in Home Assistant is used; without any, the correction does nothing (before, saving was refused). (#61)
+
+## 0.38.5
+
+- **Easee integration v2026.11.0:** its new Equalizer action "Set Equalizer max continuous limit" was offered as a way to set the charger's current, although it sets a limit for the whole house. Equalizer actions are now never a charger method, also when only the device choice asks for an Equalizer. "Set charger dynamic limit" stays the recommended method, and the Charger enabled switch stays the start/stop method. (#57)
+- Tests: the real Home Assistant Core check now runs on 2026.11.0 (and still on 2026.4.2), and the fake Home Assistant reports 2026.11.0.
+
+## 0.38.4
+
+- **Charging stops: only your preferred operators.** When you choose preferred operators, only their stations are used for a stop, never another operator. The stop is at the latest of their stations the car can reach. Before, a preferred station a little earlier on the way was skipped for a later station of another operator, and when none of yours was on the way the app suggested other operators. Now the trip says that no station fits your settings. Without preferred operators nothing changes. (#60)
+
+## 0.38.3
+
+- **On/off switches easier to read:** a switch that is off now has a grey outline and a grey knob, so you can see it in the dark theme too; a switch that is on is the accent colour with a white knob. Before, an off switch was dark on dark and the knob was almost invisible. Only the look changed. (#59)
+
+## 0.38.2
+
+- **Preconditioning before a trip home:** a "Naar huis" / "To home" event with only "precondition: ja" (no target, no keyword) now starts preconditioning before it. Before, the calendar setting "events with a target" (the default) or "keyword" left it out, so nothing started for the drive home. The same goes for any event with a "precondition:" tag. This is only for preconditioning; which events count as trips for the charging plan is unchanged. (#58)
+
+## 0.38.1
+
+- Development continued after the 0.38.0 release.
+
 ## 0.38.0
 
 - Stable release of 0.37.1-dev through 0.37.6-dev.

@@ -483,6 +483,38 @@ async function main() {
     extra = {};
   });
 
+  await check('only your operators (#60): a preferred station earlier on the way is used instead of a later station of another operator; without a preference the later one; never another operator, also when yours needs a longer detour or is not on the way', async () => {
+    // Fastned at 11 km, Tesla at 44 km. With 30 % and 0.44 %/km the late part is around 45 km.
+    const run = async (trip) => { let r = cs.suggest(trip); for (let i = 0; i < 10 && r.status === 'pending'; i++) { await settle(); r = cs.suggest(trip); } return r; };
+    const trip = { ...input, socLeave: 30 };
+    const base = { enabled: true, api_key: 'abc-12345', countries: ['NL'], connectors: ['ccs'], min_power_kw: 50, max_detour_km: 4, reserve_pct: 10, charge_to_pct: 80 };
+    const ids = (r) => r.legs.flatMap((l) => l.stations.map((x) => x.id));
+    cs.reset();
+    extra = {};
+    stations = [poi(70, 'Fastned', 51.1, 5.0, [ccs(300)]), poi(71, 'Tesla Motors (Worldwide)', 51.4, 5.0, [ccs(250)])];
+    cfg = { ...base };
+    let r = await run(trip);
+    assert.equal(r.status, 'ok', JSON.stringify(r));
+    assert.equal(r.legs[0].stations[0].id, 71, `no preference: the later station (${JSON.stringify(r.legs[0].stations)})`);
+    // Fastned preferred: the stop is at Fastned, and Tesla is never shown, on no leg.
+    cfg = { ...base, operators: ['fastned'] };
+    r = await run(trip);
+    assert.equal(r.legs[0].stations[0].id, 70, JSON.stringify(r.legs[0].stations));
+    assert.ok(ids(r).every((id) => id === 70) && !r.others_only, JSON.stringify(ids(r)));
+    // Fastned needs 15 km by road: still Fastned (marked as a longer detour), not Tesla.
+    cs.reset();
+    extra = { '51.1000': 15 };
+    r = await run(trip);
+    assert.ok(r.legs[0].stations[0].id === 70 && r.legs[0].stations[0].longer_detour, JSON.stringify(r.legs[0].stations));
+    assert.ok(!ids(r).includes(71), JSON.stringify(ids(r)));
+    // No Fastned on the way: no stop at all, not Tesla.
+    cs.reset();
+    extra = {};
+    stations = [poi(71, 'Tesla Motors (Worldwide)', 51.4, 5.0, [ccs(250)])];
+    r = await run(trip);
+    assert.ok(r.status === 'none' && !r.stops.length, JSON.stringify(r));
+  });
+
   await check('the route on a map (#47): off by default; OpenStreetMap or your own tile server (checked); when on, the trip has the route line, home, the destination and every station position', async () => {
     const d = cs.clean({ countries: ['NL'], connectors: ['ccs'] }, {});
     assert.equal(d.map_tiles, 'off');

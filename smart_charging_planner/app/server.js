@@ -50,6 +50,7 @@ const { planBattery } = require('./batteryplan');
 const { chargeState } = require('./chargestate');
 const notifier = require('./notify');
 const { validateImportSettings } = require('./importschema');
+const triplog = require('./triplog');
 
 const PORT = Number(process.env.SCP_PORT) || 8099; // SCP_PORT: tests only
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -59,6 +60,8 @@ const STATIC_FILES = new Map([
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'application/javascript; charset=utf-8']],
   ['/unsaved.js', ['unsaved.js', 'application/javascript; charset=utf-8']],
+  // Copies the active Home Assistant theme onto the page (#63).
+  ['/theme.js', ['theme.js', 'application/javascript; charset=utf-8']],
   // Leaflet for the route map (#54): shipped with the app, loaded only when a map opens.
   ['/vendor/leaflet/leaflet.js', ['vendor/leaflet/leaflet.js', 'application/javascript; charset=utf-8']],
   ['/vendor/leaflet/leaflet.css', ['vendor/leaflet/leaflet.css', 'text/css; charset=utf-8']],
@@ -320,6 +323,32 @@ function isReturnTrip(t) {
   return !!t.location && tripcost.distance(t.location).status === 'home';
 }
 
+// When the car is home after a trip home in the calendar (#62): the start of
+// "Naar huis" plus the drive from where the car is (the route's time, else
+// 70 km/h). The end of the appointment only when the drive is not known.
+// from: the trip before it (where the car is), or null.
+function homeArrival(home, from) {
+  const start = home.event_start || home.time;
+  const end = home.event_end || start + 3600000;
+  if (!from) return { at: end, drive_min: null, how: 'event_end' };
+  const p = tripcost.placeFor(from.location, from.title);
+  const d = p.manual_km ? { status: 'ok', km: p.manual_km } : p.point ? tripcost.pointDistance(p.point) : tripcost.distance(p.location);
+  const drive = d && d.status === 'ok' ? tripcost.driveMinutes(d.km, d.min) : null;
+  if (!drive) return { at: end, drive_min: null, how: 'event_end' };
+  return { at: start + drive.min * 60000, drive_min: drive.min, how: drive.how };
+}
+
+
+function arrivalContext(dep, events, tz, vehicle, home, carsNow) {
+  const start = home.event_start || home.time;
+  const trips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, start - 36 * 3600000, carsNow)
+    .filter((t) => t.time <= home.time && t.time >= start - 36 * 3600000)
+    .map((t) => [t.time, t.event_start, t.event_end, t.title, t.location, t.soc]);
+  const s = settings.load();
+  return tripcost.arrivalKey({ charger: scope.id(), calendar: dep.calendar.entity, tz, vehicle, trips,
+    home: ha.state.home, places: s.places || [], routing: s.routing || {} });
+}
+
 // The coming days (up to 30 days) as one timeline: charging, leaving, back
 // home, charging again, … Each later departure gets an expected charging plan
 // from the moment the car is back (orange, never steered). Home shows 7, 14 or
@@ -453,13 +482,16 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     const trip = where && !fixed
       ? tripcost.tripCost({ location: cur.location, title: cur.title, returnLocation: back ? back.location || 'thuis' : undefined, stops: stops.map((x) => ({ location: x.location, title: x.title })), vehicle, states, soc: rangeSoc(), temp: tripTemp(vehicle, cur.time, states, tz, now) })
       : { status: 'unknown', reason: 'no_location', pct: null, ...(cur.title && !fixed && tripcost.askName(null, cur.title) ? { ask: tripcost.askName(null, cur.title) } : {}) };
-    const returnAt = back ? endOf(back) : endOf(last);
+    // A trip home in the calendar (#62): home at its start plus the drive, not
+    // at the end of the appointment (that is often just its default length).
+    const drive = back && trip.back_min ? { min: trip.back_min, how: trip.back_min_how } : null;
+    const returnAt = back ? (drive ? startOf(back) + drive.min * 60000 : endOf(back)) : endOf(last);
     // soc_after (0 or more) is used to plan what comes next; soc_end can be
     // below 0: how much the battery falls short, shown in the timeline.
     const socEnd = socLeave != null && trip.pct != null ? Math.round((socLeave - trip.pct) * 10) / 10 : null;
     const socAfter = socEnd == null ? null : Math.max(0, socEnd);
     const via = stops.map((x, k) => ({ title: x.title || null, location: x.location || null, time: x.time, km: trip.legs && trip.legs[k] ? trip.legs[k].km : null }));
-    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
+    return { ...trip, via, return_trip: back ? { title: back.title, time: back.time, arrival_key: arrivalContext(dep, events, tz, vehicle, back, carCtxNow), start: startOf(back), drive_min: drive ? drive.min : null, drive_how: drive ? drive.how : 'event_end', precondition: back.precondition === true } : null, return_at: returnAt, soc_after: socAfter, soc_end: socEnd };
   }
   // The first departure after the car is back that is not the way home.
   const nextAfter = (t) => all.find((x) => x.time > t && !(x.source === 'calendar' && isReturnTrip(tripAt(x))));
@@ -531,7 +563,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
   };
   // The car is away now and comes back with a trip home (plan.away): first in
   // the timeline, so it is clear why charging starts only then.
-  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: null, title: plan.away.title });
+  if (plan.away) timeline.push({ type: 'back', away_now: true, time: plan.away.until, soc: plan.away.soc ?? null, title: plan.away.title });
   const planBlocks = plan.blocks || [];
   if (planBlocks.length) {
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socIfCharged ?? socAtDep, ...(ifPlugged ? { if_plugged: true } : {}) }, plan.minimum || null, !!plan.care));
@@ -558,7 +590,12 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       const stops = tr.pct != null && socLeave != null && socBack != null && chargestops.enabled()
         ? chargestops.suggest({ home: ha.state.home, dest: tr.lat != null ? { lat: tr.lat, lon: tr.lon } : null, socLeave, socEnd: socBack, pctPerKm: tr.pct_per_km, capacityKwh: vehicle.capacity_kwh, now })
         : null;
-      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: tr.return_trip ? tr.return_trip.title : null, ...chain, ...(stops ? { charge_stops: stops } : {}) });
+      // The drive home of a trip home in the calendar (#62): its own row, with
+      // the level when the car leaves there.
+      const rt = tr.return_trip;
+      if (rt && x.time > now) tripcost.rememberArrival(rt.arrival_key, socBack, tr.return_at, now);
+      if (rt && rt.drive_min) timeline.push({ type: 'drive_home', time: rt.start, title: rt.title, drive_min: rt.drive_min, how: rt.drive_how, soc: round(lv), from_title: from });
+      timeline.push({ type: 'back', time: tr.return_at, soc: socBack, title: rt ? rt.title : null, ...(rt && rt.drive_min ? { estimated: true, drive_min: rt.drive_min } : {}), ...chain, ...(stops ? { charge_stops: stops } : {}) });
     }
   };
   const socAtLeave = (v) => (v == null ? null : Math.round(v * 10) / 10);
@@ -682,12 +719,24 @@ chargestops.onUpdate(tripLookupDone);
 // The forecast temperature for a trip (#56), when the car uses the cold
 // correction. null when off or not known.
 function tripTemp(vehicle, at, states, tz, now = Date.now()) {
-  if (!vehicle || vehicle.cold_correction !== true || !vehicle.weather_entity) return null;
-  return weather.tempAt(vehicle.weather_entity, at, { states, tz, now });
+  const w = weatherOf(vehicle, states);
+  if (!vehicle || vehicle.cold_correction !== true || !w) return null;
+  return weather.tempAt(w, at, { states, tz, now });
+}
+
+// The weather forecast of a car: the one chosen in Settings › Vehicle, else
+// (#61) the first weather entity in Home Assistant, "weather.forecast_home"
+// first. null when there is none: then the cold correction does nothing.
+function weatherOf(vehicle, states) {
+  if (!vehicle) return null;
+  if (vehicle.weather_entity) return vehicle.weather_entity;
+  const list = (states || []).filter((s) => /^weather\./.test(s.entity_id) && s.state !== 'unavailable').map((s) => s.entity_id).sort();
+  return list.includes('weather.forecast_home') ? 'weather.forecast_home' : list[0] || null;
 }
 
 function tripLearning(vehicle, plugged, soc, carData, next, now, states = []) {
-  const tempNow = vehicle && vehicle.weather_entity ? weather.currentTemp(vehicle.weather_entity, states) : null;
+  const wx = weatherOf(vehicle, states);
+  const tempNow = wx ? weather.currentTemp(wx, states) : null;
   if (!vehicle || !vehicle.id || plugged == null) return;
   const w = tripWatch.get(vehicle.id) || { plugged: null };
   const live = !(carData && carData.ok === false) && Number.isFinite(soc);
@@ -770,6 +819,9 @@ const routes = {
       persons,
       // Weather forecasts, for "Use more in the cold" (#56).
       weathers: states.filter((x) => /^weather\./.test(x.entity_id)).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
+      // Trip log (#61): sensors that can be the odometer or the outside temperature.
+      odometers: states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.state_class && (x.attributes.device_class === 'distance' || /^(km|mi)$/.test(String(x.attributes.unit_of_measurement || '')))).map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
+      temperatures: states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.device_class === 'temperature' && x.attributes.state_class === 'measurement').map((x) => ({ entity_id: x.entity_id, name: (x.attributes && x.attributes.friendly_name) || x.entity_id })),
     };
   },
 
@@ -832,9 +884,15 @@ const routes = {
       calendar_name: String(body.calendar_name || '').trim().slice(0, 30) || null,
       // Use per 100 km, for trip estimates when there is no range sensor (and before trips are learned).
       // Use more in the cold (#56): off by default; extra % per degree below 15 °C, the forecast from a weather entity.
-      cold_correction: body.cold_correction === true,
+      // On by default (#61): a form or setup without the choice turns it on.
+      cold_correction: body.cold_correction === undefined ? true : body.cold_correction === true,
       cold_extra_pct: body.cold_extra_pct === undefined || body.cold_extra_pct === '' || body.cold_extra_pct == null ? tripcost.COLD_DEFAULT_PCT : Number(body.cold_extra_pct),
       weather_entity: /^weather\.[a-z0-9_]+$/.test(String(body.weather_entity || '')) ? String(body.weather_entity) : null,
+      // Trip log (#61): on by default; the odometer and the outside
+      // temperature are found on the car when not chosen.
+      trip_log: body.trip_log !== false,
+      odometer_entity: /^sensor\.[a-z0-9_]+$/.test(String(body.odometer_entity || '')) ? String(body.odometer_entity) : null,
+      temperature_entity: /^sensor\.[a-z0-9_]+$/.test(String(body.temperature_entity || '')) ? String(body.temperature_entity) : null,
       consumption_kwh_100km: body.consumption_kwh_100km === undefined || body.consumption_kwh_100km === '' || body.consumption_kwh_100km == null ? null : Number(body.consumption_kwh_100km),
       charge_limit_entity: null, // checked below
       // Where the car is when not plugged in (#46): the car's tracker, then a person.
@@ -845,7 +903,6 @@ const routes = {
     if (!(vehicle.stale_hours >= 0.5 && vehicle.stale_hours <= 48)) throw badRequest('Car data is old after must be between 0.5 and 48 hours');
     if (vehicle.consumption_kwh_100km != null && !(vehicle.consumption_kwh_100km >= 8 && vehicle.consumption_kwh_100km <= 40)) throw badRequest('Use per 100 km must be between 8 and 40 kWh');
     if (!(vehicle.cold_extra_pct >= 0 && vehicle.cold_extra_pct <= 5)) throw badRequest('Extra use per degree must be between 0 and 5 %');
-    if (vehicle.cold_correction && !vehicle.weather_entity) throw badRequest('Choose a weather forecast for "Use more in the cold", or turn it off');
     if (body.charge_limit_entity) {
       // SAFETY: only a % entity that looks like a charge limit, on the car's own device.
       const { entities, states } = await loadRegistries();
@@ -1442,11 +1499,39 @@ const routes = {
       let homeTrip = null;
       if (dep.calendar.enabled && Array.isArray(events)) {
         // Every event counts here (a trip home often has no target of its own).
-        const home = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now, carCtx(s, vehicle)).find((t) => isReturnTrip(t) && (!departure || t.time < departure.time));
-        if (home) homeTrip = { until: home.event_end || (home.event_start || home.time) + 3600000, title: home.title || null };
+        // Since two days back, so the trip the car is on now gives where it drives home from.
+        const all = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now - 2 * 86400000, carCtx(s, vehicle));
+        // Keep the same trip home while its drive is in progress too (#65).
+        const returning = all.filter((t) => isReturnTrip(t) && (!departure || t.time < departure.time)).map((home) => {
+          const from = [...all].reverse().find((t) => (t.event_start || t.time) < (home.event_start || home.time) && !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place));
+          return { home, from, arrival: homeArrival(home, from) };
+        }).find((r) => r.arrival.at > now);
+        if (returning) {
+          const { home, from, arrival } = returning;
+          const key = arrivalContext(dep, events, tz, vehicle, home, carCtx(s, vehicle));
+          let expected = tripcost.arrivalLevel(key, now);
+          // On first use while away, a fresh reading taken after reaching the
+          // previous calendar place can seed the estimate for its drive home.
+          // Once driving home, keep that estimate: do not subtract the full
+          // return distance again from a battery level already part-way home.
+          const reading = states.find((x) => x.entity_id === vehicle.soc_entity);
+          const readAt = reading ? Date.parse(reading.last_updated || reading.last_changed) : NaN;
+          const fromAt = from && (from.event_start || from.time);
+          if (expected == null && from && arrival.drive_min && now < (home.event_start || home.time)
+            && mode === 'sensor' && carData && carData.ok && Number.isFinite(soc)
+            && Number.isFinite(readAt) && readAt >= fromAt + arrival.drive_min * 60000 && readAt <= now + 60000) {
+            const tr = tripcost.tripCost({ location: from.location, title: from.title, vehicle, states, soc,
+              temp: tripTemp(vehicle, home.time, states, tz, now) });
+            if (tr.status === 'ok' && Number.isFinite(tr.back_km) && Number.isFinite(tr.pct_per_km)) {
+              expected = Math.round((soc - tr.back_km * tr.pct_per_km * tripcost.MARGIN) * 10) / 10;
+              tripcost.rememberArrival(key, expected, arrival.at, now);
+            }
+          }
+          homeTrip = { until: arrival.at, title: home.title || null, soc: expected };
+        }
       }
       place = carplace.where({ plugged: false, vehicle, states, homeTrip });
-      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null };
+      if (place && place.at === 'away' && place.until) away = { until: place.until, title: place.title || null, soc: homeTrip ? homeTrip.soc ?? null : null };
     }
     // Paused until a time (#33): the plan starts after the pause.
     const pausedNow = pause.releasedNow() ? null : pause.current(now);
@@ -1573,7 +1658,7 @@ const routes = {
     // trip, and the expected charging for it (shown in orange, never steered).
     let next = null;
     try {
-      if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
+      if (vehicle && vehicle.cold_correction && weatherOf(vehicle, states)) await weather.refresh(weatherOf(vehicle, states), states, now);
       next = lookAhead({ s, dep, events, tz, now, states, vehicle, mode, soc, targetSoc: minNow ? Math.max(targetSoc, minNow.soc) : targetSoc, neededKwh, plan, powerKw, prices, planning, departure, carCtxNow: carCtx(s, vehicle), rules: rulesFor(s) });
     } catch (err) {
       ha.warn('Looking ahead failed:', err.message);
@@ -1721,6 +1806,36 @@ const routes = {
       }
     }
     return { hours, from: prices.length ? prices[0].start : before, before, prices, charged };
+  },
+
+  // Trip log (#61) of a car (or the car shown): the drives, the sensors and
+  // what the app learned about the cold.
+  'GET /api/triplog': async (req) => {
+    const s = settings.load();
+    const q = new URL(req.url, 'http://x').searchParams;
+    const v = cars(s).find((x) => x.id === q.get('vehicle_id')) || currentVehicle(s) || cars(s)[0] || null;
+    if (!v) return { available: false, reason: 'no_vehicle' };
+    const { entities, states } = await loadRegistries();
+    const found = triplog.sensorsFor(v, entities, states);
+    const label = (id) => { const st = states.find((x) => x.entity_id === id); return { entity_id: id, name: (st && st.attributes && st.attributes.friendly_name) || id }; };
+    const distance = states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && (x.attributes.device_class === 'distance' || /km|mi/.test(String(x.attributes.unit_of_measurement || ''))) && x.attributes.state_class).map((x) => label(x.entity_id));
+    const temps = states.filter((x) => x.entity_id.startsWith('sensor.') && x.attributes && x.attributes.device_class === 'temperature' && x.attributes.state_class === 'measurement').map((x) => label(x.entity_id));
+    const model = triplog.model(v.id);
+    const fit = model ? tripcost.fitCold(model) : null;
+    return {
+      available: true,
+      vehicle: { id: v.id, name: v.name, capacity_kwh: v.capacity_kwh || null },
+      enabled: triplog.enabled(v),
+      cold_on: v.cold_correction === true,
+      chosen: { odometer: v.odometer_entity || null, temperature: v.temperature_entity || null },
+      sensors: found,
+      options: { odometer: distance, temperature: temps },
+      cars: cars(s).map((x) => ({ id: x.id, name: x.name })),
+      cold: fit ? { extra_pct: fit.extra, base_pct_100km: Math.round(fit.base * 1000) / 10, drives: fit.trips } : null,
+      cold_base_c: tripcost.COLD_BASE_C,
+      time_zone: ha.state.timeZone,
+      ...triplog.view(v.id),
+    };
   },
 
   'GET /api/savings': async () => {
@@ -1932,14 +2047,25 @@ const routes = {
       departure_dropped: droppedView(droppedEarlier(days)),
       calendar_ignored: ignoredEvents(dep, events, tz, now),
       calendar_trips: await (async () => {
-        if (vehicle && vehicle.cold_correction && vehicle.weather_entity) await weather.refresh(vehicle.weather_entity, states, now);
+        if (vehicle && vehicle.cold_correction && weatherOf(vehicle, states)) await weather.refresh(weatherOf(vehicle, states), states, now);
         // What each trip costs (there and back), from its destination (tripcost.js).
         tripcost.setZones(states);
         const socSt = vehicle && vehicle.soc_entity ? states.find((x) => x.entity_id === vehicle.soc_entity) : null;
         const socNow = socSt ? Number(socSt.state) : NaN;
-        return calendarTrips(dep, events, tz, now, carCtx(s, vehicle)).filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
+        // A trip home (#62): marked, with when the car is home (from the trip
+        // before it); and when preconditioning starts for a trip with it.
+        const pre = vehicle ? precondition.config(vehicle) : null;
+        const listed = calendarTrips(dep, events, tz, now, carCtx(s, vehicle));
+        const anyTrips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, now - 2 * 86400000, carCtx(s, vehicle));
+        const homeOf = (t) => {
+          const from = [...anyTrips].reverse().find((x) => (x.event_start || x.time) < (t.event_start || t.time) && !isReturnTrip(x) && (x.location || tripcost.placeFor(null, x.title).place));
+          return homeArrival(t, from);
+        };
+        return listed.filter((t) => t.time < now + Math.max(14, ahead) * 86400000).map((t) => ({
           ...raised(t),
           cost: !isReturnTrip(t) && (t.location || tripcost.placeFor(null, t.title).place) ? tripcost.tripCost({ location: t.location, title: t.title, vehicle, states, soc: socNow, temp: tripTemp(vehicle, t.time, states, tz, now) }) : null,
+          ...(isReturnTrip(t) ? { trip_home: true, home: homeOf(t) } : {}),
+          ...(pre && pre.enabled && t.precondition === true ? { precondition_at: t.time - pre.minutes * 60000 } : {}),
         }));
       })(),
       calendar_write_allowed: options.allow_calendar_write === true,
@@ -4302,12 +4428,21 @@ async function preconditionRefresh(now = Date.now()) {
     const { events, error } = await calendarEvents(dep, tz, now);
     if (error && !events.length) continue; // keep the last known moments
     // From two days back, so the event going on now counts (its end: the way back).
-    const trips = calendarTrips(dep, events, tz, now - 2 * 86400000, carCtx(s, v));
+    // Also counted for preconditioning (#58), whatever "Which events are
+    // trips" says: an event with a "precondition:" tag and a trip home ("Naar
+    // huis"), also without a target or the keyword. Before, "Naar huis" with
+    // only "precondition: ja" was left out, so nothing started before it.
+    const since = now - 2 * 86400000;
+    const keyOf = (t) => `${t.event_start}|${t.title}|${t.location || ''}`;
+    const counted = new Set(calendarTrips(dep, events, tz, since, carCtx(s, v)).map(keyOf));
+    const trips = calendarTrips({ ...dep, calendar: { ...dep.calendar, match: 'any' } }, events, tz, since, carCtx(s, v))
+      .filter((t) => counted.has(keyOf(t)) || t.precondition !== null || isReturnTrip(t));
     // The other sources (#45): the departure that counts on each day (a day
     // where a calendar trip wins is left to the calendar rules above).
     let states = [];
     try { states = await ha.call({ type: 'get_states' }); } catch { /* the helper is skipped */ }
-    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: 7, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
+    // The whole Looking ahead range (30 days), not only a week (#64).
+    const others = winnersPerDay(collect(dep, { states, events, tz, now, days: AHEAD_MAX_DAYS + 1, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
     precondition.setSchedule(v.id, [...precondition.schedule({ trips, cfg, isReturn: isReturnTrip }), ...precondition.fromDepartures({ departures: others, cfg })].sort((a, b) => a.at - b.at));
   }
 }
@@ -4910,6 +5045,32 @@ routes['POST /api/control/settings'] = async (req) => {
   return { ok: true, control: rulesFor(s) };
 };
 
+// Trip log (#61): the real use per drive from Home Assistant's statistics.
+// With enough drives the trip estimate and the cold correction use it.
+tripcost.setLogProvider((vehicleId) => {
+  const v = cars(settings.load()).find((x) => x.id === vehicleId);
+  return triplog.enabled(v) ? triplog.model(vehicleId) : null;
+});
+let triplogBusy = false;
+async function triplogRefresh() {
+  if (triplogBusy || !ha.state.connected) return;
+  triplogBusy = true;
+  try {
+    const list = cars(settings.load()).filter((v) => triplog.enabled(v));
+    if (!list.length) return;
+    const { entities, states } = await loadRegistries();
+    for (const v of list) {
+      try {
+        await triplog.refresh(v, { call: (m) => ha.call(m, 120000), entities, states, log: (m) => ha.log(m) });
+      } catch (err) {
+        ha.warn(`Trip log (${v.name || v.id}) failed:`, err.message);
+      }
+    }
+  } finally {
+    triplogBusy = false;
+  }
+}
+
 function startBackgroundRefresh() {
   const reconnect = !!refreshTimer;
   // onConnect runs after every HA reconnect. Recalculate immediately before
@@ -4921,6 +5082,9 @@ function startBackgroundRefresh() {
   refreshTimer = setInterval(() => {
     if (ha.state.connected) refreshAll('timer').catch(() => {});
   }, every);
+  // Trip log (#61): from the history at the start, then every hour.
+  setTimeout(() => { triplogRefresh().catch(() => {}); }, Number(process.env.SCP_TRIPLOG_DELAY_MS) || 30000);
+  setInterval(() => { triplogRefresh().catch(() => {}); }, Number(process.env.SCP_TRIPLOG_MS) || 3600000);
   // Preconditioning (#44): checked every minute, also when the car is away.
   precondition.recover();
   setInterval(() => { preconditionStep().catch(() => {}); }, Number(process.env.SCP_PRECONDITION_MS) || 60000);

@@ -127,9 +127,17 @@ function durationText(minutes) {
             <div class="muted small">Below 15 °C a trip uses more battery: the app adds a percentage per degree colder, with the temperature from a weather forecast at the time of the trip. After trips at different temperatures it learns your car's own value. Not used with the car's range sensor (that already includes the weather of now).</div></div>
           <div class="two">
             <div class="field"><label>Weather forecast</label>
-              <select name="weather_entity"><option value="">— none —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+              <select name="weather_entity"><option value="">— automatic (the first forecast) —</option>${((data && data.weathers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
             <div class="field"><label>Extra use per degree below 15 °C (%)</label>
               <input name="cold_extra_pct" type="number" min="0" max="5" step="0.1" placeholder="1.5"></div>
+          </div>
+          <div class="field"><label class="check"><input type="checkbox" name="trip_log"> Keep a trip log (real use per drive)</label>
+            <div class="muted small">Every drive with its real km (from the car's odometer), the battery used and the outside temperature, also from the history Home Assistant already keeps. Shown under Activity › Trips. With enough drives the trip estimates and "Use more in the cold" use it. Only reads Home Assistant's statistics.</div></div>
+          <div class="two">
+            <div class="field"><label>Odometer</label>
+              <select name="odometer_entity"><option value="">— automatic (found on the car) —</option>${((data && data.odometers) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
+            <div class="field"><label>Outside temperature</label>
+              <select name="temperature_entity"><option value="">— automatic (the car's, else an outdoor sensor) —</option>${((data && data.temperatures) || []).map((w) => `<option value="${esc(w.entity_id)}">${esc(w.name)}</option>`).join('')}</select></div>
           </div>
           <p class="muted small">Car location and person: when the car is not plugged in, the app uses them to know whether it is at home. First the car location, then the person, then a trip home in your calendar ("Naar huis"). When none of them knows, Home counts from the battery level now and shows planned charging as "if plugged in". A location that is unknown or unavailable is skipped.</p>
           <p class="muted small">When the car's cloud is down (battery level unavailable or not read for that long), the app goes on with the last level plus what the charger delivered since, and does not change the car's charge limit until the car is back.</p>`,
@@ -680,9 +688,11 @@ function durationText(minutes) {
         }
         setValue(form, f.key, saved[f.key]);
       }
-      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct']) setValue(form, name, saved[name]);
+      for (const name of ['capacity_kwh', 'phases', 'phase', 'max_current', 'main_fuse', 'stale_hours', 'calendar_name', 'vehicle_id', 'consumption_kwh_100km', 'weather_entity', 'cold_extra_pct', 'odometer_entity', 'temperature_entity']) setValue(form, name, saved[name]);
       const cold = form.querySelector('input[name=cold_correction]');
-      if (cold) cold.checked = saved.cold_correction === true;
+      if (cold) cold.checked = saved.cold_correction !== false; // on by default (#61)
+      const tlog = form.querySelector('input[name=trip_log]');
+      if (tlog) tlog.checked = saved.trip_log !== false;
       const follow = form.querySelector('input[name=follow_limits]');
       if (follow) follow.checked = (saved.max_current_entities || []).length > 0;
       if (kind === 'grid') {
@@ -785,6 +795,7 @@ function durationText(minutes) {
       const errBox = form.querySelector('.form-error');
       if (kind === 'vehicle') Object.assign(data, vehicleTarget());
       if (form.querySelector('input[name=cold_correction]')) data.cold_correction = form.querySelector('input[name=cold_correction]').checked;
+      if (form.querySelector('input[name=trip_log]')) data.trip_log = form.querySelector('input[name=trip_log]').checked;
       if (kind === 'charger') Object.assign(data, chargerAdding ? { add: true } : (chargerSel ? { id: chargerSel } : {}));
       try {
         const r = await api('POST', cfg.api, data);
@@ -1370,7 +1381,11 @@ function durationText(minutes) {
       const n = Number(value);
       if (!Number.isFinite(n)) return null;
       const level = Math.max(0, Math.min(100, n));
-      return { level, color: `hsl(${Math.round(level * 1.2)} 70% var(--soc-lightness, 42%))` };
+      // Theme colours: empty = error, half = warning, full = success.
+      const color = level <= 50
+        ? `color-mix(in srgb, var(--soc-mid) ${level * 2}%, var(--soc-low))`
+        : `color-mix(in srgb, var(--soc-high) ${(level - 50) * 2}%, var(--soc-mid))`;
+      return { level, color };
     }
 
     function readyGuardHtml(d) {
@@ -1601,6 +1616,28 @@ function durationText(minutes) {
       return `<p class="note small">${where} The levels start from ${soc}; planned charging counts only when the car is plugged in in time.${pl.at === 'unknown' ? ' Tip: set the car location or a person under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : ''}</p>`;
     }
 
+    // Preconditioning per drive (#64): which row of the timeline each moment
+    // belongs to. A moment ends when its drive starts: "out" → leaving home,
+    // "next" → the next place of a trip, "back" → the trip home. The way back
+    // without an event ("back_auto") has no drive row; it keeps its own row.
+    // Only moments the app will really ask for are in the list.
+    function preconditionDrives(items) {
+      const map = new Map(); // index of the drive row → the moment
+      items.forEach((p) => {
+        if (p.type !== 'precondition') return;
+        const want = { out: ['leave'], next: ['stop', 'leave'], back: ['drive_home', 'leave'] }[p.kind];
+        if (!want) return;
+        let best = -1;
+        items.forEach((y, k) => {
+          if (!want.includes(y.type) || map.has(k)) return;
+          const gap = Math.abs(y.time - p.until);
+          if (gap <= 2 * 3600000 && (best < 0 || gap < Math.abs(items[best].time - p.until))) best = k;
+        });
+        if (best >= 0) map.set(best, p);
+      });
+      return map;
+    }
+
     // The coming days as one timeline: charging, leaving, back home, charging
     // again, … The plan in blue; what the app expects later in orange.
     function nextGoalHtml(d) {
@@ -1623,6 +1660,10 @@ function durationText(minutes) {
         ? `${x.periods.length} blocks between ${esc(dayHm(x.periods[0].start))} and ${esc(dayHm(x.periods[x.periods.length - 1].end))}`
         : x.periods.map((p) => `${esc(dayHm(p.start))}–${esc(hm(p.end))}`).join(', '));
       let lowSeen = false;
+      const preOf = preconditionDrives(items);
+      const preState = (p) => (p.state === 'asked' ? ' · asked' : p.state === 'would' ? ' · advice only ("Allow control" is off)' : p.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '');
+      // On the drive row: "❄ Preconditioning from 07:15" (#64).
+      const preTag = (i) => { const p = preOf.get(i); return p ? `<div class="tl-sub">❄ Preconditioning from ${esc(hm(p.time))}${preState(p)}</div>` : ''; };
       const rowHtml = (x, i) => {
         if (x.type === 'charge') {
           if (x.unknown_prices) {
@@ -1648,37 +1689,37 @@ function durationText(minutes) {
           const trip = x.trip ? tripText(x.trip) : '';
           return `<li class="tl-row tl-leave${i === 0 || !items.slice(0, i).some((y) => y.type === 'leave') ? ' first' : ''}">${shape('car', low ? 'orange' : 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Leave')} <span class="muted">· target ${pct(x.target_soc)}</span></div>
-            ${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
+            ${preTag(i)}${trip ? `<div class="tl-sub">${trip}</div>` : ''}${x.soc_if_charged != null ? `<div class="tl-sub">${pct(x.soc_if_charged)} when the car is plugged in at home in time; ${pct(x.soc)} without charging</div>` : low ? `<div class="tl-sub warn-text">Below the target: not enough cheap hours known yet</div>` : ''}</div>${level(x.soc, low ? 'exp' : '')}</li>`;
         }
         if (x.type === 'precondition') {
           const what = x.kind === 'back_auto' ? 'for the way back' : x.kind === 'back' ? `for ${esc(x.title || 'the trip home')}` : `for ${esc(x.title || 'the departure')}`;
-          const st = x.state === 'asked' ? ' · asked' : x.state === 'would' ? ' · advice only ("Allow control" is off)' : x.state === 'failed' ? ' · <span class="warn-text">failed</span>' : '';
           return `<li class="tl-row tl-leave">${shape('clock', 'orange', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Preconditioning ${what}</div>
-            <div class="tl-sub">Until ${esc(hm(x.until))}${st}</div></div></li>`;
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>❄ Preconditioning ${what}</div>
+            <div class="tl-sub">Until ${esc(hm(x.until))}${preState(x)}</div></div></li>`;
+        }
+        if (x.type === 'drive_home') {
+          return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
+            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Drive home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+            ${preTag(i)}<div class="tl-sub">About ${esc(x.drive_min)} min ${x.how === 'route' ? 'by road' : '(estimated)'}${x.from_title ? ` from ${esc(shortName(x.from_title))}` : ''}</div></div>${level(x.soc)}</li>`;
         }
         if (x.type === 'stop') {
           // The level on the right: when the car arrives here.
           const from = x.from_title ? shortName(x.from_title) : 'the place before';
           return `<li class="tl-row tl-leave">${shape('car', 'blue', true)}<div class="tl-main">
             <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>${esc(x.title || 'Next place')} <span class="muted">· from ${esc(from)}</span></div>
-            <div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
+            ${preTag(i)}<div class="tl-sub">${x.km != null ? `~${esc(Math.round(x.km))} km from ${esc(from)}${x.soc_from != null && x.soc != null ? ` (leaves with ${pct(x.soc_from)}, arrives with ${pct(x.soc)})` : ''} · ` : ''}the car does not come home in between, so no charging</div>${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out before this place: about ${esc(Math.round(-x.soc))}% short</div>` : ''}</div>${level(x.soc, x.soc != null && x.soc < 0 ? 'exp' : '')}</li>`;
         }
         // back home
         const nextLeave = items.slice(i + 1).find((y) => y.type === 'leave');
         const short = x.soc != null && (x.soc < 0 || (nextLeave && nextLeave.target_soc != null && x.soc < nextLeave.target_soc - 0.5));
-        if (x.away_now) {
-          return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
-            <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
-            <div class="tl-sub muted">The car is away now; charging is planned from when it is back</div></div></li>`;
-        }
         return `<li class="tl-row tl-back">${shape('home', 'grey', true)}<div class="tl-main">
-          <div class="tl-title"><span class="tl-time">${esc(dayHm(x.time))}</span>Back home${x.title ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          <div class="tl-title"><span class="tl-time">${x.estimated ? '±' : ''}${esc(dayHm(x.time))}</span>Back home${x.title && !x.estimated ? ` <span class="muted">(${esc(x.title)})</span>` : ''}</div>
+          ${x.away_now ? '<div class="tl-sub muted">The car is away now; charging is planned from when it is back. Arrival level is an estimate.</div>' : x.estimated ? '<div class="tl-sub muted">When you leave for home plus the drive</div>' : ''}
           ${x.from_title && x.km != null ? `<div class="tl-sub">~${esc(Math.round(x.km))} km from ${esc(shortName(x.from_title))}${x.soc_from != null ? ` (leaves with ${pct(x.soc_from)})` : ''}</div>` : ''}
           ${x.soc != null && x.soc < 0 ? `<div class="tl-sub warn-text">The battery runs out on this trip: about ${esc(Math.round(-x.soc))}% short. Charge on the way, or set a higher target</div>` : x.soc != null && x.soc <= 0 ? '<div class="tl-sub warn-text">The battery may not be enough for this trip there and back: charge on the way</div>' : ''}
           ${x.soc != null && x.soc > 0 && x.soc < 10 ? '<div class="tl-sub warn-text">Low when you are back: a higher target for this trip gives more room</div>' : ''}
           ${x.charge_stops ? chargeStopsHtml(x.charge_stops) : ''}
-          ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${level(x.soc, short ? 'exp' : '')}</li>`;
+          ${x.soc == null ? '<div class="tl-sub muted">What the trip costs is not known, so the level after it is not known either</div>' : !short && nextLeave ? '<div class="tl-sub muted">Enough for the next trip: no charging needed</div>' : ''}</div>${x.away_now && x.soc != null ? `<span class="tl-level ${short ? 'exp' : ''}" title="Estimated battery on arrival">~${pct(x.soc)}</span>` : level(x.soc, short ? 'exp' : '')}</li>`;
       };
 
       // Charging stops on the way (#37): the suggestions, or why there are none.
@@ -1694,7 +1735,7 @@ function durationText(minutes) {
           no_route: 'No route was found to the destination.',
           bad_key: `Open Charge Map did not accept the API key (${where}).`,
           failed: 'Charging stations could not be looked up. The app tries again later.',
-          none: `No charging station on the way fits your settings (power, connector, detour, country)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
+          none: `No charging station on the way fits your settings (power, connector, detour, country, preferred operators)${c.reach_km != null ? `, within ~${esc(c.reach_km)} km` : ''}. Change them under ${where}.`,
         };
         const legs = c.legs && c.legs.length ? c.legs : c.stops && c.stops.length ? [{ n: 1, on_way_back: c.on_way_back, stations: c.stops, longer_only: c.longer_only, others_only: c.others_only }] : [];
         const count = legs.length > 1 ? ` · ${esc(legs.length)} stops` : '';
@@ -1726,7 +1767,7 @@ function durationText(minutes) {
         return `<div class="cstops"><div class="cstops-head">${need}</div>
           ${mapHtml}
           ${legs.map(leg).join('')}
-          ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country). Change them under ${where}.</div>` : ''}
+          ${c.status === 'partial' ? `<div class="muted small warn-text">After ~${esc(c.gap_km)} km no charging station fits your settings (power, connector, detour, country, preferred operators). Change them under ${where}.</div>` : ''}
           <div class="muted small">Stations from Open Charge Map. Each stop is as late as the battery allows (fast charging when nearly empty); the best station first: your operators, the most power, the most points${legs.length > 1 ? '. The next stop is planned from the first station' : ''}. Not live: check availability in your charging app.</div></div>`;
       }
 
@@ -1776,16 +1817,30 @@ function durationText(minutes) {
           const stopOnWay = stopOk ? ` <span class="tl-p exp">charge on the way${cs.legs && cs.legs.length > 1 ? ` (${esc(cs.legs.length)} stops)` : ''}</span>${mapBtn}` : '';
           // More places in a row: "Work → Gym".
           const via = items.slice(i + 1, b ? b.i : items.length).filter((y) => y.type === 'stop').map((y) => ` → <strong>${esc(shortName(y.title))}</strong>`).join('');
-          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${sameDay ? `–${esc(hm(b.x.time))}` : ''}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
+          // A trip home in the calendar (#62): there until it leaves for home, then home ±.
+          const dh = items.slice(i + 1, b ? b.i : items.length).find((y) => y.type === 'drive_home');
+          // Preconditioning during this trip (#64): for the next place, the trip
+          // home or the way back, in the line of the trip: "Office 07:30–17:00 · ❄ 16:45".
+          let tripEnd = items.findIndex((y, k) => k > i && (y.type === 'leave' || y.type === 'back'));
+          if (tripEnd < 0) tripEnd = items.length;
+          const preIn = [];
+          for (let k = i + 1; k < tripEnd; k++) {
+            if (items[k].type === 'precondition' && items[k].kind !== 'out' && dayKey(items[k].time) === key) { preIn.push(items[k]); used.add(k); }
+          }
+          const preTxt = preIn.map((y) => ` · ❄ ${esc(hm(y.time))}`).join('');
+          const span = dh && dayKey(dh.time) === key ? `–${esc(hm(dh.time))}${preTxt}${sameDay ? ` · home ±${esc(hm(b.x.time))}` : ''}` : sameDay ? `–${esc(hm(b.x.time))}${preTxt}` : preTxt;
+          day.parts.push(`<span class="tl-p"><strong>${esc(shortName(x.title))}</strong>${via} ${esc(hm(x.time))}${span}${lv ? ` · <span class="${low || empty ? 'warn-text' : ''}">${lv}</span>` : ''}${stopOnWay}</span>`);
           return;
         }
         if (x.type === 'precondition') {
+          if (used.has(i)) return; // shown in the line of its trip
           day.parts.push(`<span class="tl-p">❄ ${esc(hm(x.time))}</span>`);
           return;
         }
         if (used.has(i)) return;
-        if (x.type === 'stop') return; // shown with the trip it belongs to
-        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${whole(x.soc)}` : ''}</span>`);
+        if (x.type === 'stop' || x.type === 'drive_home') return; // shown with the trip it belongs to
+        if (x.soc != null && x.soc < 10) day.warn = true;
+        day.parts.push(`<span class="tl-p">${x.away_now ? 'Car away · back' : 'back'} ${esc(hm(x.time))}${x.soc != null ? ` · ${x.away_now ? '~' : ''}${whole(x.soc)}` : ' · arrival level unknown'}</span>`);
       });
       const rows = days.map((day) => `<details class="tl-day${day.warn ? ' warn' : ''}${day.est ? ' est' : ''}"${keep(`day:${day.key}`)}>
           <summary><span class="tl-dayname">${esc(dayName(day.at))}</span><span class="tl-daytext">${day.parts.join('<span class="tl-dot"> · </span>')}${day.est ? ' <span class="chip tl-est">estimate</span>' : ''}</span></summary>
@@ -2643,7 +2698,7 @@ function durationText(minutes) {
             <tr><th>Leave</th><th>Trip</th><th class="n">Target</th></tr>
             ${trips.map((t) => `<tr>
               <td>${esc(depWhen(t.event_start))}${nextKey === `calendar:${t.time}` ? ' <span class="chip">next</span>' : ''}${readyBy(t)}</td>
-              <td>${esc(t.title)}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? '<div class="src">Precondition: yes</div>' : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
+              <td>${esc(t.title)}${t.trip_home ? ' <span class="chip">Trip home</span>' : ''}${t.location ? `<div class="src">${esc(t.location)}</div>` : ''}${t.precondition ? `<div class="src">Precondition: yes${t.precondition_at ? ` (${esc(hm(t.precondition_at))})` : ''}</div>` : ''}${t.trip_home && t.home ? `<div class="src">${t.home.drive_min ? `Home about ${esc(hm(t.home.at))} (${esc(t.home.drive_min)} min ${t.home.how === 'route' ? 'by road' : 'estimated'})` : `Home ${esc(hm(t.home.at))} (end of the appointment; the drive is not known)`}</div>` : ''}${t.cost && (t.cost.status !== 'unknown' || t.cost.reason === 'not_found') ? `<div class="src">${tripText(t.cost)}</div>` : ''}${d.cars ? (t.car_unknown ? `<div class="src warn-text">Car "${esc(t.car)}" not recognised: counts for every car</div>` : t.car ? `<div class="src">Car: ${esc(t.car)}</div>` : '<div class="src">Every car</div>') : ''}</td>
               <td class="n">${esc(t.soc)}%${t.topup ? `<div class="src">raised, was ${esc(t.topup.from)}%</div>` : t.soc_from_event ? '' : '<div class="src">default</div>'}</td>
             </tr>`).join('')}
           </table>` : `<p class="muted">No trips found in this calendar for the next ${esc(Math.max(14, d.ahead_days || 7))} days${dep.calendar.match === 'target' ? ' (looking for events with "target: 80", "doel: 80" or similar in the description)' : ''}.</p>`}
@@ -2743,6 +2798,94 @@ function durationText(minutes) {
     });
 
     // ---------- Savings ----------
+    // Trip log (#61): the real use per drive, and use against the outside temperature.
+    let tripsCar = null;
+    async function loadTrips() {
+      const box = $('trips-body');
+      try {
+        const d = await api('GET', `api/triplog${tripsCar ? `?vehicle_id=${encodeURIComponent(tripsCar)}` : ''}`);
+        if (!d.available) { box.innerHTML = '<div class="card muted">Set up a car first under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.</div>'; return; }
+        const carPick = d.cars.length > 1 ? `<div class="field"><label>Car</label><select id="trips-car">${d.cars.map((c) => `<option value="${esc(c.id)}"${c.id === d.vehicle.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : '';
+        const fmt = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        // In the table: no year for this year's drives, the time on its own line.
+        const thisYear = new Date().getFullYear();
+        const day = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, weekday: 'short', day: 'numeric', month: 'short', ...(new Date(ms).getFullYear() !== thisYear ? { year: 'numeric' } : {}) }).format(new Date(ms));
+        const hm = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: d.time_zone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+        const sensorLine = `Odometer: <strong>${esc((d.sensors && d.sensors.odometer) || 'not found')}</strong> · battery: <strong>${esc((d.sensors && d.sensors.soc) || 'not found')}</strong> · outside temperature: <strong>${esc((d.sensors && d.sensors.temp) || 'not found')}</strong>${d.chosen.odometer || d.chosen.temperature ? '' : ' (found automatically)'}. Change them under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.`;
+        if (!d.enabled) { box.innerHTML = `<div class="card">${carPick}<p class="muted">The trip log is off for this car. Turn on <strong>Keep a trip log</strong> under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.</p></div>`; bindTrips(); return; }
+        if (d.status === 'not_yet') { box.innerHTML = `<div class="card">${carPick}<p class="muted">Reading the history of the odometer and the battery… this takes a minute the first time. Open this page again in a moment.</p><p class="muted small">${sensorLine}</p></div>`; bindTrips(); return; }
+        if (d.status === 'no_odometer' || d.status === 'no_soc') {
+          box.innerHTML = `<div class="card">${carPick}<p>${d.status === 'no_odometer' ? 'No odometer found on the car. Choose the car\'s odometer (total km) under <a href="#" data-goto="vehicle">Settings › Vehicle</a>.' : 'The trip log needs the car\'s battery level sensor (Settings › Vehicle).'}</p><p class="muted small">${sensorLine}</p></div>`;
+          bindTrips(); return;
+        }
+        const used = d.drives.filter((x) => x.used);
+        const withT = used.filter((x) => Number.isFinite(x.temp));
+        const cold = d.cold;
+        box.innerHTML = `
+          <div class="card">
+            ${carPick}
+            <span class="advice">${d.since ? `SINCE ${esc(fmt(d.since).toUpperCase())}` : 'NO DRIVES YET'}</span>
+            <div class="stats">
+              <div class="stat"><div class="v">${d.total}</div><div class="l">Drives</div></div>
+              <div class="stat"><div class="v">${d.km.toLocaleString('en-GB')} km</div><div class="l">Driven</div></div>
+              <div class="stat"><div class="v">${d.pct_100km != null ? `${d.pct_100km}%` : '–'}</div><div class="l">Battery per 100 km${d.vehicle.capacity_kwh && d.pct_100km != null ? ` (${(d.pct_100km * d.vehicle.capacity_kwh / 100).toFixed(1)} kWh)` : ''}</div></div>
+              <div class="stat"><div class="v">${cold ? `+${cold.extra_pct}%` : '–'}</div><div class="l">Extra per degree below ${d.cold_base_c} °C</div></div>
+            </div>
+            <p class="muted small">${cold ? `Learned from ${cold.drives} drives: at ${d.cold_base_c} °C or warmer about ${cold.base_pct_100km}% per 100 km, and ${cold.extra_pct}% more for every degree colder.${d.cold_on ? ' Trip estimates use this.' : ' Turn on "Use more in the cold" under Settings › Vehicle to use it for trip estimates.'}` : 'The cold is learned after at least 4 usable drives with 5 degrees or more between the coldest and the warmest.'}
+              ${d.used < d.total ? ` ${d.total - d.used} drive(s) are listed but not used: shorter than 15 km, charged on the way, or no battery level.` : ''}</p>
+            <p class="muted small">${sensorLine}</p>
+          </div>
+          ${withT.length ? `<div class="card"><h2>Use against the outside temperature</h2>${tripsChart(withT, cold, d.cold_base_c)}
+            <p class="muted small">Each dot is a drive of 15 km or more. Hover or tap a dot for the details.${cold ? ' The line is what the app learned.' : ''}</p></div>` : ''}
+          <div class="card">
+            <h2>Drives</h2>
+            ${d.drives.length ? `<div class="table-wrap"><table class="periods">
+              <tr><th>Drive</th><th class="n">km</th><th class="n">Battery</th><th class="n">/100 km</th><th class="n">Outside</th></tr>
+              ${d.drives.map((x) => `<tr${x.used ? '' : ' class="muted"'}>
+                <td>${esc(day(x.start))}<div class="src">${esc(hm(x.start))}–${esc(hm(x.end))}</div>${x.used ? '' : `<div class="src">${esc({ charged: 'charged on the way: not used', short: 'short drive: not used', no_soc: 'battery level not known', implausible: 'battery level not plausible: not used' }[x.why] || 'not used')}</div>`}</td>
+                <td class="n">${x.km}</td>
+                <td class="n">${x.pct != null ? `${x.soc_start}% → ${x.soc_end}%` : '–'}</td>
+                <td class="n">${x.pct_100km != null ? `${x.pct_100km}%${x.kwh_100km != null ? `<div class="src">${x.kwh_100km} kWh</div>` : ''}` : '–'}</td>
+                <td class="n">${Number.isFinite(x.temp) ? `${x.temp} °C` : '–'}</td></tr>`).join('')}
+            </table></div>` : '<p class="muted">No drives found yet. Each drive appears an hour or two after it ends.</p>'}
+            <p class="muted small">From Home Assistant's hourly statistics: the km from the odometer, the battery level from the highest value just before and the lowest just after the drive, so a short drive is rough.</p>
+          </div>`;
+        bindTrips();
+      } catch (err) {
+        box.innerHTML = `<div class="card error">${esc(err.message)}</div>`;
+      }
+    }
+    function bindTrips() {
+      const sel = $('trips-car');
+      if (sel) sel.addEventListener('change', () => { tripsCar = sel.value; loadTrips(); });
+    }
+    // Scatter: battery % per 100 km (y) against the outside temperature (x).
+    function tripsChart(drives, cold, baseC) {
+      // A narrower drawing on a phone, so the text stays readable.
+      const narrow = window.innerWidth < 600;
+      const W = narrow ? 360 : 640; const H = narrow ? 240 : 260; const L = 44; const R = 26; const T = 22; const B = 34;
+      const xs = drives.map((x) => x.temp); const ys = drives.map((x) => x.pct_100km);
+      const x0 = Math.floor(Math.min(...xs, baseC - 10) / 5) * 5; const x1 = Math.ceil(Math.max(...xs, baseC + 5) / 5) * 5;
+      const y0 = 0; const y1 = Math.ceil(Math.max(...ys) * 1.15 / 5) * 5 || 5;
+      const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
+      const sy = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+      const xt = []; for (let v = x0; v <= x1; v += 5) xt.push(v);
+      const yt = []; const ys5 = Math.max(5, Math.ceil(y1 / 4 / 5) * 5); for (let v = 0; v <= y1; v += ys5) yt.push(v);
+      const line = cold ? (() => {
+        const f = (t) => cold.base_pct_100km * (1 + (cold.extra_pct / 100) * Math.max(0, baseC - t));
+        const pts = []; for (let t = x0; t <= x1; t += 0.5) pts.push(`${sx(t).toFixed(1)},${sy(f(t)).toFixed(1)}`);
+        return `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>`;
+      })() : '';
+      return `<svg class="trips-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Battery use per 100 km against the outside temperature" style="width:100%;height:auto;max-height:340px">
+        ${yt.map((v) => `<line x1="${L}" x2="${W - R}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--border)" stroke-width="1"/><text x="${L - 6}" y="${sy(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}%</text>`).join('')}
+        ${xt.map((v) => `<text x="${sx(v)}" y="${H - B + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${v} °C</text>`).join('')}
+        <text x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle" font-size="11" fill="var(--muted)">Outside temperature</text>
+        <text x="${L}" y="12" font-size="11" fill="var(--muted)">Battery per 100 km</text>
+        ${line}
+        ${drives.map((x) => `<circle cx="${sx(x.temp).toFixed(1)}" cy="${sy(x.pct_100km).toFixed(1)}" r="5" fill="var(--accent)" stroke="var(--card)" stroke-width="2"><title>${esc(`${x.km} km · ${x.pct_100km}% per 100 km${x.kwh_100km != null ? ` (${x.kwh_100km} kWh)` : ''} · ${x.temp} °C`)}</title></circle>`).join('')}
+      </svg>`;
+    }
+
     async function loadSavings() {
       const box = $('savings-body');
       box.innerHTML = '<div class="card muted">Collecting charging sessions and prices… this can take a moment the first time.</div>';
@@ -4256,10 +4399,10 @@ function durationText(minutes) {
           <div class="levelbar">${seg('lv-off', 0, minP)}${seg('lv-house', minP, toP)}${seg('lv-car', toP, fromP)}${seg('lv-start', fromP, 100)}</div>
         </div>
         <div class="levellegend">
-          <span><i style="background:rgba(var(--rgb-grey),.35)"></i>never used (below ${minP}%)</span>
-          <span><i style="background:rgba(var(--rgb-amber),.55)"></i>only for the house</span>
-          <span><i style="background:rgba(var(--rgb-teal),.45)"></i>for the car, once started</span>
-          <span><i style="background:rgba(var(--rgb-teal),.85)"></i>starts charging the car</span>
+          <span><i style="background:color-mix(in srgb, var(--c-grey) 35%, transparent)"></i>never used (below ${minP}%)</span>
+          <span><i style="background:color-mix(in srgb, var(--c-amber) 55%, transparent)"></i>only for the house</span>
+          <span><i style="background:color-mix(in srgb, var(--c-teal) 45%, transparent)"></i>for the car, once started</span>
+          <span><i style="background:color-mix(in srgb, var(--c-teal) 85%, transparent)"></i>starts charging the car</span>
         </div>
         <p class="muted small">While the car charges, the battery helps from ${fromP}% until it is at ${toP}%. It starts again only when it is back at ${fromP}%.</p>`;
     }
@@ -4540,7 +4683,7 @@ function durationText(minutes) {
     // ---------- Tabs ----------
     // Use: Home, Planning, History. Set up once: Settings.
     const SETTINGS_SUBS = ['setup', 'vehicle', 'charger', 'grid', 'prices', 'solar', 'battery', 'ctlset', 'status', 'diag'];
-    const HISTORY_SUBS = ['savings', 'log'];
+    const HISTORY_SUBS = ['savings', 'log', 'trips'];
     let settingsSub = 'setup';
     let historySub = 'savings';
 
@@ -4549,6 +4692,7 @@ function durationText(minutes) {
       departures: ['PLAN', 'Plan departures', 'Choose when the car must be ready and which battery level you need.', 'departures', 'blue'],
       savings: ['ACTIVITY', 'Savings', 'See what smart charging changed compared with charging immediately.', 'savings', 'green'],
       log: ['ACTIVITY', 'Charging activity', 'Follow decisions, charger commands and conflicts in one place.', 'log', 'blue'],
+      trips: ['ACTIVITY', 'Trips', 'The real use of every drive, and what the cold does to it.', 'car', 'teal'],
       setup: ['SETTINGS', 'Settings overview', 'Check the complete setup and jump straight to anything that needs attention.', 'settings', 'blue'],
       vehicle: ['SETTINGS', 'Vehicle', 'Choose the battery and connection data the plan should use.', 'car', 'green'],
       charger: ['SETTINGS', 'Charger', 'Connect the charger and verify how it can be controlled.', 'charger', 'blue'],
@@ -4603,6 +4747,7 @@ function durationText(minutes) {
       if (show === 'overview') loadOverview();
       if (show === 'departures') loadDepartures();
       if (show === 'savings') loadSavings();
+      if (show === 'trips') loadTrips();
       if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
       [0, 250, 1000].forEach((delay) => setTimeout(() => refreshRangeValues(), delay));
     }
@@ -4610,7 +4755,7 @@ function durationText(minutes) {
     document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
 
     // Icons on the tabs.
-    const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', settings: 'settings',
+    const NAV_ICONS = { overview: 'overview', departures: 'departures', history: 'chart', savings: 'savings', log: 'log', trips: 'car', settings: 'settings',
       setup: 'check', vehicle: 'car', charger: 'charger', grid: 'grid', prices: 'prices', solar: 'sun', battery: 'battery', ctlset: 'control', status: 'bell', diag: 'status' };
     document.querySelectorAll('#main-nav .tab, #settings-nav .subtab, #history-nav .subtab').forEach((b) => {
       const label = b.textContent.replace('⚙', '').trim();

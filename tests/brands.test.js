@@ -171,5 +171,42 @@ console.log('Tesla Wall Connector');
   check('says it can only read', () => assert.ok(r.warnings.some((w) => w.code === 'read_only_integration')));
 }
 
+// Easee v2026.11.0 (#57): the action contracts of nordicopen/easee_hass
+// v2026.11.0 (services.yaml), with the new Equalizer action. A synthetic copy,
+// not the real integration.
+console.log('Easee v2026.11.0 (#57)');
+{
+  const base = CHARGERS.find((c) => c.brand === 'Easee');
+  const { entities, states } = base.dev;
+  const services = {
+    easee: {
+      ...base.services.easee,
+      set_charger_dynamic_limit: { name: 'Set charger dynamic limit', fields: { device_id: { selector: { device: { integration: 'easee', model: 'Charger' } } }, current: { selector: { number: { min: 0, max: 32, unit_of_measurement: 'A' } } }, time_to_live: { selector: { number: { min: 0, max: 1440, unit_of_measurement: 'min' } } } } },
+      set_charger_phase_mode: { name: 'Set charger phase mode', fields: { device_id: { selector: { device: { integration: 'easee' } } }, phase_mode: { selector: { select: { options: ['1_phase', 'auto_phase', '3_phase'] } } } } },
+      // New: the Equalizer's maximum continuous current (a site limit).
+      set_equalizer_max_continuous_limit: { name: 'Set Equalizer max continuous limit', description: 'Sets the maximum continuous current limit of the Equalizer.', fields: { device_id: { selector: { device: { filter: { integration: 'easee', model: 'Equalizer' } } } }, current: { selector: { number: { min: 0, max: 63, unit_of_measurement: 'A' } } } } },
+      // The same action without "Equalizer" in its name: the device selector decides.
+      set_max_continuous_limit: { name: 'Set max continuous limit', fields: { device_id: { selector: { device: { filter: { integration: 'easee', model: 'Equalizer' } } } }, current: { selector: { number: { min: 0, max: 63, unit_of_measurement: 'A' } } } } },
+    },
+  };
+  const r = checkControl({ charger: { device_id: 'd', integration: 'easee' }, entities, states, services });
+  const ids = r.current.map((m) => m.service || m.entity_id);
+  check('the Equalizer action is never a charger current method', () => assert.ok(ids.includes('set_charger_dynamic_limit') && !ids.includes('set_equalizer_max_continuous_limit') && !ids.includes('set_max_continuous_limit'), JSON.stringify(ids)));
+  check('set_charger_dynamic_limit stays recommended, with time_to_live', () => {
+    const cur = r.recommended.current;
+    assert.ok(cur && cur.service === 'set_charger_dynamic_limit' && cur.ttl_field === 'time_to_live', JSON.stringify(cur));
+  });
+  check('start/stop: the Charger enabled switch, not pause/resume', () => assert.strictEqual(r.recommended.start_stop.entity_id, 'switch.eh123456_charger_enabled'));
+  check('phase switching with the named options 1_phase / 3_phase', () => {
+    const ph = r.recommended.phase;
+    assert.ok(ph && ph.one_value === '1_phase' && ph.three_value === '3_phase', JSON.stringify(ph));
+    assert.strictEqual(controller.phaseCommand(ph, 3, 'd').data.phase_mode, '3_phase');
+  });
+  check('the current command sends device_id as text and the current in A', () => {
+    const cmd = controller.currentCommand(r.recommended.current, 10, 'd');
+    assert.ok(cmd.data.device_id === 'd' && cmd.data.current === 10, JSON.stringify(cmd));
+  });
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

@@ -706,8 +706,12 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
   // The line can be a little shorter than the road: scale to the road.
   let scale = 1;
   const near = [];
+  // Preferred operators (#60): when you chose any, only their stations count,
+  // never another operator. None of yours on the way: no stop is suggested.
+  const onlyMine = prefer.size + preferOcm.size > 0;
   for (const s of st.list) {
     if (c.only_countries && s.country && !c.countries.includes(s.country)) continue;
+    if (onlyMine && !preferred(s)) continue;
     const plugs = c.connectors.filter((k) => s.connectors[k] && s.connectors[k].kw >= c.min_power_kw);
     if (!plugs.length) continue;
     const pos = onRoute(points, s);
@@ -759,7 +763,7 @@ function suggest({ home, dest, socLeave, socEnd, pctPerKm, capacityKwh, now = Da
     // A station once, also when it fits on the way there and on the way back.
     const seen = new Set();
     const unique = pick.filter((x) => !seen.has(x.s.id) && seen.add(x.s.id));
-    return { pick: unique, longer: longer && pick.length > 0, others: prefer.size + preferOcm.size > 0 && !mine.length && fits.length > 0 };
+    return { pick: unique, longer: longer && pick.length > 0, others: false };
   };
   const item = (x, far, from) => ({
     id: x.s.id,

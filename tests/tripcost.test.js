@@ -24,6 +24,37 @@ function check(name, fn) {
   }
 }
 
+
+check('arrival percentage survives refresh and restart, only for the same trip, before arrival and for at most 48 hours (#65)', () => {
+  const now = Date.UTC(2026, 10, 10, 6);
+  const context = { vehicle: 'car-a', calendar: 'calendar.trips', tz: 'UTC', trips: [[now, 'Office'], [now + 8 * 3600000, 'Home']] };
+  const key = t.arrivalKey(context);
+  t.rememberArrival(key, 42, now + 10 * 3600000, now);
+  assert.strictEqual(t.arrivalLevel(key, now + 9 * 3600000), 42); // already driving home
+  assert.strictEqual(t.arrivalLevel(key, now + 10 * 3600000), null); // arrived
+  for (const changed of [
+    { ...context, vehicle: 'car-b' }, { ...context, calendar: 'calendar.other' },
+    { ...context, tz: 'Europe/Amsterdam' }, { ...context, trips: [[now, 'Gym']] },
+  ]) assert.strictEqual(t.arrivalLevel(t.arrivalKey(changed), now + 3600000), null);
+  delete require.cache[require.resolve('../smart_charging_planner/app/tripcost')];
+  const restored = require('../smart_charging_planner/app/tripcost');
+  assert.strictEqual(restored.arrivalLevel(key, now + 3600000), 42);
+  t.rememberArrival(key, 0, now + 10 * 3600000, now + 60000);
+  assert.strictEqual(t.arrivalLevel(key, now + 120000), 0);
+  t.rememberArrival(key, -4, now + 10 * 3600000, now + 180000);
+  assert.strictEqual(t.arrivalLevel(key, now + 240000), -4);
+  for (const bad of [null, undefined, NaN, Infinity, 101]) {
+    const other = t.arrivalKey({ bad: String(bad) });
+    t.rememberArrival(other, bad, now + 3600000, now);
+    assert.strictEqual(t.arrivalLevel(other, now + 1), null);
+  }
+  const longKey = t.arrivalKey({ vehicle: 'long-trip' });
+  t.rememberArrival(longKey, 30, now + 48 * 3600000, now);
+  t.rememberArrival(longKey, 30, now + 48 * 3600000, now + 24 * 3600000);
+  assert.strictEqual(t.arrivalLevel(longKey, now + 48 * 3600000), null);
+  assert.strictEqual(t.arrivalLevel(longKey, now - 1), null);
+});
+
 check('addresses and place names are looked up; "Werk", "Thuis" and empty are not', () => {
   assert.ok(t.looksLikePlace('Hoofdweg 1 1111 AA Meadowtown'));
   assert.ok(t.looksLikePlace('Molenstraat 5, 1113 AA Hilltown'));
@@ -175,6 +206,13 @@ check('cold (#56): learning remembers the temperature; after 4 trips with 5+ deg
   assert.ok(fit && Math.abs(fit.extra - 2) < 0.01 && Math.abs(fit.base - 0.30) < 1e-6, JSON.stringify(fit));
   const r = t.pctPerKm(coldCar(), [], 50, 0);
   assert.ok(r.how === 'learned' && r.cold.learned === true && Math.abs(r.pct_per_km - 0.39) < 1e-6, JSON.stringify(r));
+});
+check('drive home (#62): the route\'s own drive time when known, else 70 km/h; nothing without a distance', () => {
+  assert.deepStrictEqual(t.driveMinutes(60, 48), { min: 48, how: 'route' });
+  assert.deepStrictEqual(t.driveMinutes(60), { min: 51, how: 'estimate' });
+  assert.deepStrictEqual(t.driveMinutes(70, null), { min: 60, how: 'estimate' });
+  assert.strictEqual(t.driveMinutes(0), null);
+  assert.strictEqual(t.driveMinutes(null), null);
 });
 check('cold (#56): too little spread or too few trips: the setting is used', () => {
   const now = Date.now();

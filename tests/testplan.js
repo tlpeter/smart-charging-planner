@@ -41,9 +41,11 @@ const UNIT = [
   ['chargestops', 'Charging stops on the way: the route line, which stations count (country, power, connector, detour, reach), preferred operators, what is sent to Open Charge Map (#37); all of Europe, routes across a border and more stops on a long trip (#40); operators from the station data and the settings lists (#48); the route map settings and data (#47)'],
   ['persistence', 'Saving settings safely (a crash while saving loses nothing)'],
   ['departures', 'Which departure counts on a day: the highest source wins, an earlier departure it drops is marked for a warning, all-day events that look like a trip are listed as not used, two trips in a day, a trip after midnight (#25)'],
+  ['triplog', 'Trip log: drives from the hourly statistics (odometer, battery, outside temperature), charged-on-the-way and short drives not used, kept up to date, sensors found on the car, the use per km and the cold learned from the log (#61)'],
   ['precondition', 'Preconditioning before a departure: which drives (calendar first, then the way-back setting), when, one press and one retry, nothing with Allow control off, restart, turning a switch off again (#44)'],
   ['compat', 'Compatibility matrix: COMPATIBILITY.md matches the fixtures and the physical test status; read-only devices are marked (#28)'],
   ['page', 'The page: what you opened stays open when Home reloads every minute, and a reload that changes nothing leaves the page as it is (#51); the route map: zoom, tiles, route line, nothing loaded while closed, the map icon in Looking ahead (#47); Leaflet shipped unchanged and loaded only when a map opens (#54)'],
+  ['theme', 'The Home Assistant theme: the active theme of each user is copied onto the page (colours, cards, fonts), light or dark follows Home Assistant, theme changes apply right away, the default theme when Home Assistant cannot be read, and no fixed colours of the app itself (#63)'],
   ['docs', 'Documentation keeps up: README and RELEASE candidate match the version, every issue since the stable version is listed as implemented on dev'],
 ];
 
