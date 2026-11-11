@@ -2980,10 +2980,12 @@ async function run() {
       await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
       return `schedule ${dayKey} ${hhmm}: one press with the tick, none without; one-off: one press`;
     });
-    await test('Y24', 'Route to the next trip (#66): off by default; on, a calendar trip with a location in 20 minutes gives one notification; a tap on the phone opens Google Maps with the route, another notify action gets the link in the text; a trip without a location and a trip home get none; only a message', async () => {
+    await test('Y23b', 'Route to the next trip (#66): off by default; on, a calendar trip with a location in 20 minutes gives one notification; a tap on the phone opens Google Maps with the route, another notify action gets the link in the text; a trip without a location and a trip home get none; only a message', async () => {
       const LOC = 'Market 1, 1234 AB Rivertown';
       const URL = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(LOC)}&travelmode=driving`;
       const routeNotes = (n) => callsSince(n).filter((c) => c.domain === 'notify' && String(c.data && c.data.title).startsWith('Route:'));
+      // The calendar on again (Y23 left only the weekly schedule on).
+      await ok('POST', 'api/departures', depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'target', buffer_minutes: 0, soc: 80 } }));
       const cur = (await ok('GET', 'api/control')).rules;
       assert(cur.route_notify_enabled === false && cur.route_notify_minutes === 30, JSON.stringify(cur));
       await refused('POST', 'api/control/settings', { ...cur, route_notify_enabled: true, route_notify_minutes: 200 }, 'between 5 and 120');
