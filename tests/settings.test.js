@@ -125,6 +125,7 @@ async function startApp(options = {}) {
       SCP_OCM_URL: `http://127.0.0.1:${REST_PORT}/ocm/poi`,
       SCP_OCM_GAP_MS: '50',
       SCP_PRECONDITION_MS: '500',
+      SCP_ROUTE_MS: '500',
       SCP_WEATHER_KEEP_MS: '200',
       SCP_TRIPLOG_DELAY_MS: '300',
       SCP_TRIPLOG_MS: '1000',
@@ -2978,6 +2979,47 @@ async function run() {
       await api('DELETE', 'api/departures/override');
       await ok('POST', 'api/precondition', { vehicle_id: car.id, enabled: false, entity_id: BTN });
       return `schedule ${dayKey} ${hhmm}: one press with the tick, none without; one-off: one press`;
+    });
+    await test('Y24', 'Route to the next trip (#66): off by default; on, a calendar trip with a location in 20 minutes gives one notification; a tap on the phone opens Google Maps with the route, another notify action gets the link in the text; a trip without a location and a trip home get none; only a message', async () => {
+      const LOC = 'Market 1, 1234 AB Rivertown';
+      const URL = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(LOC)}&travelmode=driving`;
+      const routeNotes = (n) => callsSince(n).filter((c) => c.domain === 'notify' && String(c.data && c.data.title).startsWith('Route:'));
+      const cur = (await ok('GET', 'api/control')).rules;
+      assert(cur.route_notify_enabled === false && cur.route_notify_minutes === 30, JSON.stringify(cur));
+      await refused('POST', 'api/control/settings', { ...cur, route_notify_enabled: true, route_notify_minutes: 200 }, 'between 5 and 120');
+      await ok('POST', 'api/notify', { recipients: [{ name: 'Alex', service: 'notify.mobile_app_pixel_8' }, { name: 'Log', service: 'notify.persistent_notification' }] });
+      const now = Date.now();
+      world.events = [
+        { summary: 'To Rivertown', description: 'target: 80', location: LOC, start: isoLocal(now + 20 * 60000, tz), end: isoLocal(now + 3 * 3600000, tz) },
+        { summary: 'To Sport', description: 'target: 80', location: null, start: isoLocal(now + 25 * 60000, tz), end: isoLocal(now + 4 * 3600000, tz) },
+        { summary: 'To home', description: 'target: 80', location: 'Home', start: isoLocal(now + 26 * 60000, tz), end: isoLocal(now + 5 * 3600000, tz) },
+      ];
+      try {
+        // Off (the default): nothing.
+        let n0 = world.calls.length;
+        await sleep(1500);
+        assert(routeNotes(n0).length === 0, `sent while off: ${routeNotes(n0).length}`);
+        // On, 30 minutes before.
+        n0 = world.calls.length;
+        await ok('POST', 'api/control/settings', { ...cur, route_notify_enabled: true, route_notify_minutes: 30 });
+        assert(await wait(() => routeNotes(n0).length === 2), `notifications: ${routeNotes(n0).length}`);
+        await sleep(1500);
+        const notes = routeNotes(n0);
+        assert(notes.length === 2, `sent again: ${notes.length}`);
+        const phone = notes.find((c) => c.service === 'mobile_app_pixel_8');
+        const other = notes.find((c) => c.service === 'persistent_notification');
+        assert(phone && phone.data.title === 'Route: To Rivertown' && phone.data.data && phone.data.data.clickAction === URL && phone.data.data.url === URL && !phone.data.message.includes('https://'), JSON.stringify(phone && phone.data));
+        assert(other && other.data.message.endsWith(`\n${URL}`), JSON.stringify(other && other.data));
+        // Only notifications: the link goes to no other action.
+        assert(callsSince(n0).filter((c) => JSON.stringify(c).includes('google.com/maps')).every((c) => c.domain === 'notify'), 'the link went elsewhere');
+        const shown = (await ok('GET', 'api/control')).route_upcoming;
+        assert(shown.length === 1 && shown[0].title === 'To Rivertown' && shown[0].sent === true, JSON.stringify(shown));
+        return `one route message (tap: Google Maps; link in the text for another notify action); none without a location or for the trip home`;
+      } finally {
+        world.events = [];
+        await ok('POST', 'api/control/settings', { ...cur, route_notify_enabled: false });
+        await ok('POST', 'api/notify', { service: 'notify.mobile_app_pixel_8' });
+      }
     });
   }
 

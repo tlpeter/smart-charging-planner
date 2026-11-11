@@ -22,6 +22,7 @@ const weather = require('./weather');
 const chargestops = require('./chargestops');
 const carplace = require('./carplace');
 const precondition = require('./precondition');
+const routenotify = require('./routenotify');
 const sharing = require('./sharing');
 const { houseLoadProfile, availableForBlock } = require('./houseload');
 const { computeSavings } = require('./savings');
@@ -4405,6 +4406,7 @@ function shareConnection(s, steps) {
 // Plans of every charger (more chargers), or the one charger.
 async function refreshAll(reason, opts = {}) {
   preconditionRefresh().catch((err) => ha.warn('Preconditioning schedule failed:', err.message));
+  routeRefresh().catch((err) => ha.warn('Route schedule failed:', err.message));
   const s = settings.load();
   const list = chargersList(s);
   if (list.length <= 1) return refreshPlan(reason, opts);
@@ -4444,6 +4446,46 @@ async function preconditionRefresh(now = Date.now()) {
     // The whole Looking ahead range (30 days), not only a week (#64).
     const others = winnersPerDay(collect(dep, { states, events, tz, now, days: AHEAD_MAX_DAYS + 1, cars: carCtx(s, v), skip: isReturnTrip }), tz).map((d) => d.winner).filter((x) => x.source !== 'calendar');
     precondition.setSchedule(v.id, [...precondition.schedule({ trips, cfg, isReturn: isReturnTrip }), ...precondition.fromDepartures({ departures: others, cfg })].sort((a, b) => a.at - b.at));
+  }
+}
+
+// "Send the route to my phone before a trip" (#66): the calendar trips with
+// a location, of every car (a trip for every car gives one message).
+// Recalculated with every refresh; sent from the minute step.
+async function routeRefresh(now = Date.now()) {
+  const s = settings.load();
+  const rules = rulesFor(s);
+  if (!rules.route_notify_enabled) { routenotify.setSchedule([]); return; }
+  const tz = ha.state.timeZone;
+  const all = [];
+  for (const v of cars(s)) {
+    const dep = departuresFor(s, v);
+    const { events, error } = await calendarEvents(dep, tz, now);
+    if (error && !events.length) continue;
+    all.push(...calendarTrips(dep, events, tz, now, carCtx(s, v)));
+  }
+  routenotify.setSchedule(routenotify.schedule({ trips: all, minutes: rules.route_notify_minutes, isReturn: isReturnTrip }));
+}
+
+let routeBusy = false;
+async function routeStep() {
+  if (routeBusy || !ha.state.connected) return;
+  if (!rulesFor(settings.load()).route_notify_enabled) return;
+  routeBusy = true;
+  try {
+    const done = await routenotify.step({
+      now: Date.now(),
+      send: (m) => {
+        const what = m.title || m.location;
+        const msg = `${what}: leave at ${hmLocal(m.until)} for ${m.location}. Tap to open the route in Google Maps; there you can send it to your car.`;
+        return notifier.notify('trip_route', `Route: ${what}`, msg, { vehicleId: m.car_id, extra: { url: m.url, tag: `scp_route_${m.until}` } });
+      },
+    });
+    for (const m of done) ha.log(`Route to ${m.title || 'the next trip'} (${hmLocal(m.until)}): ${m.result}`);
+  } catch (err) {
+    ha.warn('Sending the route failed:', err.message);
+  } finally {
+    routeBusy = false;
   }
 }
 
@@ -4628,6 +4670,7 @@ routes['GET /api/control'] = async () => {
     options: await ruleEntityOptions(s, states, rules),
     now: ST().lastDryRun,
     car_limit: await carChargeLimit(currentVehicle(s), states).catch(() => null),
+    route_upcoming: rules.route_notify_enabled ? routenotify.upcoming().slice(0, 3).map((m) => ({ title: m.title, at: m.at, until: m.until, sent: m.sent })) : [],
     chosen_start_stop: (() => {
       const c = chosenMethods(methods, rules);
       const cmd = c && controller.startStopCommand(c.start_stop, true, methods && methods.device_id);
@@ -5037,11 +5080,14 @@ routes['POST /api/control/settings'] = async (req) => {
     car_limit_restart: b.car_limit_restart === true,
     trip_topup_enabled: b.trip_topup_enabled === true,
     trip_topup_reserve: num(b.trip_topup_reserve ?? 10, 'Reserve when back home', 0, 50),
+    route_notify_enabled: b.route_notify_enabled === true,
+    route_notify_minutes: num(b.route_notify_minutes ?? 30, 'Send the route this many minutes before', 5, 120),
     min_choice: num(b.min_choice ?? 30, 'Default minimum for quick choices', 20, 45),
   };
   settings.save(s);
   ST().lastDryRun = null;
   ST().conflictsCache = null;
+  routeRefresh().catch((err) => ha.warn('Route schedule failed:', err.message));
   return { ok: true, control: rulesFor(s) };
 };
 
@@ -5088,6 +5134,8 @@ function startBackgroundRefresh() {
   // Preconditioning (#44): checked every minute, also when the car is away.
   precondition.recover();
   setInterval(() => { preconditionStep().catch(() => {}); }, Number(process.env.SCP_PRECONDITION_MS) || 60000);
+  // The route to the next trip (#66): checked every minute.
+  setInterval(() => { routeStep().catch(() => {}); }, Number(process.env.SCP_ROUTE_MS) || 60000);
   // With control on, check the charger every minute between plan refreshes,
   // so plugging in or the start of a planned period is followed quickly.
   if (options.allow_control === true && every > 60000) {

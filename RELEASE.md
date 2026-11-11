@@ -51,11 +51,13 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.39.1-dev
+## Current candidate: 0.39.2-dev
 
 Stable main is 0.39.0 (release v0.39.0: #57, #58, #59, #60, #61, #62, #63, #64, #65). Earlier: 0.38.0 (#25, #33, #39, #55, #56), 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54), 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.39.0: none yet.
+Scope on dev since 0.39.0: #66 (route to the next trip on the phone, off by default).
+
+Home check for #66: turn on Settings › Rules › Send the route to my phone before a trip and "Route to the next trip" for your phone; add a calendar trip with an address abroad as location; at the set time one notification comes; a tap opens Google Maps with the route; Send to car shows it in the car; no second message.
 
 Home checks still open from 0.39.0 and 0.38.0 (released before the owner's home check): #57–#65, and #55, #33, #25, #39 and #56. The steps are in those issues.
 

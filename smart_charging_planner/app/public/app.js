@@ -3052,6 +3052,12 @@ function durationText(minutes) {
       f.car_limit_restart.checked = !!r.car_limit_restart;
       f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
       f.trip_topup_reserve.value = r.trip_topup_reserve ?? 10;
+      f.route_notify_enabled.checked = !!r.route_notify_enabled;
+      f.route_notify_minutes.value = r.route_notify_minutes ?? 30;
+      const routes = d.route_upcoming || [];
+      $('route-next').innerHTML = routes.length
+        ? 'Next: ' + routes.map((x) => `${esc(x.title || 'trip')} at ${esc(new Date(x.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: d.time_zone || undefined }))}${x.sent ? ' (sent)' : ''}`).join(' · ')
+        : 'No trip with a location in the coming days.';
       f.min_choice.value = r.min_choice ?? 30;
       const lim = d.car_limit;
       $('car-limit-now').innerHTML = lim && lim.entity_id
@@ -3089,6 +3095,7 @@ function durationText(minutes) {
           battery_care_early_saving: f.battery_care_early_saving.value,
           car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
           trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
+          route_notify_enabled: f.route_notify_enabled.checked, route_notify_minutes: f.route_notify_minutes.value,
         });
         document.activeElement.blur();
         await loadControl();

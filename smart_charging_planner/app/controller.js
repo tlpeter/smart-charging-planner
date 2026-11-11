@@ -73,6 +73,8 @@ const DEFAULT_RULES = {
   min_choice: 30, // default minimum (%) for the quick choices on Home
   trip_topup_enabled: false, // ask on the phone to charge more when the next trip needs it
   trip_topup_reserve: 10, // % to be back home with, for that question
+  route_notify_enabled: false, // send the route of a calendar trip to the phone (#66)
+  route_notify_minutes: 30, // that many minutes before the trip leaves
 };
 
 // Per charger (scope.js).

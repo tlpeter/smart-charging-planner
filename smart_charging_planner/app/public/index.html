@@ -239,6 +239,12 @@
           <div class="sub" data-when="trip_topup_enabled">
             <div class="field"><label>Be back home with at least (%)</label><input name="trip_topup_reserve" type="number" min="0" max="50" step="1"></div>
           </div>
+          <label class="check" style="margin-top:14px"><input type="checkbox" name="route_notify_enabled"> <strong>Send the route to my phone before a trip</strong></label>
+          <p class="muted small">Before a trip in the calendar that has a location, the app sends one notification. A tap opens the route in Google Maps; a car with Google built-in (for example openR Link) can get it from there with "Send to car", when the car and the phone use the same Google account. Not for a trip home. Only a message: nothing is sent to the car. Turn on "Route to the next trip" under Settings › Notifications for the phones that should get it.</p>
+          <div class="sub" data-when="route_notify_enabled">
+            <div class="field"><label>Minutes before the trip leaves (5–120)</label><input name="route_notify_minutes" type="number" min="5" max="120" step="5"></div>
+            <p class="muted small" id="route-next"></p>
+          </div>
           <div class="field" style="margin-top:14px"><label>Default minimum for the quick choices on Home (20–45 %)</label>
             <input name="min_choice" type="number" min="20" max="45" step="5"></div>
           <label class="check" style="margin-top:14px"><input type="checkbox" name="min_soc_enabled"> <strong>Always charge when the battery is below a minimum</strong></label>

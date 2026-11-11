@@ -273,7 +273,7 @@ function tapData(service) {
 
 // extra.actions: buttons on the phone ([{ action, title }]), only for the
 // Home Assistant phone app; extra.tag: a later message with the same tag
-// replaces this one on the phone.
+// replaces this one on the phone; extra.url: what a tap opens.
 async function sendNotification(target, title, message, extra = null) {
   const full = normaliseNotify(target);
   if (!full) throw new Error('No notify action chosen');
@@ -283,8 +283,14 @@ async function sendNotification(target, title, message, extra = null) {
   debug('Notification:', title, '-', message);
   const serviceData = { title, message };
   let data = tapData(service);
+  // extra.url: a link (only https) that a tap opens instead of the app, for
+  // example the route in Google Maps (#66). Other notify actions get it in
+  // the text.
+  const url = extra && typeof extra.url === 'string' && /^https:\/\/[^\s]+$/.test(extra.url) ? extra.url : null;
+  if (url && !service.startsWith('mobile_app_')) serviceData.message = `${message}\n${url}`;
   if (extra && service.startsWith('mobile_app_')) {
     data = { ...(data || {}) };
+    if (url) { data.url = url; data.clickAction = url; }
     if (Array.isArray(extra.actions) && extra.actions.length) data.actions = extra.actions;
     if (extra.tag) data.tag = extra.tag;
   }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.2-dev
+
+- **Route to the next trip on your phone** (Settings › Rules, off by default): a set number of minutes before a calendar trip with a location leaves (default 30), the app sends one notification. A tap opens the route in Google Maps; a car with Google built-in (for example openR Link) can get it from there with "Send to car". Not for a trip home or a trip without a location; once per trip, also after a restart. Other notify actions get the link in the text. Only a message: nothing is sent to the car or charger. The message is "Route to the next trip" under **Car** in Settings › Notifications. (#66)
+
 ## 0.39.1-dev
 
 - Released 0.39.0 on main. Dev continues as 0.39.1-dev; the documentation check stops at the stable release heading below.

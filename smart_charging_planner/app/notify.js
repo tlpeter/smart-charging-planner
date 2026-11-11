@@ -41,6 +41,7 @@ const MESSAGES = [
   { id: 'car_online', category: 'car', name: 'Car reachable again' },
   { id: 'carlimit_changed', category: 'car', name: 'Car charge limit changed' },
   { id: 'chargefor_gone', category: 'car', name: 'Ready-for choice ended' },
+  { id: 'trip_route', category: 'car', name: 'Route to the next trip (Settings › Rules)' },
   { id: 'charging_started', category: 'startstop', name: 'Charging started' },
   { id: 'charging_paused', category: 'startstop', name: 'Charging paused' },
   { id: 'battery_action', category: 'battery', name: 'Home battery: what it does now' },
