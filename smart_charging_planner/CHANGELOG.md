@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.4-dev
+
+- **Search the settings:** a search field on Plan and on every Settings page. Type a word and the matching settings show up with where they are (for example "Plan › Calendar › Only events with a place"); it also searches the explanations, and a few Dutch words find the English settings ("agenda", "accu", "laadpaal"). A click opens the page, scrolls to the setting and lights it up. Only the display: the search changes nothing. (#68)
+
 ## 0.39.3-dev
 
 - **Calendar: reminders are no longer trips.** The keyword now counts only as a whole word: `EV` matches "EV to Rivertown", not "leveller". **Keywords** can be more words with a comma between them (`EV, trip`): an event with one of them is a trip. Two new options under Plan › Departures › Calendar, off by default: **Only events with a place** (an event without a location is not a trip, unless its title is a known place or a trip home, or it has a target or "precondition:") and **Skip events with these words** (an event with one of them is never a trip). Before, with "Every event with a time", a reminder without a place could start charging right away at an expensive price. (#67)

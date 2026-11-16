@@ -4747,6 +4747,9 @@ function durationText(minutes) {
       $('settings-nav').hidden = main !== 'settings' || wizardActive;
       $('history-nav').hidden = main !== 'history';
       document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((b) => b.classList.toggle('active', b.dataset.sub === sub));
+      // The settings search (#68): on Plan and on every Settings page.
+      $('settings-search').hidden = !(main === 'settings' || main === 'departures') || wizardActive;
+      closeSearch();
       const show = sub || main;
       currentShow = show;
       ensurePageHeading(show);
@@ -4763,6 +4766,140 @@ function durationText(minutes) {
       if (show === 'log' || show === 'ctlset' || show === 'charger') loadControl();
       [0, 250, 1000].forEach((delay) => setTimeout(() => refreshRangeValues(), delay));
     }
+    // ---------- Settings search (#68) ----------
+    // Finds a setting by its name or its explanation, on Plan and every
+    // Settings page. A click opens the page, scrolls to the setting and
+    // lights it up for a moment. The search reads the page itself, so new
+    // settings are found without a list to keep up to date.
+    // Dutch words find the English settings too (the app is in English).
+    const SEARCH_WORDS = {
+      agenda: 'calendar', afspraak: 'event', afspraken: 'events', rit: 'trip', ritten: 'trips', reis: 'trip',
+      vertrek: 'departure', vertrektijd: 'departure', weekschema: 'schedule', schema: 'schedule', doel: 'target',
+      laden: 'charg', opladen: 'charg', lading: 'charg', laadpaal: 'charger', lader: 'charger', laadpunt: 'charger',
+      laadstroom: 'current', stroom: 'current', ampere: 'current', fase: 'phase', fases: 'phase',
+      auto: 'car', wagen: 'car', voertuig: 'vehicle', accu: 'battery', batterij: 'battery', thuisbatterij: 'battery',
+      percentage: 'level', niveau: 'level', minimum: 'minimum', voorverwarmen: 'precondition', voorconditioneren: 'precondition',
+      verwarmen: 'precondition', koelen: 'precondition', zon: 'solar', zonne: 'solar', zonnepanelen: 'solar', overschot: 'surplus',
+      prijs: 'price', prijzen: 'price', tarief: 'price', kosten: 'cost', besparing: 'saving', belasting: 'tax', btw: 'vat',
+      net: 'grid', aansluiting: 'connection', zekering: 'fuse', hoofdzekering: 'fuse', meter: 'meter', verbruik: 'use',
+      melding: 'notif', meldingen: 'notif', bericht: 'notif', telefoon: 'phone', locatie: 'location', plek: 'place',
+      plekken: 'places', thuis: 'home', huis: 'home', werk: 'work', laadstop: 'stop', laadstops: 'stop', snelladen: 'charging stop',
+      route: 'route', kou: 'cold', winter: 'cold', temperatuur: 'temperature', kilometerstand: 'odometer', afstand: 'distance',
+      pauze: 'pause', pauzeren: 'pause', regels: 'rules', besturing: 'control', woord: 'word', woorden: 'words', overslaan: 'skip',
+      herinnering: 'reminder', taal: 'language', diagnose: 'diagnostic', storing: 'diagnostic', logboek: 'log',
+    };
+    const searchNorm = (t) => String(t || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+    let searchHits = [];
+
+    // Every setting on Plan and the Settings pages: its name, explanation,
+    // card title and page.
+    function searchIndex() {
+      const pages = [['departures', 'Plan'], ...SETTINGS_SUBS.filter((x) => x !== 'setup').map((x) => {
+        const b = document.querySelector(`#settings-nav .subtab[data-sub="${x}"]`);
+        return [x, `Settings › ${b ? b.textContent.trim() : x}`];
+      })];
+      const out = [];
+      for (const [page, pageName] of pages) {
+        const sec = $('tab-' + page);
+        if (!sec) continue;
+        sec.querySelectorAll('label, h2').forEach((el) => {
+          if (el.closest('.page-heading')) return;
+          const name = el.textContent.replace(/\s+/g, ' ').trim();
+          if (!name || name.length < 3) return;
+          const card = el.closest('.card');
+          const h2 = card && card.querySelector('h2');
+          const title = h2 ? h2.textContent.replace(/\s+/g, ' ').trim() : '';
+          let help = '';
+          const field = el.closest('.field');
+          const after = el.tagName === 'H2' ? el.nextElementSibling : (field ? field.querySelector('p.muted') : el.nextElementSibling);
+          if (after && after.matches('p.muted')) help = after.textContent;
+          out.push({ page, path: el.tagName === 'H2' ? pageName : `${pageName}${title ? ` › ${title}` : ''}`, name, help, kind: el.tagName === 'H2' ? 'card' : 'setting' });
+        });
+      }
+      // The same name twice on one page (for example per car) is shown once.
+      const seen = new Set();
+      return out.filter((x) => { const k = `${x.page}|${x.name}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    }
+
+    // Each word must be found (or its English word for a Dutch one); a hit in
+    // the name counts more than one in the explanation.
+    function searchFind(query) {
+      const words = searchNorm(query).split(' ').filter((w) => w.length >= 2);
+      if (!words.length) return [];
+      const alts = words.map((w) => [w, ...Object.entries(SEARCH_WORDS).filter(([k]) => w.length >= 3 && k.startsWith(w)).map(([, v]) => v)]);
+      return searchIndex().map((x) => {
+        const name = searchNorm(x.name);
+        const all = searchNorm(`${x.name} ${x.path} ${x.help}`);
+        let score = 0;
+        for (const a of alts) {
+          if (a.some((w) => name.includes(w))) score += 3;
+          else if (a.some((w) => all.includes(w))) score += 1;
+          else return null;
+        }
+        return { ...x, score: score + (x.kind === 'card' ? 1 : 0) };
+      }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 15);
+    }
+
+    function showSearch() {
+      const box = $('search-results');
+      const q = $('search-input').value;
+      if (searchNorm(q).length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+      searchHits = searchFind(q);
+      box.innerHTML = searchHits.length
+        ? searchHits.map((x, i) => `<a href="#" class="search-hit" role="option" data-goto="${esc(x.page)}" data-search-hit="${i}"><strong>${esc(x.name)}</strong><span>${esc(x.path)}</span></a>`).join('')
+        : '<div class="search-none">No setting found. Try another word.</div>';
+      box.hidden = false;
+    }
+    function closeSearch() {
+      if (!$('search-results')) return;
+      $('search-results').hidden = true;
+    }
+
+    // After the page is open: find the setting again (the page may have been
+    // drawn again), scroll to it and light it up. A setting inside a part that
+    // is closed (its option is off) lights up the nearest visible part.
+    function goToHit(hit) {
+      setTimeout(() => {
+        const sec = $('tab-' + hit.page);
+        if (!sec) return;
+        const el = [...sec.querySelectorAll('label, h2')].find((x) => x.textContent.replace(/\s+/g, ' ').trim() === hit.name);
+        if (!el) return;
+        let target = el.tagName === 'H2' ? (el.closest('.card') || el) : (el.closest('.field') || el);
+        while (target && target !== sec && !target.getClientRects().length) target = target.parentElement;
+        if (!target || target === sec) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.remove('search-flash');
+        void target.offsetWidth;
+        target.classList.add('search-flash');
+        setTimeout(() => target.classList.remove('search-flash'), 2600);
+        const input = target.querySelector && target.querySelector('input:not([type=hidden]), select');
+        if (input && el.tagName !== 'H2') input.focus({ preventScroll: true });
+      }, 350);
+    }
+
+    $('search-input').addEventListener('input', showSearch);
+    $('search-input').addEventListener('focus', showSearch);
+    $('search-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { $('search-input').value = ''; closeSearch(); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = $('search-results').querySelector('[data-search-hit]');
+        if (first) first.click();
+      }
+    });
+    // A result is a data-goto link: the unsaved-changes guard asks first, the
+    // link handler opens the page, and this handler scrolls to the setting.
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-search-hit]');
+      if (a) {
+        const hit = searchHits[Number(a.dataset.searchHit)];
+        closeSearch();
+        if (hit) goToHit(hit);
+        return;
+      }
+      if (!e.target.closest('#settings-search')) closeSearch();
+    });
+
     document.querySelectorAll('#main-nav .tab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
     document.querySelectorAll('#settings-nav .subtab, #history-nav .subtab').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.sub)));
 

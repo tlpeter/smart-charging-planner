@@ -1189,3 +1189,18 @@
       .tabs { flex-wrap: nowrap; overflow-x: auto; }
       .tab { padding: 0 10px; flex: none; }
     }
+
+/* Settings search (#68) */
+.settings-search { position: relative; margin: -6px 0 14px; }
+.settings-search input { width: 100%; }
+.search-results { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; max-height: 60vh; overflow-y: auto;
+  background: var(--surface, var(--bg)); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); padding: 4px; }
+.search-hit { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.search-hit:hover, .search-hit:focus { background: var(--chip); outline: none; }
+.search-hit span { color: var(--muted); font-size: 12px; }
+.search-none { padding: 10px 12px; color: var(--muted); }
+.search-flash { animation: search-flash 2.4s ease-out; border-radius: 10px; }
+@keyframes search-flash {
+  0%, 30% { background: color-mix(in srgb, var(--c-accent, var(--accent)) 28%, transparent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--c-accent, var(--accent)) 28%, transparent); }
+  100% { background: transparent; box-shadow: 0 0 0 6px transparent; }
+}

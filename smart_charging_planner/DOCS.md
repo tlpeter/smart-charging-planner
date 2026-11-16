@@ -69,6 +69,8 @@ Normally the car is ready for the next departure. On Home, **Ready for** lets yo
 
 Changes in Settings count only after you save them. While a page has unsaved changes an orange bar shows **Save** and **Discard**, and leaving the page first asks whether to save, discard or stay.
 
+**Search the settings** (#68): Plan and every Settings page have a search field at the top. Type a word and the matching settings show up with where they are, for example "Plan › Calendar › Only events with a place". It searches the name and the explanation of each setting. The app is in English, but a few Dutch words find the English settings too: `agenda` (calendar), `accu` (battery), `laadpaal` (charger), `voorverwarmen` (precondition), `zon` (solar), `melding` (notifications) and more. Select a result (or press Enter for the first one) to open that page; the setting lights up for a moment. A setting under an option that is off lights up the part around it: turn the option on to see it. The search only shows the way and changes nothing.
+
 Nothing found? Open **Not listed? Choose manually** and pick the entities yourself.
 
 No integration for your car at all? Use **No car integration?** in Settings › Vehicle: either enter the battery level on Home when you plug in, or charge a fixed amount each time. The app then follows the session through the charger (a charging power sensor in Settings › Charger is needed to count the energy).

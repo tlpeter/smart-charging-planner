@@ -213,5 +213,34 @@ check('arrival percentage remains in the away row and collapsed day, including z
   assert.match(unknown, /arrival level unknown/);
 });
 
+check('settings search (#68): finds a setting by name or explanation, Dutch words find the English settings, the name counts most; on Plan and Settings only', () => {
+  const start = src.indexOf('    const SEARCH_WORDS = {');
+  const end = src.indexOf('    function showSearch()');
+  assert.ok(start > 0 && end > start, 'search code not found');
+  const ctx = vm.createContext({});
+  vm.runInContext(src.slice(start, end) + `
+    searchIndex = () => [
+      { page: 'departures', path: 'Plan › Calendar', name: 'Only events with a place', help: 'An event without a location is not a trip, such as a reminder.', kind: 'setting' },
+      { page: 'departures', path: 'Plan', name: 'Calendar', help: 'Trips in a calendar become departures.', kind: 'card' },
+      { page: 'ctlset', path: 'Settings › Rules › Car', name: 'Send the route to my phone before a trip', help: 'Opens the route in Google Maps.', kind: 'setting' },
+      { page: 'battery', path: 'Settings › Battery', name: 'Minimum battery level (%)', help: '', kind: 'setting' },
+    ];
+    this.find = (q) => JSON.stringify(searchFind(q).map((x) => x.name));`, ctx);
+  const find = (q) => JSON.parse(ctx.find(q));
+  assert.deepEqual(find('place').slice(0, 1), ['Only events with a place']);
+  assert.ok(find('agenda').includes('Calendar'), 'Dutch "agenda" finds Calendar');
+  assert.ok(find('herinnering').includes('Only events with a place'), 'Dutch word found in the explanation');
+  assert.deepEqual(find('accu minimum'), ['Minimum battery level (%)']);
+  assert.deepEqual(find('route telefoon'), ['Send the route to my phone before a trip']);
+  assert.deepEqual(find('zzz'), []);
+  assert.deepEqual(find('a'), [], 'one letter searches nothing');
+  // The search field is on Plan and Settings only, not during setup.
+  assert.ok(src.includes("$('settings-search').hidden = !(main === 'settings' || main === 'departures') || wizardActive;"), 'shown on Plan and Settings');
+  const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
+  assert.ok(/id="settings-search" hidden/.test(html) && /id="search-input"/.test(html), 'search field in the page');
+  // A result is a data-goto link, so the unsaved-changes guard asks first.
+  assert.ok(src.includes('data-goto="${esc(x.page)}" data-search-hit='), 'results use data-goto');
+});
+
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exitCode = failures ? 1 : 0;
