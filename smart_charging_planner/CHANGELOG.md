@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.6-dev
+
+- Settings search: the result list takes its background only from the theme (no fixed fallback colour), so the theme check passes again. (#68)
+
 ## 0.39.5-dev
 
 - **Settings search:** the list of results is now solid and lies above the page tabs. With a dark Home Assistant theme the page showed through it, so the results were hard to read. (#68)
