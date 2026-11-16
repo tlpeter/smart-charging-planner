@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.5-dev
+
+- **Settings search:** the list of results is now solid and lies above the page tabs. With a dark Home Assistant theme the page showed through it, so the results were hard to read. (#68)
+
 ## 0.39.4-dev
 
 - **Search the settings:** a search field on Plan and on every Settings page. Type a word and the matching settings show up with where they are (for example "Plan › Calendar › Only events with a place"); it also searches the explanations, and a few Dutch words find the English settings ("agenda", "accu", "laadpaal"). A click opens the page, scrolls to the setting and lights it up. Only the display: the search changes nothing. (#68)

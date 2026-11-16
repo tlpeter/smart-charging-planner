@@ -238,6 +238,12 @@ check('settings search (#68): finds a setting by name or explanation, Dutch word
   assert.ok(src.includes("$('settings-search').hidden = !(main === 'settings' || main === 'departures') || wizardActive;"), 'shown on Plan and Settings');
   const html = fs.readFileSync(path.join(APP, 'public', 'index.html'), 'utf8');
   assert.ok(/id="settings-search" hidden/.test(html) && /id="search-input"/.test(html), 'search field in the page');
+  // The result list is solid and above the page (#68): a theme's input
+  // colour can be see-through, so the page used to show through it.
+  const css = fs.readFileSync(path.join(APP, 'public', 'styles.css'), 'utf8');
+  const box = css.slice(css.indexOf('.search-results {'), css.indexOf('}', css.indexOf('.search-results {')));
+  assert.ok(/background-color: var\(--primary-background-color/.test(box) && !/var\(--surface/.test(box), 'solid result list');
+  assert.ok(/\.settings-search \{[^}]*z-index: 30/.test(css), 'search above the sub tabs');
   // A result is a data-goto link, so the unsaved-changes guard asks first.
   assert.ok(src.includes('data-goto="${esc(x.page)}" data-search-hit='), 'results use data-goto');
 });
