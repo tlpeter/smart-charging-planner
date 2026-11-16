@@ -557,6 +557,38 @@ async function run() {
     assert(p.departure.source === 'calendar' && p.departure.time === at(1, 11, 0) && p.departure.soc === 75, `departure ${JSON.stringify(p.departure)}`);
   });
 
+  await test('F8d', 'Calendar (#67): a reminder without a place is not a trip with "Only events with a place"; the skip word; the keywords are whole words, more with a comma', async () => {
+    world.events = [
+      { summary: 'Submit meter reading', start: isoLocal(at(1, 9, 0), tz), end: isoLocal(at(1, 9, 30), tz) },
+      { summary: 'Dentist', location: 'Main Street 1, Rivertown', start: isoLocal(at(1, 11, 0), tz), end: isoLocal(at(1, 12, 0), tz) },
+    ];
+    const cal = (o) => depBody({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.auto', match: 'all', buffer_minutes: 0, soc: 75, ...o } });
+    try {
+      await ok('POST', 'api/departures', cal({}));
+      let p = await plan();
+      assert(p.departure && p.departure.time === at(1, 9, 0), `off by default: ${JSON.stringify(p.departure)}`);
+      await ok('POST', 'api/departures', cal({ require_place: true }));
+      const dep = await ok('GET', 'api/departures');
+      assert(dep.departures.calendar.require_place === true && dep.departures.calendar.skip_keyword === '', JSON.stringify(dep.departures.calendar));
+      p = await plan();
+      assert(p.departure && p.departure.time === at(1, 11, 0), `place: ${JSON.stringify(p.departure)}`);
+      await ok('POST', 'api/departures', cal({ skip_keyword: 'dentist' }));
+      p = await plan();
+      assert(p.departure && p.departure.time === at(1, 9, 0), `skip word: ${JSON.stringify(p.departure)}`);
+      await ok('POST', 'api/departures', cal({ match: 'keyword', keyword: 'EV' }));
+      world.events = [{ summary: 'Bring back the leveller', start: isoLocal(at(1, 9, 0), tz), end: isoLocal(at(1, 9, 30), tz) }];
+      p = await plan();
+      assert(!p.departure, `keyword inside a word: ${JSON.stringify(p.departure)}`);
+      // More keywords, with a comma between them (saved tidy: "EV, trip").
+      await ok('POST', 'api/departures', cal({ match: 'keyword', keyword: ' EV ,trip,, ' }));
+      const saved = await ok('GET', 'api/departures');
+      assert(saved.departures.calendar.keyword === 'EV, trip', JSON.stringify(saved.departures.calendar.keyword));
+      world.events.push({ summary: 'Trip to Exempelstad', start: isoLocal(at(1, 10, 0), tz), end: isoLocal(at(1, 11, 0), tz) });
+      p = await plan();
+      assert(p.departure && p.departure.time === at(1, 10, 0), `second keyword: ${JSON.stringify(p.departure)}`);
+    } finally { world.events = []; }
+  });
+
   await test('F8b', 'A calendar outage keeps the last confirmed departure, including after app restart', async () => {
     world.events = [{ summary: 'Confirmed test trip', description: 'target: 90',
       start: isoLocal(at(1, 10, 0), tz), end: isoLocal(at(1, 11, 0), tz) }];

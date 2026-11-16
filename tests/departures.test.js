@@ -108,5 +108,41 @@ check('all-day events that look like a trip are listed as not used; other all-da
   assert.deepEqual(d.ignoredEvents(settings({ calendar: { enabled: false } }), events, TZ, NOW), []);
 });
 
+check('#67: the keyword is a whole word; "only events with a place" and "skip events with this word"', () => {
+  const T = '2026-11-10T19:00:00+01:00';
+  const E = '2026-11-10T19:30:00+01:00';
+  const titles = (dep, events) => d.calendarTrips(dep, events, TZ, NOW).map((t) => t.title);
+  // Keyword "EV": not inside another word.
+  const kw = settings({ calendar: { enabled: true, entity: 'calendar.trips', match: 'keyword', keyword: 'EV', buffer_minutes: 0, soc: 80 } });
+  assert.deepEqual(titles(kw, [ev('Bring back the leveller', T, E), ev('EV to Rivertown', T, E), ev('Rivertown (ev)', T, E)]), ['EV to Rivertown', 'Rivertown (ev)']);
+  // More keywords, with a comma between them.
+  const kws = settings({ calendar: { enabled: true, entity: 'calendar.trips', match: 'keyword', keyword: 'EV, trip', buffer_minutes: 0, soc: 80 } });
+  assert.deepEqual(titles(kws, [ev('Trip to Exempelstad', T, E), ev('EV to Rivertown', T, E), ev('Triple check', T, E)]), ['Trip to Exempelstad', 'EV to Rivertown']);
+  // Every event, only with a place: a reminder without a location is not a trip.
+  const all = (o) => settings({ calendar: { enabled: true, entity: 'calendar.trips', match: 'all', buffer_minutes: 0, soc: 80, ...o } });
+  const events = [
+    ev('Submit meter reading', T, E),
+    { ...ev('Dentist', T, E), location: 'Main Street 1, Rivertown' },
+    ev('Pick up parcel', T, E, 'target: 70'),
+    ev('Sports club', T, E, 'precondition: yes'),
+  ];
+  assert.deepEqual(titles(all(), events).length, 4, 'off by default: every event counts');
+  assert.deepEqual(titles(all({ require_place: true }), events).sort(), ['Dentist', 'Pick up parcel', 'Sports club']);
+  // The server can count a known place in the title (My places, a trip home).
+  d.setPlaceCheck((t) => !!t.location || /^to work$/i.test(t.title));
+  assert.deepEqual(titles(all({ require_place: true }), [ev('To Work', T, E), ev('Submit meter reading', T, E)]), ['To Work']);
+  d.setPlaceCheck((t) => !!t.location);
+  // Skip word: never a trip, also with a target; whole word only.
+  assert.deepEqual(titles(all({ skip_keyword: 'reminder' }), [ev('Reminder: bins', T, E, 'target: 80'), ev('Reminders app demo', T, E), ev('Office', T, E)]), ['Reminders app demo', 'Office']);
+  assert.deepEqual(titles(all({ skip_keyword: 'reminder, birthday' }), [ev('Birthday party', T, E), ev('Reminder: bins', T, E), ev('Office', T, E)]), ['Office']);
+  // Views that list every event (match 'any') are not filtered.
+  const any = settings({ calendar: { enabled: true, entity: 'calendar.trips', match: 'any', buffer_minutes: 0, soc: 80, require_place: true, skip_keyword: 'reminder' } });
+  assert.equal(titles(any, [ev('Reminder: bins', T, E), ev('Submit meter reading', T, E)]).length, 2);
+  // An all-day event with the skip word is not listed as "not used".
+  assert.deepEqual(d.ignoredEvents(all({ skip_keyword: 'reminder' }), [ev('Reminder all day', '2026-11-11', '2026-11-12')], TZ, NOW), []);
+  // The planner: the reminder today no longer replaces the schedule.
+  assert.equal(d.nextDeparture(all({ require_place: true }), { states: [], events: [ev('Submit meter reading', '2026-11-09T19:00:00+01:00', '2026-11-09T19:30:00+01:00')], tz: TZ, now: NOW }).source, 'schedule');
+});
+
 console.log(failures ? `\n${failures} failed` : '\nAll departure checks passed');
 process.exit(failures ? 1 : 0);

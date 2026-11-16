@@ -14,7 +14,7 @@ const MAX_CHARGERS = 4;
 const { detectChargers, manualChargerOptions } = require('./chargers');
 const { detectGridMeters, detectLoadBalancers, manualGridOptions } = require('./grid');
 const { detectPriceSources, fetchPrices, fetchForecast, fixedTariff, summarise, totalPrice, priceBreakdown, isoLocal, parseLocal, localDate, localDateTime, tzParts, ACTION_SOURCES } = require('./prices');
-const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, ignoredEvents, droppedEarlier } = require('./departures');
+const { DAYS, normalise, collect, winnersPerDay, nextDeparture, calendarTrips, ignoredEvents, droppedEarlier, setPlaceCheck } = require('./departures');
 const { chargePowerKw, energyNeededKwh, planCharging, planStaged, planCare, markCare, periods } = require('./planner');
 const { evaluateReadyGuard } = require('./reliability');
 const tripcost = require('./tripcost');
@@ -323,6 +323,10 @@ function isReturnTrip(t) {
   // Your own home address as location (within 1 km of the home in Home Assistant).
   return !!t.location && tripcost.distance(t.location).status === 'home';
 }
+
+// "Only events with a place" (#67): a location, a place in the title that
+// the app knows (My places, a zone, "To Work") or a trip home.
+setPlaceCheck((t) => !!(t.location && String(t.location).trim()) || isReturnTrip(t) || !!tripcost.placeFor(null, t.title).place);
 
 // When the car is home after a trip home in the calendar (#62): the start of
 // "Naar huis" plus the drive from where the car is (the route's time, else
@@ -2108,6 +2112,8 @@ const routes = {
     if (helper.enabled && !String(helper.datetime_entity || '').startsWith('input_datetime.')) throw badRequest('Choose a date/time helper');
     if (cal.enabled && !String(cal.entity || '').startsWith('calendar.')) throw badRequest('Choose a calendar');
     const match = ['target', 'keyword', 'all'].includes(cal.match) ? cal.match : 'target';
+    // Words separated by commas (#67): "EV, rit" -> "EV, rit"; at most 10 words.
+    const words = (x) => String(x || '').split(',').map((w) => w.trim().slice(0, 40)).filter(Boolean).slice(0, 10).join(', ');
     setDeparturesFor(s, vehicle, {
       ...cur,
       default_soc: soc(body.default_soc, 'Default'),
@@ -2124,10 +2130,12 @@ const routes = {
         enabled: !!cal.enabled,
         entity: cal.entity || null,
         match,
-        keyword: String(cal.keyword || '').slice(0, 40),
+        keyword: words(cal.keyword),
         buffer_minutes: buffer,
         soc: soc(cal.soc, 'Calendar'),
         language: ['auto', 'en', 'nl'].includes(cal.language) ? cal.language : 'auto',
+        require_place: cal.require_place === true,
+        skip_keyword: words(cal.skip_keyword),
       },
     });
     settings.save(s);

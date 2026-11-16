@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.3-dev
+
+- **Calendar: reminders are no longer trips.** The keyword now counts only as a whole word: `EV` matches "EV to Rivertown", not "leveller". **Keywords** can be more words with a comma between them (`EV, trip`): an event with one of them is a trip. Two new options under Plan › Departures › Calendar, off by default: **Only events with a place** (an event without a location is not a trip, unless its title is a known place or a trip home, or it has a target or "precondition:") and **Skip events with these words** (an event with one of them is never a trip). Before, with "Every event with a time", a reminder without a place could start charging right away at an expensive price. (#67)
+
 ## 0.39.2-dev
 
 - **Route to the next trip on your phone** (Settings › Rules, off by default): a set number of minutes before a calendar trip with a location leaves (default 30), the app sends one notification. A tap opens the route in Google Maps; a car with Google built-in (for example openR Link) can get it from there with "Send to car". Not for a trip home or a trip without a location; once per trip, also after a restart. Other notify actions get the link in the text. Only a message: nothing is sent to the car or charger. The message is "Route to the next trip" under **Car** in Settings › Notifications. (#66)

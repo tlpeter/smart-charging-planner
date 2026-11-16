@@ -2749,6 +2749,9 @@ function durationText(minutes) {
         f.cal_entity.innerHTML = entityOptions(d.options.calendar.map((c) => ({ ...c, name: c.writable ? c.name : `${c.name} – read only` })), dep.calendar.entity, '— choose —');
         f.cal_match.value = dep.calendar.match || 'target';
         f.cal_keyword.value = dep.calendar.keyword;
+        f.cal_require_place.checked = dep.calendar.require_place === true;
+        f.cal_skip_keyword.value = dep.calendar.skip_keyword || '';
+        $('cal-place-field').hidden = f.cal_match.value === 'target';
         $('cal-keyword-field').hidden = f.cal_match.value !== 'keyword';
         f.cal_buffer.value = dep.calendar.buffer_minutes;
         f.cal_soc.value = dep.calendar.soc;
@@ -2777,6 +2780,7 @@ function durationText(minutes) {
         helper: { enabled: f.helper_enabled.checked, datetime_entity: f.helper_datetime.value, soc_entity: f.helper_soc.value, precondition: f.helper_precondition.checked, precondition_entity: f.helper_precondition_entity.value || null },
         calendar: {
           enabled: f.cal_enabled.checked, entity: f.cal_entity.value, match: f.cal_match.value, keyword: f.cal_keyword.value,
+          require_place: f.cal_require_place.checked, skip_keyword: f.cal_skip_keyword.value,
           buffer_minutes: f.cal_buffer.value, soc: f.cal_soc.value, language: f.cal_language.value,
         },
       };
@@ -3752,6 +3756,7 @@ function durationText(minutes) {
 
     $('dep-form').cal_match.addEventListener('change', (e) => {
       $('cal-keyword-field').hidden = e.target.value !== 'keyword';
+      $('cal-place-field').hidden = e.target.value === 'target';
     });
 
     // Links like <a data-goto="departures"> switch tabs.

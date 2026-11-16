@@ -190,7 +190,12 @@
               <option value="keyword">Events that contain a keyword</option>
               <option value="all">Every event with a time</option>
             </select></div>
-          <div class="field" id="cal-keyword-field"><label>Keyword</label><input name="cal_keyword" maxlength="40"></div>
+          <div class="field" id="cal-keyword-field"><label>Keywords</label><input name="cal_keyword" maxlength="300" placeholder="for example: EV, trip">
+            <p class="muted small">An event with one of these words in its title or description is a trip. Put a comma between words.</p></div>
+          <div class="field" id="cal-place-field"><label class="check"><input type="checkbox" name="cal_require_place"> Only events with a place</label>
+            <p class="muted small">An event without a location is not a trip, such as a reminder. A place in the title that the app knows (My places, a zone, "To Work"), a trip home, or a target or "precondition:" in the event still counts.</p></div>
+          <div class="field"><label>Skip events with these words</label><input name="cal_skip_keyword" maxlength="300" placeholder="for example: reminder, birthday">
+            <p class="muted small">An event with one of these words in its title or description is never a trip. Put a comma between words; leave empty to skip nothing.</p></div>
           <div class="two">
             <div class="field"><label>Be ready this many minutes before the event</label><input name="cal_buffer" type="number" min="0" max="240" step="5"></div>
             <div class="field"><label>Battery level when the event has no target (%)</label><input name="cal_soc" type="number" min="10" max="100" step="1"></div>

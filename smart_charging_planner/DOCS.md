@@ -239,7 +239,14 @@ The app reads English and Dutch, also mixed in one calendar. Upper and lower cas
 | **Trip home** (title) | `Home`, `To home`, `Back home`, `Going home`, `Go home` | `Thuis`, `Huis`, `Naar huis`, `Naar thuis`, `Terug` | Or your home address or the Home zone as location. A trip home is never a departure: it is when the car drives home. The car is home at its **start plus the drive** (#62), not at its end. |
 | **Names that are not an address** | `Work`, `Office`, `School`, `Gym`, `Sport`, `Training`, `Shopping`, `Parents`, `Home` | `Werk`, `Kantoor`, `Boodschappen`, `Winkel`, `Opa`, `Oma`, `Ouders`, `Thuis`, `Huis` | Add them under **My places** (or make a zone) to get the trip cost. |
 
-With **Which events are trips? → Events that contain a keyword**, the keyword is your own (default `EV`) and works in any language.
+With **Which events are trips? → Events that contain a keyword**, the keyword is your own (default `EV`) and works in any language. It counts only as a whole word: `EV` matches "EV to Rivertown" and "Rivertown (EV)", not "leveller". More words are possible, with a comma between them, for example `EV, trip, rit`: an event with one of them is a trip (at most 10 words) (#67).
+
+Two more options under Plan › Departures › Calendar, both off by default (#67):
+
+- **Only events with a place** (with *Every event* or *Events with a keyword*): an event without a location is not a trip, for example a reminder at 19:00. It still counts when its title is a place the app knows (My places, a zone, "To Work"), when it is a trip home, or when it has a target ("target: 80") or "precondition:".
+- **Skip events with these words**: an event with one of these words (whole words, in the title or description) is never a trip, also with a target. Put a comma between words, for example `reminder, herinnering, birthday`.
+
+The trip home and the trip log still see every event.
 
 **Add trip** writes in the language you choose under Plan › Departures › Calendar › **Language for trips the app adds** (default: the same as Home Assistant; Dutch when Home Assistant is in Dutch, otherwise English):
 

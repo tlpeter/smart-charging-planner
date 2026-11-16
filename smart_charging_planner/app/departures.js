@@ -30,7 +30,9 @@ function defaultDepartures() {
     helper: { enabled: false, datetime_entity: null, soc_entity: null, precondition: false, precondition_entity: null },
     // match: 'target' = events with a target in the text (e.g. "doel: 80"),
     // 'keyword' = events containing the keyword, 'all' = every event with a time.
-    calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80, language: 'auto' },
+    // require_place: only events with a place count (#67); skip_keyword: events
+    // with this word never count (#67). Both off by default.
+    calendar: { enabled: false, entity: null, match: 'target', keyword: 'EV', buffer_minutes: 0, soc: 80, language: 'auto', require_place: false, skip_keyword: '' },
     override: null, // { time: ms, soc, precondition }
   };
 }
@@ -171,6 +173,26 @@ function matchCar(tag, cars) {
   return null;
 }
 
+// A word in a text, as a whole word, case-insensitive (#67): "EV" is in
+// "EV to Rivertown", not in "leveller".
+function hasWord(text, word) {
+  const w = String(word || '').trim();
+  if (!w) return false;
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, 'iu').test(String(text || ''));
+}
+
+// More words, separated by commas (#67): "EV, rit, trip". True when the
+// text has one of them as a whole word.
+function hasAnyWord(text, words) {
+  return String(words || '').split(',').some((w) => hasWord(text, w));
+}
+
+// Does a trip have a place (#67)? The server sets a better check (a known
+// place in the title, a trip home); without it only the event's location counts.
+let placeCheck = (t) => !!(t.location && String(t.location).trim());
+function setPlaceCheck(fn) { placeCheck = typeof fn === 'function' ? fn : placeCheck; }
+
 // Calendar events that are trips, with their details.
 // carCtx (more cars): { vehicle, list } – a trip for another car is left out;
 // a trip without "auto:"/"car:" is for every car; an unknown car counts for
@@ -178,7 +200,9 @@ function matchCar(tag, cars) {
 function calendarTrips(dep, events, tz, now, carCtx = null) {
   const c = dep.calendar;
   if (!c.enabled || !events) return [];
-  const keyword = String(c.keyword || '').trim().toLowerCase();
+  const keyword = String(c.keyword || '').trim();
+  // match 'any' (every event, for a trip home and the trip log) skips the filters below.
+  const filtered = c.match !== 'any';
   const out = [];
   for (const e of events) {
     const start = String(e.start || '');
@@ -189,7 +213,9 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
     // A trip in this app's own format ("doel: 80", what Add trip writes) always
     // counts, also when the calendar is read by keyword.
     const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
-    if (c.match === 'keyword' && keyword && !ownFormat && !text.toLowerCase().includes(keyword)) continue;
+    if (c.match === 'keyword' && keyword.replace(/[\s,]/g, '') && !ownFormat && !hasAnyWord(text, keyword)) continue;
+    // Skip word (#67): never a trip, whatever else the event says.
+    if (filtered && hasAnyWord(text, c.skip_keyword)) continue;
     const ms = parseLocal(start, tz);
     if (!Number.isFinite(ms)) continue;
     const time = ms - (Number(c.buffer_minutes) || 0) * 60000;
@@ -204,7 +230,7 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
       carUnknown = !car;
     }
     const endMs = parseLocal(String(e.end || ''), tz);
-    out.push({
+    const trip = {
       time,
       event_start: ms,
       event_end: Number.isFinite(endMs) && endMs > ms ? endMs : null,
@@ -217,7 +243,11 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
       car: tag,
       car_id: carId,
       car_unknown: carUnknown,
-    });
+    };
+    // Only events with a place (#67): a reminder without a location is not a
+    // drive. An event that says it is a trip (a target, "precondition:") still counts.
+    if (filtered && c.require_place === true && target == null && !ownFormat && trip.precondition === null && !placeCheck(trip)) continue;
+    out.push(trip);
   }
   return out.sort((a, b) => a.time - b.time);
 }
@@ -270,7 +300,7 @@ function droppedEarlier(days) {
 function ignoredEvents(dep, events, tz, now) {
   const c = dep.calendar;
   if (!c.enabled || !events) return [];
-  const keyword = String(c.keyword || '').trim().toLowerCase();
+  const keyword = String(c.keyword || '').trim();
   const out = [];
   for (const e of events) {
     const start = String(e.start || '');
@@ -279,9 +309,9 @@ function ignoredEvents(dep, events, tz, now) {
     const target = parseTarget(e.description) ?? parseTarget(e.summary);
     const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
     const looksLikeTrip = c.match === 'target' ? target != null
-      : c.match === 'keyword' ? ownFormat || (keyword ? text.toLowerCase().includes(keyword) : true)
+      : c.match === 'keyword' ? ownFormat || (keyword.replace(/[\s,]/g, '') ? hasAnyWord(text, keyword) : true)
         : true;
-    if (!looksLikeTrip) continue;
+    if (!looksLikeTrip || hasAnyWord(text, c.skip_keyword)) continue;
     const end = String(e.end || '');
     // Still today or later (the end date of an all-day event is the day after).
     if (/^\d{4}-\d{2}-\d{2}$/.test(end) && end <= localDate(now, tz)) continue;
@@ -309,4 +339,5 @@ function nextDeparture(dep, ctx) {
 module.exports = {
   DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
   calendarTrips, ignoredEvents, droppedEarlier, parseTarget, parsePrecondition, parseCar, matchCar,
+  hasWord, hasAnyWord, setPlaceCheck,
 };
