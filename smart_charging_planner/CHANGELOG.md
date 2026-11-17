@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.9-dev
+
+- Tests: the real Home Assistant Core check now runs on 2026.11.2 (and still on 2026.4.2, the oldest), and the fake Home Assistant reports 2026.11.2. The app itself did not change. (#69)
+
 ## 0.39.8-dev
 
 - **Price forecast checks.** The app checks the forecast sensor before it uses it: when it was last updated (a forecast older than 48 hours, adjustable, is not used and Home warns), that it has a list of prices, its unit and how far it reaches. Test on Settings › Prices shows all of this. DOCS has a recipe for a forecast sensor from a provider's API with Home Assistant's RESTful integration. (#27)
