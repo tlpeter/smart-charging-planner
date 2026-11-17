@@ -453,6 +453,48 @@ async function run() {
       await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
     }
   });
+  await test('E12c', 'Forecast freshness and schema (#27): an old forecast is not used and Test says why; the maximum age is a setting; a fresh one is used; a sensor without a list is an error', async () => {
+    const combined = world.combined;
+    const begin = Math.floor(Date.now() / H) * H - 6 * H;
+    world.combined = () => Array.from({ length: 96 }, (_, i) => ({ time: begin + i * H, price: 0.2, source: i < 24 ? 'actual' : 'forecast' }));
+    const body = (o = {}) => ({
+      source: { id: 'attr:sensor.stroom_prijzen_gecombineerd', type: 'attribute', entity_id: 'sensor.stroom_prijzen_gecombineerd' },
+      price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_price_type: 'all_in', forecast_margin: 0.02, ...o,
+    });
+    try {
+      await refused('POST', 'api/prices', body({ forecast_max_age: 2 }), 'maximum age');
+      await refused('POST', 'api/prices', body({ forecast_max_age: 200 }), 'maximum age');
+      await ok('POST', 'api/prices', body());
+      const saved = await ok('GET', 'api/prices');
+      assert(saved.prices.forecast.max_age_hours === 48, JSON.stringify(saved.prices.forecast));
+      // Old: generated 60 hours ago.
+      world.combinedGenerated = new Date(Date.now() - 60 * H).toISOString();
+      let p = await plan();
+      assert(p.forecast && p.forecast.count === 0 && p.forecast.stale === true, 'old forecast used: ' + JSON.stringify(p.forecast));
+      assert(p.price_warnings.some((w) => /forecast is old/.test(w)), JSON.stringify(p.price_warnings));
+      const t = await ok('POST', 'api/prices/test', body());
+      assert(t.forecast.check && t.forecast.check.stale === true && t.forecast.check.updated_from === 'generated_at' && t.forecast.check.entries === 96, JSON.stringify(t.forecast.check));
+      assert(t.forecast.check.until === begin + 96 * H, 'reach: ' + JSON.stringify(t.forecast.check));
+      // A longer maximum age: used again.
+      await ok('POST', 'api/prices', body({ forecast_max_age: 72 }));
+      p = await plan();
+      assert(p.forecast && p.forecast.count > 0 && !p.forecast.stale, 'with 72 hours: ' + JSON.stringify(p.forecast));
+      // Fresh (the sensor's own update time): used.
+      world.combinedGenerated = undefined;
+      await ok('POST', 'api/prices', body());
+      p = await plan();
+      assert(p.forecast && p.forecast.count > 0 && !p.forecast.stale, 'fresh: ' + JSON.stringify(p.forecast));
+      // No list of prices: an error, not an empty forecast.
+      world.combined = () => 'not a list';
+      const bad = await ok('POST', 'api/prices/test', { source: ez, price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_price_type: 'all_in' });
+      assert(bad.forecast && /no list of prices/.test(bad.forecast.error || ''), JSON.stringify(bad.forecast));
+      return 'old forecast not used (60 h > 48 h), used with 72 h; Test shows the update time and reach';
+    } finally {
+      world.combined = combined;
+      world.combinedGenerated = undefined;
+      await ok('POST', 'api/prices', { source: ez, price_type: 'all_in' });
+    }
+  });
   await test('E13', 'A genuinely missing price source remains an error', async () => {
     try {
       await ok('POST', 'api/prices', { source: { type: 'attribute', entity_id: 'sensor.missing_prices' }, price_type: 'all_in' });

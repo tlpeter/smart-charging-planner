@@ -486,7 +486,36 @@ async function fetchPrices(source, tz) {
 // Forecast: a sensor with expected prices for the coming days. Only the part
 // after the last real price is used (fromMs), up to 7 days ahead. Nothing is
 // stored in the price history: these are not real prices.
-async function fetchForecast(forecast, tz, fromMs) {
+//
+// Checks (#27): the sensor must be fresh (updated within max_age_hours,
+// default 48), have a list of prices, and an explicit unit (toPerKwh). A stale
+// forecast is not used. `check` says what was found, for the Prices page.
+const FORECAST_MAX_AGE_HOURS = 48;
+const UPDATED_KEYS = ['generated_at', 'updated_at', 'last_update', 'last_updated', 'created_at'];
+function forecastUpdatedAt(s) {
+  const a = s.attributes || {};
+  for (const k of UPDATED_KEYS) {
+    const v = a[k];
+    const ms = typeof v === 'number' ? (v < 1e12 ? v * 1000 : v) : Date.parse(String(v || ''));
+    if (Number.isFinite(ms) && ms > 0) return { at: ms, from: k };
+  }
+  const ms = Date.parse(s.last_updated || s.last_changed || '');
+  return Number.isFinite(ms) ? { at: ms, from: 'sensor' } : null;
+}
+// Times without a time zone ("2026-11-18 00:00") are read as local time.
+function localTimesIn(attributes) {
+  let n = 0;
+  for (const value of Object.values(attributes || {})) {
+    if (!Array.isArray(value)) continue;
+    for (const x of value) {
+      if (!x || typeof x !== 'object') continue;
+      const t = ['time', 'start', 'start_time', 'startsAt', 'from', 'datetime'].map((k) => x[k]).find((v) => typeof v === 'string');
+      if (t && /\d{2}:\d{2}/.test(t) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(t.trim())) n += 1;
+    }
+  }
+  return n;
+}
+async function fetchForecast(forecast, tz, fromMs, now = Date.now()) {
   const states = await ha.call({ type: 'get_states' });
   const s = states.find((x) => x.entity_id === forecast.entity_id);
   if (!s) throw new Error(`Forecast sensor ${forecast.entity_id} not found`);
@@ -494,9 +523,37 @@ async function fetchForecast(forecast, tz, fromMs) {
   const warnings = [...parsed.warnings];
   const raw = parsed.prices;
   const unit = unitHint(s.attributes);
+  const maxAge = Number(forecast.max_age_hours) > 0 ? Number(forecast.max_age_hours) : FORECAST_MAX_AGE_HOURS;
+  const updated = forecastUpdatedAt(s);
+  const ageH = updated ? (now - updated.at) / 3600000 : null;
+  const check = {
+    updated_at: updated ? updated.at : null,
+    updated_from: updated ? updated.from : null,
+    age_hours: ageH,
+    max_age_hours: maxAge,
+    stale: ageH != null && ageH > maxAge,
+    lists: parsed.keys,
+    entries: raw.length,
+    local_times: localTimesIn(s.attributes),
+    unit: unit || null,
+    until: null,
+  };
+  if (!parsed.keys.length) {
+    throw new Error(`Forecast sensor ${forecast.entity_id} has no list of prices in its attributes (for example "prices": [{"time": "...", "price": 0.21}]).`);
+  }
   const win = { start: fromMs, end: localMidnight(tz, 8) };
-  const { prices } = finalise(toPerKwh(raw, unit, warnings), win);
-  return { prices, warnings };
+  const all = toPerKwh(raw, unit, warnings);
+  const whole = finalise(all, { start: -Infinity, end: Infinity }).prices;
+  check.until = whole.length ? whole[whole.length - 1].end : null;
+  if (check.stale) {
+    warnings.push(`The price forecast is old: last updated ${Math.round(ageH)} hours ago (more than ${maxAge}). It is not used until the sensor is updated.`);
+    return { prices: [], warnings, check };
+  }
+  const { prices } = finalise(all, win);
+  if (!prices.length && check.until != null && check.until <= fromMs) {
+    warnings.push('The price forecast ends before the last real price, so it adds nothing. Is the sensor still updated?');
+  }
+  return { prices, warnings, check };
 }
 
 // Past days for action sources (they can look back); stored in the history.
@@ -589,7 +646,7 @@ function summarise(result, cfg, now = Date.now()) {
 }
 
 module.exports = {
-  fixedTariff, fetchForecast,
+  fixedTariff, fetchForecast, FORECAST_MAX_AGE_HOURS,
   detectPriceSources, hasAction, unitHint, pickEntry, fetchPrices, backfill, summarise, totalPrice, priceBreakdown,
   localMidnight, localTimeOn, localDateTime, parseLocal, tzParts, isoLocal, localDate,
   pricesFromAttributes, ACTION_SOURCES, priceTime, toPerKwh,

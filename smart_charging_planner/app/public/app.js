@@ -3796,8 +3796,14 @@ function durationText(minutes) {
       if (!f) return '';
       const row = (label, value) => `<div class="row"><span class="label">${esc(label)}</span><span class="value">${value}</span></div>`;
       if (f.error) return row('Forecast', `<span class="fail">${esc(f.error)}</span>`);
-      if (!f.count) return row('Forecast', '<span class="muted">No forecast prices after the real prices</span>');
-      return `
+      // Freshness and reach of the sensor (#27).
+      const c = f.check;
+      const age = (h) => (h < 1 ? 'less than an hour ago' : h < 72 ? `${Math.round(h)} hours ago` : `${Math.round(h / 24)} days ago`);
+      const checks = c ? `
+        ${row('Forecast updated', c.updated_at ? `<span class="${c.stale ? 'fail' : 'ok'}">${esc(fmtTime(c.updated_at))}</span> <span class="muted small">${esc(age(c.age_hours))}${c.stale ? ` · older than ${esc(c.max_age_hours)} hours: not used` : ''}${c.updated_from && c.updated_from !== 'sensor' ? ` · from "${esc(c.updated_from)}"` : ''}</span>` : '<span class="muted">Not known</span>')}
+        ${row('Forecast reaches', c.until ? `${esc(fmtTime(c.until))} <span class="muted small">${esc(c.entries)} prices in "${esc((c.lists || []).join('", "'))}"${c.unit ? ` · ${esc(c.unit)}` : ''}${c.local_times ? ' · times without a time zone are read as local time' : ''}</span>` : '<span class="fail">No prices</span>')}` : '';
+      if (!f.count) return `${checks}${row('Forecast', '<span class="muted">No forecast prices after the real prices</span>')}${(f.warnings || []).map((w) => `<div class="note">${esc(w)}</div>`).join('')}`;
+      return `${checks}
         ${row('Forecast', `<span class="ok">${f.count}</span> prices, ${esc(fmtTime(f.from))} – ${esc(fmtTime(f.until))}`)}
         ${row('Forecast average (all-in)', `${fmtPrice(f.average)} <span class="muted small">+ margin ${Number(f.margin).toFixed(3)}</span>`)}
         ${row('Forecast lowest', f.lowest ? `${fmtPrice(f.lowest.total)} <span class="muted small">at ${esc(fmtTime(f.lowest.start))}</span>` : '–')}
@@ -3923,6 +3929,7 @@ function durationText(minutes) {
         if (preselect && preselect.forecast) {
           $('prices-form').forecast_price_type.value = preselect.forecast.price_type;
           $('prices-form').forecast_margin.value = preselect.forecast.margin;
+          $('prices-form').forecast_max_age.value = preselect.forecast.max_age_hours || 48;
         }
         if (preselect) {
           // A saved home or area: the source itself is found without it (#16).
@@ -4069,7 +4076,7 @@ function durationText(minutes) {
       await detectPrices(src ? {
         source: src.type === 'fixed' ? { ...src, ...keep.fixed } : src,
         price_type: keep.price_type, purchase_fee: keep.purchase_fee, energy_tax: keep.energy_tax, vat_percent: keep.vat_percent,
-        forecast: keep.forecast_entity ? { entity_id: keep.forecast_entity, price_type: keep.forecast_price_type, margin: keep.forecast_margin } : null,
+        forecast: keep.forecast_entity ? { entity_id: keep.forecast_entity, price_type: keep.forecast_price_type, margin: keep.forecast_margin, max_age_hours: keep.forecast_max_age } : null,
       } : savedPrices);
     });
     $('prices-source').addEventListener('change', showSourceDetail);

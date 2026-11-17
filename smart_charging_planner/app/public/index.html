@@ -590,6 +590,9 @@
             <div class="field"><label>Safety margin per kWh</label>
               <input name="forecast_margin" type="number" step="0.005" min="0" max="0.5" value="0.02"></div>
             <p class="muted small">Added to every forecast price, so the app only waits when the forecast is clearly cheaper. 0 = trust the forecast fully.</p>
+            <div class="field"><label>Not used when older than (hours)</label>
+              <input name="forecast_max_age" type="number" step="1" min="6" max="168" value="48"></div>
+            <p class="muted small">A forecast that was not updated for this long is not used, so an old forecast never makes the app wait. Test shows when the sensor was last updated and how far it reaches.</p>
           </div>
           <div class="buttons">
             <button class="secondary" type="button" id="prices-test-fc">Test</button>

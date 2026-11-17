@@ -1274,7 +1274,7 @@ const routes = {
       try {
         const fc = await forecastPrices(s.prices, tz, realEnd);
         prices = prices.concat(fc.prices);
-        forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null, warnings: fc.warnings };
+        forecastInfo = { entity_id: s.prices.forecast.entity_id, margin: fc.margin, count: fc.prices.length, until: fc.prices.length ? fc.prices[fc.prices.length - 1].end : null, stale: !!(fc.check && fc.check.stale), warnings: fc.warnings };
         warnPrices(fc.warnings, s.prices.forecast);
       } catch (err) {
         forecastInfo = { entity_id: s.prices.forecast.entity_id, error: err.message };
@@ -5181,6 +5181,7 @@ async function forecastPrices(cfg, tz, fromMs) {
   return {
     margin,
     warnings: fc.warnings,
+    check: fc.check || null,
     prices: fc.prices.map((p) => {
       const expected = totalPrice(p.price, costs);
       return { ...p, forecast: true, expected, total: expected + margin };
@@ -5230,6 +5231,7 @@ async function forecastSummary(cfg, result) {
       overlap,
       entity_id: cfg.forecast.entity_id,
       margin: fc.margin,
+      check: fc.check,
       count: list.length,
       from: list.length ? list[0].start : null,
       until: list.length ? list[list.length - 1].end : null,
@@ -5318,10 +5320,13 @@ function priceConfigFrom(body, opts = {}) {
     // forecast that is already all-in would otherwise get VAT a second time.
     const explicit = types.includes(body.forecast_price_type);
     if (!explicit && !(opts && opts.test)) throw badRequest('Forecast: choose what the forecast price is (market price excl. VAT, incl. VAT, or all-in)');
+    // Older than this: not used (#27).
+    const maxAge = body.forecast_max_age === undefined || body.forecast_max_age === '' ? 48 : num(body.forecast_max_age, 'Forecast maximum age', 6, 168);
     forecast = {
       entity_id: fcEntity,
       price_type: explicit ? body.forecast_price_type : priceType,
       margin,
+      max_age_hours: maxAge,
       basis_explicit: explicit,
     };
   }

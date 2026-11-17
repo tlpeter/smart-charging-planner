@@ -116,6 +116,35 @@ Real day-ahead prices are only known for today and, from about 13:00, tomorrow. 
 - Settings from before 0.34.1 took the basis over from the real prices. The Prices page asks to check it and save once.
 - A sensor that combines real prices and a forecast can be used for both: entries marked as a forecast (for example `source: forecast`) are skipped as real prices.
 
+### Checks on the forecast sensor (#27)
+
+The app does not fetch a forecast from the internet itself: it reads a sensor in Home Assistant. Before it uses the sensor it checks it, and **Test** shows the result:
+
+- **Fresh**: when the sensor was last updated. The app looks for an attribute `generated_at` (or `updated_at`, `last_update`, `created_at`: a date and time, or seconds since 1970); without one it uses the time Home Assistant last updated the sensor. A forecast older than **Not used when older than** (default **48 hours**, 6–168) is not used at all, and Home shows a price warning. So a provider that stops updating never makes the app wait for a cheap day that is not coming.
+- **A list of prices**: an attribute with a list of `{time, price}` (or `start`/`value` and similar). A sensor without such a list is an error, not an empty forecast. Rows that cannot be read are skipped with a warning; the other rows are still used.
+- **Unit and currency**: the sensor needs an explicit unit such as `€/kWh`, `EUR/MWh` or `ct/kWh`. A missing unit, or a currency that is not the one of Home Assistant, is an error; the app never guesses a unit from the size of the numbers.
+- **Time zone**: times with a time zone (`2026-11-18T00:00:00+01:00` or `Z`) are exact. Times without one (`2026-11-18 00:00`) are read as the local time of Home Assistant; Test says so. On the night the clock changes, use times with a time zone.
+- **Reach**: until when the forecast has prices. When it ends before the last real price it adds nothing, and the app says so.
+- **Price basis**: what the forecast price is (excl. VAT, incl. VAT, all-in), see above.
+
+**Recipe: a forecast sensor from a provider's API.** Use Home Assistant's [RESTful integration](https://www.home-assistant.io/integrations/rest/) in `configuration.yaml`. The address and the names in the reply differ per provider: check its documentation and terms of use first (for example whether it allows automated use and how often). An example for a provider whose reply looks like `{"generated_at": "…", "prices": [{"time": "2026-11-18T00:00:00+01:00", "price": 0.21}, …]}`:
+
+```yaml
+rest:
+  - resource: https://forecast.example.com/v1/prices?country=NL   # your provider's address
+    scan_interval: 3600        # once an hour is plenty; respect the provider's limits
+    sensor:
+      - name: Price forecast week
+        unique_id: price_forecast_week
+        value_template: "{{ value_json.prices[0].price if value_json.prices else 'unknown' }}"
+        unit_of_measurement: "€/kWh"   # what the provider's prices are in
+        json_attributes:
+          - prices
+          - generated_at
+```
+
+When the reply has another shape (for example `data` instead of `prices`, or `from`/`value`), the app usually reads it as it is; otherwise rename the fields with a template sensor. Then choose the sensor under **Settings › Prices › Price forecast**, choose what its price is (a provider that gives consumer prices is often **All-in**), and press **Test**: it should say when the forecast was updated, until when it reaches, and show one price built step by step.
+
 ## Solar
 
 Set up in **Settings › Solar** (needs the grid meter in Settings › Grid: the app sees the surplus there). On Home you choose how to charge:
@@ -554,7 +583,7 @@ An old car battery reading is extended with charger energy only when it belongs 
 
 Price rows should use UTC, epoch values or ISO timestamps with a UTC offset. For example, 2026-10-25T02:00:00+02:00 and 2026-10-25T02:00:00+01:00 are distinct hours in Europe/Amsterdam. Offset-free times in a repeated or nonexistent clock hour are skipped with a warning. Coverage checks use the actual time between local midnights: 23/24/25 hours, or 92/96/100 quarter-hours. Missing/blank/boolean prices are rejected; an explicit numeric zero or negative price remains valid.
 
-For a combined actual/forecast sensor, check both price bases. A forecast already calibrated against consumer tariffs should use All-in, with only the chosen forecast margin added. A raw market forecast should receive fees/tax/VAT exactly once. The app does not install or maintain an external scraping automation. See the custom-source recipe in README.md and #26/#27 for the remaining provider/preview improvements.
+For a combined actual/forecast sensor, check both price bases. A forecast already calibrated against consumer tariffs should use All-in, with only the chosen forecast margin added. A raw market forecast should receive fees/tax/VAT exactly once. The app does not install or maintain an external scraping automation. See the custom-source recipe in README.md and the forecast checks and REST recipe under Price forecast (#27).
 
 Release gates, remaining public-beta limitations and physical verification are described in [RELEASE.md](../RELEASE.md).
 

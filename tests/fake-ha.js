@@ -292,7 +292,7 @@ function entityList(w) {
     ['sensor.p1_current_l2', String(phaseA(w, 'L2')), { friendly_name: 'P1 Current L2', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.p1_current_l3', String(phaseA(w, 'L3')), { friendly_name: 'P1 Current L3', unit_of_measurement: 'A', device_class: 'current' }, 'p1'],
     ['sensor.energyzero_today_energy_current_hour_price', '0.20', { friendly_name: 'Current hour price', unit_of_measurement: '€/kWh' }, 'ez'],
-    ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined() }, null],
+    ['sensor.stroom_prijzen_gecombineerd', '0.30', { friendly_name: 'Stroom prijzen gecombineerd', unit_of_measurement: '€/kWh', prices: w.combined(), ...(w.combinedGenerated === undefined ? {} : { generated_at: w.combinedGenerated }) }, null],
     ['calendar.auto', 'off', { friendly_name: 'Auto', supported_features: 7 }, null],
     // Trip log (#61): the car's odometer and an outdoor temperature, when a test sets them.
     ...(w.odometerKm === undefined ? [] : [['sensor.car_odometer', String(w.odometerKm), { friendly_name: 'Car Odometer', device_class: 'distance', state_class: 'total_increasing', unit_of_measurement: 'km' }, 'car']]),
