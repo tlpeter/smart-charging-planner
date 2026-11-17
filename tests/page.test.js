@@ -248,5 +248,64 @@ check('settings search (#68): finds a setting by name or explanation, Dutch word
   assert.ok(src.includes('data-goto="${esc(x.page)}" data-search-hit='), 'results use data-goto');
 });
 
+check('Looking ahead has 24 hours (#52): 7 days stays the default, saved choices keep working, Plan shows 7 days then, the window cuts later rows', () => {
+  // The buttons and the saved choice.
+  const a = src.indexOf('    const AHEAD_RANGES = ');
+  const b = src.indexOf('    document.addEventListener', a);
+  assert.ok(a > 0 && b > a);
+  const pick = (saved) => {
+    const ctx = vm.createContext({ localStorage: { getItem: () => saved } });
+    vm.runInContext(src.slice(a, b) + '\nthis.r = { days: aheadDays, plan: planAheadDays(), home: aheadButtonsHtml(), planHtml: aheadButtonsHtml(true) };', ctx);
+    return ctx.r;
+  };
+  const def = pick(null);
+  assert.equal(def.days, 7, '7 days by default');
+  assert.match(def.home, /data-ahead="1" aria-pressed="false">24 hours<\/button><button type="button" data-ahead="7" aria-pressed="true">7 days/);
+  assert.equal(pick('5').days, 7, 'an unknown saved value opens on 7 days');
+  assert.equal(pick('30').days, 30, 'an older saved choice still works');
+  const h24 = pick('1');
+  assert.equal(h24.days, 1);
+  assert.match(h24.home, /data-ahead="1" aria-pressed="true">24 hours/);
+  assert.equal(h24.plan, 7, 'Plan shows 7 days with 24 hours chosen');
+  assert.ok(!/24 hours/.test(h24.planHtml) && /data-ahead="7" aria-pressed="true"/.test(h24.planHtml), 'Plan has no 24 hours button');
+  assert.ok(src.includes('&ahead=${planAheadDays()}'), 'Plan asks the server for 7, 14 or 30 days');
+
+  // The timeline with 24 hours.
+  const from = src.indexOf('    function nextGoalHtml(d)');
+  const to = src.indexOf('    // ---------- More than one car:', from);
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ctx = vm.createContext({
+    esc, aheadDays: 1, tidy: (v) => String(v), preconditionDrives: () => new Map(),
+    shape: () => '', dayHm: () => 'Thu 06:30', hm: () => '06:30',
+    tzFmt: (ms, opts) => new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(ms),
+    tripText: () => '', aheadButtonsHtml: () => '', placeNote: () => '', keep: () => '',
+  });
+  vm.runInContext(src.slice(from, to) + '\nthis.render = nextGoalHtml;', ctx);
+  const now = Date.now();
+  const H = 3600000;
+  const period = (s, e) => ({ start: now + s * H, end: now + e * H });
+  const html = ctx.render({ next: { trip: { pct: 20 }, timeline: [
+    { type: 'charge', start: now + 2 * H, periods: [period(2, 4)], kwh: 12, needed_kwh: 12, soc_to: 80 },
+    { type: 'leave', time: now + 18 * H, title: 'Work', soc: 80, target_soc: 80 },
+    { type: 'back', time: now + 28 * H, title: 'Work', soc: 52 },
+    { type: 'charge', start: now + 30 * H, periods: [period(30, 32)], kwh: 9, needed_kwh: 9, soc_to: 80 },
+    { type: 'leave', time: now + 40 * H, title: 'Gym', soc: 80, target_soc: 80 },
+  ] } });
+  assert.match(html, /Work/, 'the trip inside the window');
+  assert.match(html, /Back home/, 'its way back home stays, also after the window');
+  assert.ok(!/Gym/.test(html), 'a departure after the window is left out');
+  assert.ok(!/~9 kWh/.test(html), 'charging that starts after the window is left out');
+  assert.match(html, /~12 kWh/, 'charging inside the window');
+  // Nothing in the next 24 hours: a short line instead of an empty card.
+  const empty = ctx.render({ next: { trip: { pct: 20 }, timeline: [
+    { type: 'leave', time: now + 30 * H, title: 'Gym', soc: 80, target_soc: 80 },
+    { type: 'leave', time: now + 60 * H, title: 'Work', soc: 80, target_soc: 80 },
+  ] } });
+  assert.match(empty, /Nothing planned in the next 24 hours\./);
+  // Four buttons fit on one line on a phone.
+  const css = fs.readFileSync(path.join(APP, 'public', 'styles.css'), 'utf8');
+  assert.ok(/\.range button \{[^}]*font-size: 12\.5px[^}]*padding: 4px 10px/.test(css), 'small range buttons');
+});
+
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exitCode = failures ? 1 : 0;

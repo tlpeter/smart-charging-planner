@@ -878,24 +878,28 @@ function durationText(minutes) {
     } catch { /* private window */ }
     let pastData = null; // { hours, before, at, prices, charged }
 
-    // How far Looking ahead (Home) and the departures (Plan) look: 7, 14 or
-    // 30 days. Kept in this browser, like the chart range (#4).
-    const AHEAD_RANGES = [[7, '7 days'], [14, '14 days'], [30, '30 days']];
+    // How far Looking ahead (Home) and the departures (Plan) look: 24 hours
+    // (#52), 7, 14 or 30 days. Kept in this browser, like the chart range (#4).
+    // The value is in days, so 24 hours is 1. Plan has no 24 hours: it then
+    // shows 7 days (a departure list of one day says little).
+    const AHEAD_RANGES = [[1, '24 hours'], [7, '7 days'], [14, '14 days'], [30, '30 days']];
     let aheadDays = 7;
     try {
       const saved = Number(localStorage.getItem('scp-ahead-days'));
       if (AHEAD_RANGES.some(([d]) => d === saved)) aheadDays = saved;
     } catch { /* private window */ }
-    function aheadButtonsHtml() {
-      return `<div class="range ahead-range" role="group" aria-label="How far ahead">${AHEAD_RANGES.map(([d, label]) =>
-        `<button type="button" data-ahead="${d}" aria-pressed="${d === aheadDays}">${label}</button>`).join('')}</div>`;
+    const planAheadDays = () => Math.max(7, aheadDays);
+    function aheadButtonsHtml(plan = false) {
+      const on = plan ? planAheadDays() : aheadDays;
+      return `<div class="range ahead-range" role="group" aria-label="How far ahead">${AHEAD_RANGES.filter(([d]) => !plan || d >= 7).map(([d, label]) =>
+        `<button type="button" data-ahead="${d}" aria-pressed="${d === on}">${label}</button>`).join('')}</div>`;
     }
     document.addEventListener('click', (e) => {
       const b = e.target.closest('.ahead-range button[data-ahead]');
       if (!b || Number(b.dataset.ahead) === aheadDays) return;
       aheadDays = Number(b.dataset.ahead);
       try { localStorage.setItem('scp-ahead-days', String(aheadDays)); } catch { /* private window */ }
-      document.querySelectorAll('.ahead-range button').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.ahead) === aheadDays)));
+      document.querySelectorAll('.ahead-range button').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.ahead) === (x.closest('#tab-departures') ? planAheadDays() : aheadDays))));
       const card = document.getElementById('next-goal-card');
       if (card && lastPlan) card.outerHTML = nextGoalHtml(lastPlan);
       if (!$('tab-departures') || !$('tab-departures').hidden) loadDepartures();
@@ -1644,7 +1648,7 @@ function durationText(minutes) {
       const n = d.next;
       const all = n && n.timeline ? n.timeline : [];
       if (!all.some((x) => x.type === 'leave') || (all.filter((x) => x.type === 'leave').length < 2 && n.trip.pct == null)) return '';
-      // The chosen range (7, 14 or 30 days): up to the first departure after
+      // The chosen range (24 hours, 7, 14 or 30 days): up to the first departure after
       // it; a trip that starts inside keeps its way back home.
       const until = Date.now() + aheadDays * 86400000;
       const cut = all.findIndex((x) => x.type === 'leave' && x.time >= until);
@@ -1854,7 +1858,7 @@ function durationText(minutes) {
         <div class="ready-kicker">LOOKING AHEAD · THE COMING DAYS</div>
         ${aheadButtonsHtml()}
         ${placeNote(d)}
-        <div class="tl-days">${rows || '<p class="muted small">No departures in this period.</p>'}</div>
+        <div class="tl-days">${rows || `<p class="muted small">${aheadDays === 1 ? 'Nothing planned in the next 24 hours.' : 'No departures in this period.'}</p>`}</div>
         <p class="muted small"><span class="tl-key exp"></span>Orange is expected charging after a trip. Tap a day for the details.</p>
         ${priceNote && days.some((x) => x.est) ? `<p class="muted small">${priceNote}</p>` : ''}
       </div>`;
@@ -2643,7 +2647,7 @@ function durationText(minutes) {
 
     async function loadDepartures() {
       try {
-        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}&ahead=${aheadDays}` : `api/departures?ahead=${aheadDays}`);
+        const d = await api('GET', depCar ? `api/departures?vehicle=${encodeURIComponent(depCar)}&ahead=${planAheadDays()}` : `api/departures?ahead=${planAheadDays()}`);
         depTz = d.time_zone;
         const dep = d.departures;
         if (d.cars) depCar = d.vehicle_id;
@@ -2659,7 +2663,7 @@ function durationText(minutes) {
           ${droppedHtml(d.departure_dropped)}
           ${d.upcoming.length > 1 ? `
           <details${keep('dep-next-days')}><summary class="small muted" style="margin-top:8px;cursor:pointer">Next ${esc(d.ahead_days || 7)} days</summary>
-            ${aheadButtonsHtml()}
+            ${aheadButtonsHtml(true)}
             <table class="periods">
               ${d.upcoming.map((u) => `<tr><td>${depLabel(u.winner)}${(u.later || []).map((o) => `<div class="small muted">later that day: ${esc(depFmt(leaveOf(o), { hour: '2-digit', minute: '2-digit' }))}${o.title ? ' · ' + esc(o.title) : ''}</div>`).join('')}${u.others.map((o) => o.dropped_earlier
                 ? `<div class="small warn-text">${esc(depWhen(leaveOf(o)))} · ${esc(o.soc)}% · ${esc(SOURCE_NAMES[o.source])} · not used: a later ${esc((SOURCE_NAMES[u.winner.source] || '').toLowerCase())} departure wins this day</div>`

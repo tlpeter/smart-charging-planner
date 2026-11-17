@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.7-dev
+
+- **Looking ahead: 24 hours.** A new button next to 7, 14 and 30 days on Home shows only until this time tomorrow: will the car charge tonight, and is it ready for tomorrow's trip. 7 days stays the default and older choices keep working. Plan then shows 7 days. (#52)
+
 ## 0.39.6-dev
 
 - Settings search: the result list takes its background only from the theme (no fixed fallback colour), so the theme check passes again. (#68)
