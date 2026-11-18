@@ -257,7 +257,7 @@ Settings › Charger › **I have more than one charger** (off by default). Add 
 
 ## Calendars
 
-Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "target: 80" (or in Dutch "doel: 80") in the event's notes or title; "precondition: yes" and, with more cars, "car: EV6" work the same way.
+Any calendar in Home Assistant works for departures: Google Calendar, Local calendar, CalDAV, Remote calendar and, from Home Assistant 2026.10, **Apple iCloud** (each iCloud calendar is a calendar entity). Write "target: 80" or "goal: 80" (or in Dutch "doel: 80") in the event's notes or title; "precondition: yes" and, with more cars, "car: EV6" work the same way.
 
 ### Calendar words
 
@@ -265,7 +265,7 @@ The app reads English and Dutch, also mixed in one calendar. Upper and lower cas
 
 | What | English | Dutch | Good to know |
 | --- | --- | --- | --- |
-| **Target** (battery level for the trip) | `target: 80` | `doel: 80` | Also `soc: 80`, `charge: 80`, `laaddoel: 80`, `target=80`, or just `80%`. Between 10 and 100. |
+| **Target** (battery level for the trip) | `target: 80`, `goal: 80` | `doel: 80` | Between 10 and 100, also with `=` (`goal=80`). With **Events with a target** only these three words make an event a trip (#71). In the other modes the app also reads `soc: 80`, `charge: 80`, `laaddoel: 80` or just `80%` as the target. |
 | **Precondition** | `precondition: yes` / `no` | `precondition: ja` / `nee`, `voorverwarmen: ja`, `voorconditioneren: ja` | Also `preconditioning:`, and `on`/`off`, `true`/`false`, `aan`/`uit`, `1`/`0`. Starts preconditioning before that drive when **Preconditioning before a departure** is on (see below). |
 | **Which car** (more cars) | `car: EV6`, `vehicle: EV6` | `auto: EV6`, `voertuig: EV6` | The car's **Name in the calendar**, its name, or its brand. |
 | **Trip to a place** (title) | `To Work` | `Naar Werk` | The first word is left out to find the place. German `nach` and French `vers`/`à` also work. |
@@ -436,7 +436,7 @@ When several sources give a departure on the same day, the one-off departure win
 - **Two trips in one day** from the same source: the plan prepares for the first; the second is shown as "later that day".
 - **After midnight:** a departure counts for the day it leaves. A trip at 00:30 belongs to the next day, so it does not replace the departures of the evening before.
 - **All-day events** have no time to leave and are never a departure. When one looks like a trip (it has a target, or the keyword), Departures › Trips from your calendar lists it under **Not used as a trip**. Give the event a start time to use it.
-- **Which events count:** with **Events with a target** only events with "target: 80" (or "doel: 80") count; with **Events with a keyword** events with the keyword in the title or description, and always events in the app's own format; with **Every event** every event with a time. A trip home ("To home" / "Naar huis") is never a departure: the car comes back.
+- **Which events count:** with **Events with a target** only events with a labelled target count: "doel: 80", "goal: 80" or "target: 80" in the title or description (#71). A meeting with a location, or a text such as "50% off", is not a trip there. Preconditioning for a trip home and for an event with "precondition:" still works without a target; with **Events with a keyword** events with the keyword in the title or description, and always events in the app's own format; with **Every event** every event with a time. A trip home ("To home" / "Naar huis") is never a departure: the car comes back.
 - **Car tags** (more cars): "car: EV6" is matched to the **Name in the calendar**, the car's name, or its brand when only one car has that brand. A tag that matches no car, or more than one, counts for **every car** and is marked "not recognised" under Trips from your calendar.
 
 ## Charging power

@@ -144,5 +144,40 @@ check('#67: the keyword is a whole word; "only events with a place" and "skip ev
   assert.equal(d.nextDeparture(all({ require_place: true }), { states: [], events: [ev('Submit meter reading', '2026-11-09T19:00:00+01:00', '2026-11-09T19:30:00+01:00')], tz: TZ, now: NOW }).source, 'schedule');
 });
 
+check('#71: with "Events with a target" only "doel:", "goal:" or "target:" makes an event a trip', () => {
+  const T = '2026-11-10T13:00:00+01:00';
+  const E = '2026-11-10T14:00:00+01:00';
+  const dep = settings({ schedule_enabled: false });
+  const events = [
+    // An online meeting with a meeting room as its location: not a trip.
+    { ...ev('Intro call', T, E, 'Meeting ID: 123 456 789 01\nDial in: +00 12 345 6789'), location: 'Room 2, Exempelstad' },
+    ev('Shop sale', T, E, '50% off everything'),
+    ev('Battery check', T, E, 'soc 80 charge 90'),
+    ev('To Rivertown', T, E, 'doel: 70 precondition: ja'),
+    ev('To the coast', T, E, 'goal: 90'),
+    ev('To Exempelstad', T, E, 'target=85'),
+    ev('Goal: 75 to the lake', T, E),
+    ev('Goalkeeper training', T, E, 'goals: 3'),
+  ];
+  const trips = d.calendarTrips(dep, events, TZ, NOW);
+  assert.deepEqual(trips.map((t) => [t.title, t.soc]), [
+    ['To Rivertown', 70], ['To the coast', 90], ['To Exempelstad', 85], ['Goal: 75 to the lake', 75],
+  ]);
+  // The meeting is not the next departure.
+  assert.equal(d.nextDeparture(dep, { states: [], events, tz: TZ, now: NOW }).title, 'To Rivertown');
+  // "goal: 80" is read as the target in the other modes too, and counts as the app's own format.
+  assert.equal(d.parseTarget('goal: 80'), 80);
+  assert.equal(d.parseLabelledTarget('goal = 95'), 95);
+  assert.equal(d.parseLabelledTarget('50%'), null);
+  assert.equal(d.parseLabelledTarget('target: 5'), null);
+  const kw = settings({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.trips', match: 'keyword', keyword: 'EV', buffer_minutes: 0, soc: 80 } });
+  assert.deepEqual(d.calendarTrips(kw, [ev('Lake', T, E, 'goal: 60'), ev('Meeting', T, E, '50% done')], TZ, NOW).map((t) => [t.title, t.soc]), [['Lake', 60]]);
+  // Other modes still read a bare "85%" as the target.
+  const all = settings({ schedule_enabled: false, calendar: { enabled: true, entity: 'calendar.trips', match: 'all', buffer_minutes: 0, soc: 80 } });
+  assert.equal(d.calendarTrips(all, [ev('Lake', T, E, '85%')], TZ, NOW)[0].soc, 85);
+  // An all-day event is listed as not used only with a labelled target.
+  assert.deepEqual(d.ignoredEvents(dep, [ev('Sale all day', '2026-11-11', '2026-11-12', '50% off'), ev('Holiday', '2026-11-11', '2026-11-12', 'goal: 100')], TZ, NOW).map((x) => x.title), ['Holiday']);
+});
+
 console.log(failures ? `\n${failures} failed` : '\nAll departure checks passed');
 process.exit(failures ? 1 : 0);

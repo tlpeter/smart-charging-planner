@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.12-dev
+
+- **Calendar: only a real target makes an event a trip.** With **Events with a target**, an event now counts only with "doel: 80", "goal: 80" or "target: 80" (also with `=`) in the title or description. Before, a meeting text with "50%" or "soc 80" could count too. "goal: 80" is new and works everywhere, like "target: 80". Tip: use this mode when your calendar also has meetings with a location, so a meeting is no longer planned as a drive. (#71)
+
 ## 0.39.11-dev
 
 - Wake the car: the setting can be set back to its default (on for a Renault) by the tests; the settings test now checks the default after other tests changed it. No change for you. (#70)

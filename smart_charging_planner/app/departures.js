@@ -121,13 +121,23 @@ function fromHelper(dep, states, tz, now) {
   return [{ time, soc, source: 'helper', precondition }];
 }
 
-// Target battery level written in an event, e.g. "doel: 80", "target=90", "85%".
+// Target battery level written in an event, e.g. "doel: 80", "goal: 80", "target=90", "85%".
 function parseTarget(text) {
   const t = String(text || '');
-  const m = t.match(/\b(?:doel|target|soc|laaddoel|charge)\s*[:=]?\s*(\d{1,3})\s*%?/i) || t.match(/\b(\d{1,3})\s*%/);
+  const m = t.match(/\b(?:doel|goal|target|soc|laaddoel|charge)\s*[:=]?\s*(\d{1,3})\s*%?/i) || t.match(/\b(\d{1,3})\s*%/);
   const n = m ? Number(m[1]) : NaN;
   return n >= 10 && n <= 100 ? n : null;
 }
+
+// A labelled target (#71): "doel: 80", "goal: 80" or "target: 80" (also "=").
+// With "Events with a target" only this makes an event a trip; a bare "50%"
+// or "soc 80" in a meeting's text does not.
+function parseLabelledTarget(text) {
+  const m = String(text || '').match(/(?<![\p{L}\p{N}])(?:doel|goal|target)\s*[:=]\s*(\d{1,3})(?!\d)/iu);
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 10 && n <= 100 ? n : null;
+}
+const labelledIn = (e) => parseLabelledTarget(e.description) ?? parseLabelledTarget(e.summary);
 
 // "precondition: ja" / "yes" / "on" -> true, "nee" / "no" / "off" -> false.
 // Dutch: "voorverwarmen: ja", "voorconditioneren: ja".
@@ -208,11 +218,12 @@ function calendarTrips(dep, events, tz, now, carCtx = null) {
     const start = String(e.start || '');
     if (/^\d{4}-\d{2}-\d{2}$/.test(start)) continue; // all-day event: no time
     const text = `${e.summary || ''}\n${e.description || ''}`;
-    const target = parseTarget(e.description) ?? parseTarget(e.summary);
-    if (c.match === 'target' && target == null) continue;
+    const labelled = labelledIn(e);
+    const target = labelled ?? parseTarget(e.description) ?? parseTarget(e.summary);
+    if (c.match === 'target' && labelled == null) continue;
     // A trip in this app's own format ("doel: 80", what Add trip writes) always
     // counts, also when the calendar is read by keyword.
-    const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
+    const ownFormat = /\b(?:doel|goal|target)\s*[:=]\s*\d/i.test(e.description || '');
     if (c.match === 'keyword' && keyword.replace(/[\s,]/g, '') && !ownFormat && !hasAnyWord(text, keyword)) continue;
     // Skip word (#67): never a trip, whatever else the event says.
     if (filtered && hasAnyWord(text, c.skip_keyword)) continue;
@@ -306,9 +317,8 @@ function ignoredEvents(dep, events, tz, now) {
     const start = String(e.start || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
     const text = `${e.summary || ''}\n${e.description || ''}`;
-    const target = parseTarget(e.description) ?? parseTarget(e.summary);
-    const ownFormat = /\b(?:doel|target)\s*[:=]\s*\d/i.test(e.description || '');
-    const looksLikeTrip = c.match === 'target' ? target != null
+    const ownFormat = /\b(?:doel|goal|target)\s*[:=]\s*\d/i.test(e.description || '');
+    const looksLikeTrip = c.match === 'target' ? labelledIn(e) != null
       : c.match === 'keyword' ? ownFormat || (keyword.replace(/[\s,]/g, '') ? hasAnyWord(text, keyword) : true)
         : true;
     if (!looksLikeTrip || hasAnyWord(text, c.skip_keyword)) continue;
@@ -338,6 +348,6 @@ function nextDeparture(dep, ctx) {
 
 module.exports = {
   DAYS, PRIORITY, defaultDepartures, normalise, collect, winnersPerDay, nextDeparture,
-  calendarTrips, ignoredEvents, droppedEarlier, parseTarget, parsePrecondition, parseCar, matchCar,
+  calendarTrips, ignoredEvents, droppedEarlier, parseTarget, parseLabelledTarget, parsePrecondition, parseCar, matchCar,
   hasWord, hasAnyWord, setPlaceCheck,
 };
