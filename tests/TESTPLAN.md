@@ -14,14 +14,14 @@ A separate check (`.github/workflows/ha-core-compat.yml`) runs the app against a
 
 | Test | Passed |
 |---|---|
-| Settings A: Renault Megane E-Tech + Easee Charge | 209 of 210 ✗ |
+| Settings A: Renault Megane E-Tech + Easee Charge | 210 of 210 ✓ |
 | Settings B: Kia Niro EV (Kia Uvo) + Zaptec Go | 195 of 195 ✓ |
 | Settings 3: Skoda Enyaq (MySkoda) + Wallbox Pulsar Plus | 196 of 196 ✓ |
 | Unit tests (29 files) | 906 of 906 ✓ |
 | Matrix (10 chargers × all batteries) | 960 of 960 ✓ |
 | Cars (10 car integrations × Easee) | 50 of 50 ✓ |
 
-Version: 0.39.10-dev.
+Version: 0.39.11-dev.
 
 # Settings
 
@@ -98,7 +98,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | E7 | Fixed tariff: refused when low from = low until, or time "25:00" | ✓ | ✓ | ✓ |
 | E8 | Day/night tariff: the plan charges in the low hours | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1 | ✓ planned hours 23,0,1,2 |
 | E9 | Refused: forecast sensor with a bad name, margin 0.6 | ✓ | ✓ | ✓ |
-| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.8 h back | ✓ 13 charged blocks, from 12.8 h back | ✓ 13 charged blocks, from 12.8 h back |
+| E10 | Chart looks back at least 12 hours; past blocks the charger charged in come back as "charged", future blocks never | ✓ 13 charged blocks, from 12.3 h back | ✓ 13 charged blocks, from 12.3 h back | ✓ 13 charged blocks, from 12.3 h back |
 | E11 | Chart further back (24 h, 3 or 7 days): api/past gives the older prices and charging up to the plan's first block; anything else is 12 hours | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks | ✓ 24 h: 12 blocks, 72 h: 60 blocks, 168 h: 156 blocks |
 | E12 | A skipped forecast interval gives one warning while valid actual prices remain usable | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used | ✓ one source/date warning; valid prices still used |
 | E12b | Forecast price basis (#26): saving needs an explicit basis; an all-in forecast is not taxed again; the same hour shows VAT applied twice | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 | ✓ wrong basis: ratio 1.210 with a warning; all-in: 0.2207 + 0.02 = 0.2407 |
@@ -177,13 +177,13 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | J6 | Charge now 100 %: limit up, charger started; stop: limit back | ✓ limit 100 → 90, start: switch.turn_on switch.laadpaal_charger_enabled | ✓ limit 100 → 90, start: button.press button.zaptec_go_resume_charging | ✓ limit 100 → 90, start: switch.turn_on switch.wallbox_pulsar_plus_pause_resume |
 | J6b | Just turn it on (Charge now without a goal, also for a visitor's car): charger started right away, no end from car data, your car's limit is not touched | ✓ start sent, no end until Stop or unplug | ✓ start sent, no end until Stop or unplug | ✓ start sent, no end until Stop or unplug |
 | J6c | Restart the car (option): the charger is on and ready, but the car takes no power (like a Renault that ended its session at 80 %); the app sets the car limit one step lower and back, and the car charges | ✓ limits 100 → 95, charging | ✓ not for this charger in the fake | ✓ not for this charger in the fake |
-| J6d | Wake the car (#70): the car sleeps and ignores a new limit, the charger is on and ready; the app presses the car's Start charge button and it charges. On by default for a Renault; at most one retry | ✗ FAIL default for renault_easee: {"button":"button.test_car_start_charge","platform":"renault","on":false} | ✓ not for this charger in the fake | ✓ not for this charger in the fake |
+| J6d | Wake the car (#70): the car sleeps and ignores a new limit, the charger is on and ready; the app presses the car's Start charge button and it charges. On by default for a Renault; at most one retry | ✓ pressed once, charging | ✓ not for this charger in the fake | ✓ not for this charger in the fake |
 | J6e | Wake the car (#70): a car that stays asleep is pressed twice (one retry), not more; turned off: never pressed | ✓ two presses, then Ready Guard; off: none | ✓ not for this charger in the fake | ✓ not for this charger in the fake |
 | J7 | Charge now as kWh: preview converts it to a level for the limit | ✓ | ✓ | ✓ |
 | J8 | "Don't change the car's charge limit": nothing sent, plan capped at the limit | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification | ✓ limit 80 %, battery 85 %: action needed + notification |
 | J9 | Notification on start (notify every start and pause) | ✓ Car charge limit changed · Charging started · Car charge limit changed · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you | ✓ Car charge limit changed · Charging started · Charging paused · Ready Guard needs you |
 | J9b | Manual test (Diagnostics): start and stop really sent | ✓ switch.turn_on switch.laadpaal_charger_enabled → switch.turn_off switch.laadpaal_charger_enabled | ✓ button.press button.zaptec_go_resume_charging → button.press button.zaptec_go_stop_charging | ✓ switch.turn_on switch.wallbox_pulsar_plus_pause_resume → switch.turn_off switch.wallbox_pulsar_plus_pause_resume |
-| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Wed 11:47; 4 blocks after it | ✓ Paused by you until Wed 11:47; 5 blocks after it | ✓ Paused by you until Wed 11:47; 6 blocks after it |
+| J9c | Pause until a time (#33): sent right away, also just after a start by hand and during Charge now; the plan starts after the pause | ✓ Paused by you until Wed 12:19; 4 blocks after it | ✓ Paused by you until Wed 12:19; 5 blocks after it | ✓ Paused by you until Wed 12:19; 6 blocks after it |
 | J9d | Paused: below the minimum the app still does not start the charger (the pause wins); Resume: the plan takes over again | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum | ✓ paused at 10 % (minimum 20 %), after resume: below_minimum |
 | J9e | Pause until the car is unplugged: refused when not plugged in; ends when the car is unplugged | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned | ✓ ended on unplug, now not_planned |
 | J9f | Pause until I resume: kept after a restart; Charge now ends it | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now | ✓ kept after restart, ended by Charge now |
@@ -326,7 +326,7 @@ SCP_PROFILE=kia_zaptec node tests/settings.test.js
 | Y21 | Preconditioning (#44): a trip with "precondition: ja" in 10 minutes gets one press of the car's button (15 minutes before); a trip without it gets none; it shows in Looking ahead; the car does not need to be plugged in | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without | ✓ one press for "precondition: ja", none without |
 | Y22 | Preconditioning on the way back (#44): no event for the drive home and the setting on: one press 15 minutes before the event ends; a trip home in the calendar without "precondition" wins over the setting | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none | ✓ way back: one press; a trip home without "precondition": none |
 | Y22b | Preconditioning before a trip home with only "precondition: ja" (#58): no target, calendar set to events with a target: still one press 15 minutes before; a trip home without any tag turns the way back off | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none | ✓ trip home with only "precondition: ja": one press; untagged trip home: none |
-| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule wed 09:00: one press with the tick, none without; one-off: one press | ✓ schedule wed 08:59: one press with the tick, none without; one-off: one press | ✓ schedule wed 08:59: one press with the tick, none without; one-off: one press |
+| Y23 | Preconditioning for the weekly schedule and a one-off departure (#45): the day's tick gives one press 15 minutes before; without the tick none; a one-off departure with its tick too | ✓ schedule wed 09:32: one press with the tick, none without; one-off: one press | ✓ schedule wed 09:31: one press with the tick, none without; one-off: one press | ✓ schedule wed 09:31: one press with the tick, none without; one-off: one press |
 | Y23b | Route to the next trip (#66): off by default; on, a calendar trip with a location in 20 minutes gives one notification; a tap on the phone opens Google Maps with the route, another notify action gets the link in the text; a trip without a location and a trip home get none; only a message | ✓ one route message (tap: Google Maps; link in the text for another notify action); none without a location or for the trip home | ✓ one route message (tap: Google Maps; link in the text for another notify action); none without a location or for the trip home | ✓ one route message (tap: Google Maps; link in the text for another notify action); none without a location or for the trip home |
 
 ## Z. Apple iCloud calendar (read only)
@@ -1632,8 +1632,8 @@ Documentation keeps up: README and RELEASE candidate match the version, every is
 | Check | Result |
 |---|---|
 | config.yaml has a version | ✓ |
-| README: development candidate has the same X.Y as config.yaml (0.39.10-dev) | ✓ |
-| RELEASE: current candidate has the same X.Y as config.yaml (0.39.10-dev) | ✓ |
+| README: development candidate has the same X.Y as config.yaml (0.39.11-dev) | ✓ |
+| RELEASE: current candidate has the same X.Y as config.yaml (0.39.11-dev) | ✓ |
 | README: every issue since 0.39.0 is under "Implemented on dev" (#70, #69, #27, #52, #68, #67, #66) | ✓ |
 | RELEASE: every issue since 0.39.0 is in the candidate scope | ✓ |
 | changelog: the newest heading is the version in config.yaml | ✓ |
