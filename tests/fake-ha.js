@@ -265,6 +265,8 @@ function entityList(w) {
   const car = p.car.states(w).map(([id, st, a, dev]) => [id, String(st), a, dev === undefined ? p.car.device : dev]);
   // A button of the car that starts the air conditioning (preconditioning, #44).
   car.push(['button.test_car_start_air_conditioner', 'unknown', { friendly_name: 'Car Start air conditioner' }, p.car.device]);
+  // The car's own "Start charge" button (#70): pressing it wakes a sleeping car.
+  car.push(['button.test_car_start_charge', 'unknown', { friendly_name: 'Car Start charge' }, p.car.device]);
   // Where the car is (#46): w.carLocation (the car's device tracker) and
   // w.personLocation (a person), each 'home', 'not_home', a zone or 'unavailable'.
   car.push(['device_tracker.test_car_location', w.carLocation ?? 'unknown', { friendly_name: 'Car Location', source_type: 'gps' }, p.car.device]);
@@ -475,7 +477,17 @@ function start(w, wsPort, restPort) {
             w.limit = call.data.value;
             // Like a Renault that ended its session: a change of its limit while
             // the charger is on and ready wakes it (w.carAsleep, settings test J6c).
-            if (w.carAsleep && w.enabledNoPower) { w.carAsleep = false; w.enabledNoPower = false; w.charging = true; }
+            // w.deepSleep (#70): the car sleeps and does not see the change.
+            if (w.carAsleep && w.enabledNoPower && !w.deepSleep) { w.carAsleep = false; w.enabledNoPower = false; w.charging = true; }
+          }
+          // The car's Start charge button wakes it (#70), unless w.startIgnored.
+          if (m.domain === 'button' && m.service === 'press' && tid === 'button.test_car_start_charge') {
+            w.startPresses = (w.startPresses || 0) + 1;
+            if (w.carAsleep && !w.startIgnored) {
+              w.carAsleep = false;
+              w.deepSleep = false;
+              if (w.enabledNoPower) { w.enabledNoPower = false; w.charging = true; }
+            }
           }
           if (w.hasBattery && tid) {
             if (tid === 'switch.sigen_plant_remote_ems_controlled_by_home_assistant') w.bat.ems = m.service === 'turn_on' ? 'on' : 'off';

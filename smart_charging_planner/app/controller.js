@@ -70,6 +70,7 @@ const DEFAULT_RULES = {
   battery_care_early_saving: null, // #39: charge above the level earlier when that saves at least this much (null = never)
   car_limit_off: false, // true: never change the car's own charge limit
   car_limit_restart: false, // true: the car takes no power while it should: set its limit one step lower and back
+  car_wake: null, // #70: the car takes no power while it should: press its Start charge button (null = on for Renault, off for other cars)
   min_choice: 30, // default minimum (%) for the quick choices on Home
   trip_topup_enabled: false, // ask on the phone to charge more when the next trip needs it
   trip_topup_reserve: 10, // % to be back home with, for that question

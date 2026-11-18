@@ -217,6 +217,16 @@ function findChargeLimit(entities, states, deviceId) {
   return list.find((id) => id.startsWith('number.') && !/(^|_)dc_/.test(id)) || list.find((id) => id.startsWith('number.')) || list[0] || null;
 }
 
+// The car's own "Start charge" button (#70), e.g. Renault "Start charge".
+// Pressing it wakes a sleeping car and asks it to charge. Not "stop".
+function findStartButton(entities, deviceId) {
+  if (!deviceId) return null;
+  const e = entities.find((x) => x.device_id === deviceId && !x.disabled_by && x.entity_id.startsWith('button.')
+    && /start_?charg/i.test([x.entity_id, x.translation_key, x.original_name].filter(Boolean).join(' ').replace(/ /g, '_'))
+    && !/stop/i.test(x.entity_id));
+  return e ? { entity_id: e.entity_id, platform: e.platform || null } : null;
+}
+
 // All sensors in %, for choosing a SoC manually when nothing is found.
 function percentSensors(entities, states) {
   const regById = new Map(entities.map((e) => [e.entity_id, e]));
@@ -237,4 +247,5 @@ function placeEntities(entities, states, domain) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-module.exports = { placeEntities, detectVehicles, percentSensors, findChargeLimit, isChargeLimit, KNOWN_VEHICLE_DOMAINS };
+module.exports = {
+  findStartButton, placeEntities, detectVehicles, percentSensors, findChargeLimit, isChargeLimit, KNOWN_VEHICLE_DOMAINS };

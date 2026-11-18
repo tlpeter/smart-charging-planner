@@ -7,7 +7,7 @@ const path = require('path');
 const ha = require('./ha');
 const { options } = require('./options');
 const settings = require('./settings');
-const { detectVehicles, placeEntities, percentSensors, findChargeLimit, isChargeLimit } = require('./vehicles');
+const { detectVehicles, placeEntities, percentSensors, findChargeLimit, isChargeLimit, findStartButton } = require('./vehicles');
 const activecar = require('./activecar');
 const MAX_VEHICLES = 6;
 const MAX_CHARGERS = 4;
@@ -157,6 +157,28 @@ async function carChargeLimit(vehicle, states) {
     max: st.attributes && st.attributes.max,
     step: st.attributes && st.attributes.step,
   };
+}
+
+// The car's "Start charge" button (#70), looked up on the car's device once.
+const foundStart = new Map(); // device_id -> { entity_id, platform } | null
+async function carStartButton(vehicle) {
+  if (!vehicle || !vehicle.device_id) return null;
+  if (!foundStart.has(vehicle.device_id)) {
+    try {
+      const { entities } = await loadRegistries();
+      foundStart.set(vehicle.device_id, findStartButton(entities, vehicle.device_id));
+    } catch {
+      return null; // try again next time
+    }
+  }
+  return foundStart.get(vehicle.device_id);
+}
+// "Wake the car" is on when chosen, or by default for a Renault (#70): a
+// Renault that sleeps does not take a new charge limit until it wakes up.
+function wakeOn(rules, button) {
+  if (!button) return false;
+  if (rules && (rules.car_wake === true || rules.car_wake === false)) return rules.car_wake;
+  return button.platform === 'renault';
 }
 
 async function loadRegistries() {
@@ -1657,6 +1679,9 @@ const routes = {
       carData,
       notes: plan.notes,
       carLimit: limited ? { value: carLimit.value, wanted: wantedSoc, writable: carLimit.writable, controlAllowed: options.allow_control } : null,
+      // #70: the charger is on and the app wants to charge, but the car takes no power.
+      noPowerSince: ST().wantNoPowerSince || null,
+      wakes: ST().wakes ? ST().wakes.count : 0,
     });
 
     // After this departure: the next goal, the expected battery level after the
@@ -3611,8 +3636,9 @@ async function restartCar(planResult, entry, states, rules) {
   const now = Date.now();
   const stuck = entry.want === 'charge' && entry.plugged === true && entry.charging !== true && !((Number(entry.power_w) || 0) > 500)
     && (!entry.switch_state || entry.switch_state.on === true);
-  if (!stuck) { ST().wantNoPowerSince = null; return; }
+  if (!stuck) { ST().wantNoPowerSince = null; ST().wakes = null; return; }
   if (!ST().wantNoPowerSince) ST().wantNoPowerSince = now;
+  await wakeCar(planResult, entry, rules).catch((err) => ha.warn('Waking the car failed:', err.message));
   if (!rules || rules.car_limit_restart !== true) return;
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult) return;
@@ -3639,6 +3665,47 @@ async function restartCar(planResult, entry, states, rules) {
   ha.log(`The car takes no power while it should: car charge limit ${lim.value}% → ${lower}% and back, to restart it`);
   await sendCarLimit(lim, lower, 'Restart the car: it takes no power', true);
 }
+// "Wake the car" (#70). A car that sleeps (Renault) does not see a new
+// charge limit and asks for no power, even with the charger on. When the app
+// wants to charge and no power flows for 2 minutes, it presses the car's
+// "Start charge" button, which wakes the car. One retry after 15 minutes, no
+// more; after that Ready Guard tells you (see evaluateReadyGuard).
+const WAKE_AFTER_MS = Number(process.env.SCP_WAKE_AFTER_MS) || 2 * 60000;
+const WAKE_RETRY_MS = Number(process.env.SCP_WAKE_RETRY_MS) || 15 * 60000;
+const WAKE_MAX = 2;
+async function wakeCar(planResult, entry, rules) {
+  const now = Date.now();
+  if (!planResult || !planResult.vehicle) return;
+  const bc = boost.current();
+  if (bc && bc.mode === 'on') return; // possibly a visitor's car
+  const s = settings.load();
+  const vehicle = s.vehicles.find((x) => x.id === planResult.vehicle.id) || null;
+  const button = await carStartButton(vehicle);
+  if (!wakeOn(rules, button)) return;
+  const since = Math.max(ST().wantNoPowerSince, entry.switch_state && entry.switch_state.since ? entry.switch_state.since : 0);
+  if (now - since < WAKE_AFTER_MS) return;
+  const w = ST().wakes || (ST().wakes = { count: 0, at: 0 });
+  if (w.count >= WAKE_MAX || (w.count && now - w.at < WAKE_RETRY_MS)) return;
+  w.count += 1;
+  w.at = now;
+  const command = { service: 'button.press', data: {}, target: { entity_id: button.entity_id } };
+  const line = {
+    time: now, live: true, want: 'charge', code: 'car_wake',
+    reason: `The car takes no power while it should: press ${button.entity_id} to wake it${w.count > 1 ? ' (second try)' : ''}`,
+    commands: [{ what: 'wake the car', service: command.service, data: command.data, target: command.target }],
+    agrees: true, sent: false, control_allowed: options.allow_control,
+  };
+  try {
+    await ha.sendControl(command, [{ service: command.service, entity_id: button.entity_id }]);
+    line.sent = true;
+    ha.log(`The car takes no power while it should: pressed ${button.entity_id} to wake it (try ${w.count} of ${WAKE_MAX})`);
+  } catch (err) {
+    line.error = err.message;
+    ha.warn(`Could not wake the car with ${button.entity_id}: ${err.message}`);
+  }
+  controller.logSent(line);
+}
+
 async function manageCarLimit(planResult, actual, states) {
   const s = settings.load();
   if (!managingCarLimit(s) || !planResult || actual.plugged !== true) return;
@@ -3763,6 +3830,10 @@ function refreshPlan(reason, { fresh = false, noControl = false } = {}) {
       } else if (rg && rg.protect && !result.boost) {
         await notifier.notify('rg_active', 'Ready Guard active', rg.message,
           { key: `ready:active:${result.departure.time}`, minGapMs: 6 * 3600000 });
+      } else if (rg && rg.not_charging && result.departure) {
+        // #70: its own message, so an earlier "plug in" does not hide it.
+        await notifier.notify('car_not_charging', 'The car is not charging', `${rg.message} Departure is ${hmLocal(result.departure.time)}.`,
+          { key: `ready:nopower:${result.departure.time}`, minGapMs: 2 * 3600000 });
       } else if (rg && rg.base_status === 'action_needed' && result.departure && !result.boost) {
         await notifier.notify('rg_needs_you', 'Ready Guard needs you', rg.message,
           { key: `ready:action:${result.departure.time}`, minGapMs: 6 * 3600000 });
@@ -4678,6 +4749,10 @@ routes['GET /api/control'] = async () => {
     options: await ruleEntityOptions(s, states, rules),
     now: ST().lastDryRun,
     car_limit: await carChargeLimit(currentVehicle(s), states).catch(() => null),
+    car_wake: await (async () => {
+      const button = await carStartButton(currentVehicle(s)).catch(() => null);
+      return { button: button ? button.entity_id : null, platform: button ? button.platform : null, on: wakeOn(rules, button) };
+    })(),
     route_upcoming: rules.route_notify_enabled ? routenotify.upcoming().slice(0, 3).map((m) => ({ title: m.title, at: m.at, until: m.until, sent: m.sent })) : [],
     chosen_start_stop: (() => {
       const c = chosenMethods(methods, rules);
@@ -5086,6 +5161,7 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_early_saving: num(b.battery_care_early_saving, 'Battery care: charge earlier when it saves at least', 0.01, 100, true),
     car_limit_off: b.car_limit_off === true,
     car_limit_restart: b.car_limit_restart === true,
+    car_wake: b.car_wake === true ? true : b.car_wake === false ? false : (prev.car_wake ?? null),
     trip_topup_enabled: b.trip_topup_enabled === true,
     trip_topup_reserve: num(b.trip_topup_reserve ?? 10, 'Reserve when back home', 0, 50),
     route_notify_enabled: b.route_notify_enabled === true,

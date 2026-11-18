@@ -35,6 +35,7 @@ const MESSAGES = [
   { id: 'rg_risk', category: 'action', name: 'Ready Guard: target at risk' },
   { id: 'rg_active', category: 'action', name: 'Ready Guard takes over' },
   { id: 'trip_topup', category: 'action', name: 'A trip needs more charge: charge more? (Yes/No)' },
+  { id: 'car_not_charging', category: 'action', name: 'The car is not charging while it should' },
   { id: 'rg_needs_you', category: 'action', name: 'Ready Guard needs you (plug in, allow control, charge limit too low)' },
   { id: 'which_car', category: 'action', name: 'Which car is connected?' },
   { id: 'car_offline', category: 'car', name: 'Car not reachable' },

@@ -131,6 +131,8 @@ async function startApp(options = {}) {
       SCP_TRIPLOG_MS: '1000',
       SCP_CALENDAR_WAIT_MS: '100',
       SCP_RESTART_AFTER_MS: '1500',
+      SCP_WAKE_AFTER_MS: '1500',
+      SCP_WAKE_RETRY_MS: '1500',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1020,7 +1022,7 @@ async function run() {
     world.carAsleep = true;
     const n0 = world.calls.length;
     try {
-      await ok('POST', 'api/control/settings', rules({ car_limit_restart: true }));
+      await ok('POST', 'api/control/settings', rules({ car_limit_restart: true, car_wake: false }));
       await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
       await sleep(800);
       assert(world.enabledNoPower && !world.charging, `enabled ${world.enabledNoPower}, charging ${world.charging}`);
@@ -1041,6 +1043,76 @@ async function run() {
       return `limits ${limits.join(' → ')}, charging`;
     } finally {
       world.carAsleep = false;
+      world.enabledNoPower = false;
+      await ok('DELETE', 'api/boost');
+      await ok('POST', 'api/control/settings', rules());
+      await plan();
+    }
+  });
+  await test('J6d', 'Wake the car (#70): the car sleeps and ignores a new limit, the charger is on and ready; the app presses the car\'s Start charge button and it charges. On by default for a Renault; at most one retry', async () => {
+    if (!CH.text.ready) return 'not for this charger in the fake';
+    const renault = (process.env.SCP_PROFILE || 'renault_easee') === 'renault_easee';
+    let c = await ok('GET', 'api/control');
+    assert(c.car_wake && c.car_wake.button === 'button.test_car_start_charge', JSON.stringify(c.car_wake));
+    assert(c.car_wake.on === renault, `default for ${process.env.SCP_PROFILE || 'renault_easee'}: ${JSON.stringify(c.car_wake)}`);
+    world.charging = false;
+    world.carAsleep = true;
+    world.deepSleep = true;
+    world.startPresses = 0;
+    const n0 = world.calls.length;
+    try {
+      if (!renault) await ok('POST', 'api/control/settings', rules({ car_wake: true }));
+      await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
+      await sleep(800);
+      assert(world.enabledNoPower && !world.charging, `enabled ${world.enabledNoPower}, charging ${world.charging}`);
+      await plan();
+      await sleep(1800);
+      await plan();
+      await sleep(800);
+      const presses = callsSince(n0).filter((c) => c.domain === 'button' && c.service === 'press' && ((c.target && c.target.entity_id) || (c.data && c.data.entity_id)) === 'button.test_car_start_charge');
+      assert(presses.length === 1, `presses ${presses.length}`);
+      assert(world.charging === true, 'the car did not start');
+      const p = await plan();
+      assert(!(p.reliability && p.reliability.not_charging), JSON.stringify(p.reliability && p.reliability.label));
+      return 'pressed once, charging';
+    } finally {
+      world.carAsleep = false;
+      world.deepSleep = false;
+      world.enabledNoPower = false;
+      await ok('DELETE', 'api/boost');
+      await plan();
+    }
+  });
+  await test('J6e', 'Wake the car (#70): a car that stays asleep is pressed twice (one retry), not more; turned off: never pressed', async () => {
+    if (!CH.text.ready) return 'not for this charger in the fake';
+    world.charging = false;
+    world.carAsleep = true;
+    world.deepSleep = true;
+    world.startIgnored = true;
+    const n0 = world.calls.length;
+    const presses = () => callsSince(n0).filter((c) => c.domain === 'button' && c.service === 'press' && ((c.target && c.target.entity_id) || (c.data && c.data.entity_id)) === 'button.test_car_start_charge').length;
+    try {
+      await ok('POST', 'api/control/settings', rules({ car_wake: true }));
+      await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
+      for (let i = 0; i < 6; i++) { await sleep(1000); await plan(); }
+      await sleep(800);
+      assert(presses() === 2, `presses ${presses()}`);
+      assert(!world.charging, 'charging');
+      // Off: no press.
+      await ok('DELETE', 'api/boost');
+      await plan();
+      await ok('POST', 'api/control/settings', rules({ car_wake: false }));
+      const c = await ok('GET', 'api/control');
+      assert(c.car_wake.on === false && c.rules.car_wake === false, JSON.stringify(c.car_wake));
+      const n1 = world.calls.length;
+      await ok('POST', 'api/boost', { mode: 'soc', value: 100 });
+      for (let i = 0; i < 3; i++) { await sleep(1000); await plan(); }
+      assert(!callsSince(n1).some((x) => x.domain === 'button' && ((x.target && x.target.entity_id) || (x.data && x.data.entity_id)) === 'button.test_car_start_charge'), 'pressed while off');
+      return 'two presses, then Ready Guard; off: none';
+    } finally {
+      world.carAsleep = false;
+      world.deepSleep = false;
+      world.startIgnored = false;
       world.enabledNoPower = false;
       await ok('DELETE', 'api/boost');
       await ok('POST', 'api/control/settings', rules());

@@ -3058,6 +3058,11 @@ function durationText(minutes) {
       f.battery_care_early_saving.value = r.battery_care_early_saving ?? '';
       f.car_limit_off.checked = !!r.car_limit_off;
       f.car_limit_restart.checked = !!r.car_limit_restart;
+      // #70: on by default for a Renault (the server says what is in effect).
+      const wake = d.car_wake || {};
+      f.car_wake.checked = !!wake.on;
+      f.car_wake.disabled = !wake.button;
+      $('car-wake-now').innerHTML = wake.button ? `Button: <code>${esc(wake.button)}</code>` : '<span class="differ">No "Start charge" button found on the car.</span>';
       f.trip_topup_enabled.checked = !!r.trip_topup_enabled;
       f.trip_topup_reserve.value = r.trip_topup_reserve ?? 10;
       f.route_notify_enabled.checked = !!r.route_notify_enabled;
@@ -3101,7 +3106,7 @@ function durationText(minutes) {
           battery_care_soc: f.battery_care_soc.value,
           battery_care_hours: f.battery_care_hours.value,
           battery_care_early_saving: f.battery_care_early_saving.value,
-          car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, min_choice: f.min_choice.value,
+          car_limit_off: f.car_limit_off.checked, car_limit_restart: f.car_limit_restart.checked, car_wake: f.car_wake.disabled ? undefined : f.car_wake.checked, min_choice: f.min_choice.value,
           trip_topup_enabled: f.trip_topup_enabled.checked, trip_topup_reserve: f.trip_topup_reserve.value,
           route_notify_enabled: f.route_notify_enabled.checked, route_notify_minutes: f.route_notify_minutes.value,
         });

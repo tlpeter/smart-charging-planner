@@ -7,6 +7,8 @@
 const MINUTE = 60000;
 const HOUR = 60 * MINUTE;
 const MIN_MARGIN_MS = 30 * MINUTE;
+// #70: after this long without power while charging is wanted, Ready Guard says so.
+const NO_POWER_MINUTES = 10;
 const POWER_CONFIDENCE = 0.90;
 const EPSILON_KWH = 0.05;
 // Missing known capacity is a real readiness risk. A missing optional
@@ -182,6 +184,11 @@ function evaluateReadyGuard(input = {}) {
     : 'The target fits before departure.';
   let reason = 'Ready Guard confirms the plan is on track';
   let protect = false;
+  let notCharging = false;
+  // #70: how long the car has taken no power while the app wants to charge.
+  const noPowerSince = finite(input.noPowerSince);
+  const noPowerMinutes = noPowerSince != null ? (now - noPowerSince) / MINUTE : 0;
+  const noPower = input.plugged === true && noPowerSince != null && noPowerMinutes >= NO_POWER_MINUTES;
 
   if (input.plugged === false) {
     baseStatus = 'action_needed';
@@ -193,6 +200,15 @@ function evaluateReadyGuard(input = {}) {
     label = 'Check the connection';
     message = 'Ready Guard cannot confirm that the car is connected.';
     reason = 'Ready Guard cannot confirm the car is plugged in';
+  } else if (noPower) {
+    // #70: the app wants to charge and the charger allows it, but the car
+    // takes no power (asleep, or stopped at its own limit). Waiting longer
+    // does not help: say so, so you can check the car in time.
+    baseStatus = 'action_needed';
+    label = 'The car is not charging';
+    message = `The charger is on, but the car has taken no power for ${duration(noPowerMinutes)}. ${round(neededKwh)} kWh is still needed before the departure.${input.wakes ? ` The app tried to wake the car ${input.wakes === 1 ? 'once' : `${input.wakes} times`}.` : ''} Check the car, or start charging in the car's app.`;
+    reason = 'Ready Guard: the car takes no power while it should charge';
+    notCharging = true;
   } else if (deadline <= now || shortfallKwh > EPSILON_KWH) {
     baseStatus = 'not_achievable';
     label = 'Target no longer achievable';
@@ -236,6 +252,7 @@ function evaluateReadyGuard(input = {}) {
     message,
     reason,
     protect,
+    not_charging: notCharging,
     latest_safe_start: latestSafeStart,
     expected_ready: expectedReady,
     planned_ready: plannedReady,
@@ -247,4 +264,4 @@ function evaluateReadyGuard(input = {}) {
   };
 }
 
-module.exports = { evaluateReadyGuard, duration, POWER_CONFIDENCE, MIN_MARGIN_MS };
+module.exports = { evaluateReadyGuard, duration, POWER_CONFIDENCE, MIN_MARGIN_MS, NO_POWER_MINUTES };

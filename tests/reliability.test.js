@@ -303,4 +303,30 @@ check('Battery Care charges normally in the selected final-window price slot', (
   assert.equal(d.want, 'charge');
 });
 
+check('#70: the charger is on but the car takes no power for 10 minutes: "The car is not charging", also with time left', () => {
+  const base = {
+    now, deadline: now + 4 * H, neededKwh: 11, plannedKwh: 11, powerKw: 11,
+    plugged: true, charging: false, controlAllowed: true,
+    blocks: [{ start: now - 30 * 60000, end: now + H }],
+  };
+  // Just started: not yet.
+  let r = evaluateReadyGuard({ ...base, noPowerSince: now - 5 * 60000 });
+  assert.notEqual(r.label, 'The car is not charging');
+  assert.equal(r.not_charging, false);
+  // 10 minutes without power, after one try to wake it.
+  r = evaluateReadyGuard({ ...base, noPowerSince: now - 12 * 60000, wakes: 1 });
+  assert.equal(r.base_status, 'action_needed');
+  assert.equal(r.label, 'The car is not charging');
+  assert.equal(r.not_charging, true);
+  assert.match(r.message, /no power for 12 min/);
+  assert.match(r.message, /wake the car once/);
+  assert.match(r.message, /11 kWh is still needed/);
+  // Unplugged wins: "Plug in the car".
+  r = evaluateReadyGuard({ ...base, plugged: false, noPowerSince: now - 30 * 60000 });
+  assert.equal(r.label, 'Plug in the car');
+  // Target reached: nothing to say.
+  r = evaluateReadyGuard({ ...base, neededKwh: 0, noPowerSince: now - 30 * 60000 });
+  assert.equal(r.status, 'on_track');
+});
+
 console.log('Ready Guard tests passed');

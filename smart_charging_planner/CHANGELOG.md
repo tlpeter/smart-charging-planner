@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.10-dev
+
+- **A sleeping car is woken up, and you hear about it when it does not charge.** A car that sleeps (Renault) did not see a raised charge limit at night and asked for no power although the charger was on; the app only logged it, and the car left with 80 % instead of the 100 % in the calendar. Now, when the app wants to charge and no power flows for 2 minutes, it presses the car's own **Start charge** button to wake it (one retry after 15 minutes). New option **Wake the car when it takes no power** in Settings › Rules, on by default for a Renault. After 10 minutes without power Ready Guard shows **The car is not charging** and sends that as a notification right away. (#70)
+
 ## 0.39.9-dev
 
 - Tests: the real Home Assistant Core check now runs on 2026.11.2 (and still on 2026.4.2, the oldest), and the fake Home Assistant reports 2026.11.2. The app itself did not change. (#69)
