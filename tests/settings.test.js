@@ -1045,7 +1045,7 @@ async function run() {
       world.carAsleep = false;
       world.enabledNoPower = false;
       await ok('DELETE', 'api/boost');
-      await ok('POST', 'api/control/settings', rules());
+      await ok('POST', 'api/control/settings', rules({ car_wake: 'auto' }));
       await plan();
     }
   });
@@ -1115,7 +1115,7 @@ async function run() {
       world.startIgnored = false;
       world.enabledNoPower = false;
       await ok('DELETE', 'api/boost');
-      await ok('POST', 'api/control/settings', rules());
+      await ok('POST', 'api/control/settings', rules({ car_wake: 'auto' }));
       await plan();
     }
   });

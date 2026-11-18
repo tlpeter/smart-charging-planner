@@ -5161,7 +5161,8 @@ routes['POST /api/control/settings'] = async (req) => {
     battery_care_early_saving: num(b.battery_care_early_saving, 'Battery care: charge earlier when it saves at least', 0.01, 100, true),
     car_limit_off: b.car_limit_off === true,
     car_limit_restart: b.car_limit_restart === true,
-    car_wake: b.car_wake === true ? true : b.car_wake === false ? false : (prev.car_wake ?? null),
+    // true/false: your choice; 'auto': back to the default (on for a Renault); left out: unchanged.
+    car_wake: b.car_wake === true ? true : b.car_wake === false ? false : b.car_wake === 'auto' ? null : (prev.car_wake ?? null),
     trip_topup_enabled: b.trip_topup_enabled === true,
     trip_topup_reserve: num(b.trip_topup_reserve ?? 10, 'Reserve when back home', 0, 50),
     route_notify_enabled: b.route_notify_enabled === true,
