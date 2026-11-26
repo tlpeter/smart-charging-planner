@@ -214,6 +214,27 @@ check('drive home (#62): the route\'s own drive time when known, else 70 km/h; n
   assert.strictEqual(t.driveMinutes(0), null);
   assert.strictEqual(t.driveMinutes(null), null);
 });
+check('cold (#73): learned use without a learned cold: the setting counts only the difference with the temperature of the latest drives, not on top', () => {
+  t.setLogProvider((id) => (id === 'w' ? { pct_per_km: 0.36, trips: 20, temp: 3, samples: [] } : null));
+  try {
+    const car = coldCar({ id: 'w' });
+    // Driven at 3 °C, the trip at 3 °C: 0.36 as learned (before: × 1.18 = 0.425).
+    const same = t.pctPerKm(car, [], 50, 3);
+    assert.ok(same.how === 'learned' && Math.abs(same.pct_per_km - 0.36) < 1e-9 && same.cold && same.cold.factor === 1, JSON.stringify(same));
+    // Colder (-3 °C): only 6 degrees more → 1.27 / 1.18.
+    const colder = t.pctPerKm(car, [], 50, -3);
+    assert.ok(Math.abs(colder.pct_per_km - 0.36 * 1.27 / 1.18) < 1e-6 && colder.cold.factor > 1, JSON.stringify(colder));
+    // Warmer (15 °C): a little less than learned.
+    const warmer = t.pctPerKm(car, [], 50, 15);
+    assert.ok(Math.abs(warmer.pct_per_km - 0.36 / 1.18) < 1e-6 && warmer.cold.factor < 1, JSON.stringify(warmer));
+    assert.ok(!('temp' in warmer), 'the learned temperature is not part of the result');
+    // Not known at which temperature the use was learned: as before.
+    t.setLogProvider((id) => (id === 'w' ? { pct_per_km: 0.36, trips: 20, temp: null, samples: [] } : null));
+    assert.ok(Math.abs(t.pctPerKm(car, [], 50, 3).pct_per_km - 0.36 * 1.18) < 1e-6);
+  } finally {
+    t.setLogProvider(null);
+  }
+});
 check('cold (#56): too little spread or too few trips: the setting is used', () => {
   const now = Date.now();
   [[10, 0.33], [9, 0.34], [8, 0.34], [11, 0.32]].forEach(([temp, v], i) => {

@@ -117,6 +117,22 @@ function history(hours, plan) {
     assert.equal(tl.sensorsFor({ ...vehicle, odometer_entity: 'sensor.other_mileage' }, entities, states).odometer, 'sensor.other_mileage');
   });
 
+  await check('the outside temperature (#73): a real outdoor sensor wins over "ambient", an indoor sensor is never used', () => {
+    const t = (id, v, name) => ({ entity_id: id, state: String(v), attributes: { device_class: 'temperature', state_class: 'measurement', unit_of_measurement: '°C', friendly_name: name } });
+    const vehicle = { id: 'car1', device_id: 'dev1' };
+    const heater = t('sensor.hallway_heatbooster_temp_ambient', 38.2, 'Hallway heatbooster Temp ambient');
+    const room = t('sensor.living_room_outdoor_wall_temperature', 21, 'Living room');
+    const outside = t('sensor.thermostat_outside_temperature', -1, 'Thermostat Outside temperature');
+    const ambient = t('sensor.weather_station_ambient_temperature', 0.5, 'Weather station Ambient temperature');
+    // Before: the heater's "ambient" came first (alphabetically) and every drive got ~20-38 °C.
+    assert.equal(tl.findTemperature(vehicle, [], [heater, room, outside]), 'sensor.thermostat_outside_temperature');
+    assert.equal(tl.findTemperature(vehicle, [], [heater, ambient, outside]), 'sensor.thermostat_outside_temperature');
+    // Only "ambient" without an indoor word: used.
+    assert.equal(tl.findTemperature(vehicle, [], [heater, ambient]), 'sensor.weather_station_ambient_temperature');
+    // Only indoor sensors: none.
+    assert.equal(tl.findTemperature(vehicle, [], [heater, room]), null);
+  });
+
   await check('refresh: the first time from the history in parts, then only the new hours; only reading statistics; nothing without an odometer', async () => {
     tl.reset();
     // 30 days: every weekday 07:00 there (60 km) and 17:00 back (60 km); colder later.
@@ -154,6 +170,16 @@ function history(hours, plan) {
     assert.ok(m && m.source === 'log' && m.trips === n && m.samples.length === n, JSON.stringify({ ...m, samples: undefined }));
     const fit = tc.fitCold(m);
     assert.ok(fit && Math.abs(fit.extra - 2) < 0.4, `extra per degree: ${fit && fit.extra}`);
+    // The mean temperature of the latest drives comes with the use (#73).
+    assert.ok(Number.isFinite(m.temp) && m.temp < 3, `temperature of the latest drives: ${m.temp}`);
+    // Another temperature sensor (#73): the history is read again, so every drive gets the new temperature.
+    calls.length = 0;
+    const warm = { ...rows, temp: rows.temp.map((r) => ({ ...r, mean: 21 })) };
+    const call2 = async (q) => { calls.push(q); const from = Date.parse(q.start_time); const to = Date.parse(q.end_time); const pick = (list) => list.filter((r) => r.start >= from && r.start < to); return { 'sensor.testcar_mileage': pick(warm.odo), 'sensor.testcar_battery': pick(warm.soc), 'sensor.hall_temp': pick(warm.temp) }; };
+    rec = await tl.refresh({ ...vehicle, temperature_entity: 'sensor.hall_temp' }, { call: call2, entities: [], states: [], now: now + H });
+    assert.ok(calls.length > 3 && rec.sensors.temp === 'sensor.hall_temp' && rec.drives.every((d) => d.temp === 21), `read again: ${calls.length}`);
+    rec = await tl.refresh(vehicle, { call, entities: [], states: [], now: now + H });
+    assert.ok(rec.drives.length === n && tl.model('car1').temp < 3, 'back to the outdoor sensor');
     // Off for the car: not refreshed.
     assert.equal(await tl.refresh({ ...vehicle, trip_log: false }, { call, entities: [], states: [], now }), null);
     // No odometer: says so, no statistics asked.

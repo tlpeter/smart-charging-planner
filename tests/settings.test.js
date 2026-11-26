@@ -2273,6 +2273,9 @@ async function run() {
         await ok('POST', 'api/vehicles', vehicleBody({ consumption_kwh_100km: 18 }));
         const m = (await settle()).next;
         assert(!m.trip.cold && Math.abs(m.trip.pct - 120 * (18 / 100 / CAR.capacity) * 100 * 1.1) < 0.2, JSON.stringify(m.trip));
+        // The departure row in Looking ahead shows the cold too (#73).
+        const row = n.timeline.find((x) => x.type === 'leave');
+        assert(row && row.trip && row.trip.cold && row.trip.cold.temp === 3, JSON.stringify(row && row.trip));
         return `3 °C: ${n.trip.pct}% instead of ${m.trip.pct}%`;
       } finally {
         world.weatherTemp = 10;

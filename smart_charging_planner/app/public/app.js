@@ -1587,7 +1587,7 @@ function durationText(minutes) {
     function tripText(t) {
       if (!t) return '';
       const how = t.how === 'estimate' ? ' (straight line × 1.3, estimate)' : t.how === 'manual' ? ' (distance you entered)' : '';
-      const cold = t.cold ? (t.cold.temp == null ? ', no temperature forecast' : t.cold.factor > 1.0005 ? `, ${tidy(t.cold.temp)} °C: +${Math.round((t.cold.factor - 1) * 100)}% for the cold` : `, ${tidy(t.cold.temp)} °C: no extra for the cold`) : '';
+      const cold = t.cold ? (t.cold.temp == null ? ', no temperature forecast' : t.cold.factor > 1.0005 ? `, ${tidy(t.cold.temp)} °C: +${Math.round((t.cold.factor - 1) * 100)}% for the cold` : t.cold.factor < 0.9995 ? `, ${tidy(t.cold.temp)} °C: -${Math.round((1 - t.cold.factor) * 100)}% (warmer than your recent drives)` : `, ${tidy(t.cold.temp)} °C: no extra for the cold`) : '';
       const use = (t.use === 'learned' ? 'learned from your trips' : t.use === 'range' ? "from the car's range" : t.use === 'consumption' ? 'from the use per 100 km' : '') + cold;
       const via = t.place ? ` <span class="muted">(${esc(t.place)}, ${t.place_kind === 'zone' ? 'zone in Home Assistant' : 'from My places'})</span>` : '';
       switch (t.status) {

@@ -66,19 +66,34 @@ function findOdometer(vehicle, entities, states) {
 
 // An outside temperature: the car's own sensor first, then another outdoor
 // sensor in Home Assistant (with statistics, so a number with a unit).
+// "Outside", "outdoor" or "buiten" counts more than "ambient": "ambient" is
+// also used for the air around an indoor device (a heater, a radiator fan).
+// A sensor with an indoor word in its name is never used (#73).
+const OUTDOOR = /outside|outdoor|exterior|buiten/;
+const AMBIENT = /ambient|omgeving/;
+const INDOOR = /indoor|inside|interior|binnen|room|kamer|living|hall|gang|bedroom|kitchen|keuken|bath|badkamer|zolder|attic|kelder|basement|garage|cabin|heater|heatbooster|radiator|boiler|floor|vloer|battery|accu|cpu|water/;
+function outdoorScore(text) {
+  if (INDOOR.test(text)) return 0;
+  return OUTDOOR.test(text) ? 2 : AMBIENT.test(text) ? 1 : 0;
+}
 function findTemperature(vehicle, entities, states) {
-  const outdoor = /outside|outdoor|exterior|ambient|buiten/;
   const isTemp = (s) => s && s.attributes && (s.attributes.device_class === 'temperature' || /°c|°f/i.test(String(s.attributes.unit_of_measurement || '')));
   const byId = new Map((states || []).map((s) => [s.entity_id, s]));
   const onCar = (entities || []).filter((e) => vehicle.device_id && e.device_id === vehicle.device_id && e.entity_id.startsWith('sensor.'));
   // The car's own sensor, when it reports a number (some cars never do).
-  const carTemps = onCar.filter((e) => { const s = byId.get(e.entity_id); return isTemp(s) && outdoor.test(words(e.entity_id, s.attributes.friendly_name, e.original_name)); });
+  const carTemps = onCar.filter((e) => {
+    const s = byId.get(e.entity_id);
+    // On the car, "inside"/"cabin"/"battery" is not the outside; the rest of the indoor words do not apply.
+    return isTemp(s) && !/inside|interior|cabin|battery|accu/.test(words(e.entity_id, s.attributes.friendly_name, e.original_name))
+      && /outside|outdoor|exterior|ambient|buiten/.test(words(e.entity_id, s.attributes.friendly_name, e.original_name));
+  });
   const live = carTemps.find((e) => num(byId.get(e.entity_id)) != null);
   if (live) return live.entity_id;
-  const others = (states || []).filter((s) => s.entity_id.startsWith('sensor.') && isTemp(s) && s.attributes.state_class === 'measurement'
-    && outdoor.test(words(s.entity_id, s.attributes.friendly_name)) && num(s) != null);
-  others.sort((a, b) => a.entity_id.localeCompare(b.entity_id));
-  if (others.length) return others[0].entity_id;
+  const others = (states || []).filter((s) => s.entity_id.startsWith('sensor.') && isTemp(s) && s.attributes.state_class === 'measurement' && num(s) != null)
+    .map((s) => ({ s, n: outdoorScore(words(s.entity_id, s.attributes.friendly_name)) }))
+    .filter((x) => x.n > 0);
+  others.sort((a, b) => b.n - a.n || a.s.entity_id.localeCompare(b.s.entity_id));
+  if (others.length) return others[0].s.entity_id;
   return carTemps.length ? carTemps[0].entity_id : null;
 }
 
@@ -198,7 +213,9 @@ async function refresh(vehicle, { call, entities, states, now = Date.now(), log 
   const c = load();
   let rec = c.cars[vehicle.id];
   // Other sensors than before: start again (the drives would not compare).
-  if (rec && (rec.sensors.odometer !== ids.odometer || rec.sensors.soc !== ids.soc)) rec = null;
+  // Also for another temperature sensor (#73): every drive gets the new
+  // temperature, read again from the history.
+  if (rec && (rec.sensors.odometer !== ids.odometer || rec.sensors.soc !== ids.soc || (rec.sensors.temp || null) !== (ids.temp || null))) rec = null;
   if (!ids.odometer || !ids.soc) {
     c.cars[vehicle.id] = { sensors: ids, drives: rec ? rec.drives : [], done_until: rec ? rec.done_until : null, status: !ids.odometer ? 'no_odometer' : 'no_soc', at: now };
     save();
@@ -234,8 +251,14 @@ function model(vehicleId) {
   const recent = used.slice(-RECENT);
   const km = recent.reduce((a, d) => a + d.km, 0);
   const pct = recent.reduce((a, d) => a + d.pct, 0);
+  // The temperature this use was driven at (#73): the mean of the latest
+  // drives (by km), when most of them have one. null when not known.
+  const withT = recent.filter((d) => Number.isFinite(d.temp));
+  const tKm = withT.reduce((a, d) => a + d.km, 0);
+  const temp = withT.length * 2 >= recent.length && tKm > 0 ? Math.round((withT.reduce((a, d) => a + d.temp * d.km, 0) / tKm) * 10) / 10 : null;
   return {
     pct_per_km: pct / km,
+    temp,
     trips: used.length,
     at: used[used.length - 1].end,
     samples: used.map((d) => ({ v: d.pct / d.km, t: d.temp, at: d.end })),

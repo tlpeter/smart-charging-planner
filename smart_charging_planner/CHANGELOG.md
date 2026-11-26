@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.14-dev
+
+- **Trip estimates in winter are no longer too high.** Two things together made a daily work trip look much more expensive than it is. 1) The trip log could take an indoor sensor as the outside temperature, for example the "ambient" sensor of a heater in the hallway (38 °C on a freezing day), so the cold was never learned. Now a sensor with "outside", "outdoor" or "buiten" in its name comes first, and a sensor with an indoor word (room, kamer, hall, gang, heater, radiator, …) is never used; when the temperature sensor changes, the log reads the history again. 2) Until the cold is learned, the extra per degree was added on top of a use that was already learned from cold drives, so the cold counted twice. Now only the difference with the temperature of your latest drives counts. Looking ahead now also shows the cold part of a trip. Check Activity › Trips: the outside temperature under the totals should be a real outdoor sensor; choose one under Settings › Vehicle if not. (#73)
+
 ## 0.39.13-dev
 
 - **Looking ahead: later days start at the target again.** On days after the last known price, the list showed "to 80% (prices not known yet)" after a trip, but the next day still started at the level the car came back with (7 %, 0 %, then below zero). Now these days count on that expected charging, as the line says: the next day leaves at the target. Only the estimate on later days changed; the planned charging itself did not. (#72)

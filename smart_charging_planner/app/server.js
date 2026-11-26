@@ -596,7 +596,7 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
     timeline.push(...chargeItems(planBlocks, { type: 'charge', expected: false, soc_to: socIfCharged ?? socAtDep, ...(ifPlugged ? { if_plugged: true } : {}) }, plan.minimum || null, !!plan.care));
   }
   const leave = (x, t, tr, socLeave, target) => {
-    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null } : null });
+    timeline.push({ type: 'leave', time: x.time, title: x.title || (t && t.title) || null, location: t ? t.location || null : x.location || null, source: x.source, target_soc: target, soc: socAtLeave(socLeave), trip: tr ? { status: tr.status, reason: tr.reason || null, km: tr.km ?? null, back_km: tr.back_km ?? null, total_km: tr.total_km ?? null, stops: tr.via ? tr.via.length : 0, how: tr.how || null, use: tr.use || null, pct: tr.pct ?? null, place: tr.place || null, place_kind: tr.place_kind || null, ask: tr.ask || null, cold: tr.cold || null } : null });
     // On to the next place, without going home in between. Each row: the
     // drive from the place before (km), the level when the car leaves there
     // (soc_from) and the level when it arrives here (soc, can be below 0).

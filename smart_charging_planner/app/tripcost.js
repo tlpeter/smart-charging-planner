@@ -393,6 +393,15 @@ function fitCold(learnedRec) {
   return { extra: Math.round(extra * 100) / 100, base, trips: n };
 }
 
+// The temperature a learned use was driven at (#73): from the trip log, or
+// the mean of the latest learned trips with a temperature. null when not known.
+function learnedTemp(l) {
+  if (l && Number.isFinite(l.temp)) return l.temp;
+  const s = ((l && l.samples) || []).slice(-10);
+  const t = s.map((x) => x.t).filter(Number.isFinite);
+  return s.length && t.length * 2 >= s.length ? t.reduce((a, b) => a + b, 0) / t.length : null;
+}
+
 // Battery % per km: from the range sensor (range at the level now), or the
 // consumption and the battery capacity. null when neither is known.
 // temp (°C): the temperature of the trip, for the cold correction (#56).
@@ -402,13 +411,22 @@ function pctPerKm(vehicle, states, soc, temp = null) {
   const withCold = (use) => {
     if (!cold || use.how === 'range') return use;
     if (!Number.isFinite(temp)) return { ...use, cold: { temp: null, factor: 1, extra: cold.extra, learned: cold.learned } };
-    const factor = coldFactor(cold.extra, temp);
+    let factor = coldFactor(cold.extra, temp);
     // Learned at different temperatures: the use at 15 °C from the line.
     const base = cold.learned && use.how === 'learned' ? cold.base : use.pct_per_km;
+    // Learned, but the cold not yet (#73): the learned use already includes
+    // the cold of the drives it comes from. Only the difference counts: a trip
+    // as cold as those drives gets no extra, a colder one a little, a warmer
+    // one a little less. Before, the whole extra came on top (counted twice).
+    if (!cold.learned && use.how === 'learned' && Number.isFinite(use.temp)) factor /= coldFactor(cold.extra, use.temp);
     return { ...use, pct_per_km: base * factor, cold: { temp, factor: Math.round(factor * 1000) / 1000, extra: cold.extra, learned: cold.learned } };
   };
   const learned = learnedRec(vehicle.id);
-  if (learned && learned.trips >= 2 && learned.pct_per_km > 0) return withCold({ pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips });
+  if (learned && learned.trips >= 2 && learned.pct_per_km > 0) {
+    const r = withCold({ pct_per_km: learned.pct_per_km, how: 'learned', trips: learned.trips, temp: learnedTemp(learned) });
+    delete r.temp;
+    return r;
+  }
   const st = vehicle.range_entity ? states.find((x) => x.entity_id === vehicle.range_entity) : null;
   let range = st ? Number(st.state) : NaN;
   const unit = st && st.attributes ? String(st.attributes.unit_of_measurement || 'km') : 'km';
