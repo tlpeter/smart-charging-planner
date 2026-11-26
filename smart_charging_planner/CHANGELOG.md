@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.15-dev
+
+- Tests: the check for later days in Looking ahead now runs with prices for today and tomorrow only, so those days really have no known prices. No change for you. (#72)
+
 ## 0.39.14-dev
 
 - **Trip estimates in winter are no longer too high.** Two things together made a daily work trip look much more expensive than it is. 1) The trip log could take an indoor sensor as the outside temperature, for example the "ambient" sensor of a heater in the hallway (38 °C on a freezing day), so the cold was never learned. Now a sensor with "outside", "outdoor" or "buiten" in its name comes first, and a sensor with an indoor word (room, kamer, hall, gang, heater, radiator, …) is never used; when the temperature sensor changes, the log reads the history again. 2) Until the cold is learned, the extra per degree was added on top of a use that was already learned from cold drives, so the cold counted twice. Now only the difference with the temperature of your latest drives counts. Looking ahead now also shows the cold part of a trip. Check Activity › Trips: the outside temperature under the totals should be a real outdoor sensor; choose one under Settings › Vehicle if not. (#73)

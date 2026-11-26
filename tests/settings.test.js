@@ -2362,7 +2362,10 @@ async function run() {
     });
     await test('Y5b', 'Days after the known prices (#72): after a trip the car is expected to charge to the target again ("to 80%, prices not known yet"), so the next day leaves at 80%, not at the level it came back with', async () => {
       world.soc = 80;
-      // Prices are known for today and tomorrow; these trips are later.
+      // Prices only for today and tomorrow (no price forecast); these trips are later.
+      const EZ = { type: 'action', domain: 'energyzero', config_entry: 'ce_ez', name: 'EnergyZero' };
+      await ok('POST', 'api/prices', { source: EZ, price_type: 'all_in' });
+      try {
       world.events = [
         ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 8),
         ev('Naar Thuis', 'doel: 80', 'Thuis', 2, 16, 17),
@@ -2380,8 +2383,11 @@ async function run() {
       // Each later day starts at the target again, so it comes back with the same level.
       assert(leaves.slice(1).every((x) => Math.abs(x.soc - 80) < 0.5), JSON.stringify(leaves.map((x) => x.soc)));
       assert(Math.abs(backs[1].soc - backs[0].soc) < 0.5, JSON.stringify(backs.map((x) => x.soc)));
-      world.soc = 100;
       return `leave ${leaves.map((x) => Math.round(x.soc)).join(' / ')}% · back ${backs.map((x) => Math.round(x.soc)).join(' / ')}%`;
+      } finally {
+        world.soc = 100;
+        await ok('POST', 'api/prices', { source: EZ, price_type: 'all_in', forecast_entity: 'sensor.stroom_prijzen_gecombineerd', forecast_price_type: 'all_in', forecast_margin: 0.02 });
+      }
     });
     await test('Y6', 'My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost', async () => {
       const WORK = 'Industrieweg 10, 1112 AA Rivertown';
