@@ -2357,6 +2357,29 @@ async function run() {
       world.soc = 100;
       return kinds;
     });
+    await test('Y5b', 'Days after the known prices (#72): after a trip the car is expected to charge to the target again ("to 80%, prices not known yet"), so the next day leaves at 80%, not at the level it came back with', async () => {
+      world.soc = 80;
+      // Prices are known for today and tomorrow; these trips are later.
+      world.events = [
+        ev('Naar Werk', 'doel: 80', ADDR3, 2, 7, 8),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 2, 16, 17),
+        ev('Naar Werk', 'doel: 80', ADDR3, 3, 7, 8),
+        ev('Naar Thuis', 'doel: 80', 'Thuis', 3, 16, 17),
+        ev('Naar Werk', 'doel: 80', ADDR3, 4, 7, 8),
+      ];
+      const p = await settle();
+      const tl = p.next.timeline;
+      const leaves = tl.filter((x) => x.type === 'leave');
+      const backs = tl.filter((x) => x.type === 'back');
+      const unknown = tl.filter((x) => x.type === 'charge' && x.expected && x.unknown_prices);
+      assert(leaves.length === 3 && backs.length >= 2 && backs[0].soc < 70, JSON.stringify(tl.map((x) => [x.type, x.soc ?? x.soc_to])));
+      assert(unknown.length >= 2 && unknown.every((x) => x.soc_to === 80), JSON.stringify(unknown));
+      // Each later day starts at the target again, so it comes back with the same level.
+      assert(leaves.slice(1).every((x) => Math.abs(x.soc - 80) < 0.5), JSON.stringify(leaves.map((x) => x.soc)));
+      assert(Math.abs(backs[1].soc - backs[0].soc) < 0.5, JSON.stringify(backs.map((x) => x.soc)));
+      world.soc = 100;
+      return `leave ${leaves.map((x) => Math.round(x.soc)).join(' / ')}% · back ${backs.map((x) => Math.round(x.soc)).join(' / ')}%`;
+    });
     await test('Y6', 'My places: "Werk" and a company name ("Northwind Labs") are no address; Home offers to add "Werk" to My places; once saved, both Naar Werk trips show what they cost', async () => {
       const WORK = 'Industrieweg 10, 1112 AA Rivertown';
       world.places = { ...world.places, [WORK]: { lat: 51.80, lon: 2.20 } };

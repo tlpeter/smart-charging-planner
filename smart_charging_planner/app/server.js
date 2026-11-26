@@ -703,9 +703,14 @@ function lookAhead({ dep, events, tz, now, states, vehicle, mode, soc, targetSoc
       out.expected = expected;
     }
     // The level when leaving: the target when the expected charging gets there.
+    // Prices not known (yet) up to this departure: an estimate that the car
+    // charges to the target as usual, like the "to 80%" line shows (#72).
+    // Before, only the part in known prices counted, so a later day started
+    // at the level the car came back with (0%, or even below).
     let socLeave = null;
     if (level != null) {
       if (!expected || !expected.below_goal) socLeave = level;
+      else if (!expected.prices_known) socLeave = expected.soc_to;
       else {
         const share = expected.needed_kwh > 0 ? Math.min(1, expected.planned_kwh / expected.needed_kwh) : 1;
         socLeave = Math.round((level + (expected.soc_to - level) * share) * 10) / 10;

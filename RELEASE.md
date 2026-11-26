@@ -51,11 +51,11 @@ Use the regression fixtures for fault injection; do not create hazardous real-wo
 - Keep dev's own files/names while recording the main merge in its history, as described in AGENTS.md.
 - Release notes state the fixed issues, validation evidence, upgrade/recovery notes and known limitations. They are written as `release-notes/vX.Y.Z.md` in the release commit on main; after green tests on main the Release workflow creates the tag `vX.Y.Z` and the GitHub release with the zip, and closes the milestone `X.Y.Z` (AGENTS.md › GitHub releases).
 
-## Current candidate: 0.39.12-dev
+## Current candidate: 0.39.13-dev
 
 Stable main is 0.39.0 (release v0.39.0: #57, #58, #59, #60, #61, #62, #63, #64, #65). Earlier: 0.38.0 (#25, #33, #39, #55, #56), 0.36.0 (#28, #29, #40, #46, #47, #48, #49, #50, #51, #54), 0.35.0 (#26, #31, #37, #41, #42, #43, #44, #45), 0.34.0 (#4, #16, #17, #35) and 0.33.0.
 
-Scope on dev since 0.39.0: #66 (route to the next trip on the phone, off by default), #67 (calendar: keywords as whole words with more words allowed, only events with a place and skip words, both off by default), #68 (search field for settings), #52 (Looking ahead: 24 hours), #27 (price forecast: freshness, list, unit and reach checks, recipe), #69 (Core check on 2026.11.2), #70 (wake a sleeping car, Ready Guard "The car is not charging"), #71 (calendar: only "doel:", "goal:" or "target:" makes an event a trip with Events with a target).
+Scope on dev since 0.39.0: #66 (route to the next trip on the phone, off by default), #67 (calendar: keywords as whole words with more words allowed, only events with a place and skip words, both off by default), #68 (search field for settings), #52 (Looking ahead: 24 hours), #27 (price forecast: freshness, list, unit and reach checks, recipe), #69 (Core check on 2026.11.2), #70 (wake a sleeping car, Ready Guard "The car is not charging"), #71 (calendar: only "doel:", "goal:" or "target:" makes an event a trip with Events with a target), #72 (Looking ahead: later days start at the target after the expected charging).
 
 Home check for #66: turn on Settings › Rules › Send the route to my phone before a trip and "Route to the next trip" for your phone; add a calendar trip with an address abroad as location; at the set time one notification comes; a tap opens Google Maps with the route; Send to car shows it in the car; no second message.
 
@@ -70,6 +70,8 @@ Home check for #27: on Settings › Prices press Test with your forecast sensor:
 Home check for #70 (important): Settings › Rules shows Wake the car on, with the car's Start charge button. With a trip that needs more than the car's current limit at night: the log shows the limit set, the charger on, and when no power flows within 2 minutes "pressed … to wake it", and the car charges. If it still does not charge, the phone gets "The car is not charging" within about 10 minutes.
 
 Home check for #71: set Plan › Departures › Calendar › Which events are trips? to Events with a target. A meeting with a location and no target is not under Trips from your calendar and is not the next departure; a trip with "doel: 80" or "goal: 80" is, with that target. Preconditioning before a trip home with only "precondition: ja" still starts.
+
+Home check for #72: on Home choose 7 days in Looking ahead. Days marked estimate (after the known prices) that follow a trip with "to 80% (prices not known yet)" start at 80 %, not at the level of the day before, and no later day goes below 0 % for a normal work trip.
 
 Home checks still open from 0.39.0 and 0.38.0 (released before the owner's home check): #57–#65, and #55, #33, #25, #39 and #56. The steps are in those issues.
 

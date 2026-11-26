@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.13-dev
+
+- **Looking ahead: later days start at the target again.** On days after the last known price, the list showed "to 80% (prices not known yet)" after a trip, but the next day still started at the level the car came back with (7 %, 0 %, then below zero). Now these days count on that expected charging, as the line says: the next day leaves at the target. Only the estimate on later days changed; the planned charging itself did not. (#72)
+
 ## 0.39.12-dev
 
 - **Calendar: only a real target makes an event a trip.** With **Events with a target**, an event now counts only with "doel: 80", "goal: 80" or "target: 80" (also with `=`) in the title or description. Before, a meeting text with "50%" or "soc 80" could count too. "goal: 80" is new and works everywhere, like "target: 80". Tip: use this mode when your calendar also has meetings with a location, so a meeting is no longer planned as a drive. (#71)
